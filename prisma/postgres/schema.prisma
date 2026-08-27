@@ -1,0 +1,788 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator migrationClient {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/.prisma/postgres-migration-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  RESOURCE_MANAGER
+  COMPANY_MANAGER
+  FINANCE
+  HR
+  LEAD
+  RECEPTION
+  GROUP_OPERATOR
+  EXPERT
+}
+
+model Department {
+  id               String      @id
+  name             String      @unique
+  active           Boolean     @default(true)
+  countryCode      String      @default("CN")
+  timezone         String      @default("Asia/Shanghai")
+  workStartMinutes Int         @default(600)
+  workEndMinutes   Int         @default(1320)
+  groups           TeamGroup[]
+  managers         User[]
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+}
+
+enum MetricKind {
+  NEW_FANS
+  EFFECTIVE_FANS
+  NO_NUMBER
+  DUPLICATE_FANS
+  REPLIES
+  GROUP_JOIN
+  GROUP_LEAVE
+  ABNORMAL_GROUP_LEAVE
+  EXPERT_INTRO
+  REGISTRATION
+  ORDER
+  RECHARGE
+  WITHDRAWAL
+  CHANNEL_PERFORMANCE
+}
+
+enum DepositMethod {
+  CRYPTO
+  BANK
+}
+
+enum LeadReplyStatus {
+  NOT_REPLIED
+  REPLIED
+  FOLLOW_UP
+}
+
+enum LeadGroupStatus {
+  NOT_JOINED
+  JOINED
+  LEFT
+}
+
+enum ReceptionCategory {
+  PENDING
+  VALID
+  INVALID
+  LOW_AMOUNT
+  NO_WS
+}
+
+enum ReceptionChatStatus {
+  NORMAL_CHAT
+  READY_TO_JOIN
+}
+
+enum FanCostMode {
+  FREE
+  PAID
+}
+
+// 渠道业务类型。FREE 仅保留给历史数据兼容，新建渠道不再使用“免费粉”。
+enum ChannelType {
+  SMS
+  ADS
+  REBATE
+}
+
+enum DeviceAccountType {
+  NORMAL_WS
+  BUSINESS_WS
+  RCS
+}
+
+enum LeadActivityKind {
+  DEVICE_ASSIGNED
+  REPLIED
+  REPLY_UNDONE
+  FOLLOWED_UP
+  JOINED_GROUP
+  LEFT_GROUP
+  EXPERT_INTRODUCED
+  EXPERT_CONTACTED
+  REGISTERED
+  MARKED_INVALID
+  RESTORED_VALID
+  GROUP_JOIN_REVOKED
+  GROUP_LEAVE_REVOKED
+  EXPERT_INTRO_REVOKED
+  EXPERT_CONTACT_REVOKED
+  REGISTRATION_REVOKED
+  ORDER_VOIDED
+  FINANCE_VOIDED
+  PLAN_UPDATED
+  GROUP_PROGRESS_UPDATED
+  RECEPTION_STATUS_UPDATED
+  RECEPTION_ARCHIVED
+}
+
+enum LeadExceptionKind {
+  INVALID_FORMAT
+  DUPLICATE_IN_PASTE
+  COLLISION
+  MANUAL_INVALID
+}
+
+enum InvalidFanReportStatus {
+  PENDING
+  APPROVED
+  RETURNED
+}
+
+enum InvalidFanReportAction {
+  REPORTED
+  UPDATED
+  APPROVED
+  RETURNED
+  CORRECTED
+  SUPPLEMENTED
+}
+
+enum EmployeeStageOverride {
+  TRAINING
+  OBSERVATION
+  FORMAL
+  PAUSED
+}
+
+enum RecruitmentSource {
+  DIRECT
+  AGENT
+}
+
+enum RiskDecisionLevel {
+  LIMIT_WATCH
+  ELIMINATION_WATCH
+}
+
+enum AttendanceClockStatus {
+  NORMAL
+  LATE
+  EARLY
+}
+
+enum AttendanceLeaveType {
+  PERSONAL
+  SICK
+  OTHER
+}
+
+enum NotificationType {
+  GENERAL
+  IMPORTANT
+  REWARD
+  REMINDER
+}
+
+enum NotificationTargetType {
+  ALL
+  GROUP
+  ROLE
+  USERS
+}
+
+enum ExpertWorkflowStage {
+  QUEUED
+  MATERIALS
+  TRACKING
+  PENDING_REGISTRATION
+  PENDING_ORDER
+  DECLINED_DEPOSIT
+  ORDERED
+  STALLED
+}
+
+model User {
+  id                        String                   @id
+  employeeCode              String?                  @unique
+  username                  String                   @unique @default("")
+  name                      String
+  passwordHash              String                   @default("")
+  mustChangePassword        Boolean                  @default(false)
+  role                      Role
+  active                    Boolean                  @default(true)
+  groupId                   String?
+  group                     TeamGroup?               @relation(fields: [groupId], references: [id])
+  departmentId              String?
+  department                Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  managementScopeName       String?
+  managementCountryCode    String?
+  events                    MetricEvent[]
+  customerOrders            CustomerOrder[]
+  voidedMetricEvents        MetricEvent[]            @relation("MetricEventVoidedBy")
+  voidedCustomerOrders      CustomerOrder[]          @relation("OrderVoidedBy")
+  leads                     LeadCustomer[]
+  attributedLeads           LeadCustomer[]           @relation("FanAttributionOwner")
+  expertLeads               LeadCustomer[]           @relation("ExpertOwner")
+  groupOperatorLeads        LeadCustomer[]           @relation("GroupOperatorOwner")
+  groupOperatorAssignments  GroupOperatorReception[] @relation("GroupOperatorAssignments")
+  receptionistAssignments   GroupOperatorReception[] @relation("ReceptionistAssignments")
+  assignedDevices           Device[]                 @relation("DeviceAssignedMember")
+  deviceAccounts            DeviceAccount[]
+  leadActivities            LeadActivity[]
+  exceptionActions          LeadException[]          @relation("ExceptionActor")
+  exceptionOwnership        LeadException[]          @relation("ExceptionOwner")
+  invalidFanReports         InvalidFanReport[]       @relation("InvalidFanReportReporter")
+  reviewedInvalidFanReports InvalidFanReport[]       @relation("InvalidFanReportReviewer")
+  invalidFanReportAudits    InvalidFanReportAudit[]  @relation("InvalidFanReportAuditActor")
+  roleAssignments           UserRoleAssignment[]
+  membershipHistory         UserGroupMembership[]
+  resourceChannelAccess     ResourceChannelAccess[]
+  sessions                  Session[]
+  confirmations             DailyEntryConfirmation[]
+  attendanceRecords         AttendanceRecord[]
+  sentNotifications         Notification[]           @relation("NotificationSender")
+  notificationRecipients    NotificationRecipient[]
+  createdChannels           Channel[]                @relation("ChannelCreatedBy")
+  auditLogs                 AuditLog[]
+  riskDecisions             RiskDecision[]           @relation("RiskDecisionMember")
+  madeRiskDecisions         RiskDecision[]           @relation("RiskDecisionActor")
+  hireDate                  String?
+  recruitmentSource         RecruitmentSource?
+  referrerName              String?
+  stageOverride             EmployeeStageOverride?
+  stageOverrideReason       String?
+  stageOverrideAt           DateTime?
+  lastLoginAt               DateTime?
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+
+  @@index([departmentId])
+  @@index([departmentId, managementCountryCode])
+}
+
+// 主岗位仍保存在 User.role，兼任岗位单独保存，避免改写历史数据的岗位口径。
+model UserRoleAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  role      Role
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@index([role])
+}
+
+// 人员代号识别同一个人；本表保留每次调组或调岗的有效区间。
+// User.groupId / User.role 仍表示当前权限，历史报表不得用当前值覆盖过去归属。
+model UserGroupMembership {
+  id             String    @id @default(cuid())
+  userId         String
+  groupId        String
+  role           Role
+  secondaryRoles String?
+  effectiveFrom  String
+  effectiveTo    String?
+  reason         String?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group          TeamGroup @relation(fields: [groupId], references: [id])
+
+  @@unique([userId, effectiveFrom])
+  @@index([groupId, effectiveFrom, effectiveTo])
+  @@index([userId, effectiveTo])
+}
+
+model ResourceChannelAccess {
+  userId    String
+  channelId String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, channelId])
+  @@index([channelId])
+}
+
+model TeamGroup {
+  id                          String                @id
+  name                        String
+  active                      Boolean               @default(true)
+  departmentId                String                @default("default-department")
+  department                  Department            @relation(fields: [departmentId], references: [id])
+  countryCode                 String?
+  timezone                    String?
+  workStartMinutes            Int?
+  workEndMinutes              Int?
+  members                     User[]
+  membershipHistory           UserGroupMembership[]
+  channels                    Channel[]
+  batches                     SourceBatch[]
+  devices                     Device[]
+  deviceAccounts              DeviceAccount[]
+  attendanceRecords           AttendanceRecord[]
+  receptionJoinPassRate       Int                   @default(10)
+  receptionJoinGoodRate       Int                   @default(15)
+  receptionJoinExcellentRate  Int                   @default(20)
+  operatorExpertPassRate      Int                   @default(60)
+  operatorExpertGoodRate      Int                   @default(70)
+  operatorExpertExcellentRate Int                   @default(80)
+  expertOrderPassRate         Int                   @default(10)
+  expertOrderGoodRate         Int                   @default(15)
+  expertOrderExcellentRate    Int                   @default(20)
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
+
+  @@unique([departmentId, name])
+}
+
+model Channel {
+  id                     String
+  name                   String
+  normalizedName         String
+  active                 Boolean       @default(true)
+  groupId                String
+  group                  TeamGroup     @relation(fields: [groupId], references: [id])
+  createdById            String?
+  createdBy              User?         @relation("ChannelCreatedBy", fields: [createdById], references: [id])
+  fanCostMode            FanCostMode   @default(FREE)
+  effectiveFanPriceCents Int?
+  channelType            ChannelType   @default(SMS)
+  // 底料返点渠道使用，3000 即 30.00%；短信/投流渠道为空。
+  rebateRateBps          Int?
+  batches                SourceBatch[]
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  @@id([id, groupId])
+  @@unique([groupId, normalizedName])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  action     String
+  entityType String
+  entityId   String
+  summary    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([entityType, entityId, createdAt])
+}
+
+model RiskDecision {
+  id              String            @id @default(cuid())
+  memberId        String
+  actorId         String
+  level           RiskDecisionLevel
+  evidenceThrough String
+  reason          String
+  member          User              @relation("RiskDecisionMember", fields: [memberId], references: [id])
+  actor           User              @relation("RiskDecisionActor", fields: [actorId], references: [id])
+  createdAt       DateTime          @default(now())
+
+  @@index([memberId, createdAt])
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
+
+model SourceBatch {
+  id                             String             @id @default(cuid())
+  groupId                        String
+  channelId                      String
+  sourceDate                     String
+  fanCostModeSnapshot            FanCostMode        @default(FREE)
+  effectiveFanPriceCentsSnapshot Int?
+  channelTypeSnapshot            ChannelType        @default(SMS)
+  rebateRateBpsSnapshot          Int?
+  // 投流批次保存当次广告消耗和服务费率；单粉成本已经冻结在单价快照中。
+  advertisingSpendCents          Int?
+  // 当次实际可导入号码数，和广告金额一起保留，便于日后复核单粉成本。
+  advertisingFanCount            Int?
+  advertisingServiceFeeRateBps   Int?
+  isHistoricalRecord             Boolean            @default(false)
+  group                          TeamGroup          @relation(fields: [groupId], references: [id])
+  channel                        Channel            @relation(fields: [channelId, groupId], references: [id, groupId])
+  events                         MetricEvent[]
+  customerOrders                 CustomerOrder[]
+  leads                          LeadCustomer[]
+  exceptions                     LeadException[]
+  invalidFanReports              InvalidFanReport[]
+  createdAt                      DateTime           @default(now())
+  updatedAt                      DateTime           @updatedAt
+
+  @@unique([groupId, channelId, sourceDate])
+  @@index([groupId, sourceDate])
+}
+
+model MetricEvent {
+  id                 String         @id @default(cuid())
+  batchId            String
+  enteredById        String
+  occurredOn         String
+  kind               MetricKind
+  quantity           Int?
+  amountCents        Int?
+  depositMethod      DepositMethod?
+  derivedFromLedger  Boolean        @default(false)
+  parentEventId      String?
+  customerOrderId    String?
+  continuationNumber Int?
+  voidedAt           DateTime?
+  voidReason         String?
+  voidedById         String?
+  batch              SourceBatch    @relation(fields: [batchId], references: [id])
+  enteredBy          User           @relation(fields: [enteredById], references: [id])
+  parentEvent        MetricEvent?   @relation("GroupLeaveOrigin", fields: [parentEventId], references: [id], onDelete: SetNull)
+  childEvents        MetricEvent[]  @relation("GroupLeaveOrigin")
+  customerOrder      CustomerOrder? @relation(fields: [customerOrderId], references: [id], onDelete: SetNull)
+  voidedBy           User?          @relation("MetricEventVoidedBy", fields: [voidedById], references: [id])
+  createdAt          DateTime       @default(now())
+
+  @@unique([customerOrderId, continuationNumber])
+  @@index([parentEventId])
+  @@index([customerOrderId])
+  @@index([batchId, occurredOn])
+  @@index([enteredById, occurredOn])
+  @@index([kind, occurredOn])
+}
+
+model CustomerOrder {
+  id                   String         @id @default(cuid())
+  phone                String         @unique
+  batchId              String
+  enteredById          String
+  openedOn             String
+  initialDepositCents  Int
+  initialDepositMethod DepositMethod?
+  leadId               String?        @unique
+  voidedAt             DateTime?
+  voidReason           String?
+  voidedById           String?
+  batch                SourceBatch    @relation(fields: [batchId], references: [id])
+  enteredBy            User           @relation(fields: [enteredById], references: [id])
+  lead                 LeadCustomer?  @relation(fields: [leadId], references: [id])
+  events               MetricEvent[]
+  voidedBy             User?          @relation("OrderVoidedBy", fields: [voidedById], references: [id])
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([enteredById, openedOn])
+  @@index([batchId])
+}
+
+model LeadCustomer {
+  id                            String               @id @default(cuid())
+  phone                         String               @unique
+  batchId                       String
+  ownerId                       String
+  // 录入人负责客户流程；粉的归属用于代理线和后续业绩归属，二者可以不同。
+  attributionOwnerId            String?
+  deviceId                      String?
+  // 客户在三个交接阶段所使用的联系账号。号码快照保留历史，账号后来删除或改号也不影响复核。
+  groupDeviceAccountId          String?
+  groupDeviceAccountNumber      String?
+  expertDeviceAccountId         String?
+  expertDeviceAccountNumber     String?
+  invalid                       Boolean              @default(false)
+  invalidReason                 String?
+  receptionCategory             ReceptionCategory    @default(VALID)
+  replyStatus                   LeadReplyStatus      @default(NOT_REPLIED)
+  repliedOn                     String?
+  followUpCount                 Int                  @default(0)
+  lastFollowedUpOn              String?
+  customerName                  String?
+  customerEmail                 String?
+  lossAmountCents               Int?
+  customerPlatform              String?
+  groupStatus                   LeadGroupStatus      @default(NOT_JOINED)
+  joinedOn                      String?
+  leftOn                        String?
+  leftWithOrder                 Boolean?
+  leftNote                      String?
+  leftAutomatically             Boolean              @default(false)
+  expertIntroducedOn            String?
+  expertContactedOn             String?
+  expertContactNote             String?
+  expertNotes                   String?
+  expertWorkflowStage           ExpertWorkflowStage?
+  expertStageChangedAt          DateTime?
+  expertTrackingStartedAt       DateTime?
+  expertStalledOn               String?
+  expertStalledReason           String?
+  expertStalledNote             String?
+  noInitialDepositOn            String?
+  noInitialDepositReason        String?
+  noInitialDepositNote          String?
+  registeredOn                  String?
+  nextPlan                      String?
+  nextFollowUpOn                String?
+  notes                         String?
+  receptionChatStatus           ReceptionChatStatus  @default(NORMAL_CHAT)
+  receptionStatusChangedAt      DateTime?
+  receptionArchivedAt           DateTime?
+  receptionArchiveReason        String?
+  receptionArchiveVisitCount    Int?
+  isHistoricalRecord            Boolean              @default(false)
+  historicalSourceName          String?
+  historicalBaselineStage       String?
+  historicalReplyCounted        Boolean              @default(false)
+  historicalJoinCounted         Boolean              @default(false)
+  historicalLeaveCounted        Boolean              @default(false)
+  historicalExpertIntroCounted  Boolean              @default(false)
+  historicalRegistrationCounted Boolean              @default(false)
+  batch                         SourceBatch          @relation(fields: [batchId], references: [id])
+  owner                         User                 @relation(fields: [ownerId], references: [id])
+  attributionOwner              User?                @relation("FanAttributionOwner", fields: [attributionOwnerId], references: [id])
+  device                        Device?              @relation(fields: [deviceId], references: [id])
+  customerOrder                 CustomerOrder?
+  expertOwnerId                 String?
+  expertOwner                   User?                @relation("ExpertOwner", fields: [expertOwnerId], references: [id])
+  groupOperatorOwnerId          String?
+  groupOperatorOwner            User?                @relation("GroupOperatorOwner", fields: [groupOperatorOwnerId], references: [id])
+  activities                    LeadActivity[]
+  exceptions                    LeadException[]
+  createdAt                     DateTime             @default(now())
+  updatedAt                     DateTime             @updatedAt
+
+  @@index([ownerId, updatedAt])
+  @@index([ownerId, receptionChatStatus, updatedAt])
+  @@index([ownerId, receptionArchivedAt])
+  @@index([attributionOwnerId, updatedAt])
+  @@index([ownerId, receptionCategory, updatedAt])
+  @@index([batchId, groupStatus, updatedAt])
+  @@index([batchId, invalid, groupStatus, expertIntroducedOn])
+  @@index([batchId, invalid, expertOwnerId, registeredOn])
+  @@index([deviceId])
+  @@index([groupDeviceAccountId])
+  @@index([expertDeviceAccountId])
+  @@index([expertOwnerId, updatedAt])
+  @@index([expertOwnerId, expertWorkflowStage, expertTrackingStartedAt])
+  @@index([expertOwnerId, expertStalledOn, updatedAt])
+  @@index([expertOwnerId, noInitialDepositOn, updatedAt])
+  @@index([groupOperatorOwnerId, updatedAt])
+}
+
+model GroupOperatorReception {
+  groupOperatorId String
+  receptionistId  String   @unique
+  groupOperator   User     @relation("GroupOperatorAssignments", fields: [groupOperatorId], references: [id], onDelete: Cascade)
+  receptionist    User     @relation("ReceptionistAssignments", fields: [receptionistId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@id([groupOperatorId, receptionistId])
+}
+
+model Device {
+  id        String         @id @default(cuid())
+  code      String
+  groupId   String
+  memberId  String?
+  active    Boolean        @default(true)
+  group     TeamGroup      @relation(fields: [groupId], references: [id])
+  member    User?          @relation("DeviceAssignedMember", fields: [memberId], references: [id])
+  leads     LeadCustomer[]
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([groupId, code])
+  @@index([memberId, active])
+}
+
+model DeviceAccount {
+  id            String            @id @default(cuid())
+  groupId       String
+  ownerId       String
+  accountType   DeviceAccountType
+  provider      String
+  accountNumber String
+  renewalDate   String?
+  purpose       String?
+  situation     String?
+  phoneCode     String?
+  followUp      String?
+  group         TeamGroup         @relation(fields: [groupId], references: [id])
+  owner         User              @relation(fields: [ownerId], references: [id])
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@unique([groupId, accountNumber])
+  @@index([ownerId, updatedAt])
+  @@index([groupId, renewalDate])
+}
+
+model LeadActivity {
+  id         String           @id @default(cuid())
+  leadId     String
+  actorId    String
+  kind       LeadActivityKind
+  occurredOn String
+  note       String?
+  lead       LeadCustomer     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actor      User             @relation(fields: [actorId], references: [id])
+  createdAt  DateTime         @default(now())
+
+  @@index([leadId, createdAt])
+  @@index([actorId, occurredOn])
+}
+
+model LeadException {
+  id         String            @id @default(cuid())
+  batchId    String?
+  leadId     String?
+  actorId    String
+  ownerId    String?
+  phone      String
+  kind       LeadExceptionKind
+  reason     String?
+  occurredOn String
+  batch      SourceBatch?      @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  lead       LeadCustomer?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  actor      User              @relation("ExceptionActor", fields: [actorId], references: [id])
+  owner      User?             @relation("ExceptionOwner", fields: [ownerId], references: [id])
+  createdAt  DateTime          @default(now())
+
+  @@index([actorId, occurredOn])
+  @@index([ownerId, occurredOn])
+  @@index([batchId])
+}
+
+model InvalidFanReport {
+  id                     String                  @id @default(cuid())
+  batchId                String
+  reporterId             String
+  status                 InvalidFanReportStatus  @default(PENDING)
+  noWsCount              Int                     @default(0)
+  lowAmountCount         Int                     @default(0)
+  collisionCount         Int                     @default(0)
+  approvedNoWsCount      Int?
+  approvedLowAmountCount Int?
+  approvedCollisionCount Int?
+  reviewReason           String?
+  reviewedAt             DateTime?
+  reviewedById           String?
+  isLeaderSupplement     Boolean                 @default(false)
+  batch                  SourceBatch             @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  reporter               User                    @relation("InvalidFanReportReporter", fields: [reporterId], references: [id])
+  reviewedBy             User?                   @relation("InvalidFanReportReviewer", fields: [reviewedById], references: [id])
+  audits                 InvalidFanReportAudit[]
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([batchId, reporterId])
+  @@index([batchId, status])
+  @@index([reporterId, status, updatedAt])
+}
+
+model InvalidFanReportAudit {
+  id                   String                 @id @default(cuid())
+  reportId             String
+  actorId              String
+  action               InvalidFanReportAction
+  beforeNoWsCount      Int?
+  beforeLowAmountCount Int?
+  beforeCollisionCount Int?
+  afterNoWsCount       Int?
+  afterLowAmountCount  Int?
+  afterCollisionCount  Int?
+  reason               String?
+  report               InvalidFanReport       @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  actor                User                   @relation("InvalidFanReportAuditActor", fields: [actorId], references: [id])
+  createdAt            DateTime               @default(now())
+
+  @@index([reportId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model DailyEntryConfirmation {
+  id           String   @id @default(cuid())
+  userId       String
+  businessDate String
+  confirmedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, businessDate])
+  @@index([businessDate])
+}
+
+model AttendanceRecord {
+  id                    String                 @id @default(cuid())
+  userId                String
+  groupId               String
+  businessDate          String
+  timezone              String
+  scheduledStartMinutes Int
+  scheduledEndMinutes   Int
+  clockInAt             DateTime?
+  clockOutAt            DateTime?
+  clockInStatus         AttendanceClockStatus?
+  clockOutStatus        AttendanceClockStatus?
+  leaveType             AttendanceLeaveType?
+  leaveReason           String?
+  leaveAt               DateTime?
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group                 TeamGroup              @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@unique([userId, businessDate])
+  @@index([groupId, businessDate])
+  @@index([businessDate])
+}
+
+model Notification {
+  id                 String                  @id @default(cuid())
+  title              String
+  content            String
+  type               NotificationType        @default(GENERAL)
+  requiresAck        Boolean                 @default(false)
+  targetType         NotificationTargetType
+  senderId           String
+  targetDepartmentId String?
+  targetGroupId      String?
+  targetRole         Role?
+  expiresAt          DateTime?
+  sender             User                    @relation("NotificationSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipients         NotificationRecipient[]
+  createdAt          DateTime                @default(now())
+
+  @@index([createdAt])
+  @@index([senderId])
+  @@index([targetDepartmentId])
+  @@index([targetGroupId])
+}
+
+model NotificationRecipient {
+  id             String       @id @default(cuid())
+  notificationId String
+  userId         String
+  readAt         DateTime?
+  acknowledgedAt DateTime?
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([userId, readAt])
+}

@@ -1,0 +1,2 @@
+-- SQLite stores Prisma enums as TEXT, so no table change is required.
+-- This migration records the schema version for the new REPLY_UNDONE activity kind.

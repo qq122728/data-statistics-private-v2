@@ -1,0 +1,9 @@
+ALTER TABLE "Department" ADD COLUMN "countryCode" TEXT NOT NULL DEFAULT 'CN';
+ALTER TABLE "Department" ADD COLUMN "timezone" TEXT NOT NULL DEFAULT 'Asia/Shanghai';
+ALTER TABLE "Department" ADD COLUMN "workStartMinutes" INTEGER NOT NULL DEFAULT 600;
+ALTER TABLE "Department" ADD COLUMN "workEndMinutes" INTEGER NOT NULL DEFAULT 1320;
+
+ALTER TABLE "TeamGroup" ADD COLUMN "countryCode" TEXT;
+ALTER TABLE "TeamGroup" ADD COLUMN "timezone" TEXT;
+ALTER TABLE "TeamGroup" ADD COLUMN "workStartMinutes" INTEGER;
+ALTER TABLE "TeamGroup" ADD COLUMN "workEndMinutes" INTEGER;

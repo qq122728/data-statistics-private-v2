@@ -1,0 +1,10 @@
+[Unit]
+Description=Expire NET-02 emergency web rules promptly
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

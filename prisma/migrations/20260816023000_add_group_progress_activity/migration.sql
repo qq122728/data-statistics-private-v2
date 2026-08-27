@@ -1,0 +1,2 @@
+-- Add a dedicated activity kind for the group operator's daily customer progress.
+-- SQLite stores Prisma enums as text, so no table rewrite is required.

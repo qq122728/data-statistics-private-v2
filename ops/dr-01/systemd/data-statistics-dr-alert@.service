@@ -1,0 +1,13 @@
+[Unit]
+Description=Alert for failed Data Statistics disaster-recovery unit %i
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/data-statistics/dr-alert.env
+ExecStart=/usr/local/lib/data-statistics-dr/send-dr-alert.sh %i backup-or-restore-failure
+User=root
+Group=root
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict

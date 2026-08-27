@@ -1,0 +1,12 @@
+import Link from "next/link";
+import { buildAnalysisHref } from "../../../lib/analytics/scope";
+import type { AnalysisFilters } from "../../../lib/analytics/types";
+import type { BatchTrackingRow } from "../../../lib/analytics/batch-tracking";
+import { AnalysisState } from "../AnalysisState";
+
+const statusLabel = { DATA_ANOMALY: "数据异常", STALLED: "停滞", NORMAL: "正常推进", INSUFFICIENT: "样本不足", ORDERED: "已开单" } as const;
+const stageLabel = { NEW_FANS: "添加数据", REPLIES: "回复", GROUP_JOIN: "进群", EXPERT_INTRO: "推专家", REGISTRATION: "注册", ORDER: "开单" } as const;
+export function BatchTrackingTable({ rows, filters, showGroup }: { rows: BatchTrackingRow[]; filters: Partial<AnalysisFilters>; showGroup: boolean }) {
+  if (rows.length === 0) return <AnalysisState title="当前筛选下没有批次数据" description="请调整日期、人员或渠道筛选后重试。" />;
+  return <section className="panel"><div className="panel-header"><div><h2 className="panel-title">批次优先队列</h2><p className="panel-subtitle">异常和停滞批次会排在前面</p></div></div><div className="data-table-wrap analysis-grid"><table className="data-table"><thead><tr><th>来源日期 / 批次</th><th>渠道 / 人员</th><th>年龄</th><th>添加数据</th><th>当前阶段 / 最大卡点</th><th>开单</th><th>状态</th></tr></thead><tbody>{rows.map((row) => <tr key={row.key}><td><Link className="font-semibold text-[#0b66ff]" href={buildAnalysisHref(`/batch-tracking/${encodeURIComponent(row.batchId)}`, filters, { batchId: undefined, memberId: row.memberId })}>{row.sourceDate}</Link><span className="ml-2 text-xs text-slate-400">{row.batchId.slice(-6)}</span></td><td>{row.channelName}<span className="ml-2 text-xs text-slate-400">{row.memberName}{showGroup ? ` · ${row.groupName}` : ""}</span></td><td>{row.ageLabel}</td><td>{row.totals.newFans}</td><td>{stageLabel[row.currentStage]}<span className="ml-2 text-xs text-slate-400">{row.largestDrop ? `最大卡点：${stageLabel[row.largestDrop.from]} → ${stageLabel[row.largestDrop.to]}` : "暂无卡点"}</span></td><td>{row.totals.orders}</td><td><span className="analysis-status" data-tone={row.status === "DATA_ANOMALY" ? "danger" : row.status === "STALLED" || row.status === "INSUFFICIENT" ? "warning" : row.status === "ORDERED" ? "success" : "neutral"}>{statusLabel[row.status]}</span></td></tr>)}</tbody></table></div><div className="border-t border-slate-200 p-4 text-right"><Link className="text-sm font-semibold text-[#0b66ff]" href={buildAnalysisHref("/history", filters)}>查看历史记录</Link></div></section>;
+}

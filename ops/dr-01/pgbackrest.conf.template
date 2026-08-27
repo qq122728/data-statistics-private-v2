@@ -1,0 +1,37 @@
+[global]
+repo1-type=s3
+repo1-path=${PGBACKREST_REPO1_PATH}
+repo1-s3-bucket=${PGBACKREST_S3_BUCKET}
+repo1-s3-endpoint=${PGBACKREST_S3_ENDPOINT}
+repo1-s3-region=${PGBACKREST_S3_REGION}
+repo1-s3-uri-style=${PGBACKREST_S3_URI_STYLE}
+repo1-s3-key=${PGBACKREST_S3_KEY}
+repo1-s3-key-secret=${PGBACKREST_S3_KEY_SECRET}
+repo1-cipher-type=aes-256-cbc
+repo1-cipher-pass=${PGBACKREST_REPO1_CIPHER_PASS}
+
+# Six weekly full backups plus daily differentials keep expiration attempts
+# beyond the provider's >=35-day immutable window. Expiration is deliberately
+# disabled on the database host because its repository identity has no delete
+# permission; a separately controlled off-host pgBackRest job performs it.
+repo1-retention-full=6
+repo1-retention-full-type=count
+repo1-retention-diff=36
+repo1-retention-archive-type=full
+repo1-retention-archive=6
+expire-auto=n
+
+archive-async=y
+spool-path=/var/spool/pgbackrest
+lock-path=/var/lock/pgbackrest
+process-max=2
+compress-type=zst
+compress-level=3
+start-fast=y
+log-level-console=info
+log-level-file=detail
+log-path=/var/log/pgbackrest
+
+[data-statistics]
+pg1-path=${PGBACKREST_PG1_PATH}
+pg1-port=5432

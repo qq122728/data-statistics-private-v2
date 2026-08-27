@@ -1,0 +1,3 @@
+-- SQLite stores Role as TEXT, so this application-level role needs no physical table change.
+-- The PostgreSQL deployment uses `prisma db push --schema prisma/postgres/schema.prisma`
+-- as part of its deployment step, which updates the native enum from that schema.

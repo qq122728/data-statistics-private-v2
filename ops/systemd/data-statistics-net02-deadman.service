@@ -1,0 +1,24 @@
+[Unit]
+Description=Verify NET-02 Cloudflare synchronization freshness and send heartbeat
+Wants=network-online.target
+After=network-online.target
+OnFailure=data-statistics-net02-alert@%n.service
+
+[Service]
+Type=oneshot
+StateDirectory=data-statistics/net-02
+StateDirectoryMode=0750
+EnvironmentFile=/etc/data-statistics/net02-monitor.env
+ExecStart=/usr/local/lib/data-statistics/check-data-statistics-cloudflare-sync
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadOnlyPaths=/var/lib/data-statistics/net-02
+RestrictAddressFamilies=AF_INET AF_INET6
+TimeoutStartSec=1min

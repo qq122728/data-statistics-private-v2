@@ -1,0 +1,21 @@
+[Unit]
+Description=Data Statistics daily pgBackRest differential backup
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=data-statistics-dr-alert@%n.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStart=/usr/bin/pgbackrest --stanza=data-statistics --type=diff backup
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+NoNewPrivileges=true
+UMask=0027
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/pgbackrest /var/spool/pgbackrest /var/lock/pgbackrest

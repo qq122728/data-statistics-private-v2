@@ -1,0 +1,27 @@
+# API-02 EMBEDDED-DIRECTIVE EXAMPLE — this is intentionally not a complete
+# nginx configuration file.
+#
+# Copy ONLY the matching `client_max_body_size` directive into the location
+# that already proxies that route. Do not create a sibling location from this
+# example: doing so can drop the production proxy include and headers such as
+# Host, X-Real-IP, X-Forwarded-For, X-Forwarded-Proto and X-Request-ID.
+
+# Existing location = /api/auth/login
+# Existing location = /api/auth/change-password
+client_max_body_size 8k;
+
+# Existing locations for /api/batches and /api/events
+client_max_body_size 256k;
+
+# Existing locations for /api/customer-finance and /api/customer-orders
+client_max_body_size 128k;
+
+# Existing locations for /api/lead/collaborations and /api/notifications
+client_max_body_size 128k;
+
+# Existing location = /api/leads
+# The customer import route supports up to 2,000 validated rows.
+client_max_body_size 2m;
+
+# For all other existing API locations, use the server/location default:
+client_max_body_size 64k;

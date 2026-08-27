@@ -1,0 +1,12 @@
+/var/log/data-statistics/*.log {
+    daily
+    rotate 14
+    maxsize 100M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    su data-statistics-runtime data-statistics-runtime
+    create 0640 data-statistics-runtime data-statistics-runtime
+}

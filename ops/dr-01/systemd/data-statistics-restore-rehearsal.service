@@ -1,0 +1,36 @@
+[Unit]
+Description=Data Statistics isolated point-in-time restore rehearsal
+After=postgresql.service network-online.target
+Wants=network-online.target
+OnFailure=data-statistics-dr-alert@%n.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+Environment=CONFIRM_ISOLATED_RESTORE=YES
+Environment=PGBACKREST_STANZA=data-statistics
+Environment=DR_REHEARSAL_ROOT=/var/lib/postgresql/dr-rehearsal
+Environment=DR_REHEARSAL_PORT=55433
+Environment=DR_REHEARSAL_DATABASE=data_statistics
+Environment=DR_RESTORE_MODE=pitr
+Environment=DR_RESTORE_TIMELINE=latest
+Environment=DR_REHEARSAL_KEEP_RUNS=2
+Environment=DR_APPROVAL_ENV_FILE=/etc/data-statistics/dr-restore.env
+LoadCredential=production-migration-ledger:/etc/data-statistics/dr-production-migration-ledger.json
+LoadCredential=baseline-checksum-approval:/etc/data-statistics/dr-baseline-checksum-approval.json
+Environment=DR_PRODUCTION_MIGRATION_LEDGER=%d/production-migration-ledger
+Environment=DR_BASELINE_CHECKSUM_APPROVAL=%d/baseline-checksum-approval
+Environment=DR_MIGRATION_VALIDATOR=/usr/local/lib/data-statistics-dr/validate-migration-ledger.py
+Environment=DR_CLEANUP_LIBRARY=/usr/local/lib/data-statistics-dr/restore-cleanup.sh
+Environment=DR_PIDFD_STOP_HELPER=/usr/local/lib/data-statistics-dr/pidfd-stop-postgres.py
+EnvironmentFile=/etc/data-statistics/dr-restore.env
+ExecStart=/usr/local/lib/data-statistics-dr/restore-rehearsal.sh --mode pitr --timeline latest
+ExecStartPost=+/usr/local/lib/data-statistics-dr/archive-restore-evidence.py
+TimeoutStartSec=60m
+PrivateTmp=true
+NoNewPrivileges=true
+UMask=0077
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/postgresql/dr-rehearsal /var/lib/data-statistics/dr-evidence /var/log/pgbackrest /var/spool/pgbackrest /var/lock/pgbackrest

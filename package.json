@@ -1,0 +1,73 @@
+{
+  "name": "data-statistics-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "NEXT_IGNORE_INCORRECT_LOCKFILE=1 NEXT_DIST_DIR=.next-dev next dev",
+    "start": "next start",
+    "build": "NEXT_IGNORE_INCORRECT_LOCKFILE=1 next build",
+    "test": "npm run db:generate:sqlite && vitest",
+    "test:e2e": "playwright test",
+    "db:generate": "npm run db:generate:sqlite",
+    "db:generate:sqlite": "DATABASE_URL=file:./dev.db prisma generate --schema prisma/schema.prisma",
+    "db:generate:sqlite-legacy": "prisma generate --schema prisma/sqlite/schema.prisma",
+    "db:generate:postgres": "prisma generate --schema prisma/postgres/schema.prisma",
+    "db:audit:lead-phone-duplicates": "node scripts/check-lead-phone-duplicates.mjs",
+    "db:migrate": "node scripts/migrate-sqlite-safely.mjs",
+    "db:migrate:postgres": "node scripts/deploy-postgres-migrations.mjs",
+    "db:migrate:postgres:verify": "node scripts/verify-postgres-migration-checksums.mjs",
+    "db:migrate:postgres:check-diff": "node scripts/check-postgres-migration-diff.mjs",
+    "deploy:postgres": "npm run db:generate:postgres && npm run db:migrate:postgres && npm run build",
+    "db:push:postgres": "prisma db push --schema prisma/postgres/schema.prisma --skip-generate",
+    "db:seed": "npm run db:generate:sqlite && ALLOW_DEVELOPMENT_SEED=YES prisma db seed --schema prisma/schema.prisma",
+    "db:postgres:test:up": "docker compose -p data_statistics -f compose.postgres-test.yaml up -d",
+    "db:postgres:test:down": "docker compose -p data_statistics -f compose.postgres-test.yaml down",
+    "db:postgres:test:prepare": "DATABASE_URL=postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55432/data_statistics_test?schema=public prisma db push --schema prisma/postgres/schema.prisma --skip-generate && DATABASE_URL=file:./dev.db prisma generate --schema prisma/sqlite/schema.prisma && DATABASE_URL=postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55432/data_statistics_test?schema=public prisma generate --schema prisma/postgres/schema.prisma",
+    "db:postgres:test:copy": "POSTGRES_TEST_DATABASE_URL=postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55432/data_statistics_test?schema=public node scripts/migrate-sqlite-to-postgres.mjs",
+    "test:db-runtime-privileges:postgres": "bash tests/integration/db-runtime-privileges-postgres.sh",
+    "test:api-02:acceptance": "npm run db:generate:sqlite && vitest --run tests/unit/api-request-limits.test.ts tests/unit/api-request-acceptance-tool.test.ts",
+    "db:backfill:rebate": "node scripts/backfill-rebate-channel-snapshots.mjs",
+    "db:audit:snapshots": "node scripts/audit-batch-snapshots.mjs",
+    "security:rotate-initial-passwords": "npm run db:generate:postgres && node scripts/rotate-initial-account-passwords.mjs",
+    "boss:brief": "node scripts/trigger-boss-daily-brief.mjs",
+    "boss:backup": "node scripts/send-daily-backup.mjs",
+    "boss:daily": "node scripts/run-daily-boss-job.mjs",
+    "dr:validate": "node scripts/dr/validate-dr-config.mjs",
+    "seed:local-demo": "node scripts/seed-local-demo.mjs"
+  },
+  "prisma": {
+    "seed": "node --experimental-strip-types prisma/seed.ts"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "@prisma/client": "^6.16.2",
+    "exceljs": "^4.4.0",
+    "next": "16.3.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "recharts": "^3.10.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^22.18.0",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "prisma": "^6.16.2",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.1"
+    },
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  }
+}

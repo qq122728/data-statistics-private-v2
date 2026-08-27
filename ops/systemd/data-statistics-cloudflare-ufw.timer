@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Cloudflare origin allow-list every day
+
+[Timer]
+OnCalendar=*-*-* 04:17:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

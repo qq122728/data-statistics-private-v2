@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["next-env.d.ts", "tests/unit/management-analysis-ui.test.ts"],
+  "exclude": ["node_modules"]
+}

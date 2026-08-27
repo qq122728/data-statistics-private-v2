@@ -1,0 +1,14 @@
+[Unit]
+Description=Check data-statistics log filesystem capacity
+OnFailure=data-statistics-log-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/data-statistics/log-monitor.env
+ExecStart=/usr/local/sbin/data-statistics-check-log-capacity
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

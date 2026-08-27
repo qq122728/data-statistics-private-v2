@@ -1,0 +1,18 @@
+[Unit]
+Description=Synchronize Cloudflare origin allow-list in UFW
+Wants=network-online.target
+After=network-online.target ufw.service
+OnFailure=data-statistics-net02-alert@%n.service
+
+[Service]
+Type=oneshot
+StateDirectory=data-statistics/net-02
+StateDirectoryMode=0750
+ExecStart=/usr/local/sbin/sync-data-statistics-cloudflare-ufw --apply
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/ufw /run /var/lib/data-statistics
+ReadWritePaths=/etc/nginx/snippets
+TimeoutStartSec=10min

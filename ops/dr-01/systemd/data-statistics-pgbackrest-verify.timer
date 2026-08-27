@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule weekly Data Statistics repository checksum verification
+
+[Timer]
+OnCalendar=Wed *-*-* 04:30:00 UTC
+RandomizedDelaySec=20m
+Persistent=true
+Unit=data-statistics-pgbackrest-verify.service
+
+[Install]
+WantedBy=timers.target

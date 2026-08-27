@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Data Statistics pgBackRest health verification
+
+[Timer]
+OnCalendar=*:0/5
+RandomizedDelaySec=30s
+Persistent=true
+Unit=data-statistics-pgbackrest-check.service
+
+[Install]
+WantedBy=timers.target

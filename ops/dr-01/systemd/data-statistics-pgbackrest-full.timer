@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Data Statistics weekly full backup
+
+[Timer]
+OnCalendar=Sun *-*-* 03:15:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+Unit=data-statistics-pgbackrest-full.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule Data Statistics daily differential backup
+
+[Timer]
+OnCalendar=Mon..Sat *-*-* 03:15:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+Unit=data-statistics-pgbackrest-diff.service
+
+[Install]
+WantedBy=timers.target

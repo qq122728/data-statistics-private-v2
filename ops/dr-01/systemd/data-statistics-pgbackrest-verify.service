@@ -1,0 +1,21 @@
+[Unit]
+Description=Verify Data Statistics pgBackRest repository checksums
+After=network-online.target
+Wants=network-online.target
+OnFailure=data-statistics-dr-alert@%n.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStart=/usr/bin/pgbackrest --stanza=data-statistics verify
+TimeoutStartSec=6h
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+NoNewPrivileges=true
+UMask=0027
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/pgbackrest /var/spool/pgbackrest /var/lock/pgbackrest

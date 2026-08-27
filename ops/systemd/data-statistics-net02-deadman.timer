@@ -1,0 +1,10 @@
+[Unit]
+Description=Check NET-02 sync freshness every six hours
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

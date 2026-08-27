@@ -1,0 +1,56 @@
+[Unit]
+Description=Data Statistics Dashboard
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=data-statistics-runtime
+Group=data-statistics-runtime
+WorkingDirectory=/opt/data-statistics/app
+EnvironmentFile=/etc/data-statistics/app.env
+Environment=HOME=/var/lib/data-statistics-runtime
+Environment=XDG_CACHE_HOME=/var/cache/data-statistics-runtime
+Environment=NEXT_TELEMETRY_DISABLED=1
+CacheDirectory=data-statistics-runtime
+CacheDirectoryMode=0700
+# Next.js writes its persistent Data Cache below .next/cache. Keep the release
+# immutable while providing that one cache path from the runtime-owned cache.
+BindPaths=/var/cache/data-statistics-runtime:/opt/data-statistics/app/.next/cache
+ExecStart=/usr/local/bin/node node_modules/next/dist/bin/next start -H 127.0.0.1 -p 3000
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+ReadOnlyPaths=/opt/data-statistics
+ReadWritePaths=/var/lib/data-statistics-runtime /var/cache/data-statistics-runtime
+InaccessiblePaths=/opt/data-statistics/.ssh /opt/data-statistics/repository /opt/data-statistics/backups /opt/data-statistics/deploy-backups
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

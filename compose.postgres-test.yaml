@@ -1,0 +1,22 @@
+services:
+  postgres-test:
+    image: postgres:17-alpine
+    container_name: data-statistics-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: data_statistics_test
+      POSTGRES_USER: data_statistics_test
+      POSTGRES_PASSWORD: local_test_only_change_me
+      TZ: UTC
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U data_statistics_test -d data_statistics_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - data-statistics-postgres-test:/var/lib/postgresql/data
+
+volumes:
+  data-statistics-postgres-test:

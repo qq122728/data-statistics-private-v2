@@ -1,0 +1,9 @@
+# Install only after load testing, as:
+# /etc/systemd/system/data-statistics.service.d/memory.conf
+[Service]
+# Uncomment and replace both examples only with measured values. A candidate
+# MemoryHigh is peak RSS under the agreed load test plus headroom. MemoryMax
+# must be above MemoryHigh and below the RAM reserved for PostgreSQL, Nginx and
+# the OS. The commented template is deliberately safe to verify before sizing.
+# MemoryHigh=<MEASURED_SOFT_LIMIT>
+# MemoryMax=<MEASURED_HARD_LIMIT>

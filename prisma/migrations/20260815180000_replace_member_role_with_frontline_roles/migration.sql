@@ -1,0 +1,1 @@
+UPDATE User SET role = 'RECEPTION' WHERE role = 'MEMBER';

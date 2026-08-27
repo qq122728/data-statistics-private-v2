@@ -1,0 +1,47 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { leadDateRangeForPreset, resolveDateRangeWithDefault, resolveLeadDateRange } from "../../src/lib/lead-date-range";
+
+describe("lead date ranges", () => {
+  const today = "2026-08-15";
+
+  it("resolves all management presets with inclusive dates", () => {
+    expect(leadDateRangeForPreset("all", today)).toMatchObject({ preset: "all", from: "", to: "" });
+    expect(leadDateRangeForPreset("today", today)).toMatchObject({ from: today, to: today });
+    expect(leadDateRangeForPreset("yesterday", today)).toMatchObject({ from: "2026-08-14", to: "2026-08-14" });
+    expect(leadDateRangeForPreset("7d", today)).toMatchObject({ from: "2026-08-09", to: today });
+    expect(leadDateRangeForPreset("30d", today)).toMatchObject({ from: "2026-07-17", to: today });
+    expect(leadDateRangeForPreset("month", today)).toMatchObject({ from: "2026-08-01", to: today });
+  });
+
+  it("defaults to seven days and normalizes a reversed custom range", () => {
+    expect(resolveLeadDateRange({}, today).preset).toBe("7d");
+    expect(resolveLeadDateRange({ range: "custom", sourceDateFrom: "2026-08-12", sourceDateTo: "2026-08-03" }, today)).toMatchObject({ from: "2026-08-03", to: "2026-08-12" });
+  });
+
+  it("preserves an explicit all-customers selection", () => {
+    expect(resolveLeadDateRange({ range: "all" }, today)).toMatchObject({ preset: "all", from: "", to: "" });
+  });
+
+  it("lets analysis pages choose a consistent thirty-day default without overriding an explicit range", () => {
+    expect(resolveDateRangeWithDefault({}, today)).toMatchObject({ preset: "30d", from: "2026-07-17", to: today });
+    expect(resolveDateRangeWithDefault({ range: "today" }, today)).toMatchObject({ preset: "today", from: today, to: today });
+    expect(resolveDateRangeWithDefault({ sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-03" }, today)).toMatchObject({ preset: "custom", from: "2026-08-01", to: "2026-08-03" });
+  });
+
+  it("supports the company workspace defaulting to the current month", () => {
+    expect(resolveDateRangeWithDefault({}, today, "month")).toMatchObject({ preset: "month", from: "2026-08-01", to: today });
+  });
+
+  it("remounts each custom-date disclosure after a preset or filter change", () => {
+    const sharedFilter = readFileSync("src/components/lead/LeadDateRangeFilter.tsx", "utf8");
+    const dashboardFilter = readFileSync("src/components/lead/LeadDashboardToolbar.tsx", "utf8");
+
+    expect(sharedFilter).toContain("const customPanelKey = JSON.stringify");
+    expect(sharedFilter).toContain("key={customPanelKey}");
+    expect(sharedFilter).toContain('open={range.preset === "custom"}');
+    expect(dashboardFilter).toContain("const customPanelKey = JSON.stringify");
+    expect(dashboardFilter).toContain("key={customPanelKey}");
+    expect(dashboardFilter).toContain('open={range.preset === "custom"}');
+  });
+});

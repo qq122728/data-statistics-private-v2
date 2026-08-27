@@ -1,0 +1,121 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Type check, tests, and build
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: file:./prisma/dev.db
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Reject edits to existing PostgreSQL migrations
+        env:
+          MIGRATION_DIFF_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: npm run db:migrate:postgres:check-diff
+      - run: npm run db:migrate:postgres:verify
+      - name: Validate privacy-safe production preflight
+        run: |
+          python3 -m py_compile ops/scripts/security-production-preflight.py
+          python3 ops/scripts/test_security_production_preflight.py
+          bash -n ops/scripts/sync-data-statistics-cloudflare-ufw.sh
+      - name: Validate LOG-02 Nginx configuration
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes nginx
+          for file in ops/scripts/check-log-capacity.sh ops/scripts/check-journal-suppression.sh ops/scripts/send-data-statistics-log-alert.sh; do bash -n "$file"; done
+          sudo nginx -t -p "$PWD/ops/nginx/" -c verify-LOG-02.conf
+          sudo bash ops/scripts/verify-nginx-security-logging.sh "$PWD"
+          sudo bash tests/integration/log02-monitoring-ubuntu.sh
+      - name: Validate DR shell, migration evidence, and cleanup behavior
+        run: |
+          for file in scripts/dr/*.sh; do bash -n "$file"; done
+          if command -v shellcheck >/dev/null; then
+            shellcheck --severity=error scripts/dr/*.sh
+          else
+            echo "::warning::shellcheck is not installed on this runner; bash -n still passed"
+          fi
+          python3 scripts/dr/test_validate_backup_health.py
+          python3 scripts/dr/test_validate_migration_ledger.py
+          bash scripts/dr/test_restore_cleanup.sh
+          python3 scripts/dr/test_archive_restore_evidence.py
+          python3 ops/database/db-01/test_export_production_migration_ledger.py
+      - name: Verify DR systemd units with isolated dummy runtime paths
+        run: |
+          id postgres >/dev/null 2>&1 || sudo useradd --system --no-create-home --shell /usr/sbin/nologin postgres
+          sudo install -d -m 0755 /usr/local/lib/data-statistics-dr
+          sudo install -m 0755 scripts/dr/restore-rehearsal.sh scripts/dr/pgbackrest-healthcheck.sh scripts/dr/send-dr-alert.sh scripts/dr/restore-cleanup.sh /usr/local/lib/data-statistics-dr/
+          sudo install -m 0755 scripts/dr/pidfd-stop-postgres.py scripts/dr/archive-restore-evidence.py /usr/local/lib/data-statistics-dr/
+          sudo install -m 0644 scripts/dr/validate-backup-health.py scripts/dr/validate-migration-ledger.py /usr/local/lib/data-statistics-dr/
+          sudo install -D -m 0755 /bin/true /usr/bin/pgbackrest
+          sudo install -D -m 0600 ops/dr-01/dr-alert.env.example /etc/data-statistics/dr-alert.env
+          sudo install -D -m 0600 ops/dr-01/restore-rehearsal.env.example /etc/data-statistics/dr-restore.env
+          printf '%s\n' '{"ci":"systemd-credential-source-only"}' | sudo tee /etc/data-statistics/dr-production-migration-ledger.json >/dev/null
+          printf '%s\n' '{"ci":"systemd-credential-source-only"}' | sudo tee /etc/data-statistics/dr-baseline-checksum-approval.json >/dev/null
+          sudo chmod 0600 /etc/data-statistics/dr-production-migration-ledger.json /etc/data-statistics/dr-baseline-checksum-approval.json
+          sudo install -d -m 0750 /var/log/pgbackrest /var/spool/pgbackrest /var/lock/pgbackrest
+          sudo install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/dr-rehearsal
+          sudo install -d -o root -g root -m 0700 /var/lib/data-statistics/dr-evidence
+          unit_dir="$(mktemp -d)"
+          cp ops/dr-01/systemd/*.service ops/dr-01/systemd/*.timer "$unit_dir/"
+          printf '%s\n' '[Unit]' 'Description=CI dummy PostgreSQL service' '[Service]' 'Type=oneshot' 'ExecStart=/bin/true' >"$unit_dir/postgresql.service"
+          systemd-analyze verify "$unit_dir"/*.service "$unit_dir"/*.timer
+      - run: npm run db:generate:postgres
+      - run: npm run dr:validate
+      - run: npx tsc --noEmit
+      - run: npm test -- --run
+      - run: npm run test:db-runtime-privileges:postgres
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+      - name: Verify NET-02 on Ubuntu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx ufw
+          sudo bash tests/integration/net02-ubuntu.sh
+
+  postgres-migrations:
+    name: Replay PostgreSQL migrations from zero
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: migration_replay
+          POSTGRES_USER: migration_replay
+          POSTGRES_PASSWORD: ci_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U migration_replay -d migration_replay"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://migration_replay:ci_only_password@127.0.0.1:5432/migration_replay?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate:postgres:verify
+      - name: Replay all migrations on an empty PostgreSQL 17 database
+        run: >-
+          DATABASE_URL='postgresql://migration_replay:ci_only_password@127.0.0.1:5432/migration_replay?schema=public&options=-c%20lock_timeout%3D10000%20-c%20statement_timeout%3D600000'
+          ./node_modules/.bin/prisma migrate deploy --schema prisma/postgres/schema.prisma
+      - run: ./node_modules/.bin/prisma migrate status --schema prisma/postgres/schema.prisma

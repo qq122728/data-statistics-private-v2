@@ -404,81 +404,48 @@ describe.sequential("admin high-risk API confirmation", () => {
     await expect(db.auditLog.count({ where: { entityId: groupId } })).resolves.toBe(1);
   });
 
-  it.each([
-    ["FREE mode", { fanCostMode: "FREE" }],
-    ["zero price", { effectiveFanPriceCents: 0 }],
-    ["null price", { effectiveFanPriceCents: null }],
-    ["FREE with a positive price", { fanCostMode: "FREE", effectiveFanPriceCents: 9_999 }],
-  ])("protects every paid-to-free request shape: %s", async (_label, clearPayload) => {
+  it("requires confirmation before an ADMIN disables a channel", async () => {
     const actor = await createActor();
     const { groupId } = await createDepartmentAndGroup();
-    const channelId = `${prefix}paid-channel-${randomUUID()}`;
+    const channelId = `${prefix}toggle-channel-${randomUUID()}`;
     await db.channel.create({
-      data: { id: channelId, name: "付费渠道", normalizedName: channelId, groupId, fanCostMode: "PAID", effectiveFanPriceCents: 5_000 },
+      data: { id: channelId, name: "待停用渠道", normalizedName: channelId, groupId, active: true },
     });
     await db.sourceBatch.create({ data: { id: `${prefix}batch-${randomUUID()}`, groupId, channelId, sourceDate: "2026-08-15" } });
 
     const denied = await patchChannel(new Request("http://localhost/api/admin/channels", {
       method: "PATCH",
-      body: JSON.stringify({ id: channelId, groupId, ...clearPayload }),
+      body: JSON.stringify({ id: channelId, groupId, active: false }),
     }));
     expect(denied.status).toBe(400);
-    await expect(db.channel.findUniqueOrThrow({ where: { id_groupId: { id: channelId, groupId } }, select: { fanCostMode: true, effectiveFanPriceCents: true } }))
-      .resolves.toEqual({ fanCostMode: "PAID", effectiveFanPriceCents: 5_000 });
+    await expect(db.channel.findUniqueOrThrow({ where: { id_groupId: { id: channelId, groupId } }, select: { active: true } }))
+      .resolves.toEqual({ active: true });
 
     const response = await patchChannel(new Request("http://localhost/api/admin/channels", {
       method: "PATCH",
-      body: JSON.stringify({ id: channelId, groupId, ...clearPayload, highRiskReason: "停止付费投放", currentPassword }),
+      body: JSON.stringify({ id: channelId, groupId, active: false, highRiskReason: "停止投放并停用渠道", currentPassword }),
     }));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ fanCostMode: "FREE", effectiveFanPriceCents: 0 });
-    const audit = await db.auditLog.findFirstOrThrow({ where: { actorId: actor.id, entityId: channelId, action: "CHANNEL_PRICE_UPDATED" } });
+    await expect(response.json()).resolves.toMatchObject({ active: false });
+    const audit = await db.auditLog.findFirstOrThrow({ where: { actorId: actor.id, entityId: channelId, action: "CHANNEL_STATUS_CHANGED" } });
     expect(JSON.parse(audit.summary)).toMatchObject({
-      highRiskReason: "停止付费投放",
+      highRiskReason: "停止投放并停用渠道",
       reauthenticated: true,
-      before: { fanCostMode: "PAID", effectiveFanPriceCents: 5_000 },
-      after: { fanCostMode: "FREE", effectiveFanPriceCents: 0 },
-      impact: { sourceBatches: 1, historicalProfitMayChange: true },
+      before: { name: "待停用渠道", active: true },
+      after: { name: "待停用渠道", active: false },
+      impact: { sourceBatches: 1 },
     });
     expect(audit.summary).not.toContain(currentPassword);
   });
 
-  it("audits the complete state when a channel is disabled while its paid price is cleared", async () => {
-    const actor = await createActor();
-    const { groupId } = await createDepartmentAndGroup();
-    const channelId = `${prefix}combined-channel-${randomUUID()}`;
-    await db.channel.create({
-      data: { id: channelId, name: "组合变更渠道", normalizedName: channelId, groupId, active: true, fanCostMode: "PAID", effectiveFanPriceCents: 8_000 },
-    });
-
-    const response = await patchChannel(new Request("http://localhost/api/admin/channels", {
-      method: "PATCH",
-      body: JSON.stringify({
-        id: channelId,
-        groupId,
-        active: false,
-        effectiveFanPriceCents: null,
-        highRiskReason: "停止投放并停用渠道",
-        currentPassword,
-      }),
-    }));
-    expect(response.status).toBe(200);
-    const audit = await db.auditLog.findFirstOrThrow({ where: { actorId: actor.id, entityId: channelId, action: "CHANNEL_PRICE_UPDATED" } });
-    expect(JSON.parse(audit.summary)).toMatchObject({
-      changedFields: ["active", "fanCostMode", "effectiveFanPriceCents"],
-      before: { name: "组合变更渠道", active: true, fanCostMode: "PAID", effectiveFanPriceCents: 8_000 },
-      after: { name: "组合变更渠道", active: false, fanCostMode: "FREE", effectiveFanPriceCents: 0 },
-    });
-  });
-
-  it("rejects an invalid channel cost mode instead of silently treating it as FREE", async () => {
+  it("rejects a channel update payload with no recognized fields", async () => {
     await createActor();
     const response = await patchChannel(new Request("http://localhost/api/admin/channels", {
       method: "PATCH",
-      body: JSON.stringify({ id: "channel-1", groupId: "group-a", fanCostMode: "BAD" }),
+      body: JSON.stringify({ id: "channel-1", groupId: "group-a" }),
     }));
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "渠道计费方式不正确" });
+    await expect(response.json()).resolves.toEqual({ error: "没有可更新的渠道信息" });
   });
 
   it("does not allow a group or channel to be re-enabled under a disabled parent", async () => {

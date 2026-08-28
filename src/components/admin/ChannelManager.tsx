@@ -15,14 +15,8 @@ import {
   type AdminFormError,
 } from "./admin-display";
 import { HighRiskConfirmationDialog } from "./HighRiskConfirmationDialog";
-import { requiresChannelPriceClearConfirmation } from "./admin-high-risk";
 
 type ChannelType = "SMS" | "ADS" | "REBATE";
-type PendingChannelSave = {
-  body: Record<string, unknown>;
-  name: string;
-  nextPriceCents: number | null | undefined;
-};
 type PendingAdminMutation = {
   body: Record<string, unknown>;
   name: string;
@@ -47,14 +41,10 @@ export function ChannelManager({
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [channelType, setChannelType] = useState<ChannelType>("SMS");
-  const departments = useMemo(() => Array.from(new Map(_groups.filter((group) => group.departmentId && group.departmentName).map((group) => [group.departmentId as string, group.departmentName as string])).entries()).map(([id, name]) => ({ id, name })), [_groups]);
-  const [pricingDepartmentId, setPricingDepartmentId] = useState("");
   const [error, setError] = useState<AdminFormError | null>(null);
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState(false);
-  const [pendingPriceClear, setPendingPriceClear] =
-    useState<PendingChannelSave | null>(null);
   const [pendingAdminMutation, setPendingAdminMutation] =
     useState<PendingAdminMutation | null>(null);
   const channel = selected === "new" || !selected ? null : selected;
@@ -70,20 +60,17 @@ export function ChannelManager({
   const close = () => {
     setSelected(null);
     setConfirm(false);
-    setPendingPriceClear(null);
     setPendingAdminMutation(null);
   };
   function openNew() {
     setSelected("new");
     setChannelType("SMS");
-    setPricingDepartmentId(departments[0]?.id ?? "");
     setError(null);
     setNotice("");
   }
   function openEdit(item: ManagedChannel) {
     setSelected(item);
-    setChannelType(item.channelType ?? (item.fanCostMode === "FREE" ? "REBATE" : "SMS"));
-    setPricingDepartmentId(departments[0]?.id ?? "");
+    setChannelType(item.channelType ?? "SMS");
     setConfirm(false);
     setError(null);
     setNotice("");
@@ -96,57 +83,8 @@ export function ChannelManager({
     const body: Record<string, unknown> = channel
       ? { id: channel.id, ...(companyMode ? { company: true } : { global: true }), name, channelType }
       : { name, ...(companyMode ? { company: true } : { global: true }), channelType };
-    if (!companyMode && pricingDepartmentId) body.departmentId = pricingDepartmentId;
-    let nextPriceCents: number | null | undefined;
-    if (channelType === "SMS") {
-      body.fanCostMode = "PAID";
-      const priceText = String(form.get("effectiveFanPriceYuan") ?? "").trim();
-      if (!/^\d+(?:\.\d{1,2})?$/.test(priceText) || Number(priceText) <= 0) {
-        setError({
-          field: "effectiveFanPriceCents",
-          message: "付费渠道请填写大于 0 的有效粉单价，最多两位小数",
-        });
-        return;
-      }
-      if (priceText) {
-        const cents = Math.round(Number(priceText) * 100);
-        if (!Number.isSafeInteger(cents) || cents > 2_147_483_647) {
-          setError({
-            field: "effectiveFanPriceCents",
-            message: "有效粉单价超出可保存范围",
-          });
-          return;
-        }
-        nextPriceCents = cents;
-        body.effectiveFanPriceCents = cents;
-      }
-    } else if (channelType === "REBATE") {
-      body.fanCostMode = "FREE";
-      nextPriceCents = 0;
-      body.effectiveFanPriceCents = 0;
-      const rebateRateText = String(form.get("rebateRatePercent") ?? "30").trim();
-      if (!/^\d+(?:\.\d{1,2})?$/.test(rebateRateText) || Number(rebateRateText) < 0 || Number(rebateRateText) > 100) {
-        setError({ field: "effectiveFanPriceCents", message: "返点比例应在 0% 到 100% 之间" });
-        return;
-      }
-      body.rebateRateBps = Math.round(Number(rebateRateText) * 100);
-    } else {
-      body.fanCostMode = "PAID";
-      nextPriceCents = null;
-      body.effectiveFanPriceCents = null;
-    }
     if (!resourceMode && !companyMode) {
       setPendingAdminMutation({ body, name, method: channel ? "PATCH" : "POST", operation: channel ? "update" : "create" });
-      return;
-    }
-    if (
-      channel &&
-      requiresChannelPriceClearConfirmation(
-        channel.effectiveFanPriceCents,
-        nextPriceCents,
-      )
-    ) {
-      setPendingPriceClear({ body, name, nextPriceCents });
       return;
     }
     setSaving(true);
@@ -219,9 +157,9 @@ export function ChannelManager({
     <section>
       <div className="mb-5 flex items-end justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold">{resourceMode || companyMode ? "渠道与粉单价" : "渠道管理"}</h2>
+          <h2 className="text-2xl font-bold">渠道管理</h2>
           <p className="mt-1 text-sm text-slate-600">
-            {companyMode ? "仅管理本公司：保存后会同步到本公司所有小组；其他公司的渠道和价格不会受到影响。所有修改都会写入审计日志。" : resourceMode ? "全局渠道：保存后所有公司和小组都可以选择；资源部按公司维护单价、投流规则或返点。所有修改都会写入审计日志。" : "日常渠道和粉单价由资源部维护；总公司仅在特殊情况下介入，并必须填写原因和管理员密码。"}
+            {companyMode ? "仅管理本公司：保存后会同步到本公司所有小组；其他公司的渠道不会受到影响。所有修改都会写入审计日志。" : resourceMode ? "全局渠道：保存后所有公司和小组都可以选择；资源部负责渠道的日常维护和投流批次规则。所有修改都会写入审计日志。" : "日常渠道由资源部维护；总公司仅在特殊情况下介入，并必须填写原因和管理员密码。"}
           </p>
         </div>
         <button
@@ -285,7 +223,7 @@ export function ChannelManager({
               </button>
             </header>
             <div className="flex-1 p-6">
-              <form id="channel-form" key={`${channel?.id ?? "new"}-${pricingDepartmentId}`} onSubmit={submit} className="space-y-5">
+              <form id="channel-form" key={channel?.id ?? "new"} onSubmit={submit} className="space-y-5">
                 <label className="block text-sm font-medium">
                   渠道名称
                   <input
@@ -297,37 +235,10 @@ export function ChannelManager({
                   />
                 </label>
                 <label className="block text-sm font-medium">渠道类型<select value={channelType} disabled={Boolean(channel)} onChange={(event) => setChannelType(event.target.value as ChannelType)} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2.5 disabled:bg-slate-100"><option value="SMS">短信粉</option><option value="ADS">投流粉</option><option value="REBATE">底料返点</option></select>{channel ? <span className="mt-1 block text-xs font-normal text-slate-500">已产生历史批次的渠道不能改类型，避免旧账变口径。</span> : null}</label>
-                {!companyMode && departments.length ? <label className="block text-sm font-medium">定价公司<select value={pricingDepartmentId} onChange={(event) => setPricingDepartmentId(event.target.value)} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2.5">{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">渠道全公司可选，但每家公司分别维护价格或返点。</span></label> : null}
-                {companyMode ? <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">保存后，本公司的所有小组会使用同一条渠道和单价。</p> : null}
+                {companyMode ? <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">保存后，本公司的所有小组会使用同一条渠道。</p> : null}
                 <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-800">
-                  {channelType === "ADS" ? "组长先建立共享投流批次并填写一次广告费；多位接粉员选择同一渠道和日期导入，系统按广告消耗 × 115% ÷ 全部有效新增数自动统一核算单粉成本。" : channelType === "REBATE" ? "底料返点不计资源成本；客户净业绩按 70% 计入业绩，另 30% 在每月 1 日结算上月返点。" : "短信粉按所选公司的有效粉单价计算资源成本。"}
+                  {channelType === "ADS" ? "组长先建立共享投流批次并填写一次广告费；多位接粉员选择同一渠道和日期导入，系统按广告消耗 × 115% ÷ 全部有效新增数自动统一核算单粉成本。" : "渠道类型只用于统计口径分类，对比不同来源的转化质量。"}
                 </div>
-                {channelType === "SMS" && (
-                  <label className="block text-sm font-medium">
-                    每个有效粉单价（美元）
-                    <input
-                      name="effectiveFanPriceYuan"
-                      inputMode="decimal"
-                      defaultValue={
-                        channel?.companyPrices?.find((price) => price.departmentId === pricingDepartmentId)?.effectiveFanPriceCents ?? channel?.effectiveFanPriceCents
-                          ? ((channel?.companyPrices?.find((price) => price.departmentId === pricingDepartmentId)?.effectiveFanPriceCents ?? channel?.effectiveFanPriceCents ?? 0) / 100).toFixed(2)
-                          : ""
-                      }
-                      placeholder="例如 50.00"
-                      aria-invalid={error?.field === "effectiveFanPriceCents"}
-                      className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2.5"
-                    />
-                    {error?.field === "effectiveFanPriceCents" && (
-                      <span
-                        role="alert"
-                        className="mt-1 block text-sm font-normal text-red-700"
-                      >
-                        {error.message}
-                      </span>
-                    )}
-                  </label>
-                )}
-                {channelType === "REBATE" && <label className="block text-sm font-medium">返点比例（%）<input name="rebateRatePercent" inputMode="decimal" defaultValue={(((channel?.companyPrices?.find((price) => price.departmentId === pricingDepartmentId)?.rebateRateBps ?? channel?.rebateRateBps ?? 3000) / 100)).toFixed(2)} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2.5" /></label>}
               </form>
               {channel && (
                 <div className="mt-8 border-t pt-6">
@@ -384,25 +295,24 @@ export function ChannelManager({
         </div>
       )}
       <HighRiskConfirmationDialog
-        open={Boolean(pendingPriceClear || pendingAdminMutation)}
-        title={pendingAdminMutation ? "确认总公司介入渠道管理" : "确认清除渠道单价"}
-        description={pendingAdminMutation ? `资源部负责日常渠道维护。总公司将${pendingAdminMutation.operation === "create" ? "新增" : pendingAdminMutation.operation === "disable" ? "停用" : pendingAdminMutation.operation === "enable" ? "启用" : "修改"}“${pendingAdminMutation.name}”，必须说明介入原因并验证管理员密码。` : `“${channel?.name ?? pendingPriceClear?.name ?? ""}”将改为免费粉，原有单价会被清除，单价和获客成本会按 $0 计算。请确认该渠道确实已经不再产生粉成本。`}
-        confirmLabel={pendingAdminMutation ? "确认总公司介入" : "确认清除单价"}
+        open={Boolean(pendingAdminMutation)}
+        title="确认总公司介入渠道管理"
+        description={pendingAdminMutation ? `资源部负责日常渠道维护。总公司将${pendingAdminMutation.operation === "create" ? "新增" : pendingAdminMutation.operation === "disable" ? "停用" : pendingAdminMutation.operation === "enable" ? "启用" : "修改"}“${pendingAdminMutation.name}”，必须说明介入原因并验证管理员密码。` : ""}
+        confirmLabel="确认总公司介入"
         passwordLabel={companyMode ? "当前公司管理员密码" : resourceMode ? "当前资源部账号密码" : "当前管理员密码"}
-        onClose={() => { setPendingPriceClear(null); setPendingAdminMutation(null); }}
+        onClose={() => setPendingAdminMutation(null)}
         onConfirm={async (credentials) => {
-          const pending = pendingAdminMutation ?? (pendingPriceClear ? { ...pendingPriceClear, method: "PATCH" as const, operation: "update" as const } : null);
-          if (!pending) return;
+          if (!pendingAdminMutation) return;
           await requestAdminMutation(
             "/api/admin/channels",
-            { ...pending.body, ...credentials },
-            pending.method,
+            { ...pendingAdminMutation.body, ...credentials },
+            pendingAdminMutation.method,
           );
           setNotice(
             adminMutationSuccessMessage(
               "channel",
-              pending.operation,
-              pending.name,
+              pendingAdminMutation.operation,
+              pendingAdminMutation.name,
             ),
           );
           close();

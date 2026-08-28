@@ -85,8 +85,6 @@ describe("channel admin display", () => {
         name: "自然流量",
         groupId: "group-a",
         active: true,
-        fanCostMode: "FREE",
-        effectiveFanPriceCents: 0,
         group: { id: "group-a", name: "一组", active: true },
         creator: null,
         createdAt: "2026-08-14T00:00:00.000Z",
@@ -97,8 +95,6 @@ describe("channel admin display", () => {
         name: "付费投放",
         groupId: "group-a",
         active: true,
-        fanCostMode: "PAID",
-        effectiveFanPriceCents: 5_000,
         group: { id: "group-a", name: "一组", active: true },
         creator: null,
         createdAt: "2026-08-14T00:00:00.000Z",
@@ -117,8 +113,6 @@ describe("channel admin display", () => {
     expect(formatChannelGroupLabel(groups[0])).toBe("A 部门 / 一组");
     expect(formatEffectiveFanPrice(5_000)).toBe("$50.00 / 有效数据");
     expect(markup).toContain("全部公司 / 1 个小组");
-    expect(markup).toContain("$0.00");
-    expect(markup).toContain("$50.00 / 有效数据");
     expect(markup).not.toContain("¥");
   });
 });

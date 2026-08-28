@@ -47,13 +47,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   });
   const channels = collapseGlobalChannelCopies(channelsRaw).map(({ row, groupCount, batchCount }) => {
     const { createdBy, _count: _count, createdAt, ...channel } = row;
-    const companyPrices = Array.from(new Map(channelsRaw.filter((item) => item.id === row.id).map((item) => [item.group.department.id, {
-      departmentId: item.group.department.id,
-      departmentName: item.group.department.name,
-      effectiveFanPriceCents: item.effectiveFanPriceCents,
-      rebateRateBps: item.rebateRateBps,
-    }])).values());
-    return { ...channel, creator: createdBy, createdAt: createdAt.toISOString(), batchCount, groupCount, companyPrices };
+    return { ...channel, creator: createdBy, createdAt: createdAt.toISOString(), batchCount, groupCount };
   });
   const resourceChannels = channels.map((channel) => ({ id: channel.id, name: channel.name, active: channel.active, channelType: channel.channelType }));
   const logs = logsRaw.map((log) => ({ ...log, createdAt: log.createdAt.toISOString() }));

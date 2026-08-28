@@ -34,7 +34,7 @@ export function MemberDailyDetail({ detail }: { detail: MemberDailyDetailData })
     <div className="border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-600">
       {detail.member.role === "RECEPTION" ? "添加与有效数据按导入日统计；回复、进群按实际发生日统计。" : null}
       {detail.member.role === "GROUP_OPERATOR" ? "可推专家：已进群满 2 天、当天仍在群且尚未推专家的客户。" : null}
-      {detail.member.role === "EXPERT" ? "入金包含首充和续充；净业绩 = 入金 − 出金。数据成本只在计入业绩中扣除。" : null}
+      {detail.member.role === "EXPERT" ? "入金包含首充和续充；净业绩 = 入金 − 出金。" : null}
     </div>
     <div className="data-table-wrap">
       {detail.member.role === "RECEPTION" ? <ReceptionRows detail={detail} /> : null}

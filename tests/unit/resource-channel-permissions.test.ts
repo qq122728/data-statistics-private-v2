@@ -36,7 +36,7 @@ describe.sequential("resource department channel permissions", () => {
     expect(JSON.parse(audit.summary)).toMatchObject({ highRiskReason: "资源部暂时无法处理", reauthenticated: true, impact: { headquartersOverride: true } });
   });
 
-  it("lets a resource manager create channels and change or clear USD fan prices with an audit trail", async () => {
+  it("lets a resource manager create and rename channels with an audit trail", async () => {
     const id = `${prefix}user-${randomUUID()}`;
     const password = "Resource-test@56790";
     const actor = await db.user.create({ data: { id, username: id, name: "投流资源测试", passwordHash: hashPassword(password), role: "RESOURCE_MANAGER" } });
@@ -47,18 +47,16 @@ describe.sequential("resource department channel permissions", () => {
     await db.resourceChannelAccess.create({ data: { userId: actor.id, channelId: permittedChannelId } });
     vi.spyOn(auth, "requireRole").mockResolvedValue({ ...actor, resourceChannelAccess: [{ channelId: permittedChannelId }] });
 
-    const created = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ name: `${prefix}短信`, groupId, fanCostMode: "PAID", effectiveFanPriceCents: 500 }) }));
+    const created = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ name: `${prefix}短信`, groupId }) }));
     expect(created.status).toBe(201);
     const channel = await created.json() as { id: string };
     vi.mocked(auth.requireRole).mockResolvedValue({ ...actor, resourceChannelAccess: [{ channelId: permittedChannelId }, { channelId: channel.id }] });
 
-    const updated = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ id: channel.id, groupId, effectiveFanPriceCents: 650 }) }));
+    const updated = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ id: channel.id, groupId, name: `${prefix}短信-改名` }) }));
     expect(updated.status).toBe(200);
-    const cleared = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ id: channel.id, groupId, fanCostMode: "FREE", highRiskReason: "渠道已经停止计费", currentPassword: password }) }));
-    expect(cleared.status).toBe(200);
 
-    expect(await db.channel.findUniqueOrThrow({ where: { id_groupId: { id: channel.id, groupId } } })).toMatchObject({ fanCostMode: "FREE", effectiveFanPriceCents: 0 });
-    expect(await db.auditLog.count({ where: { actorId: actor.id, entityId: channel.id } })).toBe(3);
+    expect(await db.channel.findUniqueOrThrow({ where: { id_groupId: { id: channel.id, groupId } } })).toMatchObject({ name: `${prefix}短信-改名` });
+    expect(await db.auditLog.count({ where: { actorId: actor.id, entityId: channel.id } })).toBe(2);
   });
 
   it("keeps ordinary frontline accounts out of the channel management API", async () => {
@@ -100,17 +98,18 @@ describe.sequential("resource department channel permissions", () => {
     const totalGroups = await db.teamGroup.count();
     const name = `${prefix}全局投流-${randomUUID()}`;
 
-    const created = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ global: true, name, fanCostMode: "PAID", effectiveFanPriceCents: 500 }) }));
+    const created = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ global: true, name }) }));
     expect(created.status).toBe(201);
     const channel = await created.json() as { id: string; groupCount: number };
     expect(channel.groupCount).toBe(totalGroups);
     await expect(db.channel.count({ where: { id: channel.id } })).resolves.toBe(totalGroups);
     vi.mocked(auth.requireRole).mockResolvedValue({ ...actor, resourceChannelAccess: [{ channelId: permittedChannelId }, { channelId: channel.id }] });
 
-    const updated = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ global: true, id: channel.id, effectiveFanPriceCents: 750 }) }));
+    const renamed = `${name}-改名`;
+    const updated = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ global: true, id: channel.id, name: renamed }) }));
     expect(updated.status).toBe(200);
-    const copies = await db.channel.findMany({ where: { id: channel.id }, select: { effectiveFanPriceCents: true } });
-    expect(new Set(copies.map((copy) => copy.effectiveFanPriceCents))).toEqual(new Set([750]));
+    const copies = await db.channel.findMany({ where: { id: channel.id }, select: { name: true } });
+    expect(new Set(copies.map((copy) => copy.name))).toEqual(new Set([renamed]));
   });
 
   it("lets a company manager manage only its own company channel catalog", async () => {
@@ -133,20 +132,21 @@ describe.sequential("resource department channel permissions", () => {
     vi.spyOn(auth, "requireRole").mockResolvedValue(actor);
     const name = `${prefix}公司短信-${randomUUID()}`;
 
-    const rejectedGlobal = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ global: true, name, effectiveFanPriceCents: 500 }) }));
+    const rejectedGlobal = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ global: true, name }) }));
     expect(rejectedGlobal.status).toBe(403);
-    const created = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ company: true, name, effectiveFanPriceCents: 500 }) }));
+    const created = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ company: true, name }) }));
     expect(created.status).toBe(201);
     const channel = await created.json() as { id: string; groupCount: number };
     expect(channel.groupCount).toBe(ownGroupIds.length);
     expect(await db.channel.count({ where: { id: channel.id } })).toBe(ownGroupIds.length);
     expect(await db.channel.count({ where: { id: channel.id, groupId: otherGroupId } })).toBe(0);
 
-    const updated = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ company: true, id: channel.id, effectiveFanPriceCents: 700 }) }));
+    const renamed = `${name}-改名`;
+    const updated = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ company: true, id: channel.id, name: renamed }) }));
     expect(updated.status).toBe(200);
-    const copies = await db.channel.findMany({ where: { id: channel.id }, select: { groupId: true, effectiveFanPriceCents: true } });
+    const copies = await db.channel.findMany({ where: { id: channel.id }, select: { groupId: true, name: true } });
     expect(copies).toHaveLength(ownGroupIds.length);
-    expect(new Set(copies.map((copy) => copy.effectiveFanPriceCents))).toEqual(new Set([700]));
+    expect(new Set(copies.map((copy) => copy.name))).toEqual(new Set([renamed]));
     expect(getVisibleAppNavigation("COMPANY_MANAGER")).toContainEqual({ href: "/resource-channels", label: "渠道与单价" });
   });
 

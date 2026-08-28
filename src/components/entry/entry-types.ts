@@ -2,10 +2,7 @@ export type EntryBatch = {
   id: string;
   sourceDate: string;
   isHistoricalRecord?: boolean;
-  fanCostModeSnapshot: "FREE" | "PAID";
-  effectiveFanPriceCentsSnapshot: number | null;
   channelTypeSnapshot?: "SMS" | "ADS" | "REBATE";
-  rebateRateBpsSnapshot?: number | null;
   group: { name: string };
   channel: { id: string; name: string };
 };

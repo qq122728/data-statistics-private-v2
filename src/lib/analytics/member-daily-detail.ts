@@ -25,7 +25,6 @@ export type MemberDailyRow = {
   ordered: number;
   depositCents: number;
   withdrawalCents: number;
-  costCents: number;
   netCents: number;
 };
 
@@ -56,7 +55,6 @@ const emptyRow = (date: string): MemberDailyRow => ({
   ordered: 0,
   depositCents: 0,
   withdrawalCents: 0,
-  costCents: 0,
   netCents: 0,
 });
 
@@ -148,7 +146,7 @@ export async function loadMemberDailyDetail(input: {
       expertIntroducedOn: true,
       expertContactedOn: true,
       registeredOn: true,
-      batch: { select: { sourceDate: true, isHistoricalRecord: true, fanCostModeSnapshot: true, effectiveFanPriceCentsSnapshot: true } },
+      batch: { select: { sourceDate: true, isHistoricalRecord: true } },
       customerOrder: {
         select: {
           openedOn: true,
@@ -197,10 +195,7 @@ export async function loadMemberDailyDetail(input: {
         if (lead.invalid || lead.receptionCategory === "INVALID") row.invalid += 1;
         if (lead.receptionCategory === "LOW_AMOUNT") row.lowAmount += 1;
         if (lead.receptionCategory === "NO_WS") row.noWs += 1;
-        if (isResourceEligible(lead)) {
-          row.valid += 1;
-          if (lead.batch.fanCostModeSnapshot === "PAID") row.costCents += lead.batch.effectiveFanPriceCentsSnapshot ?? 0;
-        }
+        if (isResourceEligible(lead)) row.valid += 1;
       }
     }
     if (!reportEligible) continue;
@@ -228,9 +223,6 @@ export async function loadMemberDailyDetail(input: {
     if (openedRow && input.role === "EXPERT") {
       openedRow.ordered += 1;
       openedRow.depositCents += order.initialDepositCents;
-      if (!historical && isResourceEligible(lead) && lead.batch.fanCostModeSnapshot === "PAID") {
-        openedRow.costCents += lead.batch.effectiveFanPriceCentsSnapshot ?? 0;
-      }
     }
     for (const event of order.events) {
       const eventRow = rowFor(event.occurredOn);
@@ -260,7 +252,6 @@ export async function loadMemberDailyDetail(input: {
       row.eligibleForExpert = leads.filter((lead) => !lead.isHistoricalRecord && !lead.batch.isHistoricalRecord && isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= addDays(row.date, -2) && (!lead.leftOn || lead.leftOn > row.date) && (!lead.expertIntroducedOn || lead.expertIntroducedOn > row.date)).length;
     }
   }
-  // 净业绩只反映资金流：入金减出金。数据成本只在计入业绩中扣除，不能混在净业绩里。
   for (const row of rows.values()) row.netCents = row.depositCents - row.withdrawalCents;
 
   return {

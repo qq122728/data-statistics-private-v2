@@ -23,7 +23,6 @@ const row = {
   ordered: 1,
   depositCents: 500000,
   withdrawalCents: 125000,
-  costCents: 10000,
   netCents: 375000,
 };
 
@@ -43,7 +42,7 @@ describe("member daily detail", () => {
 
   it("makes expert net performance a funds-only number", () => {
     const html = renderToStaticMarkup(createElement(MemberDailyDetail, { detail: { member: { id: "e", name: "专家 A", role: "EXPERT", groupName: "A 组" }, from: row.date, to: row.date, rows: [row] } }));
-    expect(html).toContain("净业绩 = 入金 − 出金。数据成本只在计入业绩中扣除。");
+    expect(html).toContain("净业绩 = 入金 − 出金。");
     expect(html).toContain("$3,750.00");
   });
 

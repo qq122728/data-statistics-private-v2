@@ -60,14 +60,3 @@ export function requiresAdminPrivilegeConfirmation(
     "admin-privilege"
   );
 }
-
-export function requiresChannelPriceClearConfirmation(
-  previousPriceCents: number | null,
-  nextPriceCents: number | null | undefined,
-): boolean {
-  return (
-    typeof previousPriceCents === "number" &&
-    previousPriceCents > 0 &&
-    nextPriceCents === 0
-  );
-}

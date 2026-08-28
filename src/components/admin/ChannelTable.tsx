@@ -1,5 +1,4 @@
 import { CheckCircle, Circle } from "@phosphor-icons/react";
-import { formatEffectiveFanPrice } from "./admin-display";
 import type { AdminGroup } from "./MemberTable";
 
 export function formatChannelGroupLabel(
@@ -15,16 +14,12 @@ export type ManagedChannel = {
   name: string;
   groupId: string;
   active: boolean;
-  fanCostMode: "FREE" | "PAID";
-  effectiveFanPriceCents: number | null;
   channelType?: "SMS" | "ADS" | "REBATE";
-  rebateRateBps?: number | null;
   group: { id: string; name: string; active: boolean };
   creator: { name: string } | null;
   createdAt: string;
   batchCount: number;
   groupCount?: number;
-  companyPrices?: Array<{ departmentId: string; departmentName: string; effectiveFanPriceCents: number | null; rebateRateBps: number | null }>;
 };
 export function channelTypeLabel(type: ManagedChannel["channelType"]) {
   return type === "ADS" ? "投流粉" : type === "REBATE" ? "底料返点" : "短信粉";
@@ -45,7 +40,6 @@ export function ChannelTable({
             <th className="px-4 py-3">渠道名称</th>
             <th className="px-4 py-3">类型</th>
             <th className="px-4 py-3">使用范围</th>
-            <th className="px-4 py-3">公司定价 / 返点</th>
             <th className="px-4 py-3">创建人</th>
             <th className="px-4 py-3">创建时间</th>
             <th className="px-4 py-3">历史批次</th>
@@ -63,9 +57,6 @@ export function ChannelTable({
               <td className="px-4 py-4"><span className="rounded bg-slate-100 px-2 py-1 font-medium text-slate-700">{channelTypeLabel(channel.channelType)}</span></td>
               <td className="px-4 py-4 text-slate-600">
                 全部公司 / {channel.groupCount ?? 1} 个小组
-              </td>
-              <td className="px-4 py-4">
-                {channel.companyPrices?.length ? <div className="space-y-1 text-xs">{channel.companyPrices.map((price) => <div key={price.departmentId}><span className="text-slate-500">{price.departmentName}：</span>{channel.channelType === "REBATE" ? `净业绩 ${((price.rebateRateBps ?? 3000) / 100).toFixed(0)}% 返点` : channel.channelType === "ADS" ? "广告消耗 × 115% ÷ 当次产粉" : formatEffectiveFanPrice(price.effectiveFanPriceCents)}</div>)}</div> : channel.channelType === "REBATE" ? `净业绩 ${((channel.rebateRateBps ?? 3000) / 100).toFixed(0)}% 返点` : channel.channelType === "ADS" ? "广告消耗 × 115% ÷ 当次产粉" : formatEffectiveFanPrice(channel.effectiveFanPriceCents)}
               </td>
               <td className="px-4 py-4 text-slate-600">
                 {channel.creator?.name ?? "系统"}

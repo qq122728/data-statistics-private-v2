@@ -93,10 +93,7 @@ describe.sequential("administrator channel audit context", () => {
           changedFields: [
             "name",
             "groupId",
-            "fanCostMode",
-            "effectiveFanPriceCents",
             "channelType",
-            "rebateRateBps",
           ],
           groupId,
           groupName,
@@ -126,34 +123,21 @@ describe.sequential("administrator channel audit context", () => {
     ]);
   });
 
-  it("updates only the composite-key channel price and audits its before and after values", async () => {
+  it("updates only the composite-key channel copy targeted by groupId", async () => {
     await seededAdmin();
     const channelId = `${fixturePrefix}shared-${randomUUID()}`;
     const firstGroupId = `${fixturePrefix}group-a-${randomUUID()}`;
     const secondGroupId = `${fixturePrefix}group-b-${randomUUID()}`;
     await db.teamGroup.createMany({
       data: [
-        { id: firstGroupId, name: "价格测试一组" },
-        { id: secondGroupId, name: "价格测试二组" },
+        { id: firstGroupId, name: "同名测试一组" },
+        { id: secondGroupId, name: "同名测试二组" },
       ],
     });
     await db.channel.createMany({
       data: [
-        {
-          id: channelId,
-          groupId: firstGroupId,
-          name: "同名渠道",
-          normalizedName: "同名渠道",
-          effectiveFanPriceCents: null,
-        },
-        {
-          id: channelId,
-          groupId: secondGroupId,
-          name: "同名渠道",
-          normalizedName: "同名渠道",
-          fanCostMode: "PAID",
-          effectiveFanPriceCents: 9_000,
-        },
+        { id: channelId, groupId: firstGroupId, name: "同名渠道", normalizedName: "同名渠道" },
+        { id: channelId, groupId: secondGroupId, name: "同名渠道", normalizedName: "同名渠道" },
       ],
     });
 
@@ -163,7 +147,7 @@ describe.sequential("administrator channel audit context", () => {
         body: JSON.stringify(confirmed({
           id: channelId,
           groupId: firstGroupId,
-          effectiveFanPriceCents: 5_000,
+          name: "改名后的渠道",
         })),
       }),
     );
@@ -172,170 +156,14 @@ describe.sequential("administrator channel audit context", () => {
     await expect(response.json()).resolves.toMatchObject({
       id: channelId,
       groupId: firstGroupId,
-      effectiveFanPriceCents: 5_000,
+      name: "改名后的渠道",
     });
     await expect(
       db.channel.findUnique({
         where: { id_groupId: { id: channelId, groupId: secondGroupId } },
-        select: { effectiveFanPriceCents: true },
+        select: { name: true },
       }),
-    ).resolves.toEqual({ effectiveFanPriceCents: 9_000 });
-    const audit = await db.auditLog.findFirstOrThrow({
-      where: {
-        entityId: channelId,
-        action: "CHANNEL_PRICE_UPDATED",
-        summary: { contains: firstGroupId },
-      },
-    });
-    expect(JSON.parse(audit.summary)).toMatchObject({
-      changedFields: ["fanCostMode", "effectiveFanPriceCents"],
-      name: "同名渠道",
-      groupId: firstGroupId,
-      groupName: "价格测试一组",
-      before: { fanCostMode: "FREE", effectiveFanPriceCents: null },
-      after: { fanCostMode: "PAID", effectiveFanPriceCents: 5_000 },
-    });
-  });
-
-  it("accepts zero as a free-channel price", async () => {
-    await seededAdmin();
-    const groupId = `${fixturePrefix}free-${randomUUID()}`;
-    const channelId = `${fixturePrefix}free-${randomUUID()}`;
-    await db.teamGroup.create({
-      data: { id: groupId, name: "免费渠道测试组" },
-    });
-    await db.channel.create({
-      data: {
-        id: channelId,
-        groupId,
-        name: "免费渠道",
-        normalizedName: "免费渠道",
-      },
-    });
-    const response = await PATCH(
-      new Request("http://localhost/api/admin/channels", {
-        method: "PATCH",
-        body: JSON.stringify(confirmed({
-          id: channelId,
-          groupId,
-          effectiveFanPriceCents: 0,
-        })),
-      }),
-    );
-    expect(response.status).toBe(200);
-    await expect(
-      db.channel.findUnique({
-        where: { id_groupId: { id: channelId, groupId } },
-        select: { effectiveFanPriceCents: true },
-      }),
-    ).resolves.toEqual({ effectiveFanPriceCents: 0 });
-  });
-
-  it("changes a paid channel back to free and ignores the unchanged UI name", async () => {
-    const { currentPassword } = await protectedAdmin();
-    const groupId = `${fixturePrefix}pending-${randomUUID()}`;
-    const channelId = `${fixturePrefix}pending-${randomUUID()}`;
-    await db.teamGroup.create({
-      data: { id: groupId, name: "恢复待定价小组" },
-    });
-    await db.channel.create({
-      data: {
-        id: channelId,
-        groupId,
-        name: "真实界面渠道",
-        normalizedName: "真实界面渠道",
-        fanCostMode: "PAID",
-        effectiveFanPriceCents: 5_000,
-      },
-    });
-
-    const response = await PATCH(
-      new Request("http://localhost/api/admin/channels", {
-        method: "PATCH",
-        body: JSON.stringify({
-          id: channelId,
-          groupId,
-          name: "真实界面渠道",
-          effectiveFanPriceCents: null,
-          highRiskReason: "投放结束，清空渠道单价",
-          currentPassword,
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      fanCostMode: "FREE",
-      effectiveFanPriceCents: 0,
-    });
-    await expect(
-      db.channel.findUnique({
-        where: { id_groupId: { id: channelId, groupId } },
-        select: { fanCostMode: true, effectiveFanPriceCents: true },
-      }),
-    ).resolves.toEqual({ fanCostMode: "FREE", effectiveFanPriceCents: 0 });
-    const audit = await db.auditLog.findFirstOrThrow({
-      where: { entityId: channelId, action: "CHANNEL_PRICE_UPDATED" },
-    });
-    expect(JSON.parse(audit.summary)).toMatchObject({
-      changedFields: ["fanCostMode", "effectiveFanPriceCents"],
-      name: "真实界面渠道",
-      groupId,
-      groupName: "恢复待定价小组",
-      before: { name: "真实界面渠道", active: true, fanCostMode: "PAID", effectiveFanPriceCents: 5_000 },
-      after: { name: "真实界面渠道", active: true, fanCostMode: "FREE", effectiveFanPriceCents: 0 },
-      highRiskReason: "投放结束,清空渠道单价",
-      reauthenticated: true,
-      impact: {
-        customerOrders: 0,
-        historicalProfitMayChange: true,
-        leadCustomers: 0,
-        metricEvents: 0,
-        sourceBatches: 0,
-      },
-    });
-  });
-
-  it("records accurate before and after values when the UI changes both name and price", async () => {
-    await seededAdmin();
-    const groupId = `${fixturePrefix}rename-${randomUUID()}`;
-    const channelId = `${fixturePrefix}rename-${randomUUID()}`;
-    await db.teamGroup.create({ data: { id: groupId, name: "改名改价小组" } });
-    await db.channel.create({
-      data: {
-        id: channelId,
-        groupId,
-        name: "原渠道名",
-        normalizedName: "原渠道名",
-        fanCostMode: "PAID",
-        effectiveFanPriceCents: 4_000,
-      },
-    });
-
-    const response = await PATCH(
-      new Request("http://localhost/api/admin/channels", {
-        method: "PATCH",
-        body: JSON.stringify(confirmed({
-          id: channelId,
-          groupId,
-          name: "新渠道名",
-          effectiveFanPriceCents: 6_000,
-        })),
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    const audit = await db.auditLog.findFirstOrThrow({
-      where: { entityId: channelId, action: "CHANNEL_PRICE_UPDATED" },
-    });
-    expect(JSON.parse(audit.summary)).toMatchObject({
-      changedFields: ["name", "effectiveFanPriceCents"],
-      name: "新渠道名",
-      groupId,
-      groupName: "改名改价小组",
-      before: { name: "原渠道名", effectiveFanPriceCents: 4_000 },
-      after: { name: "新渠道名", effectiveFanPriceCents: 6_000 },
-    });
+    ).resolves.toEqual({ name: "同名渠道" });
   });
 
   it("does not write an audit when the real UI payload changes nothing", async () => {
@@ -349,8 +177,6 @@ describe.sequential("administrator channel audit context", () => {
         groupId,
         name: "未变渠道",
         normalizedName: "未变渠道",
-        fanCostMode: "PAID",
-        effectiveFanPriceCents: 5_000,
       },
     });
 
@@ -361,7 +187,6 @@ describe.sequential("administrator channel audit context", () => {
           id: channelId,
           groupId,
           name: "未变渠道",
-          effectiveFanPriceCents: 5_000,
         }),
       }),
     );
@@ -370,28 +195,8 @@ describe.sequential("administrator channel audit context", () => {
     expect(await db.auditLog.count({ where: { entityId: channelId } })).toBe(0);
   });
 
-  it.each([
-    ["negative", -1],
-    ["fractional", 12.5],
-    ["above Prisma Int", 2_147_483_648],
-    ["numeric string", "5000"],
-  ])("rejects a %s channel price", async (_label, effectiveFanPriceCents) => {
-    await seededAdmin();
-    const response = await PATCH(
-      new Request("http://localhost/api/admin/channels", {
-        method: "PATCH",
-        body: JSON.stringify({
-          id: "channel-1",
-          groupId: "group-a",
-          effectiveFanPriceCents,
-        }),
-      }),
-    );
-    expect(response.status).toBe(400);
-  });
-
   it.each(["LEAD", "RECEPTION"])(
-    "returns 403 when a %s forges a channel price update",
+    "returns 403 when a %s forges a channel update",
     async () => {
       vi.spyOn(auth, "requireRole").mockRejectedValue(
         new auth.AuthorizationError(undefined, { id: "denied-user", groupId: "denied-team" } as never),
@@ -402,7 +207,7 @@ describe.sequential("administrator channel audit context", () => {
           body: JSON.stringify({
             id: "channel-1",
             groupId: "group-a",
-            effectiveFanPriceCents: 5_000,
+            name: "forged",
           }),
         }),
       );

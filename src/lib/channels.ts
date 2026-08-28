@@ -95,10 +95,7 @@ export async function resolveOrCreateChannel(client: ChannelClient, input: Chann
         groupId,
         createdById: actor.id,
         // 前台新建的渠道只属于本组；跨公司的公共渠道只能由资源部显式发布。
-        fanCostMode: channelType === "REBATE" ? "FREE" : "PAID",
-        effectiveFanPriceCents: null,
         channelType,
-        rebateRateBps: channelType === "REBATE" ? 3000 : null,
       },
     });
   } catch (error) {

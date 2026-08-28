@@ -145,7 +145,7 @@ test("role matrix rejects administrator business entry and keeps lead writes own
   expect(adminEventResponse.status()).toBe(403);
 
   expect((await memberSession.page.request.patch("/api/admin/channels", {
-    data: { id: "channel-1", groupId: "group-a", effectiveFanPriceCents: 5_000 },
+    data: { id: "channel-1", groupId: "group-a", name: "forged" },
   })).status()).toBe(403);
   expect((await memberSession.page.request.patch("/api/admin/users", {
     data: { id: "member-1", stageOverride: "FORMAL", stageOverrideReason: "成员越权调整阶段" },

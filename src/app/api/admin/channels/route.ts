@@ -5,11 +5,9 @@ import { normalizeChannelName } from "../../../../lib/channel-names";
 import { db } from "../../../../lib/db";
 import { requireChannelManagerRequest } from "../_auth";
 import { authorizeHighRiskOperation, HighRiskAuthorizationError } from "../_high-risk";
-import { parseEffectiveFanPriceCents } from "../users/validation";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 
-type FanCostMode = "FREE" | "PAID";
 type ChannelType = "SMS" | "ADS" | "REBATE";
 type ChannelRequest = {
   id?: unknown;
@@ -19,10 +17,7 @@ type ChannelRequest = {
   /** 公司管理员使用此范围；后端从登录账号读取公司，绝不信任前端传来的公司 ID。 */
   company?: unknown;
   active?: unknown;
-  fanCostMode?: unknown;
-  effectiveFanPriceCents?: unknown;
   channelType?: unknown;
-  rebateRateBps?: unknown;
   departmentId?: unknown;
   highRiskReason?: unknown;
   currentPassword?: unknown;
@@ -35,40 +30,6 @@ const duplicate = (error: unknown) =>
     error.code === "P2002",
   );
 class InactiveChannelParentError extends Error {}
-function parseCost(
-  input: ChannelRequest,
-):
-  | { success: true; fanCostMode: FanCostMode; effectiveFanPriceCents: number }
-  | { success: false; error: string } {
-  // 兼容旧管理界面：旧请求只传单价，0 或空视作免费，正数视作付费。
-  if (
-    Object.prototype.hasOwnProperty.call(input, "fanCostMode") &&
-    input.fanCostMode !== "FREE" &&
-    input.fanCostMode !== "PAID"
-  ) {
-    return { success: false, error: "渠道计费方式不正确" };
-  }
-  const hasPrice = Object.prototype.hasOwnProperty.call(
-    input,
-    "effectiveFanPriceCents",
-  );
-  const fanCostMode =
-    input.fanCostMode === "PAID"
-      ? "PAID"
-      : input.fanCostMode === "FREE"
-        ? "FREE"
-        : !hasPrice ||
-            input.effectiveFanPriceCents === null ||
-            input.effectiveFanPriceCents === 0
-          ? "FREE"
-          : "PAID";
-  if (fanCostMode === "FREE")
-    return { success: true, fanCostMode, effectiveFanPriceCents: 0 };
-  const parsed = parseEffectiveFanPriceCents(input.effectiveFanPriceCents);
-  if (!parsed.success || parsed.value === null || parsed.value <= 0)
-    return { success: false, error: "付费渠道请填写大于 0 的有效粉单价" };
-  return { success: true, fanCostMode, effectiveFanPriceCents: parsed.value };
-}
 
 function parseChannelType(input: ChannelRequest): { success: true; value: ChannelType } | { success: false; error: string } {
   if (input.channelType === undefined) return { success: true, value: "SMS" };
@@ -76,25 +37,6 @@ function parseChannelType(input: ChannelRequest): { success: true; value: Channe
     return { success: true, value: input.channelType };
   }
   return { success: false, error: "渠道类型只能选择短信粉、投流粉或底料返点" };
-}
-
-function parseRebateRate(input: ChannelRequest): { success: true; value: number } | { success: false; error: string } {
-  if (input.rebateRateBps === undefined || input.rebateRateBps === null) return { success: true, value: 3000 };
-  const rate = typeof input.rebateRateBps === "number" ? input.rebateRateBps : Number(input.rebateRateBps);
-  if (!Number.isInteger(rate) || rate < 0 || rate > 10_000) return { success: false, error: "返点比例必须在 0% 到 100% 之间" };
-  return { success: true, value: rate };
-}
-
-function parseChannelCost(input: ChannelRequest, type: ChannelType):
-  | { success: true; fanCostMode: FanCostMode; effectiveFanPriceCents: number | null; rebateRateBps: number | null }
-  | { success: false; error: string } {
-  if (type === "ADS") return { success: true, fanCostMode: "PAID", effectiveFanPriceCents: null, rebateRateBps: null };
-  if (type === "REBATE") {
-    const rate = parseRebateRate(input);
-    return rate.success ? { success: true, fanCostMode: "FREE", effectiveFanPriceCents: 0, rebateRateBps: rate.value } : rate;
-  }
-  const cost = parseCost(input);
-  return cost.success ? { ...cost, rebateRateBps: null } : cost;
 }
 
 export async function POST(request: Request) {
@@ -128,9 +70,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "渠道名称或小组参数过长" }, { status: 400 });
   const channelType = parseChannelType(body);
   if (!channelType.success) return NextResponse.json({ error: channelType.error }, { status: 400 });
-  const cost = parseChannelCost(body, channelType.value);
-  if (!cost.success)
-    return NextResponse.json({ error: cost.error }, { status: 400 });
   if (access.actor.role === "RESOURCE_MANAGER") {
     const allowedChannelIds = access.actor.resourceChannelAccess?.map((item) => item.channelId) ?? [];
     const allowedType = allowedChannelIds.length ? await db.channel.findFirst({
@@ -161,10 +100,7 @@ export async function POST(request: Request) {
             normalizedName,
             groupId: group.id,
             createdById: access.actor.id,
-            fanCostMode: cost.fanCostMode,
-            effectiveFanPriceCents: cost.effectiveFanPriceCents,
             channelType: channelType.value,
-            rebateRateBps: cost.rebateRateBps,
           })),
         });
         const created = await client.channel.findUniqueOrThrow({ where: { id_groupId: { id, groupId: groups[0].id } } });
@@ -174,7 +110,7 @@ export async function POST(request: Request) {
           entityType: "Channel",
           entityId: id,
           summary: {
-            changedFields: ["name", "channelType", "fanCostMode", "effectiveFanPriceCents", "rebateRateBps"],
+            changedFields: ["name", "channelType"],
             name: created.name,
             scope: "COMPANY",
             departmentId,
@@ -202,10 +138,7 @@ export async function POST(request: Request) {
             normalizedName,
             groupId: group.id,
             createdById: access.actor.id,
-            fanCostMode: channelType.value === "SMS" && configuredDepartmentId && group.departmentId !== configuredDepartmentId ? "PAID" : cost.fanCostMode,
-            effectiveFanPriceCents: channelType.value === "SMS" && configuredDepartmentId && group.departmentId !== configuredDepartmentId ? null : cost.effectiveFanPriceCents,
             channelType: channelType.value,
-            rebateRateBps: cost.rebateRateBps,
           })),
         });
         if (access.actor.role === "RESOURCE_MANAGER") {
@@ -218,7 +151,7 @@ export async function POST(request: Request) {
           entityType: "Channel",
           entityId: id,
           summary: {
-            changedFields: ["name", "channelType", "fanCostMode", "effectiveFanPriceCents", "rebateRateBps"],
+            changedFields: ["name", "channelType"],
             name: created.name,
             scope: "GLOBAL",
             groupCount: groups.length,
@@ -229,10 +162,7 @@ export async function POST(request: Request) {
               after: {
                 name: created.name,
                 active: created.active,
-                fanCostMode: created.fanCostMode,
-                effectiveFanPriceCents: created.effectiveFanPriceCents,
                 channelType: created.channelType,
-                rebateRateBps: created.rebateRateBps,
               },
               impact: { headquartersOverride: true, groups: groups.length, configuredDepartmentId },
             } : {}),
@@ -255,10 +185,7 @@ export async function POST(request: Request) {
           normalizedName: normalizeChannelName(name),
           groupId,
           createdById: access.actor.id,
-          fanCostMode: cost.fanCostMode,
-          effectiveFanPriceCents: cost.effectiveFanPriceCents,
           channelType: channelType.value,
-          rebateRateBps: cost.rebateRateBps,
         },
       });
       if (access.actor.role === "RESOURCE_MANAGER") {
@@ -273,10 +200,7 @@ export async function POST(request: Request) {
           changedFields: [
             "name",
             "groupId",
-            "fanCostMode",
-            "effectiveFanPriceCents",
             "channelType",
-            "rebateRateBps",
           ],
           name: created.name,
           groupId: created.groupId,
@@ -289,10 +213,7 @@ export async function POST(request: Request) {
               name: created.name,
               groupId: created.groupId,
               active: created.active,
-              fanCostMode: created.fanCostMode,
-              effectiveFanPriceCents: created.effectiveFanPriceCents,
               channelType: created.channelType,
-              rebateRateBps: created.rebateRateBps,
             },
             impact: { headquartersOverride: true },
           } : {}),
@@ -341,9 +262,6 @@ export async function PATCH(request: Request) {
   const requested: {
     name?: string;
     active?: boolean;
-    fanCostMode?: FanCostMode;
-    effectiveFanPriceCents?: number;
-    rebateRateBps?: number | null;
   } = {};
   if (typeof body.name === "string") {
     const name = body.name.trim();
@@ -352,24 +270,6 @@ export async function PATCH(request: Request) {
     requested.name = name;
   }
   if (typeof body.active === "boolean") requested.active = body.active;
-  if (Object.prototype.hasOwnProperty.call(body, "rebateRateBps")) {
-    const rate = parseRebateRate(body);
-    if (!rate.success) return NextResponse.json({ error: rate.error }, { status: 400 });
-    requested.rebateRateBps = rate.value;
-  }
-  if (
-    Object.prototype.hasOwnProperty.call(body, "fanCostMode") ||
-    Object.prototype.hasOwnProperty.call(body, "effectiveFanPriceCents")
-  ) {
-    const channelType = parseChannelType(body);
-    if (!channelType.success) return NextResponse.json({ error: channelType.error }, { status: 400 });
-    const cost = parseChannelCost(body, channelType.value);
-    if (!cost.success)
-      return NextResponse.json({ error: cost.error }, { status: 400 });
-    requested.fanCostMode = cost.fanCostMode;
-    if (cost.effectiveFanPriceCents !== null) requested.effectiveFanPriceCents = cost.effectiveFanPriceCents;
-    if (cost.rebateRateBps !== null) requested.rebateRateBps = cost.rebateRateBps;
-  }
   if (!Object.keys(requested).length)
     return NextResponse.json(
       { error: "没有可更新的渠道信息" },
@@ -412,14 +312,8 @@ export async function PATCH(request: Request) {
         name?: string;
         normalizedName?: string;
         active?: boolean;
-        fanCostMode?: FanCostMode;
-        effectiveFanPriceCents?: number;
-        rebateRateBps?: number | null;
       } = {};
-      const changedFields: Array<
-        "name" | "active" | "fanCostMode" | "effectiveFanPriceCents"
-        | "rebateRateBps"
-      > = [];
+      const changedFields: Array<"name" | "active"> = [];
       if (requested.name !== undefined && requested.name !== existing.name) {
         data.name = requested.name;
         data.normalizedName = normalizeChannelName(requested.name);
@@ -431,25 +325,6 @@ export async function PATCH(request: Request) {
       ) {
         data.active = requested.active;
         changedFields.push("active");
-      }
-      if (requested.rebateRateBps !== undefined && requested.rebateRateBps !== existing.rebateRateBps) {
-        if (existing.channelType !== "REBATE") return { error: "只有底料返点渠道可以设置返点比例", status: 400 as const };
-        data.rebateRateBps = requested.rebateRateBps;
-        changedFields.push("rebateRateBps");
-      }
-      if (
-        requested.fanCostMode !== undefined &&
-        requested.fanCostMode !== existing.fanCostMode
-      ) {
-        data.fanCostMode = requested.fanCostMode;
-        changedFields.push("fanCostMode");
-      }
-      if (
-        requested.effectiveFanPriceCents !== undefined &&
-        requested.effectiveFanPriceCents !== existing.effectiveFanPriceCents
-      ) {
-        data.effectiveFanPriceCents = requested.effectiveFanPriceCents;
-        changedFields.push("effectiveFanPriceCents");
       }
       if (!changedFields.length) {
         const { group: _group, ...unchanged } = existing;
@@ -463,13 +338,8 @@ export async function PATCH(request: Request) {
       ) {
         throw new InactiveChannelParentError();
       }
-      const nextFanCostMode = data.fanCostMode ?? existing.fanCostMode;
-      const nextEffectiveFanPriceCents = data.effectiveFanPriceCents ?? existing.effectiveFanPriceCents ?? 0;
-      const clearsEffectiveFanPrice =
-        (existing.effectiveFanPriceCents ?? 0) > 0 &&
-        (nextFanCostMode === "FREE" || nextEffectiveFanPriceCents <= 0);
-      const highRisk = access.actor.role === "ADMIN" || clearsEffectiveFanPrice
-        ? await authorizeHighRiskOperation(client, access.actor.id, body, ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER"], access.actor.role === "RESOURCE_MANAGER" ? "资源部账号" : access.actor.role === "COMPANY_MANAGER" ? "公司管理员账号" : "管理员")
+      const highRisk = access.actor.role === "ADMIN"
+        ? await authorizeHighRiskOperation(client, access.actor.id, body)
         : null;
       const impact = highRisk
         ? await Promise.all([
@@ -489,16 +359,7 @@ export async function PATCH(request: Request) {
           data,
           include: { group: { select: { name: true } } },
         });
-      const priceChanged =
-        changedFields.includes("effectiveFanPriceCents") ||
-        changedFields.includes("fanCostMode");
-      const valueFields = changedFields.filter(
-        (field) =>
-          field === "name" ||
-          field === "fanCostMode" ||
-          field === "effectiveFanPriceCents" ||
-          field === "rebateRateBps",
-      );
+      const valueFields = changedFields.filter((field) => field === "name");
       const before = Object.fromEntries(
         valueFields.map((field) => [field, existing[field]]),
       );
@@ -507,11 +368,9 @@ export async function PATCH(request: Request) {
       );
       await recordAudit(client, {
         actorId: access.actor.id,
-        action: priceChanged
-          ? "CHANNEL_PRICE_UPDATED"
-          : changedFields.includes("active")
-            ? "CHANNEL_STATUS_CHANGED"
-            : "CHANNEL_UPDATED",
+        action: changedFields.includes("active")
+          ? "CHANNEL_STATUS_CHANGED"
+          : "CHANNEL_UPDATED",
         entityType: "Channel",
         entityId: updatedWithGroup.id,
         summary: {
@@ -527,21 +386,16 @@ export async function PATCH(request: Request) {
             before: {
               name: existing.name,
               active: existing.active,
-              fanCostMode: existing.fanCostMode,
-              effectiveFanPriceCents: existing.effectiveFanPriceCents,
             },
             after: {
               name: updatedWithGroup.name,
               active: updatedWithGroup.active,
-              fanCostMode: updatedWithGroup.fanCostMode,
-              effectiveFanPriceCents: updatedWithGroup.effectiveFanPriceCents,
             },
             impact: {
               sourceBatches: impact[0],
               leadCustomers: impact[1],
               customerOrders: impact[2],
               metricEvents: impact[3],
-              historicalProfitMayChange: priceChanged,
               headquartersOverride: access.actor.role === "ADMIN",
               ...(catalogRequest ? { groups: copies.length } : {}),
               ...(scopedDepartmentId ? { departmentId: scopedDepartmentId } : {}),

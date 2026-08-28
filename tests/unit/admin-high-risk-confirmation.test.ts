@@ -6,7 +6,6 @@ import { parseHighRiskReason } from "../../src/lib/high-risk-reason";
 import {
   getMemberHighRiskOperation,
   requiresAdminPrivilegeConfirmation,
-  requiresChannelPriceClearConfirmation,
 } from "../../src/components/admin/admin-high-risk";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -49,14 +48,6 @@ describe("admin high-risk confirmation", () => {
       .toBe("admin-access-revocation");
     expect(getMemberHighRiskOperation({ previousRole: "RECEPTION", nextRole: "RECEPTION", previousActive: true, nextActive: false, hasNewPassword: false })).toBeNull();
     expect(getMemberHighRiskOperation({ previousRole: "RECEPTION", nextRole: "RECEPTION", previousActive: false, nextActive: true, hasNewPassword: false })).toBeNull();
-  });
-
-  it("requires confirmation when an existing positive channel price is cleared", () => {
-    expect(requiresChannelPriceClearConfirmation(5_000, null)).toBe(false);
-    expect(requiresChannelPriceClearConfirmation(5_000, 0)).toBe(true);
-    expect(requiresChannelPriceClearConfirmation(5_000, 6_000)).toBe(false);
-    expect(requiresChannelPriceClearConfirmation(null, null)).toBe(false);
-    expect(requiresChannelPriceClearConfirmation(0, 0)).toBe(false);
   });
 
   it("renders an accessible modal with reason and current-password requirements", () => {

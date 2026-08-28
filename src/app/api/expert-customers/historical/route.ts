@@ -128,12 +128,12 @@ export async function POST(request: Request) {
       const channel = await tx.channel.upsert({
         where: { id_groupId: { id: channelId, groupId: actor.groupId } },
         update: {},
-        create: { id: channelId, groupId: actor.groupId, name: HISTORICAL_EXPERT_CHANNEL_NAME, normalizedName: normalizeChannelName(HISTORICAL_EXPERT_CHANNEL_NAME), createdById: actor.id, fanCostMode: "FREE", effectiveFanPriceCents: 0, channelType: "SMS" },
+        create: { id: channelId, groupId: actor.groupId, name: HISTORICAL_EXPERT_CHANNEL_NAME, normalizedName: normalizeChannelName(HISTORICAL_EXPERT_CHANNEL_NAME), createdById: actor.id, channelType: "SMS" },
       });
       const batch = await tx.sourceBatch.upsert({
         where: { groupId_channelId_sourceDate: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.contactedOn } },
         update: { isHistoricalRecord: true },
-        create: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.contactedOn, fanCostModeSnapshot: "FREE", effectiveFanPriceCentsSnapshot: 0, channelTypeSnapshot: "SMS", isHistoricalRecord: true },
+        create: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.contactedOn, channelTypeSnapshot: "SMS", isHistoricalRecord: true },
       });
       const isContacted = input.expertStage !== "QUEUED";
       const isTracking = input.expertStage === "TRACKING";

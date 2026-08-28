@@ -23,10 +23,6 @@ export type CanonicalMetricEvent = {
       groupId: string;
       name: string;
       normalizedName: string;
-      fanCostMode: "FREE" | "PAID";
-      effectiveFanPriceCents: number | null;
-      channelType: "SMS" | "ADS" | "REBATE";
-      rebateRateBps: number | null;
     };
   };
   enteredBy: {
@@ -92,10 +88,6 @@ export async function loadCanonicalMetricEvents(
       id: true,
       sourceDate: true,
       isHistoricalRecord: true,
-      fanCostModeSnapshot: true,
-      effectiveFanPriceCentsSnapshot: true,
-      channelTypeSnapshot: true,
-      rebateRateBpsSnapshot: true,
       group: { select: { id: true, name: true } },
       channel: {
         select: {
@@ -103,8 +95,6 @@ export async function loadCanonicalMetricEvents(
           groupId: true,
           name: true,
           normalizedName: true,
-          fanCostMode: true,
-            effectiveFanPriceCents: true,
         },
       },
       leads: {
@@ -250,13 +240,7 @@ export async function loadCanonicalMetricEvents(
       batch: {
         sourceDate: batch.sourceDate,
         group: batch.group,
-        channel: {
-          ...batch.channel,
-          fanCostMode: batch.fanCostModeSnapshot,
-          effectiveFanPriceCents: batch.effectiveFanPriceCentsSnapshot,
-          channelType: batch.channelTypeSnapshot,
-          rebateRateBps: batch.rebateRateBpsSnapshot,
-        },
+        channel: batch.channel,
       },
       // 这里是“粉的归属”漏斗，按接粉业绩口径聚合；实际岗位仍在原客户和操作日志里保留。
       enteredBy: { ...attributionOwner, role: "RECEPTION" },
@@ -281,13 +265,7 @@ export async function loadCanonicalMetricEvents(
         batch: {
           sourceDate: batch.sourceDate,
           group: batch.group,
-          channel: {
-          ...batch.channel,
-          fanCostMode: batch.fanCostModeSnapshot,
-          effectiveFanPriceCents: batch.effectiveFanPriceCentsSnapshot,
-          channelType: batch.channelTypeSnapshot,
-          rebateRateBps: batch.rebateRateBpsSnapshot,
-          },
+          channel: batch.channel,
         },
         enteredBy: { ...event.enteredBy, role: "RECEPTION" },
       });

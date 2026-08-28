@@ -62,7 +62,7 @@ const leadSelect = {
     take: 20,
   },
   device: { select: { id: true, code: true } },
-  batch: { select: { id: true, sourceDate: true, isHistoricalRecord: true, fanCostModeSnapshot: true, effectiveFanPriceCentsSnapshot: true, channelTypeSnapshot: true, rebateRateBpsSnapshot: true, group: { select: { name: true } }, channel: { select: { id: true, name: true } } } },
+  batch: { select: { id: true, sourceDate: true, isHistoricalRecord: true, channelTypeSnapshot: true, group: { select: { name: true } }, channel: { select: { id: true, name: true } } } },
   customerOrder: {
     select: {
       id: true, openedOn: true, initialDepositCents: true, voidedAt: true, voidReason: true,
@@ -123,7 +123,7 @@ export default async function EntryPage() {
     // 当前登录人已绑定到这个小组；这里无需再套 relation filter。
     // SQLite/PostgreSQL 两端对一对多 relation filter 的写法不同，直接按 groupId 可避免页面加载报错。
     db.channel.findMany({ where: { groupId, active: true }, select: { id: true, name: true, groupId: true, channelType: true }, orderBy: [{ channelType: "asc" }, { name: "asc" }] }),
-    db.sourceBatch.findMany({ where: { groupId }, select: { id: true, sourceDate: true, fanCostModeSnapshot: true, effectiveFanPriceCentsSnapshot: true, channelTypeSnapshot: true, rebateRateBpsSnapshot: true, group: { select: { name: true } }, channel: { select: { id: true, name: true } } }, orderBy: [{ sourceDate: "desc" }, { channelId: "asc" }] }),
+    db.sourceBatch.findMany({ where: { groupId }, select: { id: true, sourceDate: true, channelTypeSnapshot: true, group: { select: { name: true } }, channel: { select: { id: true, name: true } } }, orderBy: [{ sourceDate: "desc" }, { channelId: "asc" }] }),
     getSystemSettings(),
     db.leadCustomer.findMany({ where: memberOnly ? { ownerId: user.id } : { batch: { groupId } }, select: leadSelect, orderBy: [{ updatedAt: "desc" }] }),
     db.leadCustomer.findMany({ where: { batch: { groupId } }, select: leadSelect }),

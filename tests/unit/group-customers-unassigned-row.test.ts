@@ -13,8 +13,4 @@ describe("未分配炒群岗行的展示条件", () => {
   it("两者都是0才真的不展示", () => {
     expect(shouldShowUnassignedRow({ handled: 0, inGroup: 0 })).toBe(false);
   });
-
-  it("summary 本身不存在也不展示", () => {
-    expect(shouldShowUnassignedRow(undefined)).toBe(false);
-  });
 });

@@ -22,6 +22,15 @@ import { autoMarkExpiredGroupMemberships } from "../../../lib/group-lifecycle";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
+/**
+ * 未分配专家这一行不能只看 handled——pendingRegistration/pendingOrder 这两个字段
+ * 没有跟 handled 一样的历史补录口径判断，一个客户完全可能 handled 记成0、但仍然
+ * 挂着待注册/待开单的真实待办，只看 handled 会把这行连带真实待办一起藏起来。
+ */
+export function shouldShowUnassignedExpertRow(summary: { handled: number; registered: number; ordered: number; pendingRegistration: number; pendingOrder: number }): boolean {
+  return Boolean(summary.handled || summary.registered || summary.ordered || summary.pendingRegistration || summary.pendingOrder);
+}
+
 export default async function ExpertCustomersPage({ searchParams = Promise.resolve({}) }: { searchParams?: Promise<SearchParams> }) {
   let user;
   try {
@@ -103,7 +112,7 @@ export default async function ExpertCustomersPage({ searchParams = Promise.resol
       };
     });
   const unassignedSummary = summaryByExpert.get("__unassigned__");
-  if (unassignedSummary?.handled) expertPerformance.unshift({
+  if (unassignedSummary && shouldShowUnassignedExpertRow(unassignedSummary)) expertPerformance.unshift({
     id: "__unassigned__",
     name: "未分配专家",
     active: false,

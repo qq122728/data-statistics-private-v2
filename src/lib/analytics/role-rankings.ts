@@ -468,7 +468,10 @@ export async function loadRoleRankings(input: {
     .sort((left, right) => right.netCents - left.netCents || right.joined - left.joined || left.name.localeCompare(right.name, "zh-CN"));
 
   const groupOperators = people
-    .filter((person) => hasScopedRole(person, "GROUP_OPERATOR") || leadsByOperator.has(person.id))
+    // currentInGroupByOperator 是不受 sourceDateFrom/To 影响的快照——窄范围内 leadsByOperator
+    // 查不到这个人时，如果只看角色和范围内的经手记录，快照归属到的人会连行都进不来，
+    // 这个人的在群数就凭空消失了，答案照样跟着范围变（需求文档6.1.1）。
+    .filter((person) => hasScopedRole(person, "GROUP_OPERATOR") || leadsByOperator.has(person.id) || currentInGroupByOperator.has(person.id))
     .map((person) => {
       const receptionistIds = new Set(person.groupOperatorAssignments.map((item) => item.receptionistId));
       const shared = leadsByOperator.get(person.id) ?? [];

@@ -124,6 +124,29 @@ describe.sequential("老板简报岗位统计截止日", () => {
     expect(result.groupOperators.find((row) => row.id === fixtureData.operatorB.id)).toMatchObject({ currentInGroup: 1 });
   });
 
+  it("快照归属到一个连组长身份都没有的人时，这个人也必须单独出现一行——不能因为进不了角色花名册筛选就把快照漏掉", async () => {
+    const fixtureData = await fixture();
+    const oldBatchId = `${prefix}old-batch-${randomUUID()}`;
+    await db.sourceBatch.create({ data: { id: oldBatchId, groupId: fixtureData.groupId, channelId: (await db.sourceBatch.findUniqueOrThrow({ where: { id: fixtureData.batchId } })).channelId, sourceDate: "2026-07-01" } });
+    // 这条客户没有明确指派组长，也没有配对组长兜底——只能靠"最近一次推专家动作"归到 expert 名下；
+    // expert 角色本身不是 GROUP_OPERATOR，窄范围里这条客户所在的老批次也不在范围内，
+    // 如果花名册筛选只看角色和范围内经手记录，expert 会连行都进不来，快照就凭空消失了。
+    const lead = await db.leadCustomer.create({
+      data: {
+        id: `${prefix}lead-${randomUUID()}`,
+        phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+        batchId: oldBatchId,
+        ownerId: fixtureData.reception.id,
+        joinedOn: "2026-07-05",
+        groupStatus: "JOINED",
+      },
+    });
+    await db.leadActivity.create({ data: { leadId: lead.id, actorId: fixtureData.expert.id, kind: "EXPERT_INTRODUCED", occurredOn: "2026-07-10" } });
+
+    const narrowRange = await loadRoleRankings({ groupIds: [fixtureData.groupId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-16", today: "2026-08-16" });
+    expect(narrowRange.groupOperators.find((row) => row.id === fixtureData.expert.id)).toMatchObject({ currentInGroup: 1, sharedCustomerCount: 0 });
+  });
+
   it("炒群每日明细的当日在群/可推专家也不受报表日期范围卡人群", async () => {
     const fixtureData = await fixture();
     const oldBatchId = `${prefix}old-batch-${randomUUID()}`;

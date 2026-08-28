@@ -23,9 +23,6 @@ type RawLeaderboardRow = {
   orders: bigint | number;
   rechargeCents: bigint | number;
   withdrawalCents: bigint | number;
-  costCents: bigint | number;
-  rebateCents: bigint | number;
-  hasPendingCost: bigint | number;
   newFans: bigint | number;
   effectiveFans: bigint | number;
   replies: bigint | number;
@@ -74,8 +71,6 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
         SUM(CASE WHEN batch."isHistoricalRecord" = ${false} AND lc."isHistoricalRecord" = ${false} AND lc."invalid" = ${false} AND lc."expertIntroducedOn" IS NOT NULL AND lc."expertIntroducedOn" <= ${input.today} THEN 1 ELSE 0 END) AS "expertIntro",
         SUM(CASE WHEN batch."isHistoricalRecord" = ${false} AND lc."isHistoricalRecord" = ${false} AND lc."invalid" = ${false} AND lc."registeredOn" IS NOT NULL AND lc."registeredOn" <= ${input.today} THEN 1 ELSE 0 END) AS "registration",
         SUM(CASE WHEN lc."invalid" = ${false} AND orders."id" IS NOT NULL AND orders."openedOn" <= ${input.today} THEN 1 ELSE 0 END) AS "orders",
-        SUM(CASE WHEN batch."isHistoricalRecord" = ${false} AND lc."isHistoricalRecord" = ${false} AND lc."invalid" = ${false} AND batch."sourceDate" <= ${input.today} AND batch."channelTypeSnapshot" <> 'REBATE' THEN COALESCE(batch."effectiveFanPriceCentsSnapshot", 0) ELSE 0 END) AS "costCents",
-        MAX(CASE WHEN batch."isHistoricalRecord" = ${false} AND lc."isHistoricalRecord" = ${false} AND lc."invalid" = ${false} AND batch."sourceDate" <= ${input.today} AND batch."channelTypeSnapshot" <> 'REBATE' AND batch."fanCostModeSnapshot" = 'PAID' AND batch."effectiveFanPriceCentsSnapshot" IS NULL THEN 1 ELSE 0 END) AS "hasPendingCost",
         SUM(CASE WHEN batch."isHistoricalRecord" = ${false} AND lc."isHistoricalRecord" = ${false} AND batch."sourceDate" <= ${matureThrough} THEN 1 ELSE 0 END) AS "matureNewFans",
         SUM(CASE WHEN batch."isHistoricalRecord" = ${false} AND lc."isHistoricalRecord" = ${false} AND lc."invalid" = ${false} AND orders."id" IS NOT NULL AND batch."sourceDate" <= ${matureThrough} AND orders."openedOn" >= batch."sourceDate" AND orders."openedOn" <= ${batchMaturityEnd} THEN 1 ELSE 0 END) AS "matureOrders"
       FROM "SourceBatch" batch
@@ -92,8 +87,6 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
       SELECT
         batch."id" AS "batchId",
         batch."groupId" AS "groupId",
-        batch."channelTypeSnapshot" AS "channelTypeSnapshot",
-        COALESCE(batch."rebateRateBpsSnapshot", 3000) AS "rebateRateBps",
         orders."initialDepositCents" + COALESCE((
           SELECT SUM(COALESCE(finance_event."amountCents", 0))
           FROM "MetricEvent" finance_event
@@ -125,8 +118,6 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
       SELECT
         batch."id" AS "batchId",
         batch."groupId" AS "groupId",
-        batch."channelTypeSnapshot" AS "channelTypeSnapshot",
-        COALESCE(batch."rebateRateBpsSnapshot", 3000) AS "rebateRateBps",
         SUM(CASE WHEN events."kind" = 'RECHARGE' THEN COALESCE(events."amountCents", 0) ELSE 0 END) AS "rechargeCents",
         SUM(CASE WHEN events."kind" = 'WITHDRAWAL' THEN COALESCE(events."amountCents", 0) ELSE 0 END) AS "withdrawalCents"
       FROM "SourceBatch" batch
@@ -140,33 +131,19 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
         AND events."kind" IN ('RECHARGE', 'WITHDRAWAL')
         AND events."voidedAt" IS NULL
         AND events."derivedFromLedger" = ${false}
-      GROUP BY batch."id", batch."groupId", batch."channelTypeSnapshot", batch."rebateRateBpsSnapshot"
+      GROUP BY batch."id", batch."groupId"
     ),
     all_finance AS (
       SELECT * FROM ledger_order_finance
       UNION ALL
       SELECT * FROM legacy_batch_finance
     ),
-    batch_finance AS (
-      SELECT
-        "batchId",
-        "groupId",
-        "channelTypeSnapshot",
-        "rebateRateBps",
-        SUM("rechargeCents") AS "rechargeCents",
-        SUM("withdrawalCents") AS "withdrawalCents"
-      FROM all_finance
-      GROUP BY "batchId", "groupId", "channelTypeSnapshot", "rebateRateBps"
-    ),
     finance_rollup AS (
       SELECT
         "groupId",
         SUM("rechargeCents") AS "rechargeCents",
-        SUM("withdrawalCents") AS "withdrawalCents",
-        SUM(CASE WHEN "channelTypeSnapshot" = 'REBATE'
-          THEN ROUND(("rechargeCents" - "withdrawalCents") * "rebateRateBps" / 10000.0)
-          ELSE 0 END) AS "rebateCents"
-      FROM batch_finance
+        SUM("withdrawalCents") AS "withdrawalCents"
+      FROM all_finance
       GROUP BY "groupId"
     ),
     legacy_rollup AS (
@@ -183,8 +160,6 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
         SUM(CASE WHEN events."kind" = 'ORDER' THEN COALESCE(events."quantity", 0) ELSE 0 END) AS "orders",
         SUM(CASE WHEN events."kind" = 'NO_NUMBER' THEN COALESCE(events."quantity", 0) ELSE 0 END) AS "noNumber",
         SUM(CASE WHEN events."kind" = 'DUPLICATE_FANS' THEN COALESCE(events."quantity", 0) ELSE 0 END) AS "duplicateFans",
-        SUM(CASE WHEN events."kind" = 'EFFECTIVE_FANS' AND batch."channelTypeSnapshot" <> 'REBATE' THEN COALESCE(events."quantity", 0) * COALESCE(batch."effectiveFanPriceCentsSnapshot", 0) ELSE 0 END) AS "costCents",
-        MAX(CASE WHEN events."kind" = 'EFFECTIVE_FANS' AND batch."channelTypeSnapshot" <> 'REBATE' AND batch."fanCostModeSnapshot" = 'PAID' AND batch."effectiveFanPriceCentsSnapshot" IS NULL THEN 1 ELSE 0 END) AS "hasPendingCost",
         SUM(CASE WHEN batch."sourceDate" <= ${matureThrough} AND events."occurredOn" >= batch."sourceDate" AND events."occurredOn" <= ${batchMaturityEnd} AND events."kind" = 'NEW_FANS' THEN COALESCE(events."quantity", 0) ELSE 0 END) AS "matureNewFans",
         SUM(CASE WHEN batch."sourceDate" <= ${matureThrough} AND events."occurredOn" >= batch."sourceDate" AND events."occurredOn" <= ${batchMaturityEnd} AND events."kind" = 'ORDER' THEN COALESCE(events."quantity", 0) ELSE 0 END) AS "matureOrders"
       FROM "SourceBatch" batch
@@ -247,13 +222,6 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
       COALESCE(leads."orders", 0) + COALESCE(legacy."orders", 0) AS "orders",
       COALESCE(finance."rechargeCents", 0) AS "rechargeCents",
       COALESCE(finance."withdrawalCents", 0) AS "withdrawalCents",
-      COALESCE(leads."costCents", 0) + COALESCE(legacy."costCents", 0) AS "costCents",
-      COALESCE(finance."rebateCents", 0) AS "rebateCents",
-      CASE
-        WHEN COALESCE(leads."hasPendingCost", 0) >= COALESCE(legacy."hasPendingCost", 0)
-          THEN COALESCE(leads."hasPendingCost", 0)
-        ELSE COALESCE(legacy."hasPendingCost", 0)
-      END AS "hasPendingCost",
       COALESCE(leads."newFans", 0) + COALESCE(legacy."newFans", 0) + COALESCE(invalid."newFans", 0) AS "newFans",
       COALESCE(leads."effectiveFans", 0) + COALESCE(legacy."effectiveFans", 0) AS "effectiveFans",
       COALESCE(leads."replies", 0) + COALESCE(legacy."replies", 0) AS "replies",
@@ -281,11 +249,7 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
   return rows.map((row) => {
     const rechargeCents = number(row.rechargeCents);
     const withdrawalCents = number(row.withdrawalCents);
-    const costCentsValue = number(row.costCents);
-    const rebateCents = number(row.rebateCents);
-    const costCents = number(row.hasPendingCost) ? null : costCentsValue;
-    // 底料返点从净入金中扣除后，剩余部分才是公司和员工业绩。
-    const profitCents = costCents === null ? null : rechargeCents - withdrawalCents - costCents - rebateCents;
+    const netPerformanceCents = rechargeCents - withdrawalCents;
     const matureNewFans = number(row.matureNewFans);
     const matureOrders = number(row.matureOrders);
     const matureOrderRate = matureNewFans ? matureOrders / matureNewFans : null;
@@ -298,10 +262,7 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
       orders: number(row.orders),
       rechargeCents,
       withdrawalCents,
-      netPerformanceCents: rechargeCents - withdrawalCents,
-      costCents,
-      rebateCents,
-      profitCents,
+      netPerformanceCents,
       newFans: number(row.newFans),
       effectiveFans: number(row.effectiveFans),
       replies: number(row.replies),
@@ -318,7 +279,7 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
       matureOrderRate,
       confirmedPeople: 0,
       activePeople: 0,
-      risk: profitCents !== null && profitCents < 0
+      risk: netPerformanceCents < 0
         ? "HIGH"
         : matureOrderRate !== null && matureOrderRate < 0.08 ? "MEDIUM" : "LOW",
     };

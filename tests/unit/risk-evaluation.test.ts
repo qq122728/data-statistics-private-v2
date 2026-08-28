@@ -34,7 +34,7 @@ describe("daily member risk evaluation", () => {
   it("clears accumulated low days only on an eligible non-low day", () => {
     const evaluations = [
       daily("2026-08-09", 0.72, "LOW"),
-      daily("2026-08-10", null, "OBSERVING", "PENDING_PRICE"),
+      daily("2026-08-10", null, "OBSERVING", "IMMATURE"),
       daily("2026-08-11", 0.81, "OK"),
       daily("2026-08-12", null, "OBSERVING", "DATA_INVALID"),
       daily("2026-08-13", 0.69, "LOW"),

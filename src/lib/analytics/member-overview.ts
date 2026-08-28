@@ -1,7 +1,7 @@
 import type { EmployeeStageOverride, Role } from "@prisma/client";
 import { db } from "../db";
 import { resolveEmployeeStage, type EmployeeStage } from "../employee-stage";
-import { calculateFinancials, validateFanBreakdown, type FinancialResult } from "../finance";
+import { validateFanBreakdown } from "../finance";
 import {
   addBatchTotals,
   calculateBatchTotals,
@@ -26,11 +26,10 @@ export type MemberOverviewRow = {
   effectiveRate: number | null;
   orderRate: number | null;
   rechargePerEffectiveFanCents: number | null;
-  financials: FinancialResult;
+  netPerformanceCents: number;
   adjustedEfficiency: number | null;
   adjustedState: ChannelAdjustmentState | "DATA_INVALID";
   trend: number | null;
-  pricingState: "PRICED" | "PENDING_PRICE";
 };
 
 export type MemberOverviewResult = {
@@ -38,14 +37,12 @@ export type MemberOverviewResult = {
   summary: {
     effectiveFans: number;
     rechargeCents: number;
-    costCents: number | null;
-    profitCents: number | null;
+    netPerformanceCents: number;
     attentionMemberCount: number;
     matureBatchCount: number;
     observingBatchCount: number;
     rankedMemberCount: number;
   };
-  pendingPriceChannels: Array<{ id: string; groupId: string; name: string }>;
 };
 
 type BusinessRole = Extract<Role, "RECEPTION">;
@@ -63,9 +60,6 @@ type ChannelTotals = {
   id: string;
   groupId: string;
   normalizedName: string;
-  effectiveFanPriceCents: number | null;
-  channelType: "SMS" | "ADS" | "REBATE";
-  rebateRateBps: number | null;
   totals: BatchTotals;
 };
 
@@ -87,14 +81,12 @@ function emptyResult(): MemberOverviewResult {
     summary: {
       effectiveFans: 0,
       rechargeCents: 0,
-      costCents: 0,
-      profitCents: 0,
+      netPerformanceCents: 0,
       attentionMemberCount: 0,
       matureBatchCount: 0,
       observingBatchCount: 0,
       rankedMemberCount: 0,
     },
-    pendingPriceChannels: [],
   };
 }
 
@@ -115,48 +107,19 @@ function periodState(channels: Map<string, ChannelTotals>): OwnerPeriodState {
   };
 }
 
-function financialResult(channels: Map<string, ChannelTotals>): FinancialResult {
-  let costCents = 0;
-  let rebateCents = 0;
+function netPerformanceCentsOf(channels: Map<string, ChannelTotals>): number {
   let netPerformanceCents = 0;
-  let profitCents = 0;
-  let pendingPrice = false;
-
-  for (const channel of channels.values()) {
-    const financials = calculateFinancials({
-      effectiveFans: channel.totals.effectiveFans,
-      rechargeCents: channel.totals.rechargeCents,
-      withdrawalCents: channel.totals.withdrawalCents,
-      channelPerformanceCents: channel.totals.channelPerformanceCents,
-      effectiveFanPriceCents: channel.effectiveFanPriceCents,
-      channelType: channel.channelType,
-      rebateRateBps: channel.rebateRateBps,
-    });
-    netPerformanceCents += financials.netPerformanceCents;
-    if (financials.costCents === null || financials.profitCents === null) {
-      pendingPrice = true;
-    } else {
-      costCents += financials.costCents;
-      rebateCents += financials.rebateCents ?? 0;
-      profitCents += financials.profitCents;
-    }
-  }
-
-  if (pendingPrice) {
-    return { costCents: null, netPerformanceCents, profitCents: null, priceState: "PENDING_PRICE", rebateCents };
-  }
-  return { costCents, netPerformanceCents, profitCents, priceState: "PRICED", rebateCents, creditedPerformanceCents: profitCents };
+  for (const channel of channels.values())
+    netPerformanceCents += channel.totals.rechargeCents - channel.totals.withdrawalCents;
+  return netPerformanceCents;
 }
 
 function addEvent(
   channels: Map<string, ChannelTotals>,
   channel: Omit<ChannelTotals, "totals">,
   event: MetricEvent,
-  batchId: string,
 ) {
-  // 普通渠道可直接合并；底料返点必须保留批次边界，最后按批次净额舍入一次。
-  const settlementKey = channel.channelType === "REBATE" ? batchId : "standard";
-  const key = `${channel.groupId}\0${channel.id}\0${channel.channelType}\0${channel.rebateRateBps ?? "none"}\0${channel.effectiveFanPriceCents ?? "pending"}\0${settlementKey}`;
+  const key = `${channel.groupId}\0${channel.id}`;
   const current = channels.get(key) ?? { ...channel, totals: emptyBatchTotals() };
   addBatchTotals(current.totals, calculateBatchTotals([event]));
   channels.set(key, current);
@@ -235,10 +198,6 @@ export async function loadMemberOverview(scope: AnalysisScope, today: string): P
       select: {
         id: true,
         sourceDate: true,
-        fanCostModeSnapshot: true,
-        effectiveFanPriceCentsSnapshot: true,
-        channelTypeSnapshot: true,
-        rebateRateBpsSnapshot: true,
         group: { select: { id: true, name: true } },
         channel: { select: { id: true, groupId: true, name: true, normalizedName: true } },
       },
@@ -280,17 +239,6 @@ export async function loadMemberOverview(scope: AnalysisScope, today: string): P
       ? inRange(batch.sourceDate, periods.current)
       : batch.sourceDate > periods.current.sourceDateTo && batch.sourceDate <= today;
   });
-  const pendingPriceChannels = new Map<string, { id: string; groupId: string; name: string }>();
-  for (const batch of matureBatches) {
-    if (batch.channelTypeSnapshot !== "REBATE" && batch.fanCostModeSnapshot === "PAID" && batch.effectiveFanPriceCentsSnapshot === null) {
-      pendingPriceChannels.set(`${batch.channel.groupId}\0${batch.channel.id}`, {
-        id: batch.channel.id,
-        groupId: batch.channel.groupId,
-        name: batch.channel.name,
-      });
-    }
-  }
-
   for (const batch of batches) {
     const bucket = inRange(batch.sourceDate, periods.current) && getMaturity(batch.sourceDate, today).d7
       ? "currentChannels"
@@ -314,10 +262,7 @@ export async function loadMemberOverview(scope: AnalysisScope, today: string): P
         id: batch.channel.id,
         groupId: batch.channel.groupId,
         normalizedName: batch.channel.normalizedName,
-        effectiveFanPriceCents: batch.fanCostModeSnapshot === "FREE" ? 0 : batch.effectiveFanPriceCentsSnapshot,
-        channelType: batch.channelTypeSnapshot,
-        rebateRateBps: batch.rebateRateBpsSnapshot,
-      }, event, batch.id);
+      }, event);
       owners.set(key, owner);
     }
   }
@@ -345,7 +290,7 @@ export async function loadMemberOverview(scope: AnalysisScope, today: string): P
     .map((owner): MemberOverviewRow => {
       const key = `${owner.group.id}\0${owner.member.id}`;
       const currentState = currentStates.get(key)!;
-      const financials = financialResult(owner.currentChannels);
+      const netPerformanceCents = netPerformanceCentsOf(owner.currentChannels);
       const currentAdjustment = adjustmentFor(
         owner,
         allOwners,
@@ -368,7 +313,6 @@ export async function loadMemberOverview(scope: AnalysisScope, today: string): P
       if (owner.member.active
         && stage === "FORMAL"
         && !currentState.dataInvalid
-        && financials.priceState === "PRICED"
         && currentAdjustment.state === "READY") rankable.add(key);
 
       return {
@@ -384,38 +328,34 @@ export async function loadMemberOverview(scope: AnalysisScope, today: string): P
         effectiveRate: currentState.totals.newFans === 0 ? null : currentState.totals.effectiveFans / currentState.totals.newFans,
         orderRate: currentState.totals.registration === 0 ? null : currentState.totals.orders / currentState.totals.registration,
         rechargePerEffectiveFanCents: currentState.totals.effectiveFans === 0 ? null : currentState.totals.rechargeCents / currentState.totals.effectiveFans,
-        financials,
+        netPerformanceCents,
         adjustedEfficiency,
         adjustedState,
         trend: adjustedState === "READY" && previousAdjustment.state === "READY"
           ? adjustedEfficiency! - previousAdjustment.efficiency!
           : null,
-        pricingState: financials.priceState,
       };
     })
     .sort((left, right) => {
       const leftRanked = rankable.has(`${left.group.id}\0${left.member.id}`);
       const rightRanked = rankable.has(`${right.group.id}\0${right.member.id}`);
       return Number(rightRanked) - Number(leftRanked)
-        || (right.financials.profitCents ?? Number.NEGATIVE_INFINITY) - (left.financials.profitCents ?? Number.NEGATIVE_INFINITY)
+        || right.netPerformanceCents - left.netPerformanceCents
         || left.member.name.localeCompare(right.member.name, "zh-CN");
     });
 
   const totals = rows.reduce((sum, row) => addBatchTotals(sum, row.totals), emptyBatchTotals());
-  const pendingFinancials = rows.some((row) => row.pricingState === "PENDING_PRICE");
   const rankedRows = rows.filter((row) => rankable.has(`${row.group.id}\0${row.member.id}`));
   return {
     rows,
     summary: {
       effectiveFans: totals.effectiveFans,
       rechargeCents: totals.rechargeCents,
-      costCents: pendingFinancials ? null : rows.reduce((sum, row) => sum + (row.financials.costCents ?? 0), 0),
-      profitCents: pendingFinancials ? null : rows.reduce((sum, row) => sum + (row.financials.profitCents ?? 0), 0),
+      netPerformanceCents: rows.reduce((sum, row) => sum + row.netPerformanceCents, 0),
       attentionMemberCount: rankedRows.filter((row) => row.adjustedEfficiency! < riskSettings.coachingEfficiency).length,
       matureBatchCount: matureBatches.length,
       observingBatchCount: observingBatches.length,
       rankedMemberCount: rankedRows.length,
     },
-    pendingPriceChannels: [...pendingPriceChannels.values()].sort((left, right) => left.groupId.localeCompare(right.groupId) || left.name.localeCompare(right.name, "zh-CN")),
   };
 }

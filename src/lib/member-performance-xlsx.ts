@@ -53,7 +53,7 @@ function receptionRow(row: ReceptionRankingRow, role = "前台接粉", keyPrefix
     added: row.total ?? row.valid, lowAmount: row.lowAmount ?? 0, noWs: row.noWs ?? 0, duplicate: row.duplicate ?? 0,
     effective: row.valid, replied: row.replied, joined: row.joined, left: row.left ?? 0, abnormalLeft: row.abnormalLeft ?? 0,
     introduced: row.expertIntroduced, contacted: row.expertContacted ?? 0, registered: row.registered, orders: row.orders,
-    firstDepositCents: row.firstDepositCents, depositCents: row.depositCents, withdrawalCents: row.withdrawalCents, netPerformanceCents: row.profitCents,
+    firstDepositCents: row.firstDepositCents, depositCents: row.depositCents, withdrawalCents: row.withdrawalCents, netPerformanceCents: row.netCents,
   };
 }
 
@@ -163,7 +163,7 @@ function groupSummaryRows(input: WorkbookInput) {
       firstDepositCents: group.firstDepositCents,
       depositCents: group.depositCents,
       withdrawalCents: group.withdrawalCents,
-      netPerformanceCents: group.profitCents,
+      netPerformanceCents: group.netCents,
     };
   });
 }
@@ -185,7 +185,7 @@ export async function buildMemberPerformanceWorkbook(input: WorkbookInput) {
   overview.mergeCells("A2:V2");
   overview.getCell("A2").value = dailyReport
     ? "说明：本报表统计选择日期当天导入的客户，流程和资金只计算截至当天已经发生的记录；“粉的归属”行按客户归属计算业绩，其余岗位行按实际工作环节统计。"
-    : "说明：汇总按号码所属小组统计；“粉的归属”行按客户归属计算业绩，其余岗位行按实际工作环节统计。撞粉为系统发现或人工确认的重复号码，不创建客户、不计资源成本。";
+    : "说明：汇总按号码所属小组统计；“粉的归属”行按客户归属计算业绩，其余岗位行按实际工作环节统计。撞粉为系统发现或人工确认的重复号码，不创建客户。";
   overview.getCell("A2").font = { color: { argb: "FF64748B" }, italic: true };
   overview.getRow(4).values = ["小组", ...headers.slice(1)];
   const groupRows = groupSummaryRows(input);
@@ -199,7 +199,7 @@ export async function buildMemberPerformanceWorkbook(input: WorkbookInput) {
   overview.mergeCells(sourceSummaryTitleRow, 1, sourceSummaryTitleRow, 7);
   overview.getCell(sourceSummaryTitleRow, 1).value = "来源业绩汇总（按渠道类型）";
   overview.getCell(sourceSummaryTitleRow, 1).font = { bold: true, color: { argb: "FF1F2937" } };
-  overview.getRow(sourceSummaryTitleRow + 1).values = ["来源", "添加数据", "有效数据", "入金（美元）", "出金（美元）", "资源费 / 返点（美元）", "净业绩（美元）"];
+  overview.getRow(sourceSummaryTitleRow + 1).values = ["来源", "添加数据", "有效数据", "入金（美元）", "出金（美元）", "净业绩（美元）"];
   for (const row of input.sourceSummary) {
     overview.addRow([
       row.sourceName,
@@ -207,11 +207,10 @@ export async function buildMemberPerformanceWorkbook(input: WorkbookInput) {
       row.effective,
       money(row.depositCents),
       money(row.withdrawalCents),
-      row.costCents === null ? "待设" : money(row.costCents),
-      row.netPerformanceCents === null ? "待设" : money(row.netPerformanceCents),
+      money(row.netPerformanceCents),
     ]);
   }
-  formatTable(overview, sourceSummaryTitleRow + 1, [], [4, 5, 6, 7]);
+  formatTable(overview, sourceSummaryTitleRow + 1, [], [4, 5, 6]);
 
   const summaryMembers = rowsFrom(input.summary);
   const memberSummaryHeader = overview.lastRow!.number + 3;

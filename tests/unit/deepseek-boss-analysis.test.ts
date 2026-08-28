@@ -6,19 +6,19 @@ const brief: DailyBossBrief = {
   reportDate: "2026-08-16",
   generatedAt: "2026-08-17T02:00:00.000Z",
   hasData: true,
-  totals: { newFans: 10, effectiveFans: 8, replies: 4, groupJoin: 1, expertIntro: 0, expertContacted: 0, registration: 0, orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: 0, costCents: 1000, rebateCents: 0, profitCents: -1000 },
+  totals: { newFans: 10, effectiveFans: 8, replies: 4, groupJoin: 1, expertIntro: 0, expertContacted: 0, registration: 0, orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: -1000 },
   rates: { replyRate: 0.5, joinRate: 0.25, expertIntroRate: 0, expertContactRate: null, expertOrderRate: null },
-  topCompanies: [{ name: "A公司", orders: 0, netPerformanceCents: 0, profitCents: -1000 }],
-  topGroups: [{ name: "A组", departmentName: "A公司", orders: 0, netPerformanceCents: 0, profitCents: -1000 }],
+  topCompanies: [{ name: "A公司", orders: 0, netPerformanceCents: -1000 }],
+  topGroups: [{ name: "A组", departmentName: "A公司", orders: 0, netPerformanceCents: -1000 }],
   groupRows: [],
-  anomalies: { overdueExpertIntro: 1, overdueExpertContact: 0, overdueOrder: 0, invalidCustomers: 2, pendingCostGroups: 0 },
+  anomalies: { overdueExpertIntro: 1, overdueExpertContact: 0, overdueOrder: 0, invalidCustomers: 2 },
   aiContext: {
     headlinePeriod: { type: "DAILY", date: "2026-08-16" },
     analysisWindow: { from: "2026-07-18", to: "2026-08-16" },
     dataCompleteness: { activeFrontline: 3, confirmedFrontline: 3, confirmationRate: 1 },
     comparison: {
-      yesterday: { totals: { newFans: 8, effectiveFans: 6, replies: 3, groupJoin: 1, expertIntro: 0, expertContacted: 0, registration: 0, orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: 0, costCents: 800, rebateCents: 0, profitCents: -800 }, rates: { replyRate: 0.5, joinRate: 1 / 3, expertIntroRate: 0, expertContactRate: null, expertOrderRate: null } },
-      trailing7DayAverage: { totals: { newFans: 9, effectiveFans: 7, replies: 3.5, groupJoin: 1, expertIntro: 0, expertContacted: 0, registration: 0, orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: 0, costCents: 900, rebateCents: 0, profitCents: -900 }, rates: { replyRate: 0.5, joinRate: 2 / 7, expertIntroRate: 0, expertContactRate: null, expertOrderRate: null } },
+      yesterday: { totals: { newFans: 8, effectiveFans: 6, replies: 3, groupJoin: 1, expertIntro: 0, expertContacted: 0, registration: 0, orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: -800 }, rates: { replyRate: 0.5, joinRate: 1 / 3, expertIntroRate: 0, expertContactRate: null, expertOrderRate: null } },
+      trailing7DayAverage: { totals: { newFans: 9, effectiveFans: 7, replies: 3.5, groupJoin: 1, expertIntro: 0, expertContacted: 0, registration: 0, orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: -900 }, rates: { replyRate: 0.5, joinRate: 2 / 7, expertIntroRate: 0, expertContactRate: null, expertOrderRate: null } },
     },
     employeeFunnels: [{
       employeeId: "employee-a",
@@ -62,8 +62,9 @@ describe("DeepSeek 老板分析", () => {
       expect(content).toContain('"verifiedProblems"');
       expect(content).toContain('"leavesToday"');
       expect(content).toContain('"rechargeUsd"');
-      expect(content).toContain('"creditedPerformanceUsd"');
+      expect(content).toContain('"netPerformanceUsd"');
       expect(content).not.toContain('"profitUsd"');
+      expect(content).not.toContain('"creditedPerformanceUsd"');
       expect(content).not.toContain("员工甲");
       expect(content).not.toContain('"rechargeCents"');
       expect(content).not.toContain('"phone"');
@@ -73,7 +74,7 @@ describe("DeepSeek 老板分析", () => {
       expect(request.messages[0].content).toContain("禁止写元、人民币或 ¥");
       expect(request.messages[0].content).toContain("effectiveFans 只能叫有效数据");
       expect(request.messages[0].content).toContain("replyRate 叫回复率（回复÷有效数据）");
-      expect(request.messages[0].content).toContain("creditedPerformanceUsd 是计入业绩");
+      expect(request.messages[0].content).toContain("netPerformanceUsd 是净业绩");
       expect(request.response_format).toEqual({ type: "json_object" });
       expect(request.thinking).toEqual({ type: "disabled" });
       return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({

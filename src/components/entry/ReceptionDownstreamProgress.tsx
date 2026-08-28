@@ -7,7 +7,6 @@ import { Drawer } from "../ui/Drawer";
 import type { EntryLead } from "./entry-types";
 import { CustomerProfileDetails } from "./CustomerProfileDrawer";
 import { formatUsd } from "../../lib/money";
-import { calculateFinancials } from "../../lib/finance";
 import { expertWorkflowStageLabel, expertWorkflowTrackingHours, expertWorkflowTrackingOverdue, resolveExpertWorkflowStage } from "../../lib/expert-workflow-stage";
 
 type ProgressItem = {
@@ -88,17 +87,8 @@ function financialSummary(lead: EntryLead) {
   const initialCents = activeOrder?.initialDepositCents ?? 0;
   const rechargeCents = recharges.reduce((sum, event) => sum + (event.amountCents ?? 0), 0);
   const withdrawalCents = withdrawals.reduce((sum, event) => sum + (event.amountCents ?? 0), 0);
-  const resourceEligible = lead.receptionCategory === "VALID" || lead.receptionCategory === "PENDING";
-  const financials = calculateFinancials({
-    effectiveFans: resourceEligible ? 1 : 0,
-    rechargeCents: initialCents + rechargeCents,
-    withdrawalCents,
-    channelPerformanceCents: 0,
-    effectiveFanPriceCents: lead.batch.effectiveFanPriceCentsSnapshot,
-    channelType: lead.batch.channelTypeSnapshot,
-    rebateRateBps: lead.batch.rebateRateBpsSnapshot,
-  });
-  return { initialCents, rechargeCents, withdrawalCents, costCents: financials.costCents ?? 0, netCents: financials.profitCents ?? 0, rebateCents: financials.rebateCents ?? 0, recharges, withdrawals };
+  const netCents = initialCents + rechargeCents - withdrawalCents;
+  return { initialCents, rechargeCents, withdrawalCents, netCents, recharges, withdrawals };
 }
 
 export function ReceptionDownstreamProgress({
@@ -176,7 +166,7 @@ export function ReceptionDownstreamProgress({
             <td><div className="reception-progress-customer"><strong className="member-phone">{lead.phone}</strong><span>{lead.customerName ?? "未填写姓名"}</span>{lead.isHistoricalRecord ? <small className="font-semibold text-violet-700">历史补录 · {lead.historicalSourceName || lead.batch.channel.name}</small> : null}<small>{day ? `进群第 ${day} 天` : "尚未入群"}</small></div></td>
             <td><div className="reception-progress-handoff"><div><small>粉的归属</small><strong>{lead.attributionOwner?.name ?? lead.owner.name}</strong></div><div><small>炒群负责人</small><strong>{operatorName(lead)}</strong></div><div><small>专家负责人</small><strong>{lead.expertOwner?.name ?? "待分配"}</strong></div><div><small>专家当前阶段</small><strong data-stage={resolveExpertWorkflowStage({ ...lead, hasActiveOrder: Boolean(lead.customerOrder && !lead.customerOrder.voidedAt) }) ?? undefined}>{resultLabel(lead)}</strong></div></div></td>
             <td><div className="reception-progress-latest"><section><small>炒群最新进度</small><p>{groupProgress?.note ?? (lead.groupStatus === "JOINED" ? "暂无每日进度" : "—")}</p>{groupProgress ? <span>{groupProgress.occurredOn} · {groupProgress.actor.name}</span> : null}</section><section><small>专家情况</small><p title={expertSituationSummary(lead)}>{expertSituationSummary(lead)}</p><span>专家：{lead.expertOwner?.name ?? "待分配"} · 只读</span></section></div></td>
-            <td><div className="reception-progress-finance"><div><span>首充</span><strong>{formatUsd(finance.initialCents)}</strong></div><div><span>续充</span><strong>{finance.recharges.length} 次 · {formatUsd(finance.rechargeCents)}</strong></div><div><span>出金</span><strong>{formatUsd(finance.withdrawalCents)}</strong></div><div><span>数据成本</span><strong>{formatUsd(finance.costCents)}</strong></div><div className="reception-progress-net"><span>当前净业绩</span><strong>{formatUsd(finance.netCents)}</strong></div><small>{lead.registeredOn ? `已注册 · ${lead.registeredOn}` : "未注册"}{lead.customerOrder && !lead.customerOrder.voidedAt ? ` · 已开单 ${lead.customerOrder.openedOn}` : " · 未开单"}</small></div></td>
+            <td><div className="reception-progress-finance"><div><span>首充</span><strong>{formatUsd(finance.initialCents)}</strong></div><div><span>续充</span><strong>{finance.recharges.length} 次 · {formatUsd(finance.rechargeCents)}</strong></div><div><span>出金</span><strong>{formatUsd(finance.withdrawalCents)}</strong></div><div className="reception-progress-net"><span>当前净业绩</span><strong>{formatUsd(finance.netCents)}</strong></div><small>{lead.registeredOn ? `已注册 · ${lead.registeredOn}` : "未注册"}{lead.customerOrder && !lead.customerOrder.voidedAt ? ` · 已开单 ${lead.customerOrder.openedOn}` : " · 未开单"}</small></div></td>
             <td><div className="reception-progress-actions"><button type="button" onClick={() => void open(lead)} className="reception-progress-detail"><Eye size={15} />查看资料 / 每日记录</button>{onVoidErroneousEntry ? <>{lead.invalid ? <span className="reception-progress-voided">已作废</span> : <button type="button" className="member-text-action danger whitespace-nowrap" disabled={actionDisabled?.(lead)} onClick={() => onVoidErroneousEntry(lead)}>标记误录</button>}</> : null}</div></td>
           </tr>;
         })}
@@ -191,7 +181,7 @@ export function ReceptionDownstreamProgress({
         {error ? <p role="alert" className="rounded-lg bg-red-50 p-4 text-sm text-red-700">{error}</p> : null}
         {detail ? <>
           {selected ? <CustomerProfileDetails lead={selected} /> : null}
-          {selected ? (() => { const finance = financialSummary(selected); return <section className="grid gap-2 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm sm:grid-cols-2"><p className="m-0"><strong>首充：</strong>{formatUsd(finance.initialCents)}</p><p className="m-0"><strong>续充：</strong>{finance.recharges.length} 次 · {formatUsd(finance.rechargeCents)}</p><p className="m-0"><strong>出金：</strong>{formatUsd(finance.withdrawalCents)}</p><p className="m-0"><strong>数据成本：</strong>{formatUsd(finance.costCents)}</p><p className="m-0 sm:col-span-2"><strong>当前净业绩：</strong>{formatUsd(finance.netCents)}（首充 + 续充 − 数据成本 − 出金）</p>{finance.recharges.map((event, index) => <p key={event.id} className="m-0 sm:col-span-2">第 {index + 1} 次续充：{event.occurredOn} · {formatUsd(event.amountCents ?? 0)}</p>)}</section>; })() : null}
+          {selected ? (() => { const finance = financialSummary(selected); return <section className="grid gap-2 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm sm:grid-cols-2"><p className="m-0"><strong>首充：</strong>{formatUsd(finance.initialCents)}</p><p className="m-0"><strong>续充：</strong>{finance.recharges.length} 次 · {formatUsd(finance.rechargeCents)}</p><p className="m-0"><strong>出金：</strong>{formatUsd(finance.withdrawalCents)}</p><p className="m-0 sm:col-span-2"><strong>当前净业绩：</strong>{formatUsd(finance.netCents)}（首充 + 续充 − 出金）</p>{finance.recharges.map((event, index) => <p key={event.id} className="m-0 sm:col-span-2">第 {index + 1} 次续充：{event.occurredOn} · {formatUsd(event.amountCents ?? 0)}</p>)}</section>; })() : null}
           <section className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm sm:grid-cols-2">
             <p className="m-0"><strong>炒群负责人：</strong>{detail.customer.groupOperatorName ?? "待分配"}</p>
             <p className="m-0"><strong>专家负责人：</strong>{detail.customer.expertOwner?.name ?? "待分配"}</p>

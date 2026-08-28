@@ -35,7 +35,6 @@ const EMPTY_ANOMALIES: BossReportAnomalies = {
   overdueExpertContact: 0,
   overdueOrder: 0,
   invalidCustomers: 0,
-  pendingCostGroups: 0,
 };
 
 function averageTotals(totals: BossReportTotals, days: number): BossReportTotals {
@@ -52,9 +51,6 @@ function averageTotals(totals: BossReportTotals, days: number): BossReportTotals
     rechargeCents: divide(totals.rechargeCents),
     withdrawalCents: divide(totals.withdrawalCents),
     netPerformanceCents: divide(totals.netPerformanceCents),
-    costCents: totals.costCents === null ? null : divide(totals.costCents),
-    rebateCents: divide(totals.rebateCents),
-    profitCents: totals.profitCents === null ? null : divide(totals.profitCents),
   };
 }
 
@@ -76,7 +72,6 @@ async function loadAnomalies(groupIds: string[], reportDate: string): Promise<Bo
       overdueExpertContact: 0,
       overdueOrder: 0,
       invalidCustomers: 0,
-      pendingCostGroups: 0,
     };
   }
   // 入群当天是第1天，因此报告日往前2天入群的客户已到第3天。
@@ -84,7 +79,7 @@ async function loadAnomalies(groupIds: string[], reportDate: string): Promise<Bo
   const contactCutoff = addLocalDays(reportDate, -1) ?? reportDate;
   const orderCutoff = addLocalDays(reportDate, -2) ?? reportDate;
   const scope = { batch: { groupId: { in: groupIds } } } as const;
-  const [overdueExpertIntro, overdueExpertContact, overdueOrder, invalidCustomers, pendingCostGroups] = await Promise.all([
+  const [overdueExpertIntro, overdueExpertContact, overdueOrder, invalidCustomers] = await Promise.all([
     db.leadCustomer.count({
       where: { ...scope, invalid: false, joinedOn: { lte: introCutoff }, expertIntroducedOn: null },
     }),
@@ -102,17 +97,8 @@ async function loadAnomalies(groupIds: string[], reportDate: string): Promise<Bo
     db.leadCustomer.count({
       where: { ...scope, invalid: true, batch: { groupId: { in: groupIds }, sourceDate: reportDate } },
     }),
-    db.sourceBatch.groupBy({
-      by: ["groupId"],
-      where: {
-        groupId: { in: groupIds },
-        sourceDate: { lte: reportDate },
-        fanCostModeSnapshot: "PAID",
-        effectiveFanPriceCentsSnapshot: null,
-      },
-    }).then((rows) => rows.length),
   ]);
-  return { overdueExpertIntro, overdueExpertContact, overdueOrder, invalidCustomers, pendingCostGroups };
+  return { overdueExpertIntro, overdueExpertContact, overdueOrder, invalidCustomers };
 }
 
 export async function loadDailyBossBrief(reportDate: string, options: { groupIds?: string[] } = {}): Promise<DailyBossBrief> {
@@ -309,7 +295,6 @@ export async function loadDailyBossBrief(reportDate: string, options: { groupIds
       effectiveRate: row.effectiveRate ?? null,
       effectiveFanReplyRate: row.customerReplyRate ?? null,
       d7SubmittedOrderRate: row.d7OrderRate ?? null,
-      costPerEffectiveFanCents: row.costPerEffectiveCents ?? null,
       invalidRate: row.invalidRate ?? null,
     };
   });

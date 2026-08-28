@@ -7,7 +7,7 @@ export type DailyEvaluation = {
   eligible: boolean;
   efficiency: number | null;
   state: "LOW" | "OK" | "OBSERVING";
-  reason: "READY" | "IMMATURE" | "INSUFFICIENT_SAMPLE" | "PENDING_PRICE" | "DATA_INVALID";
+  reason: "READY" | "IMMATURE" | "INSUFFICIENT_SAMPLE" | "DATA_INVALID";
 };
 
 export type PerformanceRiskLevel = "NONE" | "COACHING" | "LIMIT_WATCH" | "ELIMINATION_WATCH";

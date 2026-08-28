@@ -7,7 +7,7 @@ import { buildAnalysisHref } from "../../../lib/analytics/scope";
 import { formatUsdOr } from "../../../lib/money";
 
 const percent = (value: number | null) => value === null ? "样本不足" : `${(value * 100).toFixed(1)}%`;
-const money = (value: number | null) => formatUsdOr(value, "待定价");
+const money = (value: number | null) => formatUsdOr(value, "—");
 const statusLabel = { NORMAL: "正常", WARNING: "需关注", DANGER: "异常", INSUFFICIENT: "样本不足" } as const;
 const statusTone = { NORMAL: "success", WARNING: "warning", DANGER: "danger", INSUFFICIENT: "neutral" } as const;
 
@@ -58,10 +58,9 @@ export function ResourceCommandCenter({
         <div><span>撞粉率</span><strong>{percent(quality.duplicateRate)}</strong><small>{quality.duplicate} 个撞粉</small></div>
         <div><span>低金额</span><strong>{quality.lowAmount}</strong><small><Link href={channelPerformanceHref(filters)}>查看渠道表现</Link></small></div>
         <div><span>无 WS 号码</span><strong>{quality.noWs}</strong><small><Link href={channelPerformanceHref(filters)}>查看渠道表现</Link></small></div>
-        <div><span>每有效数据成本</span><strong>{money(quality.costPerEffectiveCents)}</strong><small>总成本 {money(quality.costCents)}</small></div>
         <div><span>D7添加数据开单率</span><strong>{percent(quality.matureOrderRate)}</strong><small>开单 {quality.matureOrders} / 成熟 {quality.matureSample}</small></div>
         <div><span>入金</span><strong>{money(overview.summary.financialRechargeCents ?? overview.summary.rechargeCents)}</strong><small>所选来源范围</small></div>
-        <div><span>计入业绩</span><strong>{money(overview.summary.profitCents ?? null)}</strong><small>净业绩－资源成本－渠道返点</small></div>
+        <div><span>净业绩</span><strong>{money(overview.summary.netPerformanceCents ?? null)}</strong><small>入金－出金</small></div>
       </div>
     </section>
 
@@ -75,7 +74,7 @@ export function ResourceCommandCenter({
 
     <section className="panel overflow-hidden">
       <div className="panel-header"><div><h2 className="panel-title">小组对比</h2><p className="panel-subtitle">资源质量和员工执行分开显示，避免把号码问题误判成员工问题</p></div></div>
-      <div className="data-table-wrap"><table className="data-table resource-group-table"><thead><tr><th>小组</th><th>添加数据</th><th>有效数据率</th><th>回复率</th><th>进群率</th><th>推专家率</th><th>D7添加数据开单率</th><th>计入业绩</th><th>状态</th></tr></thead><tbody>{workspace.groups.map((row) => <tr key={row.groupId}><td><Link className="font-semibold text-blue-700" href={conversionHref(filters, row.groupId)}>{row.groupName}</Link></td><td>{row.submitted}</td><td>{percent(row.effectiveRate)}</td><td>{percent(row.customerReplyRate)}</td><td>{percent(row.receptionJoinRate)}</td><td>{percent(row.operatorExpertRate)}</td><td>{percent(row.matureOrderRate)}</td><td>{money(row.netContributionCents)}</td><td><span className="analysis-status" data-tone={statusTone[row.status]}>{statusLabel[row.status]}</span></td></tr>)}{!workspace.groups.length ? <tr><td colSpan={9} className="empty-state">当前范围没有小组数据</td></tr> : null}</tbody></table></div>
+      <div className="data-table-wrap"><table className="data-table resource-group-table"><thead><tr><th>小组</th><th>添加数据</th><th>有效数据率</th><th>回复率</th><th>进群率</th><th>推专家率</th><th>D7添加数据开单率</th><th>净业绩</th><th>状态</th></tr></thead><tbody>{workspace.groups.map((row) => <tr key={row.groupId}><td><Link className="font-semibold text-blue-700" href={conversionHref(filters, row.groupId)}>{row.groupName}</Link></td><td>{row.submitted}</td><td>{percent(row.effectiveRate)}</td><td>{percent(row.customerReplyRate)}</td><td>{percent(row.receptionJoinRate)}</td><td>{percent(row.operatorExpertRate)}</td><td>{percent(row.matureOrderRate)}</td><td>{money(row.netPerformanceCents)}</td><td><span className="analysis-status" data-tone={statusTone[row.status]}>{statusLabel[row.status]}</span></td></tr>)}{!workspace.groups.length ? <tr><td colSpan={9} className="empty-state">当前范围没有小组数据</td></tr> : null}</tbody></table></div>
     </section>
 
     <section className="panel overflow-hidden">

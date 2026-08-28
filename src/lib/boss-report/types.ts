@@ -10,9 +10,6 @@ export type BossReportTotals = {
   rechargeCents: number;
   withdrawalCents: number;
   netPerformanceCents: number;
-  costCents: number | null;
-  rebateCents: number;
-  profitCents: number | null;
 };
 
 export type BossReportRates = {
@@ -28,7 +25,6 @@ export type BossReportRanking = {
   departmentName?: string;
   orders: number;
   netPerformanceCents: number;
-  profitCents: number | null;
 };
 
 export type BossReportGroupRow = {
@@ -46,8 +42,6 @@ export type BossReportGroupRow = {
   rechargeCents: number;
   withdrawalCents: number;
   netPerformanceCents: number;
-  costCents: number | null;
-  profitCents: number | null;
 };
 
 export type BossReportAnomalies = {
@@ -55,7 +49,6 @@ export type BossReportAnomalies = {
   overdueExpertContact: number;
   overdueOrder: number;
   invalidCustomers: number;
-  pendingCostGroups: number;
 };
 
 export type BossReportSnapshot = {
@@ -95,7 +88,6 @@ export type BossChannelQuality = {
   effectiveRate: number | null;
   effectiveFanReplyRate: number | null;
   d7SubmittedOrderRate: number | null;
-  costPerEffectiveFanCents: number | null;
   invalidRate: number | null;
 };
 

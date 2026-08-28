@@ -21,8 +21,6 @@ export type ResourceWorkspace = {
     customerReplyRate: number | null;
     duplicateRate: number | null;
     invalidRate: number | null;
-    costCents: number | null;
-    costPerEffectiveCents: number | null;
     matureSample: number;
     matureOrders: number;
     matureOrderRate: number | null;
@@ -46,7 +44,7 @@ export type ResourceGroupRow = {
   receptionJoinRate: number | null;
   operatorExpertRate: number | null;
   matureOrderRate: number | null;
-  netContributionCents: number | null;
+  netPerformanceCents: number;
   status: "NORMAL" | "WARNING" | "DANGER" | "INSUFFICIENT";
 };
 
@@ -72,8 +70,6 @@ type ImportFact = {
   batch: {
     sourceDate: string;
     group: { id: string; name: string };
-    fanCostModeSnapshot: "FREE" | "PAID";
-    effectiveFanPriceCentsSnapshot: number | null;
   };
 };
 
@@ -85,15 +81,11 @@ function addDays(date: string, amount: number) {
 }
 
 function importTotals(events: ImportFact[]) {
-  const result = { submitted: 0, effective: 0, duplicate: 0, invalid: 0, costCents: 0, pendingCost: false };
+  const result = { submitted: 0, effective: 0, duplicate: 0, invalid: 0 };
   for (const event of events) {
     const quantity = event.quantity ?? 0;
     if (event.kind === "NEW_FANS") result.submitted += quantity;
-    if (event.kind === "EFFECTIVE_FANS") {
-      result.effective += quantity;
-      if (event.batch.fanCostModeSnapshot === "PAID" && event.batch.effectiveFanPriceCentsSnapshot === null) result.pendingCost = true;
-      else result.costCents += quantity * (event.batch.effectiveFanPriceCentsSnapshot ?? 0);
-    }
+    if (event.kind === "EFFECTIVE_FANS") result.effective += quantity;
     if (event.kind === "DUPLICATE_FANS") result.duplicate += quantity;
     if (event.kind === "NO_NUMBER") result.invalid += quantity;
   }
@@ -110,7 +102,7 @@ function groupKey(date: string, groupId: string) {
 
 export async function loadResourceWorkspace(scope: AnalysisScope, today: string, dailyMode: "source" | "activity"): Promise<ResourceWorkspace> {
   if (scope.requestedForbiddenGroup || !scope.groupIds.length) return {
-    quality: { submitted: 0, effective: 0, replies: 0, duplicate: 0, invalid: 0, lowAmount: 0, noWs: 0, effectiveRate: null, customerReplyRate: null, duplicateRate: null, invalidRate: null, costCents: 0, costPerEffectiveCents: null, matureSample: 0, matureOrders: 0, matureOrderRate: null },
+    quality: { submitted: 0, effective: 0, replies: 0, duplicate: 0, invalid: 0, lowAmount: 0, noWs: 0, effectiveRate: null, customerReplyRate: null, duplicateRate: null, invalidRate: null, matureSample: 0, matureOrders: 0, matureOrderRate: null },
     execution: { receptionReply: rate(0, 0), receptionJoin: rate(0, 0), operatorExpert: rate(0, 0), expertOrder: rate(0, 0) },
     groups: [], daily: [],
   };
@@ -140,7 +132,7 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
       },
       select: {
         kind: true, quantity: true, occurredOn: true,
-        batch: { select: { sourceDate: true, fanCostModeSnapshot: true, effectiveFanPriceCentsSnapshot: true, group: { select: { id: true, name: true } } } },
+        batch: { select: { sourceDate: true, group: { select: { id: true, name: true } } } },
       },
     }) as Promise<ImportFact[]>,
     db.leadCustomer.findMany({
@@ -186,7 +178,6 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
   const matureTotals = calculateBatchTotals(sourceEvents.filter((event) =>
     getMaturity(event.batch.sourceDate, today).d7 && isWithinMaturityWindow(event.batch.sourceDate, event.occurredOn, 7),
   ));
-  const costCents = imported.pendingCost ? null : imported.costCents;
 
   const workableLeads = leads.filter((lead) => !lead.invalid);
   const replyDue = workableLeads.filter((lead) => lead.batch.sourceDate <= addDays(today, -1));
@@ -243,8 +234,7 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
     const importedGroupEffective = imports.submitted ? imports.effective : totals.effectiveFans;
     const groupEffective = Math.max(0, importedGroupEffective - (reclassifiedByGroup.get(id) ?? 0));
     const mature = calculateBatchTotals(facts.filter((event) => getMaturity(event.batch.sourceDate, today).d7 && isWithinMaturityWindow(event.batch.sourceDate, event.occurredOn, 7)));
-    const cost = imports.pendingCost ? null : imports.costCents;
-    const net = cost === null ? null : totals.rechargeCents - totals.withdrawalCents - cost;
+    const netPerformanceCents = totals.rechargeCents - totals.withdrawalCents;
     const matureRate = ratio(mature.orders, mature.newFans);
     const effectiveRate = ratio(groupEffective, groupSubmitted);
     const customerReplyRate = ratio(totals.replies, groupEffective);
@@ -264,7 +254,7 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
       receptionJoinRate,
       operatorExpertRate,
       matureOrderRate: matureRate,
-      netContributionCents: net,
+      netPerformanceCents,
       status,
     };
   }).sort((left, right) => ({ DANGER: 0, WARNING: 1, INSUFFICIENT: 2, NORMAL: 3 })[left.status] - ({ DANGER: 0, WARNING: 1, INSUFFICIENT: 2, NORMAL: 3 })[right.status] || right.submitted - left.submitted);
@@ -318,7 +308,6 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
       submitted, effective, replies: sourceTotals.replies, duplicate, invalid, lowAmount, noWs,
       effectiveRate: ratio(effective, submitted), customerReplyRate: ratio(sourceTotals.replies, effective),
       duplicateRate: ratio(duplicate, submitted), invalidRate: ratio(invalid, submitted),
-      costCents, costPerEffectiveCents: costCents === null ? null : ratio(costCents, effective),
       matureSample: matureTotals.newFans, matureOrders: matureTotals.orders, matureOrderRate: ratio(matureTotals.orders, matureTotals.newFans),
     },
     execution: {

@@ -58,11 +58,8 @@ export function CompanyCommandCenter({
   return <div className="company-command-center space-y-3">
     <section className="panel overflow-hidden" aria-label="公司经营概况">
       <div className="company-kpi-strip">
-        <div><span>资源成本</span><strong>{money(quality.costCents)}</strong><small>所选来源范围</small></div>
         <div><span>入金</span><strong>{money(overview.summary.financialRechargeCents ?? overview.summary.rechargeCents)}</strong><small>资金实际发生</small></div>
         <div><span>净业绩</span><strong>{money((overview.summary.financialRechargeCents ?? overview.summary.rechargeCents) - (overview.summary.withdrawalCents ?? 0))}</strong><small>入金－出金</small></div>
-        <div><span>渠道返点</span><strong>{money(overview.summary.rebateCents ?? 0)}</strong><small>按导入批次快照结算</small></div>
-        <div><span>计入业绩</span><strong>{money(overview.summary.profitCents)}</strong><small>净业绩－资源成本－返点</small></div>
         <div><span>D7添加数据开单率</span><strong>{percent(quality.matureOrderRate)}</strong><small>开单 {quality.matureOrders} / 成熟 {quality.matureSample}</small></div>
         <div><span>严重超时客户率</span><strong>{percent(workspace.seriousOverdue.rate)}</strong><small>{workspace.seriousOverdue.count} / 到期 {workspace.seriousOverdue.eligible}</small></div>
       </div>
@@ -86,14 +83,14 @@ export function CompanyCommandCenter({
       <section className="panel min-w-0 overflow-hidden">
         <div className="panel-header"><div><h2 className="panel-title">小组健康表</h2><p className="panel-subtitle">默认将异常和严重超时较多的小组排在前面</p></div></div>
         <div className="data-table-wrap"><table className="data-table company-health-table">
-          <thead><tr><th>小组</th><th>资源质量</th><th>进群率</th><th>第3天推专家率</th><th>第2天开单率</th><th>计入业绩</th><th>严重超时</th><th>状态</th></tr></thead>
+          <thead><tr><th>小组</th><th>资源质量</th><th>进群率</th><th>第3天推专家率</th><th>第2天开单率</th><th>净业绩</th><th>严重超时</th><th>状态</th></tr></thead>
           <tbody>{workspace.groups.map((group) => <tr key={group.groupId}>
             <td><Link className="font-semibold text-blue-700" href={buildAnalysisHref("/team-performance", filters, { groupId: group.groupId })}>{group.groupName}</Link></td>
             <td><ResourceCell group={group} /></td>
             <td><RoleCell metric={group.reception} /></td>
             <td><RoleCell metric={group.operator} /></td>
             <td><RoleCell metric={group.expert} /></td>
-            <td className={group.netContributionCents !== null && group.netContributionCents < 0 ? "font-semibold text-red-700" : "font-semibold"}>{money(group.netContributionCents)}</td>
+            <td className={group.netPerformanceCents < 0 ? "font-semibold text-red-700" : "font-semibold"}>{money(group.netPerformanceCents)}</td>
             <td><strong className={group.seriousOverdue ? "text-red-700" : "text-emerald-700"}>{group.seriousOverdue}</strong></td>
             <td><span className="analysis-status" data-tone={statusTone[group.status]}>{statusLabel[group.status]}</span></td>
           </tr>)}{!workspace.groups.length ? <tr><td colSpan={8} className="empty-state">当前范围没有小组数据</td></tr> : null}</tbody>

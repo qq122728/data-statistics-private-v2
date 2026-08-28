@@ -11,12 +11,12 @@ describe("resource manager workspace", () => {
       overview: {
         hasData: true,
         totals: emptyBatchTotals(),
-        summary: { newFans: 100, orders: 8, rechargeCents: 50_000, orderRate: 0.08, financialRechargeCents: 50_000, profitCents: 35_000 },
+        summary: { newFans: 100, orders: 8, rechargeCents: 50_000, orderRate: 0.08, financialRechargeCents: 50_000, netPerformanceCents: 35_000 },
         trend: [], largestDrop: null,
         alerts: { unconfirmed: [], noRecords3Days: [], replyWithoutFans: [], funnelAnomalies: [], excessiveLeaves: [], unassignedExperts: [], registrationOverdue: [], orderOverdue: [], planOverdue: [] },
       },
       workspace: {
-        quality: { submitted: 100, effective: 80, replies: 40, duplicate: 10, invalid: 10, lowAmount: 3, noWs: 4, effectiveRate: 0.8, customerReplyRate: 0.5, duplicateRate: 0.1, invalidRate: 0.1, costCents: 10_000, costPerEffectiveCents: 125, matureSample: 60, matureOrders: 6, matureOrderRate: 0.1 },
+        quality: { submitted: 100, effective: 80, replies: 40, duplicate: 10, invalid: 10, lowAmount: 3, noWs: 4, effectiveRate: 0.8, customerReplyRate: 0.5, duplicateRate: 0.1, invalidRate: 0.1, matureSample: 60, matureOrders: 6, matureOrderRate: 0.1 },
         execution: {
           receptionReply: { eligible: 80, completed: 70, rate: 0.875 },
           receptionJoin: { eligible: 40, completed: 20, rate: 0.5 },
@@ -28,7 +28,7 @@ describe("resource manager workspace", () => {
       filters: { sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-16" },
       dailyMode: "source",
     }));
-    for (const text of ["资源质量", "撞粉率", "低金额", "无 WS 号码", "回复率", "员工执行", "接粉按时回复率", "小组每日数据", "来源批次", "当日执行", "$1.25"]) expect(html).toContain(text);
+    for (const text of ["资源质量", "撞粉率", "低金额", "无 WS 号码", "回复率", "员工执行", "接粉按时回复率", "小组每日数据", "来源批次", "当日执行"]) expect(html).toContain(text);
     expect(html).not.toContain("人工无效");
     expect(html).not.toContain("¥");
   });

@@ -40,9 +40,7 @@ export function OverviewSummary({ overview, compact = false }: { overview: Manag
   ];
   const financialCards = [
     ["出金", money(overview.summary.withdrawalCents ?? 0)],
-    ["资源成本", overview.summary.costCents == null ? "待补单价" : money(overview.summary.costCents)],
-    ["渠道返点", money(overview.summary.rebateCents ?? 0)],
-    ["计入业绩", overview.summary.profitCents == null ? "待补单价" : money(overview.summary.profitCents)],
+    ["净业绩", money(overview.summary.netPerformanceCents ?? 0)],
   ];
   if (compact) return <>
     <section className="panel lead-dashboard-section overflow-hidden">

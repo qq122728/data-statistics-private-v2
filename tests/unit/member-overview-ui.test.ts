@@ -35,16 +35,10 @@ const row = (
   effectiveRate: 100 / 120,
   orderRate: 8 / 120,
   rechargePerEffectiveFanCents: 500,
-  financials: {
-    costCents: 10_000,
-    netPerformanceCents: 50_000,
-    profitCents: 40_000,
-    priceState: "PRICED",
-  },
+  netPerformanceCents: 50_000,
   adjustedEfficiency: 1.1,
   adjustedState: "READY",
   trend: 0.1,
-  pricingState: "PRICED",
   ...overrides,
 });
 
@@ -121,14 +115,14 @@ describe("member overview UI contracts", () => {
       createElement(MemberOverviewTable, {
         rows: [row()],
         showGroup: true,
-        sort: "profit",
+        sort: "net",
         query: { tab: "overview", period: "mature30" },
         role: "ADMIN",
       }),
     );
 
     for (const heading of [
-      "计入业绩排名",
+      "净业绩排名",
       "组员 / 小组",
       "有效数据",
       "入群数",
@@ -137,9 +131,8 @@ describe("member overview UI contracts", () => {
       "注册",
       "开单",
       "入金",
-      "数据成本",
       "出金",
-      "计入业绩",
+      "净业绩",
     ])
       expect(html).toContain(heading);
     expect(html).toContain('data-testid="member-desktop-table"');
@@ -156,21 +149,6 @@ describe("member overview UI contracts", () => {
         role: "RECEPTION",
       },
       stage: "TRAINING",
-    });
-    const pending = row({
-      member: {
-        id: "pending",
-        name: "待定价成员",
-        active: true,
-        role: "RECEPTION",
-      },
-      pricingState: "PENDING_PRICE",
-      financials: {
-        costCents: null,
-        netPerformanceCents: 0,
-        profitCents: null,
-        priceState: "PENDING_PRICE",
-      },
     });
     const invalid = row({
       member: {
@@ -194,17 +172,16 @@ describe("member overview UI contracts", () => {
     });
     const html = renderToStaticMarkup(
       createElement(PerformanceRankings, {
-        rows: [row(), training, pending, invalid, empty],
+        rows: [row(), training, invalid, empty],
         showGroup: true,
         role: "ADMIN",
       }),
     );
 
-    for (const title of ["盈利贡献榜", "渠道校正效率榜", "稳定进步榜"])
+    for (const title of ["净业绩贡献榜", "渠道校正效率榜", "稳定进步榜"])
       expect(html).toContain(title);
     for (const state of [
       "培训期·不正式排名",
-      "待定价·暂停财务判断",
       "数据待核实",
       "无数据",
     ])
@@ -285,45 +262,34 @@ describe("member overview UI contracts", () => {
     });
     const financial = row({
       member: { id: "loss", name: "亏损成员", active: true, role: "RECEPTION" },
-      financials: {
-        costCents: 50_000,
-        netPerformanceCents: 10_000,
-        profitCents: -40_000,
-        priceState: "PRICED",
-      },
+      netPerformanceCents: -40_000,
     });
     const invalid = row({
       member: { id: "invalid", name: "数据异常", active: true, role: "RECEPTION" },
       adjustedEfficiency: null,
       adjustedState: "DATA_INVALID",
     });
-    const pending = row({
+    const noData = row({
       member: {
-        id: "pending",
-        name: "待定价成员",
+        id: "no-data",
+        name: "无数据成员",
         active: true,
         role: "RECEPTION",
       },
+      totals: emptyBatchTotals(),
       adjustedEfficiency: null,
       adjustedState: "INSUFFICIENT_PEERS",
-      financials: {
-        costCents: null,
-        netPerformanceCents: 0,
-        profitCents: null,
-        priceState: "PENDING_PRICE",
-      },
-      pricingState: "PENDING_PRICE",
     });
     const admin = renderToStaticMarkup(
       createElement(RiskAlerts, {
-        rows: [performance, trainingLow, financial, invalid, pending],
+        rows: [performance, trainingLow, financial, invalid, noData],
         role: "ADMIN",
         riskSettings: defaultRiskSettings,
       }),
     );
     const lead = renderToStaticMarkup(
       createElement(RiskAlerts, {
-        rows: [performance, trainingLow, financial, invalid, pending],
+        rows: [performance, trainingLow, financial, invalid, noData],
         role: "LEAD",
         riskSettings: defaultRiskSettings,
       }),
@@ -335,7 +301,7 @@ describe("member overview UI contracts", () => {
       "正式期",
       "有效粉",
       "数据待核实",
-      "待定价",
+      "无数据",
       "查看证据",
     ])
       expect(admin).toContain(label);

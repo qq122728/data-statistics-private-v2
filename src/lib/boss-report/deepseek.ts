@@ -30,15 +30,12 @@ function usd(cents: number | null): number | null {
 }
 
 function aiTotals(totals: BossReportTotals) {
-  const { rechargeCents, withdrawalCents, netPerformanceCents, costCents, rebateCents, profitCents, ...counts } = totals;
+  const { rechargeCents, withdrawalCents, netPerformanceCents, ...counts } = totals;
   return {
     ...counts,
     rechargeUsd: usd(rechargeCents),
     withdrawalUsd: usd(withdrawalCents),
     netPerformanceUsd: usd(netPerformanceCents),
-    costUsd: usd(costCents),
-    rebateUsd: usd(rebateCents),
-    creditedPerformanceUsd: usd(profitCents),
   };
 }
 
@@ -52,8 +49,8 @@ function sanitizedPayload(brief: DailyBossBrief) {
     reportDate: brief.reportDate,
     totals: aiTotals(brief.totals),
     rates: brief.rates,
-    topCompanies: brief.topCompanies.map(({ netPerformanceCents, profitCents, ...row }) => ({ ...row, netPerformanceUsd: usd(netPerformanceCents), creditedPerformanceUsd: usd(profitCents) })),
-    topGroups: brief.topGroups.map(({ netPerformanceCents, profitCents, ...row }) => ({ ...row, netPerformanceUsd: usd(netPerformanceCents), creditedPerformanceUsd: usd(profitCents) })),
+    topCompanies: brief.topCompanies.map(({ netPerformanceCents, ...row }) => ({ ...row, netPerformanceUsd: usd(netPerformanceCents) })),
+    topGroups: brief.topGroups.map(({ netPerformanceCents, ...row }) => ({ ...row, netPerformanceUsd: usd(netPerformanceCents) })),
     anomalies: brief.anomalies,
     aiContext: context ? {
       headlinePeriod: context.headlinePeriod,
@@ -105,7 +102,7 @@ async function requestDeepSeek(
             "业务用词必须统一：newFans 叫添加数据，effectiveFans 只能叫有效数据，禁止使用其他叫法。",
             "比例名称必须按口径写清楚：replyRate 叫回复率（回复÷有效数据），joinRate 叫进群率（进群÷回复），expertIntroRate 叫推专家率（推专家÷进群），expertContactRate 叫联系率（已联系÷推专家），registrationRate 叫注册率（注册÷推专家），expertOrderRate 叫开单率（开单÷注册）。",
             "统一使用推专家、开单、入金；不要使用介绍专家、下单、充值。",
-            "金额口径固定：netPerformanceUsd 是净业绩（入金－出金）；creditedPerformanceUsd 是计入业绩（净业绩－数据成本－渠道返点），与页面排行榜和老板日报完全一致。禁止使用已废弃的旧称，也不能把两个金额混为一谈。",
+            "金额口径固定：netPerformanceUsd 是净业绩（入金－出金），与页面排行榜和老板日报完全一致。系统不计算成本，禁止提及成本、返点或计入业绩这类已废弃的旧称。",
             "程序已按真实业务日期、实际负责人、样本门槛和组长标准完成员工评级；不得自行评级或换算比例。",
             "行动只能基于 verifiedProblems 中的 actionHint，原因不确定时必须安排核查，不能把可能原因写成事实。",
             "岗位归责必须严格：接粉员工只直接负责有效数据的回复和进群；其中接粉考核的“有效数据入群率”会明确标注为进群÷有效数据，不要把它误写成通用进群率。接粉名下后续推专家、联系、注册、开单只能叫下游结果，不得直接归责接粉员工。炒群只评价第3天推专家，专家只评价联系、注册和开单。",
@@ -113,7 +110,7 @@ async function requestDeepSeek(
             "headlinePeriod 是单日结果，analysisWindow 是员工和渠道观察窗口，两者禁止混写成同一时间范围。",
             "只有 comparison 提供了对比时才能写上升、下降或改善；评级只允许引用 verifiedProblems 中程序已经核实的结果。",
             "comparison.trailing7DayAverage 中 totals 是近7日每日平均数量，rates 是近7日整体转化率。",
-            "样本不足的数据已经被程序拦截，不得评价其好坏；计入业绩或成本为 null 时不得推算金额。",
+            "样本不足的数据已经被程序拦截，不得评价其好坏。",
             "退群分析必须区分1–8天异常退群、9–13天观察退群、14天起正常退群，并区分已开单与未开单。",
             "所有以 Usd 结尾的金额字段已经是准确美元值，必须原样引用，不得再次换算；只能写美元或使用 $，禁止写元、人民币或 ¥。",
             "summary 和 action 中禁止出现任何数字、百分号或金额；准确数字由本地程序写入问题句。",

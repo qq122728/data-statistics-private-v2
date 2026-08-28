@@ -20,7 +20,7 @@ export type CompanyGroupHealth = {
   reception: CompanyRoleMetric;
   operator: CompanyRoleMetric;
   expert: CompanyRoleMetric;
-  netContributionCents: number | null;
+  netPerformanceCents: number;
   seriousOverdue: number;
   status: "NORMAL" | "WARNING" | "DANGER" | "INSUFFICIENT";
 };
@@ -164,7 +164,7 @@ export async function loadCompanyWorkspace(scope: AnalysisScope, today: string):
       reception,
       operator,
       expert,
-      netContributionCents: resourceRow?.netContributionCents ?? null,
+      netPerformanceCents: resourceRow?.netPerformanceCents ?? 0,
       seriousOverdue,
       status,
     };

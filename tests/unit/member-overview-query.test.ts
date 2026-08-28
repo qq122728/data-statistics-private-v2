@@ -173,11 +173,10 @@ describe("member overview aggregation query", () => {
       // 开单率以“已注册”为分母；这批旧测试事件没有注册记录，因此不显示比例。
       orderRate: null,
       rechargePerEffectiveFanCents: 200,
-      financials: { costCents: 10_000, netPerformanceCents: 19_000, profitCents: 9_000, priceState: "PRICED" },
+      netPerformanceCents: 19_000,
       adjustedEfficiency: 2,
       adjustedState: "READY",
       trend: 1,
-      pricingState: "PRICED",
     });
   });
 
@@ -192,28 +191,12 @@ describe("member overview aggregation query", () => {
     });
   });
 
-  it("keeps an unpriced historical batch pending after the channel receives a later price", async () => {
-    const pending = await loadMemberOverview(scope("LEAD", [ids.groupA]), "2026-08-14");
-    expect(pending.rows.find((row) => row.member.id === ids.trainingA)).toMatchObject({
+  it("counts a historical batch's net performance regardless of channel pricing", async () => {
+    const result = await loadMemberOverview(scope("LEAD", [ids.groupA]), "2026-08-14");
+    expect(result.rows.find((row) => row.member.id === ids.trainingA)).toMatchObject({
       stage: "TRAINING",
-      financials: { costCents: null, netPerformanceCents: 10_000, profitCents: null, priceState: "PENDING_PRICE" },
-      pricingState: "PENDING_PRICE",
+      netPerformanceCents: 10_000,
     });
-    expect(pending.summary).toMatchObject({ costCents: null, profitCents: null });
-    expect(pending.pendingPriceChannels).toEqual([{ id: ids.pendingA, groupId: ids.groupA, name: "待定价渠道" }]);
-
-    await db.channel.update({
-      where: { id_groupId: { id: ids.pendingA, groupId: ids.groupA } },
-      data: { effectiveFanPriceCents: 50 },
-    });
-    const priced = await loadMemberOverview(scope("LEAD", [ids.groupA]), "2026-08-14");
-    expect(priced.rows.find((row) => row.member.id === ids.trainingA)).toMatchObject({
-      financials: { costCents: null, netPerformanceCents: 10_000, profitCents: null, priceState: "PENDING_PRICE" },
-      pricingState: "PENDING_PRICE",
-    });
-    expect(priced.summary.costCents).toBeNull();
-    expect(priced.summary.profitCents).toBeNull();
-    expect(priced.pendingPriceChannels).toEqual([{ id: ids.pendingA, groupId: ids.groupA, name: "待定价渠道" }]);
   });
 
   it("retains invalid business totals but never evaluates or formally ranks them", async () => {

@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { businessTimezoneOption, localClockMinutes, resolveGroupBusinessTime } from "../business-time-config";
 import { localDateYYYYMMDD } from "../dates";
-import { formatUsd, formatUsdOr } from "../money";
+import { formatUsd } from "../money";
 import { generateBossAiAnalysis } from "./deepseek";
 import { loadDailyBossBrief } from "./data";
 import type { BossAiAnalysis, DailyBossBrief } from "./types";
@@ -181,18 +181,18 @@ export function formatRegionalOperatingBrief(region: BossBriefRegion, brief: Dai
   const lines = [
     `📍 国家／小组经营简报｜${region.countryLabel} · ${region.timezoneLabel}`,
     `业务日期：${brief.reportDate}｜小组：${region.groupNames.join("、")}`,
-    "统计口径：当天实际发生的数据与资金；计入业绩只在成本完整时显示。",
+    "统计口径：当天实际发生的数据与资金。",
     "",
     "【国家／时区结果】",
     `添加数据 ${brief.totals.newFans}｜有效数据 ${brief.totals.effectiveFans}｜回复 ${brief.totals.replies}｜进群 ${brief.totals.groupJoin}`,
     `推专家 ${brief.totals.expertIntro}｜已联系 ${brief.totals.expertContacted}｜注册 ${brief.totals.registration}｜开单 ${brief.totals.orders}`,
-    `入金 ${formatUsd(brief.totals.rechargeCents)}｜出金 ${formatUsd(brief.totals.withdrawalCents)}｜净业绩 ${formatUsd(brief.totals.netPerformanceCents)}｜计入业绩 ${formatUsdOr(brief.totals.profitCents, "待补单价")}`,
+    `入金 ${formatUsd(brief.totals.rechargeCents)}｜出金 ${formatUsd(brief.totals.withdrawalCents)}｜净业绩 ${formatUsd(brief.totals.netPerformanceCents)}`,
     "",
     "【流程转化】",
     `回复率 ${percent(brief.rates.replyRate)}｜进群率 ${percent(brief.rates.joinRate)}｜推专家率 ${percent(brief.rates.expertIntroRate)}｜联系率 ${percent(brief.rates.expertContactRate)}`,
     "",
     "【小组明细】",
-    ...brief.groupRows.map((row) => `${row.departmentName} / ${row.name}：有效 ${row.effectiveFans}｜进群 ${row.groupJoin}｜推专家 ${row.expertIntro}｜已联系 ${row.expertContacted}｜注册 ${row.registration}｜开单 ${row.orders}｜净业绩 ${formatUsd(row.netPerformanceCents)}｜计入业绩 ${formatUsdOr(row.profitCents, "待补单价")}`),
+    ...brief.groupRows.map((row) => `${row.departmentName} / ${row.name}：有效 ${row.effectiveFans}｜进群 ${row.groupJoin}｜推专家 ${row.expertIntro}｜已联系 ${row.expertContacted}｜注册 ${row.registration}｜开单 ${row.orders}｜净业绩 ${formatUsd(row.netPerformanceCents)}`),
     "",
     "【流程异常】",
     `进群第 3 天仍未推专家 ${brief.anomalies.overdueExpertIntro}｜推专家后 1 天仍未联系 ${brief.anomalies.overdueExpertContact}｜联系后 2 天仍未开单 ${brief.anomalies.overdueOrder}`,

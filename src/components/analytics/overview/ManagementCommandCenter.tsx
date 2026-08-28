@@ -18,7 +18,7 @@ import type { AnalysisFilters } from "../../../lib/analytics/types";
 import { HeadquartersPerformanceLeaderboard } from "./HeadquartersPerformanceLeaderboard";
 import { formatUsdOr } from "../../../lib/money";
 
-const money = (cents: number | null) => formatUsdOr(cents, "待定价");
+const money = (cents: number | null) => formatUsdOr(cents, "—");
 const percent = (value: number | null) => value === null ? "样本不足" : `${(value * 100).toFixed(1)}%`;
 const stageNames = {
   NEW_FANS: "添加数据",
@@ -67,8 +67,8 @@ export function ManagementCommandCenter({
         key: `group:${row.groupId}`,
         level: row.risk === "HIGH" ? "高" : "中",
         title: `${row.departmentName} / ${row.groupName} ${riskText[row.risk]}`,
-        detail: row.profitCents !== null && row.profitCents < 0
-          ? `当前范围计入业绩 ${money(row.profitCents)}`
+        detail: row.netPerformanceCents < 0
+          ? `当前范围净业绩 ${money(row.netPerformanceCents)}`
           : `D7添加数据开单率 ${percent(row.matureOrderRate)}`,
         href: buildAnalysisHref("/team-performance", filters, { groupId: row.groupId }),
       })),
@@ -95,12 +95,8 @@ export function ManagementCommandCenter({
         <div><span>入金</span><strong>{money(overview.summary.financialRechargeCents ?? overview.summary.rechargeCents)}</strong></div>
         <b aria-hidden="true">−</b>
         <div><span>出金</span><strong>{money(overview.summary.withdrawalCents ?? 0)}</strong></div>
-        <b aria-hidden="true">−</b>
-        <div><span>数据成本</span><strong>{money(overview.summary.costCents ?? null)}</strong></div>
-        <b aria-hidden="true">−</b>
-        <div><span>渠道返点</span><strong>{money(overview.summary.rebateCents ?? 0)}</strong></div>
         <b aria-hidden="true">=</b>
-        <div className="management-equation-result"><span>计入业绩</span><strong>{money(overview.summary.profitCents ?? null)}</strong></div>
+        <div className="management-equation-result"><span>净业绩</span><strong>{money(overview.summary.netPerformanceCents ?? null)}</strong></div>
         <div className="management-equation-rate">
           <span>D7添加数据开单率</span>
           <strong>{percent(overview.summary.matureOrderRate ?? null)}</strong>
@@ -118,12 +114,12 @@ export function ManagementCommandCenter({
           </div>
           <div className="data-table-wrap">
             <table className="data-table management-comparison-table">
-              <thead><tr><th>公司 / 小组</th><th>计入业绩</th><th>有效数据</th><th>D7添加数据开单率</th><th>今日确认</th><th>状态</th></tr></thead>
+              <thead><tr><th>公司 / 小组</th><th>净业绩</th><th>有效数据</th><th>D7添加数据开单率</th><th>今日确认</th><th>状态</th></tr></thead>
               <tbody>
                 {groupComparison.map((row) => (
                   <tr key={row.groupId}>
                     <td><span className="block text-xs text-slate-400">{row.departmentName}</span><Link href={buildAnalysisHref("/team-performance", filters, { groupId: row.groupId })} className="font-semibold text-[#0b66ff]">{row.groupName}</Link></td>
-                    <td className={row.profitCents !== null && row.profitCents < 0 ? "font-semibold text-red-700" : "font-semibold text-slate-800"}>{money(row.profitCents)}</td>
+                    <td className={row.netPerformanceCents < 0 ? "font-semibold text-red-700" : "font-semibold text-slate-800"}>{money(row.netPerformanceCents)}</td>
                     <td>{row.effectiveFans}</td>
                     <td>{percent(row.matureOrderRate)}</td>
                     <td>{row.confirmedPeople} / {row.activePeople}</td>

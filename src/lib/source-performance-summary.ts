@@ -1,5 +1,4 @@
 import { db } from "./db";
-import { calculateFinancials } from "./finance";
 import { getApprovedInvalidFanTotals } from "./invalid-fan-reports";
 
 export type SourcePerformanceSummaryRow = {
@@ -9,8 +8,7 @@ export type SourcePerformanceSummaryRow = {
   effective: number;
   depositCents: number;
   withdrawalCents: number;
-  costCents: number | null;
-  netPerformanceCents: number | null;
+  netPerformanceCents: number;
 };
 
 const sourceLabels: Record<SourcePerformanceSummaryRow["channelType"], SourcePerformanceSummaryRow["sourceName"]> = {
@@ -42,10 +40,7 @@ export async function loadSourcePerformanceSummary(input: { groupIds: string[]; 
       batch: {
         select: {
           isHistoricalRecord: true,
-          fanCostModeSnapshot: true,
-          effectiveFanPriceCentsSnapshot: true,
           channelTypeSnapshot: true,
-          rebateRateBpsSnapshot: true,
         },
       },
       customerOrder: {
@@ -67,7 +62,7 @@ export async function loadSourcePerformanceSummary(input: { groupIds: string[]; 
 
   const rows = new Map<SourcePerformanceSummaryRow["channelType"], SourcePerformanceSummaryRow>();
   for (const channelType of ["SMS", "ADS", "REBATE"] as const) {
-    rows.set(channelType, { channelType, sourceName: sourceLabels[channelType], added: 0, effective: 0, depositCents: 0, withdrawalCents: 0, costCents: 0, netPerformanceCents: 0 });
+    rows.set(channelType, { channelType, sourceName: sourceLabels[channelType], added: 0, effective: 0, depositCents: 0, withdrawalCents: 0, netPerformanceCents: 0 });
   }
 
   for (const lead of leads) {
@@ -90,24 +85,7 @@ export async function loadSourcePerformanceSummary(input: { groupIds: string[]; 
     }
     row.depositCents += depositCents;
     row.withdrawalCents += withdrawalCents;
-
-    const financials = calculateFinancials({
-      effectiveFans: effective ? 1 : 0,
-      rechargeCents: depositCents,
-      withdrawalCents,
-      channelPerformanceCents: 0,
-      effectiveFanPriceCents: lead.batch.fanCostModeSnapshot === "FREE" ? 0 : lead.batch.effectiveFanPriceCentsSnapshot,
-      channelType: lead.batch.channelTypeSnapshot,
-      rebateRateBps: lead.batch.rebateRateBpsSnapshot,
-    });
-    if (financials.costCents === null || financials.profitCents === null) {
-      row.costCents = null;
-      row.netPerformanceCents = null;
-    } else if (row.costCents !== null && row.netPerformanceCents !== null) {
-      // 普通来源记资源费；底料返点记应返给渠道的金额，净业绩则保留 70% 后的金额。
-      row.costCents += financials.rebateCents ?? financials.costCents;
-      row.netPerformanceCents += financials.profitCents;
-    }
+    row.netPerformanceCents += depositCents - withdrawalCents;
   }
   // 无效粉只记录人数，不生成客户和资金；来源汇总仍需把组长确认的数量算进“添加数据”。
   for (const report of approvedInvalidReports) {

@@ -43,39 +43,30 @@ describe("member overview page shell", () => {
     expect(html).toContain('aria-current="page"');
   });
 
-  it("summarizes mature samples and distinguishes pending pricing from zero money", () => {
+  it("summarizes mature samples and shows net performance", () => {
     const html = renderToStaticMarkup(
       createElement(MemberOverviewSummary, {
         sourceDayCount: 30,
         summary: {
           effectiveFans: 120,
           rechargeCents: 50_000,
-          costCents: null,
-          profitCents: null,
+          netPerformanceCents: 49_000,
           attentionMemberCount: 2,
           matureBatchCount: 4,
           observingBatchCount: 1,
           rankedMemberCount: 3,
         },
-        pendingPriceChannels: [
-          { id: "channel-a", groupId: "group-a", name: "待定价渠道" },
-        ],
       }),
     );
 
     for (const label of [
       "有效数据样本",
       "入金",
-      "数据成本",
-      "团队计入业绩",
+      "净业绩",
       "需要关注人数",
     ])
       expect(html).toContain(label);
-    expect(html).toContain("待管理员定价渠道");
-    expect(html).toContain("待定价渠道");
-    expect(html).toContain("待定价");
     expect(html).toContain("30 个来源日");
     expect(html).toContain("1 个观察中批次");
-    expect(html).not.toContain("$0.00");
   });
 });

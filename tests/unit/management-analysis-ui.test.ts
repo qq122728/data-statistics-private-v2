@@ -114,7 +114,7 @@ describe("management analysis interface behavior", () => {
     const html = renderToStaticMarkup(
       createElement(RoleRankingsTable, {
         result: {
-          reception: [{ id: "r1", name: "接粉一", active: true, groupId: "g1", groupName: "西瓜组", valid: 1, replied: 1, joined: 1, expertIntroduced: 0, registered: 0, orders: 0, firstDepositCents: 0, depositCents: 0, withdrawalCents: 0, costCents: 0, profitCents: 0 }],
+          reception: [{ id: "r1", name: "接粉一", active: true, groupId: "g1", groupName: "西瓜组", valid: 1, replied: 1, joined: 1, expertIntroduced: 0, registered: 0, orders: 0, firstDepositCents: 0, depositCents: 0, withdrawalCents: 0, netCents: 0 }],
           groupOperators: [],
           experts: [],
           groups: [],

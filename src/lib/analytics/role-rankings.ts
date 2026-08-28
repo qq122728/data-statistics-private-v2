@@ -1,6 +1,5 @@
 import { db } from "../db";
 import { hasReachedBusinessDay, standardsFromGroup, type GroupConversionStandards } from "../conversion-standards";
-import { calculateFinancials } from "../finance";
 import { getApprovedInvalidFanTotals } from "../invalid-fan-reports";
 import { assessGroupLeave } from "../group-leave";
 
@@ -28,8 +27,7 @@ export type ReceptionRankingRow = {
   firstDepositCents: number;
   depositCents: number;
   withdrawalCents: number;
-  costCents: number | null;
-  profitCents: number | null;
+  netCents: number;
 };
 
 export type GroupOperatorRankingRow = {
@@ -93,8 +91,7 @@ export type GroupRankingRow = {
   firstDepositCents: number;
   depositCents: number;
   withdrawalCents: number;
-  costCents: number | null;
-  profitCents: number | null;
+  netCents: number;
 };
 
 export type RoleRankingsResult = {
@@ -144,10 +141,6 @@ async function loadLeads(groupIds: string[], sourceDateFrom: string, sourceDateT
           id: true,
           groupId: true,
           isHistoricalRecord: true,
-          fanCostModeSnapshot: true,
-          effectiveFanPriceCentsSnapshot: true,
-          channelTypeSnapshot: true,
-          rebateRateBpsSnapshot: true,
         },
       },
       activities: {
@@ -193,81 +186,28 @@ function isHistorical(lead: LoadedLead) {
   return lead.isHistoricalRecord || lead.batch.isHistoricalRecord;
 }
 
-function financials(leads: LoadedLead[], includeCost: boolean, today: string) {
+function financials(leads: LoadedLead[], today: string) {
   let firstDepositCents = 0;
   let depositCents = 0;
   let withdrawalCents = 0;
-  let costCents = 0;
-  let creditedProfitCents = 0;
-  let pendingPrice = false;
-  const settlements = new Map<string, {
-    effectiveFans: number;
-    depositCents: number;
-    withdrawalCents: number;
-    fanCostModeSnapshot: "FREE" | "PAID";
-    effectiveFanPriceCentsSnapshot: number | null;
-    channelTypeSnapshot: "SMS" | "ADS" | "REBATE";
-    rebateRateBpsSnapshot: number | null;
-  }>();
   for (const lead of leads) {
     const order = activeOrder(lead, today);
-    let leadDepositCents = 0;
-    let leadWithdrawalCents = 0;
-    if (order) {
-      firstDepositCents += order.initialDepositCents;
-      leadDepositCents += order.initialDepositCents;
-      for (const event of order.events) {
-        if (event.occurredOn > today) continue;
-        if (event.voidedAt && event.voidedAt.toISOString().slice(0, 10) <= today) continue;
-        if (event.kind === "RECHARGE" && event.continuationNumber !== null)
-          leadDepositCents += event.amountCents ?? 0;
-        if (event.kind === "WITHDRAWAL") leadWithdrawalCents += event.amountCents ?? 0;
-      }
-    }
-    depositCents += leadDepositCents;
-    withdrawalCents += leadWithdrawalCents;
-    if (!includeCost) continue;
-
-    const settlement = settlements.get(lead.batch.id) ?? {
-      effectiveFans: 0,
-      depositCents: 0,
-      withdrawalCents: 0,
-      fanCostModeSnapshot: lead.batch.fanCostModeSnapshot,
-      effectiveFanPriceCentsSnapshot: lead.batch.effectiveFanPriceCentsSnapshot,
-      channelTypeSnapshot: lead.batch.channelTypeSnapshot,
-      rebateRateBpsSnapshot: lead.batch.rebateRateBpsSnapshot,
-    };
-    if (!isHistorical(lead) && isResourceEligible(lead)) settlement.effectiveFans += 1;
-    settlement.depositCents += leadDepositCents;
-    settlement.withdrawalCents += leadWithdrawalCents;
-    settlements.set(lead.batch.id, settlement);
-  }
-
-  for (const settlement of settlements.values()) {
-    const result = calculateFinancials({
-      effectiveFans: settlement.effectiveFans,
-      rechargeCents: settlement.depositCents,
-      withdrawalCents: settlement.withdrawalCents,
-      channelPerformanceCents: 0,
-      effectiveFanPriceCents: settlement.fanCostModeSnapshot === "FREE" ? 0 : settlement.effectiveFanPriceCentsSnapshot,
-      channelType: settlement.channelTypeSnapshot,
-      rebateRateBps: settlement.rebateRateBpsSnapshot,
-    });
-    if (result.costCents === null || result.profitCents === null) pendingPrice = true;
-    else {
-      costCents += result.costCents;
-      creditedProfitCents += result.profitCents;
-      // 底料返点已在 calculateFinancials 中自动按 70% 计入业绩。
-      // 普通渠道则是净入金减去该号码的数据成本。
+    if (!order) continue;
+    firstDepositCents += order.initialDepositCents;
+    depositCents += order.initialDepositCents;
+    for (const event of order.events) {
+      if (event.occurredOn > today) continue;
+      if (event.voidedAt && event.voidedAt.toISOString().slice(0, 10) <= today) continue;
+      if (event.kind === "RECHARGE" && event.continuationNumber !== null)
+        depositCents += event.amountCents ?? 0;
+      if (event.kind === "WITHDRAWAL") withdrawalCents += event.amountCents ?? 0;
     }
   }
-  const resolvedCost = includeCost && pendingPrice ? null : includeCost ? costCents : 0;
   return {
     firstDepositCents,
     depositCents,
     withdrawalCents,
-    costCents: resolvedCost,
-    profitCents: resolvedCost === null ? null : includeCost ? creditedProfitCents : depositCents - withdrawalCents,
+    netCents: depositCents - withdrawalCents,
   };
 }
 
@@ -456,7 +396,7 @@ export async function loadRoleRankings(input: {
         duplicate: (duplicateByReception.get(person.id) ?? 0) + approvedInvalid.collision,
         invalid: workflowOwned.filter((lead) => lead.receptionCategory === "INVALID").length,
         ...funnel(owned, today),
-        ...financials(owned, true, today),
+        ...financials(owned, today),
       };
     })
     .sort((left, right) => right.joined - left.joined || right.replied - left.replied || left.name.localeCompare(right.name, "zh-CN"));
@@ -485,10 +425,10 @@ export async function loadRoleRankings(input: {
         duplicate: (duplicateByReception.get(person.id) ?? 0) + approvedInvalid.collision,
         invalid: workflowOwned.filter((lead) => lead.receptionCategory === "INVALID").length,
         ...funnel(owned, today),
-        ...financials(owned, true, today),
+        ...financials(owned, today),
       };
     })
-    .sort((left, right) => (right.profitCents ?? Number.NEGATIVE_INFINITY) - (left.profitCents ?? Number.NEGATIVE_INFINITY) || right.joined - left.joined || left.name.localeCompare(right.name, "zh-CN"));
+    .sort((left, right) => right.netCents - left.netCents || right.joined - left.joined || left.name.localeCompare(right.name, "zh-CN"));
 
   const groupOperators = people
     .filter((person) => hasScopedRole(person, "GROUP_OPERATOR") || leadsByOperator.has(person.id))
@@ -496,7 +436,7 @@ export async function loadRoleRankings(input: {
       const receptionistIds = new Set(person.groupOperatorAssignments.map((item) => item.receptionistId));
       const shared = leadsByOperator.get(person.id) ?? [];
       const workflowShared = shared.filter((lead) => !isHistorical(lead));
-      const amounts = financials(shared, false, today);
+      const amounts = financials(shared, today);
       const eligible = workflowShared.filter((lead) => {
         if (!hasReachedBusinessDay(lead.joinedOn, today, 2)) return false;
         if (!lead.joinedOn) return false;
@@ -535,7 +475,7 @@ export async function loadRoleRankings(input: {
       const assigned = (leadsByExpert.get(person.id) ?? []).filter((lead) => happenedBy(lead.expertIntroducedOn, today));
       const workflowAssigned = assigned.filter((lead) => !isHistorical(lead));
       const eligible = workflowAssigned.filter((lead) => hasReachedBusinessDay(lead.expertIntroducedOn, today, 1));
-      const amounts = financials(assigned, false, today);
+      const amounts = financials(assigned, today);
       return {
         id: person.id,
         name: person.name,
@@ -565,10 +505,10 @@ export async function loadRoleRankings(input: {
         departmentName: group.department.name,
         countryCode: group.countryCode ?? group.department.countryCode,
         ...funnel(groupLeads, today),
-        ...financials(groupLeads, true, today),
+        ...financials(groupLeads, today),
       };
     })
-    .sort((left, right) => (right.profitCents ?? -Infinity) - (left.profitCents ?? -Infinity));
+    .sort((left, right) => right.netCents - left.netCents);
 
   return { reception, fanOwners, groupOperators, experts, groups: groupRows, standardsByGroup: Object.fromEntries(groups.map((group) => [group.id, standardsFromGroup(group)])) };
 }

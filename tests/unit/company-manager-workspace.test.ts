@@ -28,8 +28,6 @@ const workspace: CompanyWorkspace = {
       customerReplyRate: 0.5,
       duplicateRate: 0.1,
       invalidRate: 0.1,
-      costCents: 10_000,
-      costPerEffectiveCents: 125,
       matureSample: 60,
       matureOrders: 6,
       matureOrderRate: 0.1,
@@ -52,7 +50,7 @@ const workspace: CompanyWorkspace = {
     reception: metric(18, 100, "GOOD"),
     operator: metric(54, 100, "BELOW_PASS"),
     expert: metric(12, 100, "PASS"),
-    netContributionCents: 35_000,
+    netPerformanceCents: 35_000,
     seriousOverdue: 4,
     status: "DANGER",
   }],
@@ -65,7 +63,7 @@ describe("company manager workspace", () => {
       overview: {
         hasData: true,
         totals: { ...emptyBatchTotals(), effectiveFans: 80, groupJoin: 30, expertIntro: 18, registration: 10, orders: 6 },
-        summary: { newFans: 100, orders: 6, rechargeCents: 50_000, financialRechargeCents: 50_000, profitCents: 35_000, orderRate: 0.06 },
+        summary: { newFans: 100, orders: 6, rechargeCents: 50_000, financialRechargeCents: 50_000, netPerformanceCents: 35_000, orderRate: 0.06 },
         trend: [],
         largestDrop: null,
         alerts: { unconfirmed: [], noRecords3Days: [], replyWithoutFans: [], funnelAnomalies: [], excessiveLeaves: [] },
@@ -74,9 +72,11 @@ describe("company manager workspace", () => {
       filters: { sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-16" },
     }));
 
-    for (const text of ["资源成本", "入金", "净业绩", "计入业绩", "D7添加数据开单率", "严重超时客户率", "整体流程", "小组健康表", "进群率", "第3天推专家率", "第2天开单率", "重点关注", "$350.00"]) {
+    for (const text of ["入金", "净业绩", "D7添加数据开单率", "严重超时客户率", "整体流程", "小组健康表", "进群率", "第3天推专家率", "第2天开单率", "重点关注", "$350.00"]) {
       expect(html).toContain(text);
     }
+    expect(html).not.toContain("资源成本");
+    expect(html).not.toContain("计入业绩");
     expect(html).not.toContain("盈亏");
     expect(html).not.toMatch(/1\d{10}/);
   });

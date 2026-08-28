@@ -7,7 +7,7 @@ import { buildAnalysisHref } from "../../../lib/analytics/scope";
 import type { AnalysisFilters } from "../../../lib/analytics/types";
 import { formatUsdOr } from "../../../lib/money";
 
-const money = (cents: number | null | undefined) => formatUsdOr(cents, "待定价");
+const money = (cents: number | null | undefined) => formatUsdOr(cents, "—");
 const rate = (done: number, base: number) => base ? `${(done / base * 100).toFixed(1)}%` : "暂无样本";
 const percentage = (value: number | null) => value === null ? "暂无样本" : `${(value * 100).toFixed(1)}%`;
 const countryName = (code: string | null | undefined) => {
@@ -27,8 +27,8 @@ export function HeadquartersCommandCenter({ overview, filters }: { overview: Man
     ...(overview.groupComparison ?? []).filter((row) => row.risk !== "LOW").map((row) => ({
       key: `group-risk:${row.groupId}`,
       tone: row.risk === "HIGH" ? "danger" : "warning",
-      title: `${row.departmentName} / ${row.groupName} 转化或利润异常`,
-      detail: `D7添加数据开单率 ${percentage(row.matureOrderRate)} · 计入业绩 ${money(row.profitCents)}`,
+      title: `${row.departmentName} / ${row.groupName} 转化或净业绩异常`,
+      detail: `D7添加数据开单率 ${percentage(row.matureOrderRate)} · 净业绩 ${money(row.netPerformanceCents)}`,
       href: groupHref(row.groupId),
     })),
     ...(overview.alerts.unconfirmed.length ? [{
@@ -53,7 +53,6 @@ export function HeadquartersCommandCenter({ overview, filters }: { overview: Man
     ["开单", overview.totals.orders, `D7添加数据开单率 ${percentage(overview.summary.matureOrderRate ?? null)}`],
     ["入金", money(overview.summary.financialRechargeCents ?? overview.summary.rechargeCents), `出金 ${money(overview.summary.withdrawalCents ?? 0)}`],
     ["净业绩", money((overview.summary.financialRechargeCents ?? overview.summary.rechargeCents) - (overview.summary.withdrawalCents ?? 0)), "入金－出金"],
-    ["计入业绩", money(overview.summary.profitCents), `已扣成本 ${money(overview.summary.costCents)}、返点 ${money(overview.summary.rebateCents ?? 0)}`],
   ] as const;
 
   return <div className="hq-command-center space-y-3">
@@ -67,9 +66,9 @@ export function HeadquartersCommandCenter({ overview, filters }: { overview: Man
 
     <section className="panel overflow-hidden" aria-label="全部小组业绩排行">
       <div className="hq-section-heading"><div><h2>全部小组业绩排行</h2><p>所有公司、国家的小组统一排序；公司和国家只用于识别归属，不参与排名。</p></div><span>{ranking.groups.length} 个小组</span></div>
-      <div className="data-table-wrap"><table className="data-table hq-table"><thead><tr><th>排名</th><th>下属公司</th><th>国家</th><th>小组</th><th>有效数据</th><th>开单</th><th>D7添加数据开单率</th><th>原始净入金</th><th>计入业绩</th><th>操作</th></tr></thead><tbody>
-        {ranking.groups.map((group) => <tr key={group.groupId}><td><Rank value={group.rank} /></td><td className="text-slate-700">{group.departmentName}</td><td>{countryName(group.countryCode)}</td><td className="font-semibold text-slate-900">{group.groupName}</td><td>{group.effectiveFans}</td><td>{group.orders}</td><td>{percentage(group.matureOrderRate)}</td><td className="font-semibold text-blue-700">{money(group.netPerformanceCents)}</td><td className={group.profitCents !== null && group.profitCents < 0 ? "font-semibold text-red-700" : "font-semibold"}>{money(group.profitCents)}</td><td><Link className="hq-table-action" href={groupHref(group.groupId)}>查看小组 <ArrowRight size={14} /></Link></td></tr>)}
-        {!ranking.groups.length ? <tr><td colSpan={10} className="empty-state">当前时间范围还没有小组数据</td></tr> : null}
+      <div className="data-table-wrap"><table className="data-table hq-table"><thead><tr><th>排名</th><th>下属公司</th><th>国家</th><th>小组</th><th>有效数据</th><th>开单</th><th>D7添加数据开单率</th><th>净业绩</th><th>操作</th></tr></thead><tbody>
+        {ranking.groups.map((group) => <tr key={group.groupId}><td><Rank value={group.rank} /></td><td className="text-slate-700">{group.departmentName}</td><td>{countryName(group.countryCode)}</td><td className="font-semibold text-slate-900">{group.groupName}</td><td>{group.effectiveFans}</td><td>{group.orders}</td><td>{percentage(group.matureOrderRate)}</td><td className={group.netPerformanceCents < 0 ? "font-semibold text-red-700" : "font-semibold text-blue-700"}>{money(group.netPerformanceCents)}</td><td><Link className="hq-table-action" href={groupHref(group.groupId)}>查看小组 <ArrowRight size={14} /></Link></td></tr>)}
+        {!ranking.groups.length ? <tr><td colSpan={9} className="empty-state">当前时间范围还没有小组数据</td></tr> : null}
       </tbody></table></div>
     </section>
 

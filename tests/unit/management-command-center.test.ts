@@ -15,9 +15,7 @@ describe("role-specific management command center", () => {
       rechargeCents: 50_000,
       orderRate: 0.1,
       withdrawalCents: 10_000,
-      costCents: 5_000,
-      rebateCents: 0,
-      profitCents: 35_000,
+      netPerformanceCents: 40_000,
       matureNewFans: 20,
       matureOrders: 2,
       matureOrderRate: 0.1,
@@ -33,9 +31,6 @@ describe("role-specific management command center", () => {
       rechargeCents: 50_000,
       withdrawalCents: 10_000,
       netPerformanceCents: 40_000,
-      costCents: 5_000,
-      rebateCents: 0,
-      profitCents: 35_000,
       effectiveFans: 18,
       matureNewFans: 20,
       matureOrders: 2,
@@ -52,7 +47,9 @@ describe("role-specific management command center", () => {
 
   it("shows the selected profit equation, mature denominator, comparison and funnel", () => {
     const html = renderToStaticMarkup(createElement(ManagementCommandCenter, { overview, filters: {}, role: "ADMIN" }));
-    for (const text of ["单量榜 TOP 3", "业绩榜 TOP 3", "入金", "出金", "数据成本", "计入业绩", "$350.00", "D7添加数据开单率", "开单 2 / 成熟添加数据 20", "下属公司与小组对比", "整体转化漏斗", "最大掉点：添加数据 → 回复"]) expect(html).toContain(text);
+    for (const text of ["单量榜 TOP 3", "业绩榜 TOP 3", "入金", "出金", "净业绩", "$400.00", "D7添加数据开单率", "开单 2 / 成熟添加数据 20", "下属公司与小组对比", "整体转化漏斗", "最大掉点：添加数据 → 回复"]) expect(html).toContain(text);
+    expect(html).not.toContain("数据成本");
+    expect(html).not.toContain("计入业绩");
     expect(html).not.toContain("¥");
   });
 

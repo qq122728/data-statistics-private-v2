@@ -10,7 +10,6 @@ import { isWithinMaturityWindow } from "./maturity-window";
 import type { AnalysisScope } from "./types";
 import { loadCanonicalMetricEvents } from "./canonical-events";
 import { businessWorkStatus, resolveGroupBusinessTime } from "../business-time";
-import { calculateCanonicalFinancials } from "./canonical-financials";
 
 export type FunnelDrop = ReturnType<typeof getLargestDrop>;
 
@@ -47,9 +46,7 @@ export type ManagementOverview = {
     orderRate: number | null;
     financialRechargeCents?: number;
     withdrawalCents?: number;
-    costCents?: number | null;
-    rebateCents?: number | null;
-    profitCents?: number | null;
+    netPerformanceCents?: number;
     matureNewFans?: number;
     matureOrders?: number;
     matureOrderRate?: number | null;
@@ -66,9 +63,6 @@ export type ManagementOverview = {
     rechargeCents: number;
     withdrawalCents: number;
     netPerformanceCents: number;
-    costCents: number | null;
-    rebateCents: number | null;
-    profitCents: number | null;
     newFans?: number;
     effectiveFans: number;
     replies?: number;
@@ -106,10 +100,9 @@ export type ManagementOverview = {
 
 function dashboardFinancials(events: Awaited<ReturnType<typeof loadCanonicalMetricEvents>>) {
   const totals = calculateBatchTotals(events);
-  const financials = calculateCanonicalFinancials(events);
   return {
     totals,
-    ...financials,
+    netPerformanceCents: totals.rechargeCents - totals.withdrawalCents,
   };
 }
 
@@ -148,9 +141,7 @@ export async function loadManagementOverview(
         orderRate: null,
         financialRechargeCents: 0,
         withdrawalCents: 0,
-        costCents: 0,
-        rebateCents: 0,
-        profitCents: 0,
+        netPerformanceCents: 0,
         matureNewFans: 0,
         matureOrders: 0,
         matureOrderRate: null,
@@ -378,8 +369,8 @@ export async function loadManagementOverview(
     const matureOrderRate = groupMatureTotals.newFans === 0
       ? null
       : groupMatureTotals.orders / groupMatureTotals.newFans;
-    const profitCents = groupFinancials.profitCents;
-    const risk = profitCents !== null && profitCents < 0
+    const netPerformanceCents = groupFinancials.totals.rechargeCents - groupFinancials.totals.withdrawalCents;
+    const risk = netPerformanceCents < 0
       ? "HIGH" as const
       : matureOrderRate !== null && matureOrderRate < 0.08
         ? "MEDIUM" as const
@@ -393,10 +384,7 @@ export async function loadManagementOverview(
       orders: groupFinancials.totals.orders,
       rechargeCents: groupFinancials.totals.rechargeCents,
       withdrawalCents: groupFinancials.totals.withdrawalCents,
-      netPerformanceCents: groupFinancials.totals.rechargeCents - groupFinancials.totals.withdrawalCents,
-      costCents: groupFinancials.costCents,
-      rebateCents: groupFinancials.rebateCents,
-      profitCents,
+      netPerformanceCents,
       newFans: groupFinancials.totals.newFans,
       effectiveFans: groupFinancials.totals.effectiveFans,
       replies: groupFinancials.totals.replies,
@@ -415,7 +403,7 @@ export async function loadManagementOverview(
       activePeople: groupPeople.length,
       risk,
     };
-  }).sort((left, right) => (right.profitCents ?? Number.NEGATIVE_INFINITY) - (left.profitCents ?? Number.NEGATIVE_INFINITY));
+  }).sort((left, right) => right.netPerformanceCents - left.netPerformanceCents);
 
   return {
     hasData: events.length > 0,
@@ -427,9 +415,7 @@ export async function loadManagementOverview(
       orderRate: totals.newFans === 0 ? null : totals.orders / totals.newFans,
       financialRechargeCents: cohortFinancials.totals.rechargeCents,
       withdrawalCents: cohortFinancials.totals.withdrawalCents,
-      costCents: cohortFinancials.costCents,
-      rebateCents: cohortFinancials.rebateCents,
-      profitCents: cohortFinancials.profitCents,
+      netPerformanceCents: cohortFinancials.netPerformanceCents,
       matureNewFans: matureTotals.newFans,
       matureOrders: matureTotals.orders,
       matureOrderRate: matureTotals.newFans === 0 ? null : matureTotals.orders / matureTotals.newFans,

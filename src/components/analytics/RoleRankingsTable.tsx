@@ -22,7 +22,7 @@ type View = "reception" | "operator" | "expert" | "group";
 type MemberView = Exclude<View, "group">;
 type MemberDetailQuery = Record<string, string | undefined>;
 
-const money = (cents: number | null) => formatUsdOr(cents, "待设粉价");
+const money = (cents: number | null) => formatUsdOr(cents, "—");
 const rate = (numerator: number, denominator: number) => denominator === 0 ? "—" : `${((numerator / denominator) * 100).toFixed(1)}%`;
 
 function Rank({ value }: { value: number }) {
@@ -84,12 +84,12 @@ function Rating({ completed, eligible, band }: { completed: number; eligible: nu
 
 function ReceptionTable({ rows, standards, detailQuery }: { rows: ReceptionRankingRow[]; standards: Record<string, GroupConversionStandards>; detailQuery?: MemberDetailQuery }) {
   return <table className="data-table min-w-[1900px]">
-    <thead><tr><th>排名</th><th>接粉成员</th><th>小组</th><th>添加数据</th><th>撞粉</th><th>低金额</th><th>无 WS 号码</th><th>有效数据</th><th>回复</th><th>回复率</th><th>进群</th><th>进群率</th><th>退群</th><th>异常退群率</th><th>推专家</th><th>注册</th><th>注册率</th><th>开单</th><th>开单率</th><th>首充</th><th>入金</th><th>出金</th><th>计入业绩</th><th>拉群评级</th></tr></thead>
+    <thead><tr><th>排名</th><th>接粉成员</th><th>小组</th><th>添加数据</th><th>撞粉</th><th>低金额</th><th>无 WS 号码</th><th>有效数据</th><th>回复</th><th>回复率</th><th>进群</th><th>进群率</th><th>退群</th><th>异常退群率</th><th>推专家</th><th>注册</th><th>注册率</th><th>开单</th><th>开单率</th><th>首充</th><th>入金</th><th>出金</th><th>净业绩</th><th>拉群评级</th></tr></thead>
     <tbody>
       {rows.map((row, index) => <tr key={row.id}>
         <td><Rank value={index + 1} /></td>
         <td><MemberName name={row.name} memberId={row.id} view="reception" detailQuery={detailQuery} subtitle="按已进群数量排名" /></td>
-        <td><GroupBadge name={row.groupName} /></td><td>{row.total ?? row.valid}</td><td>{row.duplicate ?? 0}</td><td>{row.lowAmount ?? 0}</td><td>{row.noWs ?? 0}</td><td>{row.valid}</td><td>{row.replied}</td><td>{rate(row.replied, row.valid)}</td><td>{row.joined}</td><td>{rate(row.joined, row.replied)}</td><td>{row.left ?? 0}</td><td>{rate(row.abnormalLeft ?? 0, row.joined)}</td><td>{row.expertIntroduced}</td><td>{row.registered}</td><td>{rate(row.registered, row.expertContacted ?? row.expertIntroduced)}</td><td>{row.orders}</td><td>{rate(row.orders, row.registered)}</td><td>{money(row.firstDepositCents)}</td><td>{money(row.depositCents)}</td><td>{money(row.withdrawalCents)}</td><td className="font-semibold text-slate-900">{money(row.profitCents)}</td>
+        <td><GroupBadge name={row.groupName} /></td><td>{row.total ?? row.valid}</td><td>{row.duplicate ?? 0}</td><td>{row.lowAmount ?? 0}</td><td>{row.noWs ?? 0}</td><td>{row.valid}</td><td>{row.replied}</td><td>{rate(row.replied, row.valid)}</td><td>{row.joined}</td><td>{rate(row.joined, row.replied)}</td><td>{row.left ?? 0}</td><td>{rate(row.abnormalLeft ?? 0, row.joined)}</td><td>{row.expertIntroduced}</td><td>{row.registered}</td><td>{rate(row.registered, row.expertContacted ?? row.expertIntroduced)}</td><td>{row.orders}</td><td>{rate(row.orders, row.registered)}</td><td>{money(row.firstDepositCents)}</td><td>{money(row.depositCents)}</td><td>{money(row.withdrawalCents)}</td><td className="font-semibold text-slate-900">{money(row.netCents)}</td>
         <td><Rating completed={row.joined} eligible={row.valid} band={standards[row.groupId]?.receptionJoin ?? { pass: 10, good: 15, excellent: 20 }} /></td>
       </tr>)}
       {!rows.length && <tr><td colSpan={24} className="empty-state">当前范围没有接粉成员数据</td></tr>}
@@ -128,7 +128,7 @@ function ExpertTable({ rows, standards, detailQuery }: { rows: ExpertRankingRow[
 }
 
 function GroupTable({ rows, detailQuery }: { rows: GroupRankingRow[]; detailQuery?: MemberDetailQuery }) {
-  return <table className="data-table min-w-[1680px]"><thead><tr><th>排名</th><th>下属公司</th><th>国家</th><th>小组</th><th>有效数据</th><th>回复</th><th>回复率</th><th>进群</th><th>进群率</th><th>退群</th><th>异常退群率</th><th>推专家</th><th>注册</th><th>注册率</th><th>开单</th><th>开单率</th><th>首充</th><th>入金</th><th>出金</th><th>计入业绩</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id}><td><Rank value={index + 1} /></td><td>{row.departmentName ?? "—"}</td><td>{countryName(row.countryCode)}</td><td className="font-semibold text-slate-900">{detailQuery ? <Link className="text-blue-700" href={groupDailyHref(row.id, detailQuery)}>{row.name}</Link> : row.name}</td><td>{row.valid}</td><td>{row.replied}</td><td>{rate(row.replied, row.valid)}</td><td>{row.joined}</td><td>{rate(row.joined, row.replied)}</td><td>{row.left ?? 0}</td><td>{rate(row.abnormalLeft ?? 0, row.joined)}</td><td>{row.expertIntroduced}</td><td>{row.registered}</td><td>{rate(row.registered, row.expertIntroduced)}</td><td>{row.orders}</td><td>{rate(row.orders, row.registered)}</td><td>{money(row.firstDepositCents)}</td><td>{money(row.depositCents)}</td><td>{money(row.withdrawalCents)}</td><td className="font-semibold text-slate-900">{money(row.profitCents)}</td></tr>)}{!rows.length && <tr><td colSpan={20} className="empty-state">当前范围没有小组数据</td></tr>}</tbody></table>;
+  return <table className="data-table min-w-[1680px]"><thead><tr><th>排名</th><th>下属公司</th><th>国家</th><th>小组</th><th>有效数据</th><th>回复</th><th>回复率</th><th>进群</th><th>进群率</th><th>退群</th><th>异常退群率</th><th>推专家</th><th>注册</th><th>注册率</th><th>开单</th><th>开单率</th><th>首充</th><th>入金</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id}><td><Rank value={index + 1} /></td><td>{row.departmentName ?? "—"}</td><td>{countryName(row.countryCode)}</td><td className="font-semibold text-slate-900">{detailQuery ? <Link className="text-blue-700" href={groupDailyHref(row.id, detailQuery)}>{row.name}</Link> : row.name}</td><td>{row.valid}</td><td>{row.replied}</td><td>{rate(row.replied, row.valid)}</td><td>{row.joined}</td><td>{rate(row.joined, row.replied)}</td><td>{row.left ?? 0}</td><td>{rate(row.abnormalLeft ?? 0, row.joined)}</td><td>{row.expertIntroduced}</td><td>{row.registered}</td><td>{rate(row.registered, row.expertIntroduced)}</td><td>{row.orders}</td><td>{rate(row.orders, row.registered)}</td><td>{money(row.firstDepositCents)}</td><td>{money(row.depositCents)}</td><td>{money(row.withdrawalCents)}</td><td className="font-semibold text-slate-900">{money(row.netCents)}</td></tr>)}{!rows.length && <tr><td colSpan={20} className="empty-state">当前范围没有小组数据</td></tr>}</tbody></table>;
 }
 
 export function RoleRankingsTable({ result, initialView = "reception", showTabs = true, memberDetailQuery, groupDetailQuery }: { result: RoleRankingsResult; initialView?: View; showTabs?: boolean; memberDetailQuery?: MemberDetailQuery; groupDetailQuery?: MemberDetailQuery }) {
@@ -145,7 +145,7 @@ export function RoleRankingsTable({ result, initialView = "reception", showTabs 
       {view === "reception" && "接粉成员榜按实际录入人统计流程和协作业绩；同一客户的首充会同时展示给接粉、炒群和专家，但小组总账只计算一次。"}
       {view === "operator" && "炒群成员榜从接手客户开始看，重点是退群、推专家和后续专家联系；首充、入金和净业绩为协作业绩，不会重复计入公司总账。"}
       {view === "expert" && "专家成员榜重点看已联系、注册、开单和净业绩；首充、入金和净业绩为协作业绩，不会重复计入公司总账。"}
-      {view === "group" && "小组榜展示完整漏斗。净业绩 = 入金 − 出金；计入业绩 = 净业绩 − 数据成本 − 渠道返点。"}
+      {view === "group" && "小组榜展示完整漏斗。净业绩 = 入金 − 出金。"}
     </div>
     <div className="data-table-wrap">
       {view === "reception" && <ReceptionTable rows={result.reception} standards={result.standardsByGroup} detailQuery={memberDetailQuery} />}

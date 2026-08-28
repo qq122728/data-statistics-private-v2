@@ -137,10 +137,9 @@ describe.sequential("member evidence detail authorization", () => {
       funnel: { newFans: 140, effectiveFans: 140, orders: 7, rechargeCents: 70_000 },
       channels: [expect.objectContaining({
         channel: expect.objectContaining({ id: ids.channelA }),
-        effectiveFanPriceCents: 100,
-        financials: expect.objectContaining({ costCents: 14_000, netPerformanceCents: 70_000, profitCents: 56_000, priceState: "PRICED" }),
+        totals: expect.objectContaining({ effectiveFans: 140, rechargeCents: 70_000 }),
       })],
-      financialFormula: { effectiveFans: 140, effectiveFanPriceCents: 100, costCents: 14_000 },
+      financialFormula: { effectiveFans: 140, netPerformanceCents: 70_000 },
       trend: { current: expect.any(Object), previous: expect.any(Object) },
       largestDrop: { from: expect.any(String), to: expect.any(String), lost: expect.any(Number) },
       risks: { performance: expect.any(Object), financial: expect.any(Array), data: expect.any(Array) },
@@ -148,7 +147,7 @@ describe.sequential("member evidence detail authorization", () => {
       latestDecision: { level: "LIMIT_WATCH", evidenceThrough: "2026-08-14", reason: "持续偏低需要人工复核" },
     });
     expect(typeof body.funnel.rechargeCents).toBe("number");
-    expect(typeof body.channels[0].financials.profitCents).toBe("number");
+    expect(typeof body.financialFormula.netPerformanceCents).toBe("number");
     expect(body.evaluations).toEqual(expect.arrayContaining([
       expect.objectContaining({ evaluationDate: "2026-08-11", eligible: false, state: "OBSERVING", reason: "INSUFFICIENT_SAMPLE" }),
       expect.objectContaining({ evaluationDate: "2026-08-12", eligible: true, efficiency: 0.25, state: "LOW", reason: "READY" }),

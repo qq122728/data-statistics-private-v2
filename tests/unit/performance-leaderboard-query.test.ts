@@ -24,24 +24,21 @@ describe("performance leaderboard aggregate query", () => {
     expect(pageSource).toContain("performanceRows={leaderboardRows}");
   });
 
-  it("uses a short cache while keeping historical price snapshots and the rebate deduction", () => {
+  it("uses a short cache and a single finance rollup for recharge and withdrawal totals", () => {
     expect(querySource).toContain("unstable_cache");
     expect(querySource).toContain("revalidate: 45");
-    expect(querySource).toContain('batch."fanCostModeSnapshot"');
-    expect(querySource).toContain('batch."effectiveFanPriceCentsSnapshot"');
-    expect(querySource).toContain('"channelTypeSnapshot" = \'REBATE\'');
     expect(querySource).toContain("finance_rollup");
   });
 
-  it("executes the real SQLite query, merges ledger and legacy money by batch, and deducts one rebate", async () => {
+  it("executes the real SQLite query and merges ledger and legacy money by group", async () => {
     const groupId = "query-rebate-group";
     const channelId = "query-rebate-channel";
     const memberId = "query-rebate-member";
     const batchId = "query-rebate-batch";
-    await db.teamGroup.create({ data: { id: groupId, name: "返点查询组" } });
-    await db.user.create({ data: { id: memberId, username: memberId, name: "返点接粉员", passwordHash: "test", role: "RECEPTION", groupId } });
-    await db.channel.create({ data: { id: channelId, groupId, name: "真实底料", normalizedName: "真实底料", channelType: "REBATE", fanCostMode: "FREE", effectiveFanPriceCents: 0, rebateRateBps: 3000 } });
-    await db.sourceBatch.create({ data: { id: batchId, groupId, channelId, sourceDate: "2026-08-10", channelTypeSnapshot: "REBATE", fanCostModeSnapshot: "FREE", effectiveFanPriceCentsSnapshot: 0, rebateRateBpsSnapshot: 3000 } });
+    await db.teamGroup.create({ data: { id: groupId, name: "底料查询组" } });
+    await db.user.create({ data: { id: memberId, username: memberId, name: "底料接粉员", passwordHash: "test", role: "RECEPTION", groupId } });
+    await db.channel.create({ data: { id: channelId, groupId, name: "真实底料", normalizedName: "真实底料", channelType: "REBATE" } });
+    await db.sourceBatch.create({ data: { id: batchId, groupId, channelId, sourceDate: "2026-08-10", channelTypeSnapshot: "REBATE" } });
 
     for (const suffix of ["a", "b"]) {
       const leadId = `query-rebate-lead-${suffix}`;
@@ -51,7 +48,7 @@ describe("performance leaderboard aggregate query", () => {
       // 兼容事件与订单账本表达的是同一笔首充，必须被排除，不能再加一次。
       await db.metricEvent.create({ data: { batchId, enteredById: memberId, occurredOn: "2026-08-10", kind: "RECHARGE", amountCents: 1, customerOrderId: orderId, derivedFromLedger: true } });
     }
-    // 真正的旧版汇总资金可与号码账本共存，并且同批只舍入一次：8000 × 30% = 2400。
+    // 真正的旧版汇总资金可与号码账本共存。
     await db.metricEvent.create({ data: { batchId, enteredById: memberId, occurredOn: "2026-08-10", kind: "RECHARGE", amountCents: 7_998, derivedFromLedger: false } });
 
     const rows = await queryPerformanceLeaderboard({ groupIds: [groupId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-31" });
@@ -59,9 +56,6 @@ describe("performance leaderboard aggregate query", () => {
       rechargeCents: 8_000,
       withdrawalCents: 0,
       netPerformanceCents: 8_000,
-      rebateCents: 2_400,
-      costCents: 0,
-      profitCents: 5_600,
     });
     const hiddenRows = await queryPerformanceLeaderboard({
       groupIds: [groupId],
@@ -79,7 +73,7 @@ describe("performance leaderboard aggregate query", () => {
       reportDate: "2026-08-10",
       currentRows: rows,
       previousRows: yesterdayRows,
-      anomalies: { overdueExpertIntro: 0, overdueExpertContact: 0, overdueOrder: 0, invalidCustomers: 0, pendingCostGroups: 0 },
+      anomalies: { overdueExpertIntro: 0, overdueExpertContact: 0, overdueOrder: 0, invalidCustomers: 0 },
     });
     expect(brief.totals).toMatchObject({
       newFans: rows[0].newFans,
@@ -93,13 +87,9 @@ describe("performance leaderboard aggregate query", () => {
       rechargeCents: rows[0].rechargeCents,
       withdrawalCents: rows[0].withdrawalCents,
       netPerformanceCents: rows[0].netPerformanceCents,
-      costCents: rows[0].costCents,
-      rebateCents: rows[0].rebateCents,
-      profitCents: rows[0].profitCents,
     });
     const dailyMessage = formatBossDailyBrief(brief, null);
     expect(dailyMessage).toContain("入金 $80.00｜出金 $0.00｜净业绩 $80.00");
-    expect(dailyMessage).toContain("资源成本 $0.00｜渠道返点 $24.00｜计入业绩 $56.00");
   });
 
   it("excludes a voided order and every ledger amount attached to it", async () => {
@@ -124,7 +114,7 @@ describe("performance leaderboard aggregate query", () => {
 
     const rows = await queryPerformanceLeaderboard({ groupIds: [groupId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-31" });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: 0, costCents: 0, profitCents: 0 });
+    expect(rows[0]).toMatchObject({ orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: 0 });
   });
 
   it("keeps historical totals after a member changes role and counts approved low-amount rows once", async () => {

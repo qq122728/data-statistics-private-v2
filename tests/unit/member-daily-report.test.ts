@@ -10,23 +10,23 @@ describe("组长每日数据报表", () => {
       to: "2026-08-19",
       reportType: "daily",
       summary: {
-        reception: [{ id: "reception-1", name: "接粉 A", active: true, groupId: "group-1", groupName: "A组", total: 2, lowAmount: 0, noWs: 0, duplicate: 0, invalid: 0, valid: 2, replied: 1, joined: 1, left: 0, expertIntroduced: 0, expertContacted: 0, registered: 0, orders: 0, firstDepositCents: 10000, depositCents: 10000, withdrawalCents: 0, costCents: 200, profitCents: 9800 }],
+        reception: [{ id: "reception-1", name: "接粉 A", active: true, groupId: "group-1", groupName: "A组", total: 2, lowAmount: 0, noWs: 0, duplicate: 0, invalid: 0, valid: 2, replied: 1, joined: 1, left: 0, expertIntroduced: 0, expertContacted: 0, registered: 0, orders: 0, firstDepositCents: 10000, depositCents: 10000, withdrawalCents: 0, netCents: 9800 }],
         groupOperators: [], experts: [],
-        groups: [{ id: "group-1", name: "A组", valid: 2, replied: 1, joined: 1, left: 0, expertIntroduced: 0, expertContacted: 0, registered: 0, orders: 0, firstDepositCents: 10000, depositCents: 10000, withdrawalCents: 0, costCents: 200, profitCents: 9800 }],
+        groups: [{ id: "group-1", name: "A组", valid: 2, replied: 1, joined: 1, left: 0, expertIntroduced: 0, expertContacted: 0, registered: 0, orders: 0, firstDepositCents: 10000, depositCents: 10000, withdrawalCents: 0, netCents: 9800 }],
         standardsByGroup: {},
       },
       daily: [{
         date: "2026-08-19",
         result: {
-          reception: [{ id: "reception-1", name: "接粉 A", active: true, groupId: "group-1", groupName: "A组", total: 2, lowAmount: 0, noWs: 0, duplicate: 0, invalid: 0, valid: 2, replied: 1, joined: 1, left: 0, expertIntroduced: 0, expertContacted: 0, registered: 0, orders: 0, firstDepositCents: 10000, depositCents: 10000, withdrawalCents: 0, costCents: 200, profitCents: 9800 }],
+          reception: [{ id: "reception-1", name: "接粉 A", active: true, groupId: "group-1", groupName: "A组", total: 2, lowAmount: 0, noWs: 0, duplicate: 0, invalid: 0, valid: 2, replied: 1, joined: 1, left: 0, expertIntroduced: 0, expertContacted: 0, registered: 0, orders: 0, firstDepositCents: 10000, depositCents: 10000, withdrawalCents: 0, netCents: 9800 }],
           groupOperators: [], experts: [],
-          groups: [{ id: "group-1", name: "A组", valid: 2, replied: 1, joined: 1, left: 0, expertIntroduced: 0, expertContacted: 0, registered: 0, orders: 0, firstDepositCents: 10000, depositCents: 10000, withdrawalCents: 0, costCents: 200, profitCents: 9800 }],
+          groups: [{ id: "group-1", name: "A组", valid: 2, replied: 1, joined: 1, left: 0, expertIntroduced: 0, expertContacted: 0, registered: 0, orders: 0, firstDepositCents: 10000, depositCents: 10000, withdrawalCents: 0, netCents: 9800 }],
           standardsByGroup: {},
         },
       }],
       duplicateByDayGroup: new Map([["2026-08-19:group-1", 0]]),
       sourceSummary: [
-        { channelType: "SMS", sourceName: "短信粉", added: 2, effective: 2, depositCents: 0, withdrawalCents: 0, costCents: 200, netPerformanceCents: -200 },
+        { channelType: "SMS", sourceName: "短信粉", added: 2, effective: 2, depositCents: 0, withdrawalCents: 0, netPerformanceCents: -200 },
       ],
     });
     expect(workbook.getWorksheet("小组月度汇总")?.getCell("A1").value).toBe("小组每日数据报表（2026-08-19）");

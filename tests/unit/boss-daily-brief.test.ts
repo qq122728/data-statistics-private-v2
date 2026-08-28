@@ -13,9 +13,6 @@ function row(overrides: Partial<PerformanceLeaderboardRow> = {}): PerformanceLea
     rechargeCents: 0,
     withdrawalCents: 0,
     netPerformanceCents: 0,
-    costCents: 0,
-    rebateCents: 0,
-    profitCents: 0,
     newFans: 0,
     effectiveFans: 0,
     replies: 0,
@@ -40,7 +37,6 @@ const anomalies = {
   overdueExpertContact: 2,
   overdueOrder: 1,
   invalidCustomers: 4,
-  pendingCostGroups: 0,
 };
 
 describe("老板每日简报", () => {
@@ -49,7 +45,7 @@ describe("老板每日简报", () => {
       reportDate: "2026-08-16",
       generatedAt: new Date("2026-08-17T02:00:00Z"),
       previousRows: [row({ newFans: 100, effectiveFans: 80, replies: 40, groupJoin: 10, expertIntro: 5, orders: 1, rechargeCents: 10_000 })],
-      currentRows: [row({ newFans: 120, effectiveFans: 96, replies: 50, groupJoin: 15, expertIntro: 8, expertContacted: 2, orders: 2, rechargeCents: 25_000, costCents: 2_000, profitCents: 23_000, netPerformanceCents: 25_000 })],
+      currentRows: [row({ newFans: 120, effectiveFans: 96, replies: 50, groupJoin: 15, expertIntro: 8, expertContacted: 2, orders: 2, rechargeCents: 25_000, netPerformanceCents: 25_000 })],
       anomalies,
     });
 
@@ -60,31 +56,31 @@ describe("老板每日简报", () => {
     expect(brief.topGroups[0]?.name).toBe("A组");
   });
 
-  it("底料返点会从当天计入业绩中扣除，不能在老板日报中被误算为公司业绩", () => {
+  it("当天净业绩等于入金减出金，直接体现在总计中", () => {
     const brief = buildDailyBossBrief({
       reportDate: "2026-08-16",
       generatedAt: new Date("2026-08-17T02:00:00Z"),
       previousRows: [row()],
-      currentRows: [row({ rechargeCents: 800_000, rebateCents: 240_000, costCents: 0, profitCents: 560_000, netPerformanceCents: 800_000 })],
+      currentRows: [row({ rechargeCents: 800_000, withdrawalCents: 240_000, netPerformanceCents: 560_000 })],
       anomalies,
     });
 
-    expect(brief.totals).toMatchObject({ rechargeCents: 800_000, rebateCents: 240_000, profitCents: 560_000 });
+    expect(brief.totals).toMatchObject({ rechargeCents: 800_000, withdrawalCents: 240_000, netPerformanceCents: 560_000 });
   });
 
-  it("TOP3 按扣除返点和成本后的计入业绩排序，并展示同一个金额", () => {
+  it("TOP3 按净业绩排序，并展示同一个金额", () => {
     const brief = buildDailyBossBrief({
       reportDate: "2026-08-16",
       previousRows: [],
       currentRows: [
-        row({ groupId: "rebate", groupName: "底料组", rechargeCents: 100_000, netPerformanceCents: 100_000, rebateCents: 30_000, costCents: 0, profitCents: 70_000 }),
-        row({ groupId: "sms", groupName: "短信组", rechargeCents: 80_000, netPerformanceCents: 80_000, costCents: 0, profitCents: 80_000 }),
+        row({ groupId: "rebate", groupName: "底料组", rechargeCents: 100_000, netPerformanceCents: 70_000 }),
+        row({ groupId: "sms", groupName: "短信组", rechargeCents: 80_000, netPerformanceCents: 80_000 }),
       ],
       anomalies,
     });
     expect(brief.topGroups.map((item) => item.name)).toEqual(["短信组", "底料组"]);
     const message = formatBossDailyBrief(brief, null);
-    expect(message.indexOf("短信组：计入业绩 $800.00")).toBeLessThan(message.indexOf("底料组：计入业绩 $700.00"));
+    expect(message.indexOf("短信组：净业绩 $800.00")).toBeLessThan(message.indexOf("底料组：净业绩 $700.00"));
   });
 
   it("空数据明确提示，不生成假分析", () => {

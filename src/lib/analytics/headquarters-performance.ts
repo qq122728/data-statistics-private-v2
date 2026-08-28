@@ -13,8 +13,6 @@ export type HeadquartersCompanyPerformance = {
   rechargeCents: number;
   withdrawalCents: number;
   netPerformanceCents: number;
-  costCents: number | null;
-  profitCents: number | null;
   matureNewFans: number;
   matureOrders: number;
   matureOrderRate: number | null;
@@ -31,15 +29,14 @@ export type HeadquartersCompanyPerformance = {
   duplicateFans: number;
 };
 
-const performanceSort = <T extends { profitCents: number | null; netPerformanceCents: number; rechargeCents: number }>(left: T, right: T) =>
-  (right.profitCents ?? Number.NEGATIVE_INFINITY) - (left.profitCents ?? Number.NEGATIVE_INFINITY)
-  || right.netPerformanceCents - left.netPerformanceCents
+const performanceSort = <T extends { netPerformanceCents: number; rechargeCents: number }>(left: T, right: T) =>
+  right.netPerformanceCents - left.netPerformanceCents
   || right.rechargeCents - left.rechargeCents;
 
 export function buildHeadquartersPerformance(
   rows: NonNullable<ManagementOverview["groupComparison"]>,
 ): { companies: HeadquartersCompanyPerformance[]; groups: HeadquartersGroupPerformance[] } {
-  const companiesById = new Map<string, Omit<HeadquartersCompanyPerformance, "rank"> & { hasPendingCost: boolean }>();
+  const companiesById = new Map<string, Omit<HeadquartersCompanyPerformance, "rank">>();
 
   for (const row of rows) {
     const current = companiesById.get(row.departmentId) ?? {
@@ -50,8 +47,6 @@ export function buildHeadquartersPerformance(
       rechargeCents: 0,
       withdrawalCents: 0,
       netPerformanceCents: 0,
-      costCents: 0,
-      profitCents: 0,
       matureNewFans: 0,
       matureOrders: 0,
       matureOrderRate: null,
@@ -66,7 +61,6 @@ export function buildHeadquartersPerformance(
       registration: 0,
       noNumber: 0,
       duplicateFans: 0,
-      hasPendingCost: false,
     };
     current.groupCount += 1;
     current.orders += row.orders;
@@ -86,19 +80,12 @@ export function buildHeadquartersPerformance(
     current.registration += row.registration ?? 0;
     current.noNumber += row.noNumber ?? 0;
     current.duplicateFans += row.duplicateFans ?? 0;
-    if (row.costCents === null || row.profitCents === null) current.hasPendingCost = true;
-    else {
-      current.costCents = (current.costCents ?? 0) + row.costCents;
-      current.profitCents = (current.profitCents ?? 0) + row.profitCents;
-    }
     companiesById.set(row.departmentId, current);
   }
 
   const companies = [...companiesById.values()]
-    .map(({ hasPendingCost, ...company }) => ({
+    .map((company) => ({
       ...company,
-      costCents: hasPendingCost ? null : company.costCents,
-      profitCents: hasPendingCost ? null : company.profitCents,
       matureOrderRate: company.matureNewFans ? company.matureOrders / company.matureNewFans : null,
     }))
     .sort((left, right) => performanceSort(left, right) || left.departmentName.localeCompare(right.departmentName, "zh-CN"))

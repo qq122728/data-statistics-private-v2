@@ -8,7 +8,6 @@ const pages = [
   "batch-tracking",
   "role-rankings",
   "group-daily-detail",
-  "reports",
   "resource-conversion",
 ];
 

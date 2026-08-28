@@ -34,7 +34,7 @@ export function ChannelQualityTable({ rows, filters, resourceMode = false }: { r
   if (resourceMode) return <section className="panel overflow-hidden">
     <div className="panel-header"><div><h2 className="panel-title">渠道表现</h2><p className="panel-subtitle">按渠道同时看数据质量与成熟后的开单结果；D7 未成熟的渠道不提前判差</p></div></div>
     <div className="data-table-wrap"><table className="data-table resource-channel-table">
-      <thead><tr><th>渠道</th><th>添加数据</th><th>有效数据</th><th>有效数据率</th><th>回复率</th><th>撞粉</th><th>低金额</th><th>无 WS 号码</th><th>每有效数据成本</th><th>D7添加数据样本</th><th>D7添加数据开单率</th><th>判断</th></tr></thead>
+      <thead><tr><th>渠道</th><th>添加数据</th><th>有效数据</th><th>有效数据率</th><th>回复率</th><th>撞粉</th><th>低金额</th><th>无 WS 号码</th><th>D7添加数据样本</th><th>D7添加数据开单率</th><th>判断</th></tr></thead>
       <tbody>{sortedRows.map((row) => {
         const submitted = row.submitted ?? row.newFans;
         const effective = row.effective ?? row.totals.effectiveFans;
@@ -51,7 +51,6 @@ export function ChannelQualityTable({ rows, filters, resourceMode = false }: { r
         return <tr key={row.normalizedName}>
           <td><Link className="font-semibold text-[#0b66ff]" href={buildAnalysisHref("/channel-analysis", filters, { normalizedName: row.normalizedName })}>{row.displayName}</Link><span className="ml-2 text-xs text-slate-400">{row.groupCount} 个小组</span></td>
           <td>{submitted}</td><td>{effective}</td><td>{percent(effectiveRate)}</td><td>{percent(customerReplyRate)}</td><td>{duplicate}</td><td>{lowAmount}</td><td>{noWs}</td>
-          <td>{effective === 0 ? "无有效数据" : row.costPerEffectiveCents == null ? "待定价" : money(row.costPerEffectiveCents)}</td>
           <td>{d7Sample}</td><td>{mature ? percent(d7OrderRate) : "未成熟"}</td>
           <td><span className="analysis-status" data-tone={!mature ? "neutral" : danger ? "danger" : warning ? "warning" : "success"}>{!mature ? "样本不足" : danger ? "异常" : warning ? "需关注" : "正常"}</span></td>
         </tr>;

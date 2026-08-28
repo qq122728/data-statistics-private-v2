@@ -12,7 +12,7 @@ import {
 import { formatUsdOr } from "../../../lib/money";
 
 export type MemberOverviewSort =
-  "profit" | "orderRate" | "efficiency" | "trend";
+  "net" | "orderRate" | "efficiency" | "trend";
 
 const money = (cents: number | null) => formatUsdOr(cents, "—");
 const percent = (value: number | null) =>
@@ -29,7 +29,6 @@ export function isFormallyRanked(row: MemberOverviewRow): boolean {
   return (
     row.member.active &&
     row.stage === "FORMAL" &&
-    row.pricingState === "PRICED" &&
     row.adjustedState === "READY"
   );
 }
@@ -40,7 +39,7 @@ function numberFor(row: MemberOverviewRow, sort: MemberOverviewSort): number {
   if (sort === "efficiency")
     return row.adjustedEfficiency ?? Number.NEGATIVE_INFINITY;
   if (sort === "trend") return row.trend ?? Number.NEGATIVE_INFINITY;
-  return row.financials.profitCents ?? Number.NEGATIVE_INFINITY;
+  return row.netPerformanceCents;
 }
 
 function sortedRows(
@@ -59,7 +58,6 @@ function sampleLabel(row: MemberOverviewRow): string {
   if (!row.member.active) return "已停用·仅历史查看";
   if (row.stage !== "FORMAL") return `${stageName[row.stage]}·不正式排名`;
   if (row.adjustedState === "DATA_INVALID") return "数据待核实·不排名";
-  if (row.pricingState === "PENDING_PRICE") return "待定价·暂停财务排名";
   if (row.adjustedState !== "READY") return "样本不足·不正式排名";
   return "可正式排名";
 }
@@ -67,7 +65,6 @@ function sampleLabel(row: MemberOverviewRow): string {
 function recommendation(row: MemberOverviewRow): string {
   if (!row.member.active) return "仅查看历史";
   if (row.adjustedState === "DATA_INVALID") return "先核实数据";
-  if (row.pricingState === "PENDING_PRICE") return "等待管理员定价";
   if (row.stage !== "FORMAL") return "按阶段辅导，不下结论";
   if (row.adjustedEfficiency !== null && row.adjustedEfficiency < 0.8)
     return "关注转化并安排辅导";
@@ -106,7 +103,7 @@ export function MemberOverviewTable({
       .map((row, index) => [row.member.id, index + 1]),
   );
   const sorts: Array<{ id: MemberOverviewSort; label: string }> = [
-    { id: "profit", label: "计入业绩榜" },
+    { id: "net", label: "净业绩榜" },
     { id: "orderRate", label: "开单率" },
     { id: "efficiency", label: "渠道校正效率" },
     { id: "trend", label: "进步幅度" },
@@ -125,9 +122,9 @@ export function MemberOverviewTable({
     <section className="panel overflow-hidden" aria-label="组员总览列表">
       <header className="panel-header member-overview-panel-header flex-wrap">
         <div>
-          <h2 className="panel-title">组员计入业绩榜</h2>
+          <h2 className="panel-title">组员净业绩榜</h2>
           <p className="panel-subtitle">
-            净业绩 = 入金 − 出金；计入业绩 = 净业绩 − 数据成本 − 渠道返点。
+            净业绩 = 入金 − 出金。
           </p>
         </div>
         <div aria-label="排序方式" className="flex flex-wrap gap-1">
@@ -148,7 +145,7 @@ export function MemberOverviewTable({
         <table className="min-w-[1380px] w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-              <th className="p-3 text-left">计入业绩排名</th>
+              <th className="p-3 text-left">净业绩排名</th>
               <th className="p-3 text-left">组员 / 小组</th>
               <th className="p-3 text-right">有效数据</th>
               <th className="p-3 text-right">入群数</th>
@@ -157,9 +154,8 @@ export function MemberOverviewTable({
               <th className="p-3 text-right">注册</th>
               <th className="p-3 text-right">开单</th>
               <th className="p-3 text-right">入金</th>
-              <th className="p-3 text-right">数据成本</th>
               <th className="p-3 text-right">出金</th>
-              <th className="p-3 text-right">计入业绩</th>
+              <th className="p-3 text-right">净业绩</th>
               <th className="p-3 text-left">操作</th>
             </tr>
           </thead>
@@ -206,15 +202,12 @@ export function MemberOverviewTable({
                   {money(row.totals.rechargeCents)}
                 </td>
                 <td className="p-3 text-right">
-                  {money(row.financials.costCents)}
-                </td>
-                <td className="p-3 text-right">
                   {money(row.totals.withdrawalCents)}
                 </td>
                 <td
-                  className={`p-3 text-right font-bold ${row.financials.profitCents !== null && row.financials.profitCents < 0 ? "text-red-700" : "text-emerald-700"}`}
+                  className={`p-3 text-right font-bold ${row.netPerformanceCents < 0 ? "text-red-700" : "text-emerald-700"}`}
                 >
-                  {money(row.financials.profitCents)}
+                  {money(row.netPerformanceCents)}
                 </td>
                 <td className="p-3">
                   <button
@@ -275,9 +268,9 @@ export function MemberOverviewTable({
                 </dd>
               </div>
               <div className="rounded-lg bg-slate-50 p-2">
-                <dt className="text-xs text-slate-500">计入业绩</dt>
+                <dt className="text-xs text-slate-500">净业绩</dt>
                 <dd className="mt-1 font-semibold">
-                  {money(row.financials.profitCents)}
+                  {money(row.netPerformanceCents)}
                 </dd>
               </div>
               <div className="rounded-lg bg-slate-50 p-2">

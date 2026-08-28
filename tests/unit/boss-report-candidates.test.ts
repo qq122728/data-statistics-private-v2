@@ -38,7 +38,7 @@ function brief(employeeFunnels: BossEmployeeFunnel[], confirmedFrontline = 100):
     topCompanies: [],
     topGroups: [],
     groupRows: [],
-    anomalies: { overdueExpertIntro: 0, overdueExpertContact: 0, overdueOrder: 0, invalidCustomers: 0, pendingCostGroups: 0 },
+    anomalies: { overdueExpertIntro: 0, overdueExpertContact: 0, overdueOrder: 0, invalidCustomers: 0 },
     aiContext: {
       headlinePeriod: { type: "DAILY", date: "2026-08-16" },
       analysisWindow: { from: "2026-07-18", to: "2026-08-16" },

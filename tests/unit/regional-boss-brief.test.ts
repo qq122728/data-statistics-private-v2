@@ -28,12 +28,12 @@ const operating: DailyBossBrief = {
   reportDate: "2026-08-19",
   generatedAt: "2026-08-19T20:30:00.000Z",
   hasData: true,
-  totals: { newFans: 10, effectiveFans: 8, replies: 6, groupJoin: 4, expertIntro: 3, expertContacted: 2, registration: 1, orders: 1, rechargeCents: 10_000, withdrawalCents: 1_000, netPerformanceCents: 9_000, costCents: 2_000, rebateCents: 0, profitCents: 7_000 },
+  totals: { newFans: 10, effectiveFans: 8, replies: 6, groupJoin: 4, expertIntro: 3, expertContacted: 2, registration: 1, orders: 1, rechargeCents: 10_000, withdrawalCents: 1_000, netPerformanceCents: 9_000 },
   rates: { replyRate: 0.75, joinRate: 0.5, expertIntroRate: 0.75, expertContactRate: 2 / 3, expertOrderRate: 0.5 },
   topCompanies: [],
   topGroups: [],
-  groupRows: [{ groupId: "group-a", name: "A组", departmentName: "恒升部", newFans: 10, effectiveFans: 8, replies: 6, groupJoin: 4, expertIntro: 3, expertContacted: 2, registration: 1, orders: 1, rechargeCents: 10_000, withdrawalCents: 1_000, netPerformanceCents: 9_000, costCents: 2_000, profitCents: 7_000 }],
-  anomalies: { overdueExpertIntro: 1, overdueExpertContact: 2, overdueOrder: 3, invalidCustomers: 0, pendingCostGroups: 0 },
+  groupRows: [{ groupId: "group-a", name: "A组", departmentName: "恒升部", newFans: 10, effectiveFans: 8, replies: 6, groupJoin: 4, expertIntro: 3, expertContacted: 2, registration: 1, orders: 1, rechargeCents: 10_000, withdrawalCents: 1_000, netPerformanceCents: 9_000 }],
+  anomalies: { overdueExpertIntro: 1, overdueExpertContact: 2, overdueOrder: 3, invalidCustomers: 0 },
 };
 
 const stages = { QUEUED: 1, MATERIALS: 0, TRACKING: 2, PENDING_REGISTRATION: 0, PENDING_ORDER: 1, DECLINED_DEPOSIT: 0, ORDERED: 3, STALLED: 0 };

@@ -8,9 +8,9 @@ import { MemberInsightDrawer } from "./MemberInsightDrawer";
 import type { MemberOverviewQuery } from "./MemberOverviewTabs";
 import { formatUsdOr } from "../../../lib/money";
 
-type RankingId = "profit" | "efficiency" | "trend";
+type RankingId = "net" | "efficiency" | "trend";
 
-const money = (cents: number | null) => formatUsdOr(cents, "待定价");
+const money = (cents: number | null) => formatUsdOr(cents, "—");
 const percent = (value: number | null) =>
   value === null ? "—" : `${(value * 100).toFixed(1)}%`;
 const stageName = {
@@ -21,13 +21,13 @@ const stageName = {
 } as const;
 
 const rankingOptions: Array<{ id: RankingId; label: string }> = [
-  { id: "profit", label: "盈利贡献榜" },
+  { id: "net", label: "净业绩贡献榜" },
   { id: "efficiency", label: "渠道校正效率榜" },
   { id: "trend", label: "稳定进步榜" },
 ];
 
 function valueFor(row: MemberOverviewRow, ranking: RankingId): number | null {
-  if (ranking === "profit") return row.financials.profitCents;
+  if (ranking === "net") return row.netPerformanceCents;
   if (ranking === "efficiency") return row.adjustedEfficiency;
   return row.trend;
 }
@@ -38,7 +38,6 @@ function unrankedLabel(row: MemberOverviewRow, ranking: RankingId): string {
   if (row.totals.newFans === 0 && row.totals.effectiveFans === 0)
     return "无数据";
   if (row.stage !== "FORMAL") return `${stageName[row.stage]}·不正式排名`;
-  if (row.pricingState === "PENDING_PRICE") return "待定价·暂停财务判断";
   if (row.adjustedState !== "READY") return "样本不足·不获得正式名次";
   if (ranking === "trend" && row.trend === null)
     return "无上周期可比数据·不获得稳定进步名次";
@@ -57,7 +56,7 @@ export function PerformanceRankings({
   query?: MemberOverviewQuery;
 }) {
   const [selected, setSelected] = useState<MemberOverviewRow | null>(null);
-  const [ranking, setRanking] = useState<RankingId>("profit");
+  const [ranking, setRanking] = useState<RankingId>("net");
   const displayed = useMemo(
     () =>
       [...rows].sort(
@@ -105,7 +104,7 @@ export function PerformanceRankings({
             <tr>
               <th>名次</th>
               <th>组员</th>
-              <th className="text-right">计入业绩</th>
+              <th className="text-right">净业绩</th>
               <th className="text-right">校正效率</th>
               <th className="text-right">较上周期</th>
               <th className="text-right">开单</th>
@@ -133,7 +132,7 @@ export function PerformanceRankings({
                     ) : null}
                   </td>
                   <td className="text-right font-semibold text-emerald-700">
-                    {money(row.financials.profitCents)}
+                    {money(row.netPerformanceCents)}
                   </td>
                   <td className="text-right">
                     {percent(row.adjustedEfficiency)}

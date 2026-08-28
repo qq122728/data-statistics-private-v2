@@ -12,7 +12,6 @@ const numericFields = [
   "rechargeCents",
   "withdrawalCents",
   "netPerformanceCents",
-  "rebateCents",
   "newFans",
   "effectiveFans",
   "replies",
@@ -37,12 +36,6 @@ function subtractRows(
     for (const field of numericFields) {
       result[field] = Number(row[field] ?? 0) - Number(before?.[field] ?? 0);
     }
-    result.costCents = row.costCents === null || before?.costCents === null
-      ? null
-      : row.costCents - (before?.costCents ?? 0);
-    result.profitCents = result.costCents === null
-      ? null
-      : result.rechargeCents - result.withdrawalCents - result.costCents - (result.rebateCents ?? 0);
     result.matureOrderRate = result.matureNewFans ? result.matureOrders / result.matureNewFans : null;
     return result;
   });
@@ -50,9 +43,6 @@ function subtractRows(
 
 const sum = (rows: PerformanceLeaderboardRow[], field: keyof PerformanceLeaderboardRow) =>
   rows.reduce((total, row) => total + Number(row[field] ?? 0), 0);
-
-const nullableSum = (rows: PerformanceLeaderboardRow[], field: "costCents" | "profitCents") =>
-  rows.some((row) => row[field] === null) ? null : sum(rows, field);
 
 function ratio(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
@@ -78,9 +68,6 @@ export function buildDailyBossBrief(input: {
     rechargeCents: sum(rows, "rechargeCents"),
     withdrawalCents: sum(rows, "withdrawalCents"),
     netPerformanceCents: sum(rows, "netPerformanceCents"),
-    costCents: nullableSum(rows, "costCents"),
-    rebateCents: sum(rows, "rebateCents"),
-    profitCents: nullableSum(rows, "profitCents"),
   };
   const rates: BossReportRates = {
     replyRate: ratio(totals.replies, totals.effectiveFans),
@@ -105,21 +92,17 @@ export function buildDailyBossBrief(input: {
     rechargeCents: row.rechargeCents ?? 0,
     withdrawalCents: row.withdrawalCents ?? 0,
     netPerformanceCents: row.netPerformanceCents ?? 0,
-    costCents: row.costCents,
-    profitCents: row.profitCents,
   }));
   const topCompanies = rankings.companies.slice(0, 3).map((row) => ({
     name: row.departmentName,
     orders: row.orders,
     netPerformanceCents: row.netPerformanceCents,
-    profitCents: row.profitCents,
   }));
   const topGroups = rankings.groups.slice(0, 3).map((row) => ({
     name: row.groupName,
     departmentName: row.departmentName,
     orders: row.orders,
     netPerformanceCents: row.netPerformanceCents,
-    profitCents: row.profitCents,
   }));
   const hasData = Object.values(totals).some((value) => typeof value === "number" && value !== 0);
 

@@ -1,4 +1,3 @@
-import type { FinancialResult } from "../finance";
 import type { BatchTotals } from "../metrics";
 
 export type DataRiskCode =
@@ -6,10 +5,9 @@ export type DataRiskCode =
   | "LONG_NO_RECORD"
   | "DOWNSTREAM_EXCEEDS_UPSTREAM"
   | "LEAVE_EXCEEDS_JOIN"
-  | "FREQUENT_HISTORY_EDITS"
-  | "PENDING_PRICE";
+  | "FREQUENT_HISTORY_EDITS";
 
-export type FinancialRiskCode = "SUSTAINED_LOSS" | "SIGNIFICANT_PROFIT_DROP" | "WITHDRAWAL_ANOMALY";
+export type FinancialRiskCode = "WITHDRAWAL_ANOMALY";
 
 export type RiskEvidence<Category extends "DATA" | "FINANCIAL", Code extends string> = {
   category: Category;
@@ -19,8 +17,6 @@ export type RiskEvidence<Category extends "DATA" | "FINANCIAL", Code extends str
 
 export type DataRiskEvidence = RiskEvidence<"DATA", DataRiskCode>;
 export type FinancialRiskEvidence = RiskEvidence<"FINANCIAL", FinancialRiskCode>;
-
-type PendingPriceChannel = { id: string; groupId: string; name: string };
 
 function hasDownstreamAnomaly(totals: BatchTotals): boolean {
   return totals.effectiveFans + totals.noNumber + totals.duplicateFans > totals.newFans
@@ -39,7 +35,6 @@ export function evaluateDataRisks(input: {
   totals: BatchTotals;
   historyModificationCount: number;
   frequentModificationCount: number;
-  pendingPriceChannels: readonly PendingPriceChannel[];
 }): DataRiskEvidence[] {
   const risks: DataRiskEvidence[] = [];
   if (!input.confirmed) {
@@ -80,71 +75,23 @@ export function evaluateDataRisks(input: {
       evidence: { count: input.historyModificationCount, threshold: input.frequentModificationCount },
     });
   }
-  if (input.pendingPriceChannels.length > 0) {
-    risks.push({
-      category: "DATA",
-      code: "PENDING_PRICE",
-      evidence: { channels: input.pendingPriceChannels.map((channel) => ({ ...channel })) },
-    });
-  }
   return risks;
 }
 
 export type FinancialRiskPeriod = {
   dataValid: boolean;
-  financials: FinancialResult;
   rechargeCents: number;
   channelPerformanceCents: number;
   withdrawalCents: number;
 };
 
-type UsableFinancialRiskPeriod = FinancialRiskPeriod & {
-  financials: FinancialResult & {
-    costCents: number;
-    profitCents: number;
-    priceState: "PRICED";
-  };
-};
-
-function usable(period: FinancialRiskPeriod | null): period is UsableFinancialRiskPeriod {
-  return period !== null
-    && period.dataValid
-    && period.financials.priceState === "PRICED"
-    && period.financials.costCents !== null
-    && period.financials.profitCents !== null;
-}
-
 export function evaluateFinancialRisks(input: {
   current: FinancialRiskPeriod;
   previous: FinancialRiskPeriod | null;
-  significantProfitDropRatio?: number;
 }): FinancialRiskEvidence[] {
-  if (!usable(input.current)) return [];
+  if (!input.current.dataValid) return [];
 
   const risks: FinancialRiskEvidence[] = [];
-  const previous = usable(input.previous) ? input.previous : null;
-  const currentProfit = input.current.financials.profitCents;
-  if (previous && previous.financials.profitCents < 0 && currentProfit < 0) {
-    risks.push({
-      category: "FINANCIAL",
-      code: "SUSTAINED_LOSS",
-      evidence: { previousProfitCents: previous.financials.profitCents, currentProfitCents: currentProfit },
-    });
-  }
-
-  const dropRatio = input.significantProfitDropRatio ?? 0.5;
-  if (previous) {
-    const previousProfit = previous.financials.profitCents;
-    const significantDrop = Math.max(Math.abs(previousProfit) * dropRatio, 1);
-    if (currentProfit <= previousProfit - significantDrop) {
-      risks.push({
-        category: "FINANCIAL",
-        code: "SIGNIFICANT_PROFIT_DROP",
-        evidence: { previousProfitCents: previousProfit, currentProfitCents: currentProfit, dropRatio },
-      });
-    }
-  }
-
   const grossPerformanceCents = input.current.rechargeCents;
   if (grossPerformanceCents > 0 && input.current.withdrawalCents > grossPerformanceCents) {
     risks.push({

@@ -28,7 +28,6 @@ export type ChannelQualityRow = {
   customerReplyRate?: number | null;
   duplicateRate?: number | null;
   invalidRate?: number | null;
-  costPerEffectiveCents?: number | null;
   d7Sample?: number;
   d7Orders?: number;
   d7OrderRate?: number | null;
@@ -57,7 +56,7 @@ type ChannelEvent = MetricEvent & {
   occurredOn: string;
   batchId: string;
   enteredById: string;
-  batch: { sourceDate: string; group: { id: string; name: string }; channel: { name: string; normalizedName: string; fanCostMode: "FREE" | "PAID"; effectiveFanPriceCents: number | null } };
+  batch: { sourceDate: string; group: { id: string; name: string }; channel: { name: string; normalizedName: string } };
 };
 
 type ImportChannelEvent = {
@@ -66,19 +65,11 @@ type ImportChannelEvent = {
   batch: {
     sourceDate: string;
     group: { id: string; name: string };
-    fanCostModeSnapshot: "FREE" | "PAID";
-    effectiveFanPriceCentsSnapshot: number | null;
     channel: { name: string; normalizedName: string };
   };
 };
 
 const ratio = (value: number, base: number) => base === 0 ? null : value / base;
-
-function costSnapshot(event: ChannelEvent | ImportChannelEvent) {
-  return "fanCostModeSnapshot" in event.batch
-    ? { mode: event.batch.fanCostModeSnapshot, price: event.batch.effectiveFanPriceCentsSnapshot }
-    : { mode: event.batch.channel.fanCostMode, price: event.batch.channel.effectiveFanPriceCents };
-}
 
 const windowFor = (events: ChannelEvent[], today: string, days: 7 | 14): MatureChannelWindow => {
   const matureEvents = events.filter((event) => {
@@ -123,8 +114,6 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
         batch: { select: {
           sourceDate: true,
           group: { select: { id: true, name: true } },
-          fanCostModeSnapshot: true,
-          effectiveFanPriceCentsSnapshot: true,
           channel: { select: { name: true, normalizedName: true } },
         } },
       },
@@ -203,15 +192,6 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
     const importedEffective = importQuantity("EFFECTIVE_FANS") + totals.effectiveFans;
     const duplicate = importQuantity("DUPLICATE_FANS") + totals.duplicateFans + approvedInvalid.collisionCount;
     const importInvalid = importQuantity("NO_NUMBER") + totals.noNumber;
-    const effectiveFacts = [
-      ...value.imports.filter((event) => event.kind === "EFFECTIVE_FANS"),
-      ...value.events.filter((event) => event.kind === "EFFECTIVE_FANS"),
-    ];
-    const pendingCost = effectiveFacts.some((event) => {
-      const snapshot = costSnapshot(event);
-      return snapshot.mode === "PAID" && snapshot.price === null;
-    });
-    const costCents = pendingCost ? null : effectiveFacts.reduce((sum, event) => sum + (event.quantity ?? 0) * (costSnapshot(event).price ?? 0), 0);
     const d7 = windowFor(value.events, today, 7);
     const classified = classifications.get(normalizedName) ?? { lowAmount: 0, noWs: 0, invalidCount: 0 };
     const reclassifiedInvalid = classified.lowAmount + classified.noWs + classified.invalidCount;
@@ -240,7 +220,6 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
       customerReplyRate: ratio(totals.replies, effective),
       duplicateRate: ratio(duplicate, submitted),
       invalidRate: ratio(invalid, submitted),
-      costPerEffectiveCents: costCents === null ? null : ratio(costCents, effective),
       d7Sample: d7.totals.newFans,
       d7Orders: d7.totals.orders,
       d7OrderRate: ratio(d7.totals.orders, d7.totals.newFans),

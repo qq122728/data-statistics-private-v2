@@ -21,8 +21,6 @@ function sampleState(row: MemberOverviewRow): {
 } {
   if (row.adjustedState === "DATA_INVALID")
     return { label: "数据待核实", tone: "warning" };
-  if (row.pricingState === "PENDING_PRICE")
-    return { label: "待定价", tone: "warning" };
   if (row.totals.newFans === 0 && row.totals.effectiveFans === 0)
     return { label: "无数据", tone: undefined };
   if (row.stage !== "FORMAL")
@@ -36,11 +34,9 @@ function evidence(row: MemberOverviewRow, category: RiskCategory): string {
   if (category === "performance")
     return `渠道校正效率 ${row.adjustedEfficiency === null ? "—" : `${(row.adjustedEfficiency * 100).toFixed(1)}%`}，较上周期 ${row.trend === null ? "暂无可比数据" : `${row.trend >= 0 ? "+" : ""}${(row.trend * 100).toFixed(1)}%`}。`;
   if (category === "financial")
-    return `成熟周期计入业绩 ${row.financials.profitCents === null ? "待定价" : `$${(row.financials.profitCents / 100).toFixed(2)}`}，入金 $${(row.totals.rechargeCents / 100).toFixed(2)}。`;
+    return `成熟周期净业绩 $${(row.netPerformanceCents / 100).toFixed(2)}，入金 $${(row.totals.rechargeCents / 100).toFixed(2)}。`;
   if (row.adjustedState === "DATA_INVALID")
     return "上下游数量或有效数据拆分存在逻辑异常，必须先核实数据。";
-  if (row.pricingState === "PENDING_PRICE")
-    return "渠道尚未设置有效数据单价，财务判断已暂停。";
   return "当前成熟周期没有可用的录入数据。";
 }
 
@@ -167,22 +163,17 @@ export function RiskAlerts({
     (row) =>
       row.member.active &&
       row.stage === "FORMAL" &&
-      row.pricingState === "PRICED" &&
       row.adjustedState === "READY" &&
       row.adjustedEfficiency !== null &&
       row.adjustedEfficiency < riskSettings.coachingEfficiency,
   );
   const financial = rows.filter(
-    (row) =>
-      row.member.active &&
-      row.pricingState === "PRICED" &&
-      (row.financials.profitCents ?? 0) < 0,
+    (row) => row.member.active && row.netPerformanceCents < 0,
   );
   const data = rows.filter(
     (row) =>
       row.member.active &&
       (row.adjustedState === "DATA_INVALID" ||
-        row.pricingState === "PENDING_PRICE" ||
         (row.totals.newFans === 0 && row.totals.effectiveFans === 0)),
   );
   return (
@@ -206,7 +197,7 @@ export function RiskAlerts({
       <RiskSection
         category="financial"
         title="财务风险"
-        description="亏损、计入业绩下降或出金与消耗异常。"
+        description="净业绩为负或出金异常。"
         rows={financial}
         role={role}
         onOpen={setSelected}

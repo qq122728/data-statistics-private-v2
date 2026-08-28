@@ -1,7 +1,7 @@
 import type { EmployeeStageOverride, MetricKind, Role } from "@prisma/client";
 import { db } from "../db";
 import { resolveEmployeeStage, type EmployeeStage } from "../employee-stage";
-import { calculateFinancials, validateFanBreakdown, type FinancialResult } from "../finance";
+import { validateFanBreakdown } from "../finance";
 import {
   addBatchTotals,
   calculateBatchTotals,
@@ -38,10 +38,6 @@ type EvidenceEvent = {
 type EvidenceBatch = {
   id: string;
   sourceDate: string;
-  fanCostModeSnapshot: "FREE" | "PAID";
-  effectiveFanPriceCentsSnapshot: number | null;
-  channelTypeSnapshot: "SMS" | "ADS" | "REBATE";
-  rebateRateBpsSnapshot: number | null;
   channel: {
     id: string;
     groupId: string;
@@ -62,11 +58,7 @@ type EvidencePerson = {
 
 type ChannelEvidence = {
   channel: { id: string; groupId: string; name: string; normalizedName: string };
-  effectiveFanPriceCents: number | null;
-  channelType: "SMS" | "ADS" | "REBATE";
-  rebateRateBps: number | null;
   totals: BatchTotals;
-  financials: FinancialResult;
 };
 
 type PeriodEvidence = {
@@ -90,22 +82,16 @@ export type MemberEvidenceResult = {
   channels: ChannelEvidence[];
   financialFormula: {
     effectiveFans: number;
-    effectiveFanPriceCents: number | null;
-    costTerms: Array<{ channelId: string; effectiveFans: number; effectiveFanPriceCents: number | null; costCents: number | null }>;
     rechargeCents: number;
     channelPerformanceCents: number;
     withdrawalCents: number;
-    costCents: number | null;
-    rebateCents: number;
     netPerformanceCents: number;
-    profitCents: number | null;
-    priceState: "PRICED" | "PENDING_PRICE";
   };
   trend: {
-    current: { totals: BatchTotals; adjustedEfficiency: number | null; financials: FinancialResult };
-    previous: { totals: BatchTotals; adjustedEfficiency: number | null; financials: FinancialResult };
+    current: { totals: BatchTotals; adjustedEfficiency: number | null; netPerformanceCents: number };
+    previous: { totals: BatchTotals; adjustedEfficiency: number | null; netPerformanceCents: number };
     adjustedEfficiencyChange: number | null;
-    profitChangeCents: number | null;
+    netPerformanceChangeCents: number | null;
   };
   largestDrop: ReturnType<typeof getLargestDrop>;
   evaluations: DailyEvaluation[];
@@ -171,10 +157,7 @@ function aggregatePeriod(
     if (!inRange(batch.sourceDate, range) || batch.sourceDate > addCalendarDays(evaluationDate, -7)) continue;
     const events = relevantEvents(batch, memberId, evaluationDate);
     if (events.length === 0) continue;
-    const snapshotPrice = batch.fanCostModeSnapshot === "FREE" ? 0 : batch.effectiveFanPriceCentsSnapshot;
-    // 底料必须按批次合并资金后只舍入一次，不能按单个客户或单条流水舍入。
-    const settlementKey = batch.channelTypeSnapshot === "REBATE" ? batch.id : "standard";
-    const key = `${batch.channel.groupId}\0${batch.channel.id}\0${snapshotPrice ?? "pending"}\0${batch.channelTypeSnapshot}\0${batch.rebateRateBpsSnapshot ?? "none"}\0${settlementKey}`;
+    const key = `${batch.channel.groupId}\0${batch.channel.id}`;
     const current = byChannel.get(key) ?? {
       channel: {
         id: batch.channel.id,
@@ -182,40 +165,15 @@ function aggregatePeriod(
         name: batch.channel.name,
         normalizedName: batch.channel.normalizedName,
       },
-      effectiveFanPriceCents: snapshotPrice,
-      channelType: batch.channelTypeSnapshot,
-      rebateRateBps: batch.rebateRateBpsSnapshot,
       totals: emptyBatchTotals(),
-      financials: calculateFinancials({
-        effectiveFans: 0,
-        rechargeCents: 0,
-        withdrawalCents: 0,
-        channelPerformanceCents: 0,
-        effectiveFanPriceCents: snapshotPrice,
-        channelType: batch.channelTypeSnapshot,
-        rebateRateBps: batch.rebateRateBpsSnapshot,
-      }),
     };
     addBatchTotals(current.totals, calculateBatchTotals(events.map(eventMetric)));
     byChannel.set(key, current);
   }
 
   const totals = emptyBatchTotals();
-  const channels = [...byChannel.values()].map((channel) => {
-    addBatchTotals(totals, channel.totals);
-    return {
-      ...channel,
-      financials: calculateFinancials({
-        effectiveFans: channel.totals.effectiveFans,
-        rechargeCents: channel.totals.rechargeCents,
-        withdrawalCents: channel.totals.withdrawalCents,
-        channelPerformanceCents: channel.totals.channelPerformanceCents,
-        effectiveFanPriceCents: channel.effectiveFanPriceCents,
-        channelType: channel.channelType,
-        rebateRateBps: channel.rebateRateBps,
-      }),
-    };
-  });
+  const channels = [...byChannel.values()];
+  for (const channel of channels) addBatchTotals(totals, channel.totals);
   return {
     totals,
     channels: channels.sort((left, right) => left.channel.name.localeCompare(right.channel.name, "zh-CN")),
@@ -341,9 +299,6 @@ function dailyEvaluations(input: {
     if (!target.dataValid) {
       return { evaluationDate, eligible: false, efficiency: null, state: "OBSERVING", reason: "DATA_INVALID" };
     }
-    if (target.channels.some((channel) => channel.effectiveFanPriceCents === null)) {
-      return { evaluationDate, eligible: false, efficiency: null, state: "OBSERVING", reason: "PENDING_PRICE" };
-    }
 
     const lastRecord = input.batches.flatMap((batch) => batch.events
       .filter((event) => event.enteredById === input.person.id && event.occurredOn <= evaluationDate)
@@ -411,10 +366,6 @@ export async function loadMemberEvidence(
       select: {
         id: true,
         sourceDate: true,
-        fanCostModeSnapshot: true,
-        effectiveFanPriceCentsSnapshot: true,
-        channelTypeSnapshot: true,
-        rebateRateBpsSnapshot: true,
         channel: { select: { id: true, groupId: true, name: true, normalizedName: true } },
       },
     }),
@@ -492,9 +443,6 @@ export async function loadMemberEvidence(
     .filter((event) => event.enteredById === target.id)
     .map((event) => event.occurredOn)).sort();
   const lastRecordDate = targetRecordDates.at(-1) ?? null;
-  const pendingPriceChannels = current.channels
-    .filter((channel) => channel.effectiveFanPriceCents === null)
-    .map((channel) => ({ id: channel.channel.id, groupId: channel.channel.groupId, name: channel.channel.name }));
   const dataRisks = evaluateDataRisks({
     evaluationDate: today,
     confirmed: confirmations.some((confirmation) => confirmation.businessDate === today),
@@ -503,19 +451,16 @@ export async function loadMemberEvidence(
     totals: current.totals,
     historyModificationCount: historyEditDates.filter((date) => date >= addCalendarDays(today, -29) && date <= today).length,
     frequentModificationCount: 3,
-    pendingPriceChannels,
   });
   const financialRisks = evaluateFinancialRisks({
     current: {
       dataValid: current.dataValid && dataRisks.length === 0,
-      financials: currentRow.financials,
       rechargeCents: current.totals.rechargeCents,
       channelPerformanceCents: current.totals.channelPerformanceCents,
       withdrawalCents: current.totals.withdrawalCents,
     },
     previous: {
       dataValid: previous.dataValid,
-      financials: previousRow.financials,
       rechargeCents: previous.totals.rechargeCents,
       channelPerformanceCents: previous.totals.channelPerformanceCents,
       withdrawalCents: previous.totals.withdrawalCents,
@@ -523,7 +468,6 @@ export async function loadMemberEvidence(
   });
   const performanceRisk = evaluatePerformanceRisk({ evaluations, stage: stage.stage, rules: riskSettings, today });
 
-  const uniquePrices = new Set(current.channels.map((channel) => channel.effectiveFanPriceCents));
   return {
     member: {
       id: target.id,
@@ -539,26 +483,16 @@ export async function loadMemberEvidence(
     channels: current.channels,
     financialFormula: {
       effectiveFans: current.totals.effectiveFans,
-      effectiveFanPriceCents: uniquePrices.size === 1 ? [...uniquePrices][0] : null,
-      costTerms: current.channels.map((channel) => ({
-        channelId: channel.channel.id,
-        effectiveFans: channel.totals.effectiveFans,
-        effectiveFanPriceCents: channel.effectiveFanPriceCents,
-        costCents: channel.financials.costCents,
-      })),
       rechargeCents: current.totals.rechargeCents,
       channelPerformanceCents: current.totals.channelPerformanceCents,
       withdrawalCents: current.totals.withdrawalCents,
-      rebateCents: currentRow.financials.rebateCents ?? 0,
-      ...currentRow.financials,
+      netPerformanceCents: currentRow.netPerformanceCents,
     },
     trend: {
-      current: { totals: current.totals, adjustedEfficiency: currentRow.adjustedEfficiency, financials: currentRow.financials },
-      previous: { totals: previous.totals, adjustedEfficiency: previousRow.adjustedEfficiency, financials: previousRow.financials },
+      current: { totals: current.totals, adjustedEfficiency: currentRow.adjustedEfficiency, netPerformanceCents: currentRow.netPerformanceCents },
+      previous: { totals: previous.totals, adjustedEfficiency: previousRow.adjustedEfficiency, netPerformanceCents: previousRow.netPerformanceCents },
       adjustedEfficiencyChange: currentRow.trend,
-      profitChangeCents: currentRow.financials.profitCents !== null && previousRow.financials.profitCents !== null
-        ? currentRow.financials.profitCents - previousRow.financials.profitCents
-        : null,
+      netPerformanceChangeCents: currentRow.netPerformanceCents - previousRow.netPerformanceCents,
     },
     largestDrop: getLargestDrop(current.totals),
     evaluations,

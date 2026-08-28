@@ -1,4 +1,4 @@
-import { formatUsd, formatUsdOr } from "../money";
+import { formatUsd } from "../money";
 import type { BossAiAnalysis, DailyBossBrief } from "./types";
 
 const percent = (value: number | null) => value === null ? "暂无样本" : `${(value * 100).toFixed(1)}%`;
@@ -7,7 +7,7 @@ function rankingLines(title: string, rows: DailyBossBrief["topGroups"]): string[
   if (!rows.length) return [`${title}：暂无数据`];
   return [title, ...rows.map((row, index) => {
     const owner = row.departmentName ? `${row.departmentName} / ` : "";
-    return `${index + 1}. ${owner}${row.name}：计入业绩 ${formatUsdOr(row.profitCents, "待补单价")}，开单 ${row.orders}`;
+    return `${index + 1}. ${owner}${row.name}：净业绩 ${formatUsd(row.netPerformanceCents)}，开单 ${row.orders}`;
   })];
 }
 
@@ -29,21 +29,20 @@ export function formatBossDailyBrief(brief: DailyBossBrief, ai: BossAiAnalysis |
     `添加数据 ${brief.totals.newFans}｜有效数据 ${brief.totals.effectiveFans}｜回复 ${brief.totals.replies}｜进群 ${brief.totals.groupJoin}`,
     `推专家 ${brief.totals.expertIntro}｜已联系 ${brief.totals.expertContacted}｜注册 ${brief.totals.registration}｜开单 ${brief.totals.orders}`,
     `入金 ${formatUsd(brief.totals.rechargeCents)}｜出金 ${formatUsd(brief.totals.withdrawalCents)}｜净业绩 ${formatUsd(brief.totals.netPerformanceCents)}`,
-    `资源成本 ${formatUsdOr(brief.totals.costCents, "待补单价")}｜渠道返点 ${formatUsd(brief.totals.rebateCents)}｜计入业绩 ${formatUsdOr(brief.totals.profitCents, "待补单价")}`,
     "",
     "【转化率】",
     `回复率 ${percent(brief.rates.replyRate)}｜进群率 ${percent(brief.rates.joinRate)}`,
     `进群后推专家率 ${percent(brief.rates.expertIntroRate)}｜推专家后联系率 ${percent(brief.rates.expertContactRate)}｜推专家后开单率 ${percent(brief.rates.expertOrderRate)}`,
     "",
-    ...rankingLines("【公司计入业绩 TOP 3】", brief.topCompanies),
+    ...rankingLines("【公司净业绩 TOP 3】", brief.topCompanies),
     "",
-    ...rankingLines("【小组计入业绩 TOP 3】", brief.topGroups),
+    ...rankingLines("【小组净业绩 TOP 3】", brief.topGroups),
     "",
     "【流程异常】",
     `进群第 3 天仍未推专家：${brief.anomalies.overdueExpertIntro}`,
     `推专家后 1 天仍未联系：${brief.anomalies.overdueExpertContact}`,
     `联系后 2 天仍未开单：${brief.anomalies.overdueOrder}`,
-    `今日无效粉：${brief.anomalies.invalidCustomers}｜单价待补小组：${brief.anomalies.pendingCostGroups}`,
+    `今日无效粉：${brief.anomalies.invalidCustomers}`,
   ];
 
   if (ai) {

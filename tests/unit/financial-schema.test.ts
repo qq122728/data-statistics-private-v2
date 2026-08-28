@@ -51,13 +51,7 @@ afterAll(async () => {
 }, 30_000);
 
 describe("financial member schema", () => {
-  it("persists the effective fan price and member stage fields", async () => {
-    const channel = await prisma.channel.findFirst({
-      where: { id: "financial-schema-channel", groupId: "financial-schema-group" },
-      select: { effectiveFanPriceCents: true },
-    });
-    expect(channel).toHaveProperty("effectiveFanPriceCents");
-
+  it("persists member stage fields", async () => {
     const member = await prisma.user.create({
       data: {
         id: "financial-schema-member",

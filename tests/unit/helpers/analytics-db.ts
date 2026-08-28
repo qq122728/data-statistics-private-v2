@@ -18,7 +18,6 @@ export type AnalyticsMemberSeed = {
 export type AnalyticsChannelSeed = {
   id: string;
   name: string;
-  effectiveFanPriceCents?: number | null;
 };
 
 type AnalyticsTestDatabaseOptions = {
@@ -53,7 +52,6 @@ export async function createAnalyticsTestDatabase(prefix: string, options: Analy
       name: channel.name,
       normalizedName: channel.name.trim().toLocaleLowerCase(),
       groupId: "group-a",
-      effectiveFanPriceCents: channel.effectiveFanPriceCents ?? null,
     })) ?? [],
   });
   await prisma.$disconnect();

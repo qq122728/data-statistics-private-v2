@@ -58,15 +58,15 @@ beforeAll(async () => {
     { id: ids.memberB, username: ids.memberB, name: "越权成员", role: "RECEPTION", groupId: ids.groupB, hireDate: "2026-01-01" },
   ] });
   await db.channel.createMany({ data: [
-    { id: ids.channelA, groupId: ids.groupA, name: "证据渠道", normalizedName: "证据渠道", effectiveFanPriceCents: 100 },
-    { id: ids.channelB, groupId: ids.groupB, name: "其他渠道", normalizedName: "其他渠道", effectiveFanPriceCents: 200 },
+    { id: ids.channelA, groupId: ids.groupA, name: "证据渠道", normalizedName: "证据渠道" },
+    { id: ids.channelB, groupId: ids.groupB, name: "其他渠道", normalizedName: "其他渠道" },
   ] });
 
   for (let day = 1; day <= 7; day += 1) {
     const sourceDate = `2026-08-${String(day).padStart(2, "0")}`;
     const orderDate = `2026-08-${String(day + 7).padStart(2, "0")}`;
     const batch = await db.sourceBatch.create({
-      data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate, fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: 100 },
+      data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate },
     });
     await db.metricEvent.createMany({ data: [
       { batchId: batch.id, enteredById: ids.memberA, occurredOn: sourceDate, kind: "NEW_FANS", quantity: 20 },

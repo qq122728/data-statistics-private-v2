@@ -28,7 +28,7 @@ function leadWithOrder(events: Array<{ amountCents: number; continuationNumber: 
     groupOperatorOwner: null, expertOwner: null, attributionOwner: null,
     owner: { name: "演示接粉", receptionistAssignments: [] }, activities: [], device: null,
     batch: {
-      id: "batch-a", sourceDate: TODAY, fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: 3500,
+      id: "batch-a", sourceDate: TODAY,
       group: { name: "演示组" }, channel: { id: "channel-a", name: "演示渠道" },
     },
     customerOrder: {

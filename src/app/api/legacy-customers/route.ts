@@ -92,11 +92,11 @@ export async function POST(request: Request) {
       const ownerIds = [input.receptionOwnerId, input.groupOperatorOwnerId, input.expertOwnerId].filter((value): value is string => Boolean(value));
       const [members, channel] = await Promise.all([
         tx.user.findMany({ where: { id: { in: ownerIds }, groupId: actor.groupId }, select: { id: true } }),
-        tx.channel.findFirst({ where: { id: input.channelId, groupId: actor.groupId }, select: { id: true, name: true, fanCostMode: true, effectiveFanPriceCents: true, channelType: true, rebateRateBps: true } }),
+        tx.channel.findFirst({ where: { id: input.channelId, groupId: actor.groupId }, select: { id: true, name: true, channelType: true } }),
       ]);
       if (members.length !== new Set(ownerIds).size) return { status: 400 as const, error: "归属只能选择本组成员" };
       if (!channel) return { status: 400 as const, error: "历史渠道只能选择本组渠道" };
-      const batch = await tx.sourceBatch.upsert({ where: { groupId_channelId_sourceDate: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn } }, update: {}, create: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn, fanCostModeSnapshot: channel.fanCostMode, effectiveFanPriceCentsSnapshot: channel.effectiveFanPriceCents, channelTypeSnapshot: channel.channelType, rebateRateBpsSnapshot: channel.rebateRateBps } });
+      const batch = await tx.sourceBatch.upsert({ where: { groupId_channelId_sourceDate: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn } }, update: {}, create: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn, channelTypeSnapshot: channel.channelType } });
       const baselineRank = rank[input.baselineStage];
       const finalRank = input.currentEvent === "NONE" ? baselineRank : rank[input.currentEvent];
       const currentOn = input.occurredOn ?? input.baselineOn;

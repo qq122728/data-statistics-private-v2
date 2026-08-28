@@ -113,7 +113,7 @@ describe("member workflow entry layout", () => {
       groupStatus: "NOT_JOINED", joinedOn: null, leftOn: null, expertIntroducedOn: null, expertContactedOn: null, expertContactNote: null,
       expertWorkflowStage: null, expertStageChangedAt: null, expertTrackingStartedAt: null, registeredOn: null, expertNotes: null, nextPlan: null, nextFollowUpOn: null, notes: null,
       groupOperatorOwner: null, expertOwner: null, owner: { receptionistAssignments: [] }, activities: [], device: null,
-      batch: { id: "batch", sourceDate: "2026-08-20", fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: null, group: { name: "A组" }, channel: { id: "channel", name: "投流粉" } },
+      batch: { id: "batch", sourceDate: "2026-08-20", group: { name: "A组" }, channel: { id: "channel", name: "投流粉" } },
       customerOrder: null,
     } as any;
     const markup = renderToStaticMarkup(React.createElement(EntryInvalidLibrary, {

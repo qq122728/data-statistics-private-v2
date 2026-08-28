@@ -26,7 +26,7 @@ describe("reception contact device workflow", () => {
         groupStatus: "NOT_JOINED", joinedOn: null, leftOn: null, expertIntroducedOn: null, expertContactedOn: null, expertContactNote: null,
         expertWorkflowStage: null, expertStageChangedAt: null, expertTrackingStartedAt: null, registeredOn: null, expertNotes: null, nextPlan: null, nextFollowUpOn: null,
         receptionCategory: "VALID", invalidReason: null, groupOperatorOwner: null, expertOwner: null, owner: { receptionistAssignments: [] }, activities: [],
-        device: null, batch: { id: "batch-a", sourceDate: "2026-08-20", fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: null, group: { name: "A组" }, channel: { id: "channel-a", name: "测试渠道" } }, customerOrder: null,
+        device: null, batch: { id: "batch-a", sourceDate: "2026-08-20", group: { name: "A组" }, channel: { id: "channel-a", name: "测试渠道" } }, customerOrder: null,
       }] as any,
       devices: [{ id: "device-a", code: "W1" }], deviceDrafts: {}, onDeviceDraft: noop, onDeviceSave: noop,
       onProfileFieldSave: noop,

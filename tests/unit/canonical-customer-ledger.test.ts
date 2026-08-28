@@ -41,8 +41,6 @@ beforeAll(async () => {
       groupId: ids.group,
       name: "统一口径渠道",
       normalizedName: "统一口径渠道",
-      fanCostMode: "PAID",
-      effectiveFanPriceCents: 100,
     },
   });
   await db.user.create({

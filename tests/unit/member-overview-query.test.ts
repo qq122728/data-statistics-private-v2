@@ -66,10 +66,10 @@ beforeAll(async () => {
     { id: ids.groupB, name: "二组" },
   ] });
   await db.channel.createMany({ data: [
-    { id: ids.channelA, groupId: ids.groupA, name: "共享渠道", normalizedName: "shared", effectiveFanPriceCents: 100 },
-    { id: ids.pendingA, groupId: ids.groupA, name: "待定价渠道", normalizedName: "pending", effectiveFanPriceCents: null },
-    { id: ids.invalidA, groupId: ids.groupA, name: "异常渠道", normalizedName: "invalid", effectiveFanPriceCents: 100 },
-    { id: ids.channelB, groupId: ids.groupB, name: "共享渠道", normalizedName: "shared", effectiveFanPriceCents: 200 },
+    { id: ids.channelA, groupId: ids.groupA, name: "共享渠道", normalizedName: "shared" },
+    { id: ids.pendingA, groupId: ids.groupA, name: "待定价渠道", normalizedName: "pending" },
+    { id: ids.invalidA, groupId: ids.groupA, name: "异常渠道", normalizedName: "invalid" },
+    { id: ids.channelB, groupId: ids.groupB, name: "共享渠道", normalizedName: "shared" },
   ] });
   await db.user.createMany({ data: [
     { id: ids.admin, username: ids.admin, name: "管理员", passwordHash: "test", role: "ADMIN" },
@@ -84,12 +84,12 @@ beforeAll(async () => {
   ] });
 
   const [currentA, pendingA, invalidA, observingA, previousA, currentB] = await Promise.all([
-    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-01", fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: 100 } }),
-    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.pendingA, sourceDate: "2026-08-02", fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: null } }),
-    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.invalidA, sourceDate: "2026-08-01", fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: 100 } }),
-    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-10", fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: 100 } }),
-    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-07-01", fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: 100 } }),
-    db.sourceBatch.create({ data: { groupId: ids.groupB, channelId: ids.channelB, sourceDate: "2026-08-01", fanCostModeSnapshot: "PAID", effectiveFanPriceCentsSnapshot: 200 } }),
+    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-01" } }),
+    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.pendingA, sourceDate: "2026-08-02" } }),
+    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.invalidA, sourceDate: "2026-08-01" } }),
+    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-10" } }),
+    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-07-01" } }),
+    db.sourceBatch.create({ data: { groupId: ids.groupB, channelId: ids.channelB, sourceDate: "2026-08-01" } }),
   ]);
 
   await db.metricEvent.createMany({ data: [

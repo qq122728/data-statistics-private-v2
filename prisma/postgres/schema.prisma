@@ -99,11 +99,6 @@ enum ReceptionChatStatus {
   READY_TO_JOIN
 }
 
-enum FanCostMode {
-  FREE
-  PAID
-}
-
 // 渠道业务类型。FREE 仅保留给历史数据兼容，新建渠道不再使用“免费粉”。
 enum ChannelType {
   SMS
@@ -416,11 +411,7 @@ model Channel {
   group                  TeamGroup     @relation(fields: [groupId], references: [id])
   createdById            String?
   createdBy              User?         @relation("ChannelCreatedBy", fields: [createdById], references: [id])
-  fanCostMode            FanCostMode   @default(FREE)
-  effectiveFanPriceCents Int?
   channelType            ChannelType   @default(SMS)
-  // 底料返点渠道使用，3000 即 30.00%；短信/投流渠道为空。
-  rebateRateBps          Int?
   batches                SourceBatch[]
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
@@ -470,15 +461,7 @@ model SourceBatch {
   groupId                        String
   channelId                      String
   sourceDate                     String
-  fanCostModeSnapshot            FanCostMode        @default(FREE)
-  effectiveFanPriceCentsSnapshot Int?
   channelTypeSnapshot            ChannelType        @default(SMS)
-  rebateRateBpsSnapshot          Int?
-  // 投流批次保存当次广告消耗和服务费率；单粉成本已经冻结在单价快照中。
-  advertisingSpendCents          Int?
-  // 当次实际可导入号码数，和广告金额一起保留，便于日后复核单粉成本。
-  advertisingFanCount            Int?
-  advertisingServiceFeeRateBps   Int?
   isHistoricalRecord             Boolean            @default(false)
   group                          TeamGroup          @relation(fields: [groupId], references: [id])
   channel                        Channel            @relation(fields: [channelId, groupId], references: [id, groupId])

@@ -36,8 +36,8 @@ export default async function setup() {
   });
   await prisma.channel.createMany({
     data: [
-      { id: "channel-1", name: "底料", normalizedName: "底料", groupId: "group-a", fanCostMode: "PAID", effectiveFanPriceCents: 5000 },
-      { id: "channel-2", name: "抖音", normalizedName: "抖音", groupId: "group-b", fanCostMode: "PAID", effectiveFanPriceCents: 6500 },
+      { id: "channel-1", name: "底料", normalizedName: "底料", groupId: "group-a" },
+      { id: "channel-2", name: "抖音", normalizedName: "抖音", groupId: "group-b" },
     ],
   });
   await prisma.sourceBatch.createMany({

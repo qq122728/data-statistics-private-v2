@@ -102,8 +102,8 @@ describe("performance leaderboard aggregate query", () => {
     const voidedAt = new Date("2026-08-12T08:00:00.000Z");
     await db.teamGroup.create({ data: { id: groupId, name: "作废查询组" } });
     await db.user.create({ data: { id: memberId, username: memberId, name: "作废接粉员", passwordHash: "test", role: "RECEPTION", groupId } });
-    await db.channel.create({ data: { id: channelId, groupId, name: "作废渠道", normalizedName: "作废渠道", fanCostMode: "FREE", effectiveFanPriceCents: 0 } });
-    await db.sourceBatch.create({ data: { id: batchId, groupId, channelId, sourceDate: "2026-08-10", fanCostModeSnapshot: "FREE", effectiveFanPriceCentsSnapshot: 0 } });
+    await db.channel.create({ data: { id: channelId, groupId, name: "作废渠道", normalizedName: "作废渠道" } });
+    await db.sourceBatch.create({ data: { id: batchId, groupId, channelId, sourceDate: "2026-08-10" } });
     await db.leadCustomer.create({ data: { id: leadId, phone: "query-voided-phone", batchId, ownerId: memberId } });
     await db.customerOrder.create({ data: { id: orderId, phone: "query-voided-phone", batchId, leadId, enteredById: memberId, openedOn: "2026-08-10", initialDepositCents: 80_000, voidedAt } });
     await db.metricEvent.createMany({ data: [
@@ -125,8 +125,8 @@ describe("performance leaderboard aggregate query", () => {
     const batchId = "query-historical-transfer-batch";
     await db.teamGroup.create({ data: { id: groupId, name: "历史转岗组" } });
     await db.user.create({ data: { id: memberId, username: memberId, name: "已转炒群员工", passwordHash: "test", role: "GROUP_OPERATOR", groupId } });
-    await db.channel.create({ data: { id: channelId, groupId, name: "历史渠道", normalizedName: "历史渠道", fanCostMode: "FREE", effectiveFanPriceCents: 0 } });
-    await db.sourceBatch.create({ data: { id: batchId, groupId, channelId, sourceDate: "2026-08-20", isHistoricalRecord: true, fanCostModeSnapshot: "FREE", effectiveFanPriceCentsSnapshot: 0 } });
+    await db.channel.create({ data: { id: channelId, groupId, name: "历史渠道", normalizedName: "历史渠道" } });
+    await db.sourceBatch.create({ data: { id: batchId, groupId, channelId, sourceDate: "2026-08-20", isHistoricalRecord: true } });
     await db.metricEvent.createMany({ data: [
       { batchId, enteredById: memberId, occurredOn: "2026-08-20", kind: "NEW_FANS", quantity: 7 },
       { batchId, enteredById: memberId, occurredOn: "2026-08-20", kind: "EFFECTIVE_FANS", quantity: 7 },

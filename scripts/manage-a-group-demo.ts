@@ -14,8 +14,8 @@ const operatorByReception = new Map([
 ]);
 
 const channels = [
-  { id: "demo-a-group-ads", name: `${demoPrefix}投流渠道`, normalizedName: "demo-a-group-ads", price: 3_500 },
-  { id: "demo-a-group-sms", name: `${demoPrefix}短信渠道`, normalizedName: "demo-a-group-sms", price: 1_800 },
+  { id: "demo-a-group-ads", name: `${demoPrefix}投流渠道`, normalizedName: "demo-a-group-ads" },
+  { id: "demo-a-group-sms", name: `${demoPrefix}短信渠道`, normalizedName: "demo-a-group-sms" },
 ];
 
 function dateAt(offset: number) {
@@ -72,8 +72,6 @@ async function seedDemoData() {
       normalizedName: channel.normalizedName,
       groupId,
       createdById: byUsername.get("lead")!.id,
-      fanCostMode: "PAID",
-      effectiveFanPriceCents: channel.price,
     })),
   });
 
@@ -87,8 +85,6 @@ async function seedDemoData() {
           groupId,
           channelId: channel.id,
           sourceDate,
-          fanCostModeSnapshot: "PAID",
-          effectiveFanPriceCentsSnapshot: channel.price,
         },
         select: { id: true, sourceDate: true, channelId: true },
       });

@@ -8,10 +8,7 @@ type ChannelTemplate = {
   normalizedName: string;
   active: boolean;
   createdById: string | null;
-  fanCostMode: "FREE" | "PAID";
-  effectiveFanPriceCents: number | null;
   channelType: "SMS" | "ADS" | "REBATE";
-  rebateRateBps: number | null;
 };
 
 /**
@@ -30,10 +27,7 @@ export async function copyGlobalChannelsToGroup(
       normalizedName: true,
       active: true,
       createdById: true,
-      fanCostMode: true,
-      effectiveFanPriceCents: true,
       channelType: true,
-      rebateRateBps: true,
     },
     orderBy: { createdAt: "asc" },
   });

@@ -2,18 +2,16 @@ import React from "react";
 import { formatUsd } from "../../../lib/money";
 import type { MemberDailyDetail as MemberDailyDetailData } from "../../../lib/analytics/member-daily-detail";
 
-const rate = (numerator: number, denominator: number) => denominator ? `${((numerator / denominator) * 100).toFixed(1)}%` : "—";
-
 function ReceptionRows({ detail }: { detail: MemberDailyDetailData }) {
-  return <table className="data-table min-w-[1080px]"><thead><tr><th>日期</th><th>添加数据</th><th>撞粉</th><th>低金额</th><th>无 WS 号码</th><th>有效数据</th><th>回复</th><th>回复率</th><th>进群</th><th>进群率</th></tr></thead><tbody>{detail.rows.map((row) => <tr key={row.date}><td className="font-semibold text-slate-900">{row.date}</td><td>{row.added}</td><td>{row.duplicate ?? 0}</td><td>{row.lowAmount}</td><td>{row.noWs}</td><td className="font-semibold text-slate-900">{row.valid}</td><td>{row.replied}</td><td>{rate(row.replied, row.valid)}</td><td>{row.joined}</td><td>{rate(row.joined, row.replied)}</td></tr>)}</tbody></table>;
+  return <table className="data-table min-w-[900px]"><thead><tr><th>日期</th><th>添加数据</th><th>撞粉</th><th>低金额</th><th>无 WS 号码</th><th>有效数据</th><th>回复</th><th>进群</th></tr></thead><tbody>{detail.rows.map((row) => <tr key={row.date}><td className="font-semibold text-slate-900">{row.date}</td><td>{row.added}</td><td>{row.duplicate ?? 0}</td><td>{row.lowAmount}</td><td>{row.noWs}</td><td className="font-semibold text-slate-900">{row.valid}</td><td>{row.replied}</td><td>{row.joined}</td></tr>)}</tbody></table>;
 }
 
 function OperatorRows({ detail }: { detail: MemberDailyDetailData }) {
-  return <table className="data-table min-w-[980px]"><thead><tr><th>日期</th><th>当日在群</th><th>当天进群</th><th>当天退群</th><th>异常退群率</th><th>可推专家</th><th>当天推专家</th><th>第3天推专家率</th></tr></thead><tbody>{detail.rows.map((row) => <tr key={row.date}><td className="font-semibold text-slate-900">{row.date}</td><td>{row.inGroup}</td><td>{row.joined}</td><td>{row.left}</td><td>{rate(row.abnormalLeft, row.joined)}</td><td>{row.eligibleForExpert}</td><td>{row.introduced}</td><td>{rate(row.introduced, row.eligibleForExpert)}</td></tr>)}</tbody></table>;
+  return <table className="data-table min-w-[820px]"><thead><tr><th>日期</th><th>当日在群</th><th>当天进群</th><th>当天退群</th><th>可推专家</th><th>当天推专家</th></tr></thead><tbody>{detail.rows.map((row) => <tr key={row.date}><td className="font-semibold text-slate-900">{row.date}</td><td>{row.inGroup}</td><td>{row.joined}</td><td>{row.left}</td><td>{row.eligibleForExpert}</td><td>{row.introduced}</td></tr>)}</tbody></table>;
 }
 
 function ExpertRows({ detail }: { detail: MemberDailyDetailData }) {
-  return <table className="data-table min-w-[1040px]"><thead><tr><th>日期</th><th>已联系</th><th>注册</th><th>注册率</th><th>开单</th><th>开单率</th><th>入金</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{detail.rows.map((row) => <tr key={row.date}><td className="font-semibold text-slate-900">{row.date}</td><td>{row.contacted}</td><td>{row.registered}</td><td>{rate(row.registered, row.contacted)}</td><td>{row.ordered}</td><td>{rate(row.ordered, row.registered)}</td><td>{formatUsd(row.depositCents)}</td><td>{formatUsd(row.withdrawalCents)}</td><td className="font-semibold text-slate-900">{formatUsd(row.netCents)}</td></tr>)}</tbody></table>;
+  return <table className="data-table min-w-[900px]"><thead><tr><th>日期</th><th>已联系</th><th>注册</th><th>开单</th><th>入金</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{detail.rows.map((row) => <tr key={row.date}><td className="font-semibold text-slate-900">{row.date}</td><td>{row.contacted}</td><td>{row.registered}</td><td>{row.ordered}</td><td>{formatUsd(row.depositCents)}</td><td>{formatUsd(row.withdrawalCents)}</td><td className="font-semibold text-slate-900">{formatUsd(row.netCents)}</td></tr>)}</tbody></table>;
 }
 
 const roleLabel = {

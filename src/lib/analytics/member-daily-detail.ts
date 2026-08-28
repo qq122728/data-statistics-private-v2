@@ -1,6 +1,5 @@
 import type { Role } from "@prisma/client";
 import { db } from "../db";
-import { assessGroupLeave } from "../group-leave";
 import { getApprovedInvalidFanTotals } from "../invalid-fan-reports";
 
 export type DailyMemberRole = Extract<Role, "RECEPTION" | "GROUP_OPERATOR" | "EXPERT">;
@@ -16,7 +15,6 @@ export type MemberDailyRow = {
   replied: number;
   joined: number;
   left: number;
-  abnormalLeft: number;
   inGroup: number;
   eligibleForExpert: number;
   introduced: number;
@@ -46,7 +44,6 @@ const emptyRow = (date: string): MemberDailyRow => ({
   replied: 0,
   joined: 0,
   left: 0,
-  abnormalLeft: 0,
   inGroup: 0,
   eligibleForExpert: 0,
   introduced: 0,
@@ -205,10 +202,7 @@ export async function loadMemberDailyDetail(input: {
       const joinRow = rowFor(lead.joinedOn);
       if (joinRow && (input.role === "RECEPTION" || input.role === "GROUP_OPERATOR")) joinRow.joined += 1;
       const leftRow = rowFor(lead.leftOn);
-      if (leftRow && input.role === "GROUP_OPERATOR") {
-        leftRow.left += 1;
-        if (assessGroupLeave(lead.joinedOn, lead.leftOn).level === "EARLY") leftRow.abnormalLeft += 1;
-      }
+      if (leftRow && input.role === "GROUP_OPERATOR") leftRow.left += 1;
       const introducedRow = rowFor(lead.expertIntroducedOn);
       if (introducedRow && input.role === "GROUP_OPERATOR") introducedRow.introduced += 1;
       const contactedRow = rowFor(lead.expertContactedOn);

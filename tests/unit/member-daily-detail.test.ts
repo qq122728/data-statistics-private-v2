@@ -14,7 +14,6 @@ const row = {
   replied: 4,
   joined: 2,
   left: 1,
-  abnormalLeft: 1,
   inGroup: 8,
   eligibleForExpert: 5,
   introduced: 3,
@@ -27,23 +26,29 @@ const row = {
 };
 
 describe("member daily detail", () => {
-  it("uses the reception metric names and the standard funnel rates", () => {
+  it("uses the reception metric names as plain daily activity counts, with no misleading same-day rate columns", () => {
     const html = renderToStaticMarkup(createElement(MemberDailyDetail, { detail: { member: { id: "r", name: "接粉 A", role: "RECEPTION", groupName: "A 组" }, from: row.date, to: row.date, rows: [row] } }));
-    for (const label of ["添加数据", "撞粉", "低金额", "无 WS 号码", "有效数据", "回复率", "进群率"]) expect(html).toContain(label);
+    for (const label of ["添加数据", "撞粉", "低金额", "无 WS 号码", "有效数据", "回复", "进群"]) expect(html).toContain(label);
     expect(html).not.toContain("人工无效");
+    // 回复/进群按事件发生日归类，跟"添加"的导入日不是同一批人，不能包装成百分比展示。
+    expect(html).not.toContain("回复率");
+    expect(html).not.toContain("进群率");
     expect(html).toContain("添加与有效数据按导入日统计；回复、进群按实际发生日统计。");
   });
 
-  it("keeps the operator assessment rate separate and explains it", () => {
+  it("shows the operator's raw daily counts without a same-day abnormal-leave or day-3 introduction rate", () => {
     const html = renderToStaticMarkup(createElement(MemberDailyDetail, { detail: { member: { id: "o", name: "炒群 A", role: "GROUP_OPERATOR", groupName: "A 组" }, from: row.date, to: row.date, rows: [row] } }));
-    expect(html).toContain("第3天推专家率");
+    expect(html).not.toContain("异常退群率");
+    expect(html).not.toContain("第3天推专家率");
     expect(html).toContain("已进群满 2 天、当天仍在群且尚未推专家");
   });
 
-  it("makes expert net performance a funds-only number", () => {
+  it("makes expert net performance a funds-only number, with no same-day registration or order rate", () => {
     const html = renderToStaticMarkup(createElement(MemberDailyDetail, { detail: { member: { id: "e", name: "专家 A", role: "EXPERT", groupName: "A 组" }, from: row.date, to: row.date, rows: [row] } }));
     expect(html).toContain("净业绩 = 入金 − 出金。");
     expect(html).toContain("$3,750.00");
+    expect(html).not.toContain("注册率");
+    expect(html).not.toContain("开单率");
   });
 
   it("allows a manager to select the matching role member and defaults to the current real month", () => {

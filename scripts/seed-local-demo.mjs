@@ -218,6 +218,7 @@ async function main() {
       { id: "demo-customer-10", phone: "19980000010", batchId: batch(16), customerName: "正常退群已开单", replyStatus: "REPLIED", repliedOn: date(16), groupStatus: "LEFT", joinedOn: date(15), expertIntroducedOn: date(12), expertContactedOn: date(11), registeredOn: date(10), leftOn: today, leftWithOrder: true, notes: "满 15 天后退群，已开单，属于正常完成。" },
       { id: "demo-customer-11", phone: "19980000011", batchId: batch(0), customerName: "无效粉示例", invalid: true, invalidReason: "号码为空号", replyStatus: "NOT_REPLIED", notes: "无效粉，不进入后续流程。" },
       { id: "demo-customer-12", phone: "19980000012", batchId: batch(4), customerName: "专家待跟进", replyStatus: "REPLIED", repliedOn: date(4), groupStatus: "JOINED", joinedOn: date(3), expertIntroducedOn: today, notes: "今日刚推专家，尚未联系。" },
+      { id: "demo-customer-13", phone: "19980000013", batchId: batch(4), customerName: "等待多天未回复", replyStatus: "NOT_REPLIED", notes: "演示：来源日期较早、一直没回复的号码，用于验证等待天数提示。" },
     ];
 
     for (const lead of leads) {

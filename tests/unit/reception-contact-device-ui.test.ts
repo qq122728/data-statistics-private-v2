@@ -32,6 +32,7 @@ describe("reception contact device workflow", () => {
       onProfileFieldSave: noop,
       onViewProfile: noop, onDelete: noop, onVoidErroneousEntry: noop,
       context: () => null, notes: () => null, empty: (text: string) => text, actionDisabled: () => false, onAction: noop,
+      selectedIds: new Set<string>(), onToggleSelected: noop, onToggleSelectAll: noop, onBulkConfirmReply: noop,
     }));
 
     expect(importMarkup).not.toContain("前台接粉设备号");

@@ -187,6 +187,9 @@ export function EntryTabs({
   );
   const [replyList, setReplyList] = useState<"pending" | "readyToJoin" | "archived">("pending");
   const [replyArchiveFilter, setReplyArchiveFilter] = useState<"all" | "UNANSWERED" | "NOT_JOINED">("all");
+  // 号码一多，逐条点"确认已回复"太慢；勾选多条一次性处理。
+  const [selectedReplyIds, setSelectedReplyIds] = useState<Set<string>>(new Set());
+  const [bulkReplyBusy, setBulkReplyBusy] = useState(false);
   const [downstreamFocusId, setDownstreamFocusId] = useState<string | null>(null);
   const [expertList, setExpertList] = useState<"intro" | "register" | "done">(
     "intro",
@@ -836,13 +839,21 @@ export function EntryTabs({
     }
   }
 
-  const actionDisabled = (lead: Lead) => busy === lead.id;
+  const actionDisabled = (lead: Lead) => busy === lead.id || bulkReplyBusy;
   const isInvalidLead = (lead: Lead) => lead.invalid || lead.receptionCategory === "INVALID" || lead.receptionCategory === "LOW_AMOUNT" || lead.receptionCategory === "NO_WS";
   // 老客户不重复增加粉数，但补录号码后仍需进入正常待办，承接启用后真实发生的回复、进群等动作。
   const actionable = visible.filter((lead) => !isInvalidLead(lead));
   const allArchivedReplyLeads = actionable.filter((lead) => isReceptionReplyArchived(lead));
   const archivedReplyLeads = allArchivedReplyLeads.filter((lead) => replyArchiveFilter === "all" || receptionReplyArchiveType(lead) === replyArchiveFilter);
-  const replyPending = actionable.filter((lead) => !lead.repliedOn && !isReceptionReplyArchived(lead));
+  // 按来源日期从旧到新排：等得最久、最容易变凉的号码排最前面，
+  // 而不是继承后端 updatedAt desc（最近点过的反而排前面，等于把最该优先处理的埋到后面）。
+  const replyPending = actionable
+    .filter((lead) => !lead.repliedOn && !isReceptionReplyArchived(lead))
+    .sort((left, right) => {
+      const bySourceDate = left.batch.sourceDate.localeCompare(right.batch.sourceDate);
+      if (bySourceDate !== 0) return bySourceDate;
+      return left.followUpCount - right.followUpCount;
+    });
   const historicalRows = visible.filter((lead) => lead.isHistoricalRecord);
   const groupPending = actionable.filter(
     (lead) =>
@@ -905,6 +916,58 @@ export function EntryTabs({
   const pagedGroupPending = groupPending.slice((safePage - 1) * pageSize, safePage * pageSize);
   const pagedProgress = displayedProgressRows.slice((safePage - 1) * pageSize, safePage * pageSize);
 
+  // 翻页、切换筛选或离开"待回复"之后，之前勾的号码就不在眼前了，选择框跟着清空，
+  // 避免误以为还选着、结果批量操作到看不见的号码上。
+  useEffect(() => {
+    setSelectedReplyIds(new Set());
+  }, [tab, replyList, safePage]);
+
+  function toggleReplySelected(leadId: string) {
+    setSelectedReplyIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(leadId)) next.delete(leadId);
+      else next.add(leadId);
+      return next;
+    });
+  }
+
+  function toggleReplySelectAll() {
+    setSelectedReplyIds((previous) => {
+      const selectable = pagedReply.filter((lead) => !actionDisabled(lead));
+      const allSelected = selectable.length > 0 && selectable.every((lead) => previous.has(lead.id));
+      return allSelected ? new Set() : new Set(selectable.map((lead) => lead.id));
+    });
+  }
+
+  function requestBulkConfirmReply() {
+    const selected = pagedReply.filter((lead) => selectedReplyIds.has(lead.id));
+    const ready = selected.filter((lead) => Boolean((deviceDrafts[lead.id] ?? lead.device?.code ?? "").trim()));
+    const skipped = selected.length - ready.length;
+    if (!ready.length) {
+      setError(skipped ? "勾选的号码都还没有填设备号，请先填好设备号再批量确认" : "请先勾选要批量确认的号码");
+      return;
+    }
+    setConfirmation({
+      title: `确认这 ${ready.length} 位客户都已经联系？`,
+      description: skipped
+        ? `确认后这 ${ready.length} 位会从待回复进入待入群；另外 ${skipped} 位还没填设备号，这次不会处理，需要单独确认。`
+        : `确认后这 ${ready.length} 位客户会从待回复进入待入群，设备号使用各自当前显示的设备号。`,
+      confirmLabel: `批量确认已回复（${ready.length}）`,
+      target: ready.map((lead) => lead.phone).join("、"),
+      tone: "primary",
+      onConfirm: async () => {
+        setBulkReplyBusy(true);
+        try {
+          await Promise.all(ready.map((lead) => followUpOrReply(lead, "reply")));
+        } finally {
+          setBulkReplyBusy(false);
+          setSelectedReplyIds(new Set());
+          setConfirmation(null);
+        }
+      },
+    });
+  }
+
   function empty(text: string) {
     return (
       <div className="member-empty">
@@ -917,8 +980,18 @@ export function EntryTabs({
     const sourceName = lead.isHistoricalRecord
       ? (lead.historicalSourceName || lead.batch.channel.name)
       : lead.batch.channel.name;
+    // 待回复客户按来源日期算等待天数，方便一眼看出一大批号码里哪些最容易变凉；
+    // 已回复/历史补录不需要这个提示。
+    const waitingDays = lead.repliedOn || lead.isHistoricalRecord
+      ? null
+      : Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${lead.batch.sourceDate}T00:00:00Z`)) / 86400000);
     return (
       <span className="member-muted">
+        {waitingDays !== null && waitingDays >= 1 ? (
+          <strong className={waitingDays >= 2 ? "mr-1 font-semibold text-red-700" : "mr-1 font-semibold text-amber-700"}>
+            已等待 {waitingDays} 天
+          </strong>
+        ) : null}
         {lead.isHistoricalRecord ? "历史补录 · 历史来源：" : "来源："}{lead.batch.sourceDate} · {sourceName}
         {lead.device ? ` · ${lead.device.code}` : ""}
       </span>
@@ -1060,6 +1133,10 @@ export function EntryTabs({
             empty={empty}
             actionDisabled={actionDisabled}
             onAction={requestLeadAction}
+            selectedIds={selectedReplyIds}
+            onToggleSelected={toggleReplySelected}
+            onToggleSelectAll={toggleReplySelectAll}
+            onBulkConfirmReply={requestBulkConfirmReply}
           /> : <section className="member-panel">
             <div className="member-panel-title"><div><p>已联系客户</p><h3>确认入群</h3></div><span>确认后自动交给配合的炒群员；这里不需要填写每日记录。</span></div>
             <EntryGroupTable

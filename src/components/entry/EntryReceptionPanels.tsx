@@ -199,6 +199,7 @@ export function EntryImportPanel({
 export function EntryReplyPanel({
   leads, devices, deviceDrafts, onDeviceDraft, onDeviceSave, onProfileFieldSave, onViewProfile, onDelete, onVoidErroneousEntry,
   context, notes, empty, actionDisabled, onAction,
+  selectedIds, onToggleSelected, onToggleSelectAll, onBulkConfirmReply,
 }: SharedRowProps & {
   leads: Lead[];
   devices: Array<{ id: string; code: string }>;
@@ -209,25 +210,39 @@ export function EntryReplyPanel({
   onViewProfile: (lead: Lead) => void;
   onDelete: (lead: Lead) => void;
   onVoidErroneousEntry: (lead: Lead) => void;
+  selectedIds: Set<string>;
+  onToggleSelected: (leadId: string) => void;
+  onToggleSelectAll: () => void;
+  onBulkConfirmReply: () => void;
 }) {
+  const selectableLeads = leads.filter((lead) => !actionDisabled(lead));
+  const allSelected = selectableLeads.length > 0 && selectableLeads.every((lead) => selectedIds.has(lead.id));
+  const selectedCount = leads.filter((lead) => selectedIds.has(lead.id)).length;
   return <section className="member-panel">
     <div className="member-panel-title"><div><p>第 2 步</p><h3>联系与回复</h3></div><span>这里只保留真正需要跟进的客户。撞粉、低金额、无 WS 号码请回“号码导入”下方单独登记数字，不会进入客户流程。</span></div>
+    {leads.length ? <div className="member-bulk-bar">
+      <label className="member-bulk-select-all"><input type="checkbox" checked={allSelected} onChange={onToggleSelectAll} aria-label="全选本页待回复号码" />全选本页</label>
+      <span className="member-bulk-count">{selectedCount ? `已选 ${selectedCount} 位` : "先勾选号码，再批量处理"}</span>
+      <button type="button" className="member-primary member-bulk-confirm-button" disabled={!selectedCount} onClick={onBulkConfirmReply}><ChatCircleDots size={16} weight="duotone" />批量确认已回复{selectedCount ? `（${selectedCount}）` : ""}</button>
+    </div> : null}
     <div className="member-table-wrap"><table className="member-table member-reply-table">
       <colgroup>
+        <col className="member-reply-select-column" />
         <col className="member-reply-phone-column" />
         <col className="member-reply-profile-column" />
         <col className="member-reply-status-column" />
         <col className="member-reply-actions-column" />
         <col className="member-reply-source-column" />
       </colgroup>
-      <thead><tr><th>手机号</th><th>客户资料</th><th>当前状态</th><th>本次处理</th><th>来源</th></tr></thead>
+      <thead><tr><th aria-hidden="true" /><th>手机号</th><th>客户资料</th><th>当前状态</th><th>本次处理</th><th>来源</th></tr></thead>
       <tbody>{leads.map((lead) => <tr key={lead.id} data-reception-tone={receptionRowTone(lead)}>
+          <td className="member-reply-select-cell"><input type="checkbox" checked={selectedIds.has(lead.id)} onChange={() => onToggleSelected(lead.id)} disabled={actionDisabled(lead)} aria-label={`勾选 ${lead.phone}`} /></td>
           <td className="member-phone">{lead.phone}{lead.isHistoricalRecord ? <small className="mt-1 block font-semibold text-amber-700">历史补录</small> : null}</td>
           <td><CustomerProfileEditor lead={lead} disabled={actionDisabled(lead)} onSave={onProfileFieldSave} /></td>
           <td><EntryWorkflowStatus lead={lead} /></td>
           <td className="member-reply-actions-cell"><div className="member-actions member-reply-actions-layout member-reply-compact-actions"><div className="member-reply-profile-actions"><button type="button" className="member-secondary small" title="查看完整客户资料" onClick={() => onViewProfile(lead)}>详情</button>{lead.followUpCount === 0 ? <button type="button" className="member-text-action danger" title="删除错误导入" onClick={() => onDelete(lead)} disabled={actionDisabled(lead)}>误录</button> : <button type="button" className="member-text-action danger" title="标记为误录" onClick={() => onVoidErroneousEntry(lead)} disabled={actionDisabled(lead)}>误录</button>}</div><div className="member-reply-processing-actions"><label className="member-contact-device"><span className="member-contact-device-prefix">接粉设备号</span><input aria-label={`${lead.phone} 接粉设备号`} title="接粉设备号" list={`reception-device-options-${lead.id}`} value={deviceDrafts[lead.id] ?? lead.device?.code ?? ""} onChange={(event) => { const value = event.target.value; onDeviceDraft(lead, value); if (devices.some((device) => device.code === value.trim())) onDeviceSave(lead, value); }} onBlur={(event) => onDeviceSave(lead, event.target.value)} placeholder="设备号" disabled={actionDisabled(lead)} /><datalist id={`reception-device-options-${lead.id}`}>{devices.map((device) => <option key={device.id} value={device.code} />)}</datalist></label><button type="button" className="member-reply-followup-button" onClick={() => onAction(lead, "followUp")} disabled={actionDisabled(lead)}><PhoneCall size={15} weight="duotone" />回访 {lead.followUpCount} +1</button><button type="button" className="member-primary member-reply-confirm-button" onClick={() => onAction(lead, "reply")} disabled={actionDisabled(lead)}><ChatCircleDots size={16} weight="duotone" />确认已回复</button></div></div></td>
           <td>{context(lead)}</td>
-        </tr>)}{!leads.length ? <tr><td colSpan={5}>{empty("没有待回复客户")}</td></tr> : null}</tbody>
+        </tr>)}{!leads.length ? <tr><td colSpan={6}>{empty("没有待回复客户")}</td></tr> : null}</tbody>
     </table></div>
   </section>;
 }

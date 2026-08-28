@@ -7,7 +7,7 @@
   --blue-600: #0b66ff;
   --blue-700: #0757dc;
   --surface: #ffffff;
-  --canvas: #f5f7fa;
+  --canvas: #eef1f6;
   --text: #172033;
   --muted: #687386;
   --border: #dde3eb;
@@ -353,7 +353,7 @@ textarea {
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 14px 16px 20px;
+  padding: 24px 24px 28px;
 }
 .page-heading {
   display: flex;
@@ -816,18 +816,44 @@ textarea {
 }
 
 /* 接粉回复表第一列必须完整独占，长号码不能压进客户资料列。窄屏继续横向滚动，避免信息重叠。 */
-.member-reply-table { min-width: 1260px; table-layout: fixed; }
+.member-reply-table { min-width: 1296px; table-layout: fixed; }
+.member-reply-select-column { width: 36px; }
+.member-reply-select-cell { text-align: center; }
+.member-reply-select-cell input,
+.member-bulk-select-all input { width: 16px; height: 16px; cursor: pointer; }
 .member-reply-phone-column { width: 190px; }
 .member-reply-table .member-phone {
   min-width: 190px;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.member-reply-table th:nth-child(2),
-.member-reply-table td:nth-child(2) { min-width: 330px; width: 330px; }
+.member-reply-table th:nth-child(3),
+.member-reply-table td:nth-child(3) { min-width: 330px; width: 330px; }
 .member-reply-status-column { width: 108px; }
 .member-reply-actions-column { width: 462px; }
 .member-reply-source-column { width: 170px; }
+.member-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: var(--canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.member-bulk-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.member-bulk-count { font-size: 13px; color: var(--muted); flex: 1; }
+.member-bulk-confirm-button { margin-left: auto; }
 .history-filter-bar {
   display: flex;
   min-height: 52px;

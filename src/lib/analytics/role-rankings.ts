@@ -174,8 +174,33 @@ function activeOrder(lead: LoadedLead, today: string) {
     : null;
 }
 
-function inGroupAt(lead: LoadedLead, today: string) {
-  return happenedBy(lead.joinedOn, today) && (!lead.leftOn || lead.leftOn > today);
+/**
+ * 需求文档6.1.1：当前在群是快照，只看截止日期，人群不能被报表的日期范围卡住——
+ * 不管选的是哪个 sourceDateFrom，只要 joinedOn <= today 且还没退群，就该算在内。
+ * 因此这里故意不复用 loadLeads 的 sourceDate 范围过滤。
+ */
+async function loadCurrentInGroupByOperator(groupIds: string[], today: string, channelIds?: string[], normalizedName?: string): Promise<Map<string, number>> {
+  const leads = await db.leadCustomer.findMany({
+    where: {
+      isHistoricalRecord: false,
+      groupOperatorOwnerId: { not: null },
+      joinedOn: { not: null, lte: today },
+      batch: {
+        groupId: { in: groupIds },
+        isHistoricalRecord: false,
+        ...(channelIds ? { channelId: { in: channelIds } } : {}),
+        ...(normalizedName ? { channel: { normalizedName } } : {}),
+      },
+    },
+    select: { groupOperatorOwnerId: true, leftOn: true },
+  });
+  const counts = new Map<string, number>();
+  for (const lead of leads) {
+    if (lead.leftOn && lead.leftOn <= today) continue;
+    const operatorId = lead.groupOperatorOwnerId!;
+    counts.set(operatorId, (counts.get(operatorId) ?? 0) + 1);
+  }
+  return counts;
 }
 
 function isResourceEligible(lead: LoadedLead) {
@@ -247,7 +272,7 @@ export async function loadRoleRankings(input: {
 }): Promise<RoleRankingsResult> {
   if (!input.groupIds.length) return { reception: [], fanOwners: [], groupOperators: [], experts: [], groups: [], standardsByGroup: {} };
   const today = input.today ?? input.sourceDateTo;
-  const [people, fanOwnerPeople, groups, leads, duplicateEvents, approvedInvalidReports] = await Promise.all([
+  const [people, fanOwnerPeople, groups, leads, duplicateEvents, approvedInvalidReports, currentInGroupByOperator] = await Promise.all([
     db.user.findMany({
       where: {
         OR: [
@@ -312,6 +337,7 @@ export async function loadRoleRankings(input: {
       normalizedChannelName: input.normalizedName,
       channelIds: input.channelIds,
     }),
+    loadCurrentInGroupByOperator(input.groupIds, today, input.channelIds, input.normalizedName),
   ]);
 
   const duplicateByReception = new Map<string, number>();
@@ -452,7 +478,7 @@ export async function loadRoleRankings(input: {
         ...displayScope(person),
         pairedReceptionCount: receptionistIds.size,
         sharedCustomerCount: workflowShared.length,
-        currentInGroup: workflowShared.filter((lead) => inGroupAt(lead, today)).length,
+        currentInGroup: currentInGroupByOperator.get(person.id) ?? 0,
         introducedActions: distinctLeadCount(introducedActionsByActor.get(person.id) ?? [], (lead) => happenedBy(lead.expertIntroducedOn, today)),
         leaveActions: distinctLeadCount(leaveActionsByActor.get(person.id) ?? [], (lead) => happenedBy(lead.leftOn, today)),
         abnormalLeaveActions: distinctLeadCount(leaveActionsByActor.get(person.id) ?? [], (lead) => happenedBy(lead.leftOn, today) && assessGroupLeave(lead.joinedOn, lead.leftOn).level === "EARLY"),

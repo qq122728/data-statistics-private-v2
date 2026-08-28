@@ -98,7 +98,7 @@ describe("team performance layout", () => {
   it("sorts channel leave rates ascending and keeps a zero denominator last", () => {
     hookState.values = [{ key: "leaveRate", direction: "ascending" }];
     const row = (normalizedName: string, displayName: string, leaveRate: number | null) => ({
-      normalizedName, displayName, newFans: 20, groupRate: null, registrationRate: null, orderRate: null, rechargePerOrderCents: 0, rankable: true, groupCount: 1, groups: ["一组"], totals, rates: { ...rates, leaveRate },
+      normalizedName, displayName, newFans: 20, currentInGroup: 0, groupRate: null, registrationRate: null, orderRate: null, rechargePerOrderCents: 0, rankable: true, groupCount: 1, groups: ["一组"], totals, rates: { ...rates, leaveRate },
     });
     const html = renderToStaticMarkup(createElement(ChannelQualityTable, {
       rows: [row("none", "甲无分母", null), row("high", "乙高退群", 0.4), row("low", "丙低退群", 0.1)],

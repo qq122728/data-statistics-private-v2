@@ -84,7 +84,7 @@ export function ChannelQualityTable({ rows, filters, resourceMode = false }: { r
       </tr></thead>
       <tbody>{sortedRows.map((row) => <tr key={row.normalizedName}>
         {channelCell(row)}
-        <td>{row.totals.inGroup}</td><td>{row.totals.groupLeave}</td><td>{percent(row.rates.leaveRate)}</td><td>{row.totals.expertIntro}</td>
+        <td>{row.currentInGroup}</td><td>{row.totals.groupLeave}</td><td>{percent(row.rates.leaveRate)}</td><td>{row.totals.expertIntro}</td>
         <td>{row.totals.registration}</td><td>{percent(row.registrationRate)}</td><td>{row.totals.orders}</td><td>{percent(row.orderRate)}</td>
         <td>{money(row.totals.rechargeCents)}</td><td>{money(row.rechargePerOrderCents)}</td>
       </tr>)}</tbody>

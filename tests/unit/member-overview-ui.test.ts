@@ -26,7 +26,6 @@ const row = (
     replies: 60,
     groupJoin: 40,
     groupLeave: 4,
-    inGroup: 36,
     expertIntro: 20,
     registration: 10,
     orders: 8,

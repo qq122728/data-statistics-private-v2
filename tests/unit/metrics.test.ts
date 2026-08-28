@@ -20,7 +20,6 @@ describe("funnel metrics", () => {
       groupJoin: 0,
       groupLeave: 0,
       abnormalGroupLeave: 0,
-      inGroup: 0,
       expertIntro: 0,
       registration: 0,
       orders: 0,
@@ -38,7 +37,6 @@ describe("funnel metrics", () => {
       groupJoin: 3,
       groupLeave: 4,
       abnormalGroupLeave: 2,
-      inGroup: -1,
       expertIntro: 5,
       registration: 6,
       orders: 7,
@@ -54,7 +52,6 @@ describe("funnel metrics", () => {
       groupJoin: 3,
       groupLeave: 4,
       abnormalGroupLeave: 2,
-      inGroup: -1,
       expertIntro: 5,
       registration: 6,
       orders: 7,
@@ -90,14 +87,13 @@ describe("funnel metrics", () => {
     expect(formatMetricEventValue({ kind: "EFFECTIVE_FANS", quantity: 12 })).toBe("12");
   });
 
-  it("calculates in-group and returns null for zero denominators", () => {
+  it("returns null for zero denominators", () => {
     const totals = calculateBatchTotals([
       { kind: "GROUP_JOIN", quantity: 6 },
       { kind: "GROUP_LEAVE", quantity: 2 },
       { kind: "ABNORMAL_GROUP_LEAVE", quantity: 1 },
     ]);
 
-    expect(totals.inGroup).toBe(4);
     expect(totals.abnormalGroupLeave).toBe(1);
     expect(calculateConversionRates(totals).leaveRate).toBeCloseTo(1 / 6);
     expect(calculateConversionRates(totals).groupRate).toBeNull();
@@ -129,7 +125,6 @@ describe("funnel metrics", () => {
       registration: 2,
       orders: 1,
       replies: 40,
-      inGroup: 16,
       rechargeCents: 0,
       effectiveFans: 80,
       noNumber: 0,
@@ -154,7 +149,6 @@ describe("funnel metrics", () => {
     const emptyTotals = {
       replies: 0,
       groupLeave: 0,
-      inGroup: 0,
       expertIntro: 0,
       registration: 0,
       orders: 0,
@@ -184,7 +178,7 @@ describe("funnel metrics", () => {
         group: { id: "group-1", name: "一组" },
         channel: { id: "channel-1", name: "视频号" },
         totals: {
-          newFans: 0, replies: 0, groupJoin: 0, groupLeave: 0, inGroup: 0, expertIntro: 0, registration: 0, orders: 0, rechargeCents: 0,
+          newFans: 0, replies: 0, groupJoin: 0, groupLeave: 0, expertIntro: 0, registration: 0, orders: 0, rechargeCents: 0,
           effectiveFans: 4, noNumber: 1, duplicateFans: 2, withdrawalCents: 100, channelPerformanceCents: 250,
         },
       },
@@ -192,7 +186,7 @@ describe("funnel metrics", () => {
         group: { id: "group-1", name: "一组" },
         channel: { id: "channel-1", name: "视频号" },
         totals: {
-          newFans: 0, replies: 0, groupJoin: 0, groupLeave: 0, inGroup: 0, expertIntro: 0, registration: 0, orders: 0, rechargeCents: 0,
+          newFans: 0, replies: 0, groupJoin: 0, groupLeave: 0, expertIntro: 0, registration: 0, orders: 0, rechargeCents: 0,
           effectiveFans: 3, noNumber: 2, duplicateFans: 1, withdrawalCents: 50, channelPerformanceCents: 150,
         },
       },
@@ -213,7 +207,6 @@ describe("funnel metrics", () => {
       replies: 0,
       groupJoin: 2,
       groupLeave: 0,
-      inGroup: 2,
       expertIntro: 0,
       registration: 0,
       orders: 0,
@@ -245,7 +238,6 @@ describe("funnel metrics", () => {
       replies: 0,
       groupJoin: 0,
       groupLeave: 0,
-      inGroup: 0,
       expertIntro: 0,
       registration: 0,
       orders: 0,

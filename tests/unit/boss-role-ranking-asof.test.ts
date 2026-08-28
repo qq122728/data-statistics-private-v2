@@ -71,6 +71,40 @@ describe.sequential("老板简报岗位统计截止日", () => {
     expect(result.experts[0]).toMatchObject({ contacted: 0, registered: 0, orders: 0, eligibleForOrder: 0, orderedEligible: 0 });
   });
 
+  it("当前在群不受报表日期范围卡人群——早于 sourceDateFrom 到店、还没退群的客户照样算", async () => {
+    const fixtureData = await fixture();
+    const oldBatchId = `${prefix}old-batch-${randomUUID()}`;
+    await db.sourceBatch.create({ data: { id: oldBatchId, groupId: fixtureData.groupId, channelId: (await db.sourceBatch.findUniqueOrThrow({ where: { id: fixtureData.batchId } })).channelId, sourceDate: "2026-07-01" } });
+    await db.leadCustomer.create({
+      data: {
+        id: `${prefix}lead-${randomUUID()}`,
+        phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+        batchId: oldBatchId,
+        ownerId: fixtureData.reception.id,
+        groupOperatorOwnerId: fixtureData.operatorA.id,
+        joinedOn: "2026-07-05",
+        groupStatus: "JOINED",
+      },
+    });
+    await db.leadCustomer.create({
+      data: {
+        id: `${prefix}lead-${randomUUID()}`,
+        phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+        batchId: fixtureData.batchId,
+        ownerId: fixtureData.reception.id,
+        groupOperatorOwnerId: fixtureData.operatorA.id,
+        joinedOn: "2026-08-10",
+        groupStatus: "JOINED",
+      },
+    });
+
+    const wideRange = await loadRoleRankings({ groupIds: [fixtureData.groupId], sourceDateFrom: "2026-07-01", sourceDateTo: "2026-08-16", today: "2026-08-16" });
+    const narrowRange = await loadRoleRankings({ groupIds: [fixtureData.groupId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-16", today: "2026-08-16" });
+    expect(wideRange.groupOperators.find((row) => row.id === fixtureData.operatorA.id)).toMatchObject({ currentInGroup: 2 });
+    // 窄范围里 sharedCustomerCount 理应只剩1（旧批次不在选中范围内），但当前在群是快照，两次查询答案必须一样。
+    expect(narrowRange.groupOperators.find((row) => row.id === fixtureData.operatorA.id)).toMatchObject({ sharedCustomerCount: 1, currentInGroup: 2 });
+  });
+
   it("接粉员改配后，已有客户仍归原炒群负责人", async () => {
     const fixtureData = await fixture();
     const lead = await db.leadCustomer.create({

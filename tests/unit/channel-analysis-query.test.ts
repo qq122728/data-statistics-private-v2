@@ -110,4 +110,26 @@ describe("channel quality query", () => {
 
     expect(douyin).toMatchObject({ noWs: 4, lowAmount: 0, invalid: 4 });
   });
+
+  it("当前在群不受报表日期范围卡人群——早于选中范围到店、还没退群的客户照样算", async () => {
+    const channelId = `in-group-channel-${suffix}`;
+    const oldBatchId = `in-group-old-batch-${suffix}`;
+    const newBatchId = `in-group-new-batch-${suffix}`;
+    await db.channel.create({ data: { id: channelId, name: "在群快照测试渠道", normalizedName: `在群快照测试渠道-${suffix}`, groupId: ids.groupA } });
+    await db.sourceBatch.create({ data: { id: oldBatchId, groupId: ids.groupA, channelId, sourceDate: "2026-06-01" } });
+    await db.sourceBatch.create({ data: { id: newBatchId, groupId: ids.groupA, channelId, sourceDate: "2026-08-05" } });
+    await db.leadCustomer.create({ data: {
+      id: `in-group-lead-${suffix}`,
+      phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+      batchId: oldBatchId,
+      ownerId: ids.leadA,
+      joinedOn: "2026-06-05",
+      groupStatus: "JOINED",
+    } });
+    // 渠道行本身按"选中范围内有没有活动"出现；这条记录只是让行出现，不影响当前在群这个快照字段。
+    await db.metricEvent.create({ data: { batchId: newBatchId, enteredById: ids.leadA, occurredOn: "2026-08-05", kind: "NEW_FANS", quantity: 1 } });
+
+    const narrowRange = await loadChannelAnalysis(adminScope({ channelIds: [channelId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-12" }), "2026-08-12");
+    expect(narrowRange.rows.find((row) => row.normalizedName === `在群快照测试渠道-${suffix}`)).toMatchObject({ newFans: 1, currentInGroup: 1 });
+  });
 });

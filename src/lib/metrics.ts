@@ -30,7 +30,6 @@ export type BatchTotals = {
   groupLeave: number;
   /** 1–8 天异常退群；正常和观察退群不进入退群率。 */
   abnormalGroupLeave?: number;
-  inGroup: number;
   expertIntro: number;
   registration: number;
   orders: number;
@@ -75,7 +74,6 @@ export function emptyBatchTotals(): BatchTotals {
     groupJoin: 0,
     groupLeave: 0,
     abnormalGroupLeave: 0,
-    inGroup: 0,
     expertIntro: 0,
     registration: 0,
     orders: 0,
@@ -172,7 +170,6 @@ export function calculateBatchTotals(events: MetricEvent[]): BatchTotals {
     }
   }
 
-  totals.inGroup = totals.groupJoin - totals.groupLeave;
   return totals;
 }
 

@@ -145,7 +145,7 @@ describe("management analysis detail components", () => {
       filters: {},
     }));
     const channelHtml = renderToStaticMarkup(createElement(ChannelQualityTable, {
-      rows: [{ normalizedName: "抖音", displayName: "抖音", newFans: totals.newFans, groupRate: null, registrationRate: null, orderRate: null, rechargePerOrderCents: 107, rankable: true, groupCount: 1, groups: ["一组"], totals, rates: emptyRates }],
+      rows: [{ normalizedName: "抖音", displayName: "抖音", newFans: totals.newFans, currentInGroup: 0, groupRate: null, registrationRate: null, orderRate: null, rechargePerOrderCents: 107, rankable: true, groupCount: 1, groups: ["一组"], totals, rates: emptyRates }],
       filters: {},
     }));
 
@@ -163,7 +163,7 @@ describe("management analysis detail components", () => {
   it("keeps only the three business deduction categories inside the resource channel table", () => {
     const html = renderToStaticMarkup(createElement(ChannelQualityTable, {
       rows: [{
-        normalizedName: "resource-channel", displayName: "短信渠道", newFans: 20, submitted: 20, effective: 14,
+        normalizedName: "resource-channel", displayName: "短信渠道", newFans: 20, currentInGroup: 0, submitted: 20, effective: 14,
         duplicate: 2, lowAmount: 1, noWs: 2,
         groupRate: null, registrationRate: null, orderRate: null, rechargePerOrderCents: 0,
         rankable: true, groupCount: 1, groups: ["一组"], totals: { ...emptyTotals, newFans: 20, effectiveFans: 14, duplicateFans: 2 }, rates: emptyRates,
@@ -201,7 +201,7 @@ describe("management analysis detail components", () => {
       dailyRows: [{ key: "2026-08-01:group-a", occurredOn: "2026-08-01", groupId: "group-a", groupName: "一组", lowAmount: 0, noWs: 0, totals: { ...emptyTotals, groupJoin: 4, groupLeave: 1, abnormalGroupLeave: 1 } }], mode: "members", filters: {},
     }));
     const channelHtml = renderToStaticMarkup(createElement(ChannelQualityTable, {
-      rows: [{ normalizedName: "抖音", displayName: "抖音", newFans: 88, groupRate: null, registrationRate: null, orderRate: null, rechargePerOrderCents: 0, rankable: true, groupCount: 1, groups: ["一组"], totals: emptyTotals, rates: leaveRates }],
+      rows: [{ normalizedName: "抖音", displayName: "抖音", newFans: 88, currentInGroup: 0, groupRate: null, registrationRate: null, orderRate: null, rechargePerOrderCents: 0, rankable: true, groupCount: 1, groups: ["一组"], totals: emptyTotals, rates: leaveRates }],
       filters: {},
     }));
 
@@ -234,7 +234,7 @@ describe("management analysis detail components", () => {
     const html = renderToStaticMarkup(createElement(OverviewSummary, {
       overview: {
         hasData: true,
-        totals: { ...emptyTotals, newFans: 30, replies: 20, groupJoin: 10, inGroup: 10, orders: 2 },
+        totals: { ...emptyTotals, newFans: 30, replies: 20, groupJoin: 10, orders: 2 },
         summary: { newFans: 30, orders: 2, rechargeCents: 0, orderRate: 2 / 30 },
         trend: [],
         largestDrop: { from: "NEW_FANS", to: "REPLIES", lost: 10 },
@@ -264,7 +264,7 @@ describe("management analysis detail components", () => {
 
   it("exposes sortable analysis tables, textual statuses, and shared desktop layout hooks", () => {
     const channel = {
-      normalizedName: "抖音", displayName: "抖音", newFans: 25, groupRate: 0.4, registrationRate: 0.2, orderRate: 0.1,
+      normalizedName: "抖音", displayName: "抖音", newFans: 25, currentInGroup: 0, groupRate: 0.4, registrationRate: 0.2, orderRate: 0.1,
       rechargePerOrderCents: 120, rankable: true, groupCount: 1, groups: ["一组"], totals: emptyTotals, rates: emptyRates,
     };
     const batch = {

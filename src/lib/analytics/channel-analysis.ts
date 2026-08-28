@@ -11,6 +11,7 @@ export type ChannelQualityRow = {
   normalizedName: string;
   displayName: string;
   newFans: number;
+  currentInGroup: number;
   groupRate: number | null;
   registrationRate: number | null;
   orderRate: number | null;
@@ -71,6 +72,35 @@ type ImportChannelEvent = {
 
 const ratio = (value: number, base: number) => base === 0 ? null : value / base;
 
+/**
+ * 需求文档6.1.1：当前在群是快照，人群不能被报表的日期范围卡住——
+ * 不管选的是哪个 sourceDateFrom，只要 joinedOn <= today 且还没退群，就该算在内。
+ * 因此这里故意不复用上面按 scope.sourceDateFrom/To 过滤出来的 events。
+ */
+async function loadCurrentInGroupByChannel(scope: AnalysisScope, today: string, normalizedFilter?: string): Promise<Map<string, number>> {
+  const leads = await db.leadCustomer.findMany({
+    where: {
+      isHistoricalRecord: false,
+      joinedOn: { not: null, lte: today },
+      ...(scope.memberId ? { ownerId: scope.memberId } : {}),
+      batch: {
+        groupId: { in: scope.groupIds },
+        isHistoricalRecord: false,
+        ...(scope.channelIds ? { channelId: { in: scope.channelIds } } : {}),
+        ...(normalizedFilter ? { channel: { normalizedName: normalizedFilter } } : {}),
+      },
+    },
+    select: { leftOn: true, batch: { select: { channel: { select: { name: true, normalizedName: true } } } } },
+  });
+  const counts = new Map<string, number>();
+  for (const lead of leads) {
+    if (lead.leftOn && lead.leftOn <= today) continue;
+    const key = normalizeChannelName(lead.batch.channel.normalizedName || lead.batch.channel.name);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
 const windowFor = (events: ChannelEvent[], today: string, days: 7 | 14): MatureChannelWindow => {
   const matureEvents = events.filter((event) => {
     const maturity = getMaturity(event.batch.sourceDate, today);
@@ -85,7 +115,7 @@ const windowFor = (events: ChannelEvent[], today: string, days: 7 | 14): MatureC
 export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
   if (scope.requestedForbiddenGroup || scope.groupIds.length === 0) return { rows: [] as ChannelQualityRow[], rankableRows: [] as ChannelQualityRow[], selectedChannelDetail: null as ChannelDetail | null };
   const normalizedFilter = scope.normalizedName ? normalizeChannelName(scope.normalizedName) : undefined;
-  const [events, importEvents, classifiedLeads, approvedInvalidReports] = await Promise.all([
+  const [events, importEvents, classifiedLeads, approvedInvalidReports, currentInGroupByChannel] = await Promise.all([
     loadCanonicalMetricEvents({
       groupIds: scope.groupIds,
       channelIds: scope.channelIds,
@@ -140,6 +170,7 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
       sourceDateTo: scope.sourceDateTo,
       ...(scope.memberId ? { reporterIds: [scope.memberId] } : {}),
     }),
+    loadCurrentInGroupByChannel(scope, today, normalizedFilter),
   ]);
 
   const grouped = new Map<string, { displayName: string; events: ChannelEvent[]; imports: ImportChannelEvent[]; reports: ApprovedInvalidFanReportTotal[]; groups: Map<string, string> }>();
@@ -203,6 +234,7 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
       normalizedName,
       displayName: value.displayName,
       newFans: submitted,
+      currentInGroup: currentInGroupByChannel.get(normalizedName) ?? 0,
       groupRate: rates.groupRate,
       registrationRate: rates.registrationRate,
       orderRate: rates.orderRate,

@@ -218,7 +218,7 @@ describe("canonical customer ledger", () => {
     ] });
 
     const totals = calculateBatchTotals(await loadCanonicalMetricEvents({ groupIds: [ids.group], batchId, occurredOnTo: "2026-08-31" }));
-    expect(totals).toMatchObject({ groupJoin: 2, groupLeave: 2, abnormalGroupLeave: 1, inGroup: 0 });
+    expect(totals).toMatchObject({ groupJoin: 2, groupLeave: 2, abnormalGroupLeave: 1 });
     expect(totals.abnormalGroupLeave! / totals.groupJoin).toBe(0.5);
   });
 

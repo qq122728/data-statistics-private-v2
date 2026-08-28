@@ -21,7 +21,7 @@ describe("management analysis metric rules", () => {
   it("finds the largest adjacent funnel loss without treating recharge as a person stage", () => {
     expect(getLargestDrop(totals({
       newFans: 100, replies: 60, groupJoin: 40, groupLeave: 5,
-      inGroup: 35, expertIntro: 10, registration: 8, orders: 2, rechargeCents: 50000,
+      expertIntro: 10, registration: 8, orders: 2, rechargeCents: 50000,
     }))).toMatchObject({ from: "NEW_FANS", to: "REPLIES", lost: 40 });
     expect(getDeepestStage(totals({ newFans: 20, replies: 5, groupJoin: 2 }))).toBe("GROUP_JOIN");
   });
@@ -46,7 +46,7 @@ describe("management analysis metric rules", () => {
     ]);
 
     expect(byOwner).toEqual({
-      a: expect.objectContaining({ newFans: 10, groupJoin: 4, inGroup: 4 }),
+      a: expect.objectContaining({ newFans: 10, groupJoin: 4 }),
       b: expect.objectContaining({ rechargeCents: 900 }),
     });
   });

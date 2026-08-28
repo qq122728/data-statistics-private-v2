@@ -5,6 +5,7 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { canWriteCustomerFinance, financeScopeError, financeWriteRoles } from "../../../lib/customer-finance-access";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
+import { recordMetricEvent } from "../../../lib/metric-events";
 import { parseCustomerFinanceInput, type CustomerFinanceInput } from "../../../lib/validation";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { getSystemSettings } from "../../../lib/settings";
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
         };
         events.push(previous
           ? await transaction.metricEvent.update({ where: { id: previous.id }, data: { ...data, voidedAt: null, voidReason: null, voidedById: null } })
-          : await transaction.metricEvent.create({ data }));
+          : await recordMetricEvent(transaction, data));
       }
       await touchDailyEntryConfirmations(transaction, actor.id, validRows.map(({ row }) => row.occurredOn));
       return { status: 201 as const, events };

@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
+import { recordMetricEvents } from "../../../lib/metric-events";
 import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
 import { parseCustomerOrderInput, type CustomerOrderInput } from "../../../lib/validation";
 import { customerOrderWriteRoles, hasAnyRole } from "../../../lib/role-access";
@@ -151,10 +152,10 @@ export async function POST(request: Request) {
           where: { id: row.leadId },
           data: { noInitialDepositOn: null, noInitialDepositReason: null, noInitialDepositNote: null, expertWorkflowStage: "ORDERED", expertStageChangedAt: new Date() },
         });
-        await transaction.metricEvent.createMany({ data: [
+        await recordMetricEvents(transaction, [
           { batchId: row.batchId, enteredById: actor.id, occurredOn: row.openedOn, kind: "ORDER", quantity: 1, customerOrderId: order.id, derivedFromLedger: true },
           { batchId: row.batchId, enteredById: actor.id, occurredOn: row.openedOn, kind: "RECHARGE", amountCents: row.initialDepositCents, depositMethod: row.initialDepositMethod, customerOrderId: order.id, derivedFromLedger: true },
-        ] });
+        ]);
         orders.push(order);
       }
       await touchDailyEntryConfirmations(transaction, actor.id, validRows.map(({ row }) => row.openedOn));

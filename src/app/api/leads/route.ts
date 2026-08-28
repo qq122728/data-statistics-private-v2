@@ -5,6 +5,7 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db, getOrCreateSourceBatch, refreshAdvertisingBatchCost } from "../../../lib/db";
 import { ChannelResolutionError, resolveOrCreateChannel } from "../../../lib/channels";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
+import { recordMetricEvents } from "../../../lib/metric-events";
 import { customerCodePrefixForChannel, parsePhoneImport, splitPhoneTokens } from "../../../lib/phone-import";
 import { isCalendarDate, localDateYYYYMMDD } from "../../../lib/dates";
 import { getSystemSettings } from "../../../lib/settings";
@@ -198,10 +199,10 @@ export async function POST(request: Request) {
         const attributionOwnerId = row.attributionOwnerId ?? user.id;
         attributionCounts.set(attributionOwnerId, (attributionCounts.get(attributionOwnerId) ?? 0) + 1);
       }
-      await transaction.metricEvent.createMany({ data: [...attributionCounts.entries()].flatMap(([enteredById, quantity]) => [
+      await recordMetricEvents(transaction, [...attributionCounts.entries()].flatMap(([enteredById, quantity]) => [
         { batchId: batch.id, enteredById, occurredOn: input.sourceDate, kind: "NEW_FANS" as const, quantity, derivedFromLedger: true },
         { batchId: batch.id, enteredById, occurredOn: input.sourceDate, kind: "EFFECTIVE_FANS" as const, quantity, derivedFromLedger: true },
-      ]) });
+      ]));
       // 同一投流批次可由多位接粉员共同导入。每次导入后合计全批有效新增数，
       // 让所有人的号码使用同一笔自动更新的单粉成本。
       const refreshedBatch = batch.channelTypeSnapshot === "ADS"

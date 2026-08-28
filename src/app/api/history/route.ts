@@ -5,6 +5,7 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { recordAudit } from "../../../lib/audit";
 import { db } from "../../../lib/db";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
+import { recordMetricEvent } from "../../../lib/metric-events";
 import {
   buildHistoryGroupFingerprint,
   groupHistoryEvents,
@@ -250,14 +251,12 @@ export async function PATCH(request: Request) {
             });
           }
         } else if (nextTotal > 0) {
-          await transaction.metricEvent.create({
-            data: {
-              batchId: input.batchId,
-              enteredById: actor.id,
-              occurredOn: input.occurredOn,
-              kind,
-              ...valueData,
-            },
+          await recordMetricEvent(transaction, {
+            batchId: input.batchId,
+            enteredById: actor.id,
+            occurredOn: input.occurredOn,
+            kind,
+            ...valueData,
           });
         }
       }

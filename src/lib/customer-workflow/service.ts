@@ -3,6 +3,7 @@ import { db, refreshAdvertisingBatchCost } from "../db";
 import { recordAudit } from "../audit";
 import { touchDailyEntryConfirmations } from "../daily-confirmations";
 import { normalizeCustomerPhone } from "../entry-ledger";
+import { recordMetricEvents } from "../metric-events";
 import { authorizeCustomerAction, authorizeCustomerDelete, resolveWorkflowActorRole } from "./access";
 import { isCorrectionAction } from "./actions";
 import { getAssignedRoles, hasAssignedRole } from "../role-access";
@@ -430,10 +431,10 @@ export async function deleteCustomerWorkflow(actor: WorkflowActor, leadId: strin
       where: { batchId: lead.batchId, enteredById: lead.ownerId, kind: "NEW_FANS", derivedFromLedger: true, voidedAt: null },
     });
     if (hasImportedMetric) {
-      await transaction.metricEvent.createMany({ data: [
+      await recordMetricEvents(transaction, [
         { batchId: lead.batchId, enteredById: lead.ownerId, occurredOn: lead.batch.sourceDate, kind: "NEW_FANS", quantity: -1, derivedFromLedger: true },
         { batchId: lead.batchId, enteredById: lead.ownerId, occurredOn: lead.batch.sourceDate, kind: "EFFECTIVE_FANS", quantity: -1, derivedFromLedger: true },
-      ] });
+      ]);
     }
     await recordAudit(transaction, {
       actorId: liveActor.id,

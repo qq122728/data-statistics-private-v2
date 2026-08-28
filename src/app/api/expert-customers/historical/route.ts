@@ -7,6 +7,7 @@ import { normalizeChannelName } from "../../../../lib/channel-names";
 import { db } from "../../../../lib/db";
 import { entryDateError } from "../../../../lib/entry-date-validation";
 import { normalizeCustomerPhone } from "../../../../lib/entry-ledger";
+import { recordMetricEvents } from "../../../../lib/metric-events";
 import { isCalendarDate, localDateYYYYMMDD } from "../../../../lib/dates";
 import { getSystemSettings } from "../../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
@@ -170,10 +171,10 @@ export async function POST(request: Request) {
       if (input.expertStage === "ORDERED" && input.openedOn && input.initialDepositCents && input.initialDepositMethod) {
         const order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: input.openedOn, initialDepositCents: input.initialDepositCents, initialDepositMethod: input.initialDepositMethod } });
         orderId = order.id;
-        await tx.metricEvent.createMany({ data: [
+        await recordMetricEvents(tx, [
           { batchId: batch.id, enteredById: actor.id, occurredOn: input.openedOn, kind: "ORDER", quantity: 1, customerOrderId: order.id, derivedFromLedger: true },
           { batchId: batch.id, enteredById: actor.id, occurredOn: input.openedOn, kind: "RECHARGE", amountCents: input.initialDepositCents, depositMethod: input.initialDepositMethod, customerOrderId: order.id, derivedFromLedger: true },
-        ] });
+        ]);
       }
       await recordAudit(tx, {
         actorId: actor.id,

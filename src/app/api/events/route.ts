@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
+import { recordMetricEvent } from "../../../lib/metric-events";
 import { parseMetricInput, type MetricInput } from "../../../lib/validation";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { getSystemSettings } from "../../../lib/settings";
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
         }
       }
       if (Object.keys(fields).length) return { events: null, forbidden };
-      const events = await Promise.all(validInputs.map(({ input }) => transaction.metricEvent.create({ data: { ...input, enteredById: currentUser!.id } })));
+      const events = await Promise.all(validInputs.map(({ input }) => recordMetricEvent(transaction, { ...input, enteredById: currentUser!.id })));
       await touchDailyEntryConfirmations(transaction, currentUser!.id, validInputs.map(({ input }) => input.occurredOn));
       return { events, forbidden: false };
     });

@@ -5,6 +5,7 @@ import { db, getOrCreateSourceBatch, refreshAdvertisingBatchCost } from "../../.
 import { ChannelResolutionError, isConcurrentChannelCreateError, isRetryableSqliteTransactionError, resolveOrCreateChannel } from "../../../lib/channels";
 import { parseNewFansInput, type NewFansInput } from "../../../lib/validation";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
+import { recordMetricEvent } from "../../../lib/metric-events";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
@@ -91,14 +92,12 @@ export async function POST(request: Request) {
             ["EFFECTIVE_FANS", input.effectiveFans],
             ["NO_NUMBER", input.noNumber],
             ["DUPLICATE_FANS", input.duplicateFans],
-          ].map(([kind, quantity]) => transaction.metricEvent.create({
-            data: {
-              batchId: batch.id,
-              enteredById: user.id,
-              occurredOn: input.sourceDate,
-              kind: kind as "NEW_FANS" | "EFFECTIVE_FANS" | "NO_NUMBER" | "DUPLICATE_FANS",
-              quantity: quantity as number,
-            },
+          ].map(([kind, quantity]) => recordMetricEvent(transaction, {
+            batchId: batch.id,
+            enteredById: user.id,
+            occurredOn: input.sourceDate,
+            kind: kind as "NEW_FANS" | "EFFECTIVE_FANS" | "NO_NUMBER" | "DUPLICATE_FANS",
+            quantity: quantity as number,
           })));
           const refreshedBatch = batch.channelTypeSnapshot === "ADS"
             ? await refreshAdvertisingBatchCost(batch.id, transaction)

@@ -27,6 +27,7 @@
     "20260826230000_add_resource_channel_access/migration.sql": "9a3aae3e0e2e73c7d09f9702f86e8decf4f517804c98becc39254211b592a403",
     "20260826233000_add_department_manager_scope/migration.sql": "1de2e4d6c81fcd37691bd0d7aa19844c9d829a5eb4d42f3e265e06ef6507917f",
     "20260827010000_add_abnormal_group_leave_metric/migration.sql": "d455e182ae011208a43cfb11c33fde3e8ec31f14ddbd9a45a471c00a3df17ecc",
-    "20260828133105_add_company_position_duty_historical_review/migration.sql": "aef6ba7a45d58836678bea2c5233693dc5d3c3950f00c715864c0ed4822bda6b"
+    "20260828133105_add_company_position_duty_historical_review/migration.sql": "aef6ba7a45d58836678bea2c5233693dc5d3c3950f00c715864c0ed4822bda6b",
+    "20260828140651_add_acting_position_and_secondary_positions/migration.sql": "c43a91e3680fa4869ae78b3514c56085ce70b15d64cd2145659e169a911d87aa"
   }
 }

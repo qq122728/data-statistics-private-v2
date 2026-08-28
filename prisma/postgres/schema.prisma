@@ -258,7 +258,7 @@ model User {
   departmentId              String?
   department                Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   managementScopeName       String?
-  managementCountryCode    String?
+  managementCountryCode     String?
   events                    MetricEvent[]
   customerOrders            CustomerOrder[]
   voidedMetricEvents        MetricEvent[]            @relation("MetricEventVoidedBy")
@@ -343,18 +343,21 @@ model UserGroupMembership {
 // 只能通过 transferUserPosition 服务函数写入：原子地关闭旧行的 effectiveTo、开一条新的。
 // 按人统计业绩要用这张表查"当时的岗位"，不能读 User.groupId/role 这种活字段。
 model UserPosition {
-  id            String    @id @default(cuid())
-  userId        String
-  position      Position
-  groupId       String
-  effectiveFrom String
-  effectiveTo   String?
-  reason        String?
-  createdById   String?
-  createdAt     DateTime  @default(now())
-  user          User      @relation("UserPositionAssignee", fields: [userId], references: [id], onDelete: Cascade)
-  group         TeamGroup @relation(fields: [groupId], references: [id])
-  createdBy     User?     @relation("UserPositionCreatedBy", fields: [createdById], references: [id])
+  id                 String    @id @default(cuid())
+  userId             String
+  position           Position
+  // 兼任岗位（目前只有接粉⇄炒群互兼），格式和 UserGroupMembership.secondaryRoles 一致：
+  // 逗号分隔，同一天只开一行，不为每个兼任岗位单独建行（唯一约束是 [userId, effectiveFrom]）。
+  secondaryPositions String?
+  groupId            String
+  effectiveFrom      String
+  effectiveTo        String?
+  reason             String?
+  createdById        String?
+  createdAt          DateTime  @default(now())
+  user               User      @relation("UserPositionAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  group              TeamGroup @relation(fields: [groupId], references: [id])
+  createdBy          User?     @relation("UserPositionCreatedBy", fields: [createdById], references: [id])
 
   @@unique([userId, effectiveFrom])
   @@index([groupId, effectiveFrom, effectiveTo])
@@ -507,6 +510,9 @@ model MetricEvent {
   voidedAt           DateTime?
   voidReason         String?
   voidedById         String?
+  // 写入时从 enteredById 当时持有的 UserPosition 冻结进来，不查 User 当前状态；
+  // 只能通过 recordMetricEvent 写入函数生成，禁止直接 metricEvent.create（阶段2，需求文档1.6）。
+  actingPosition     Position?
   batch              SourceBatch    @relation(fields: [batchId], references: [id])
   enteredBy          User           @relation(fields: [enteredById], references: [id])
   parentEvent        MetricEvent?   @relation("GroupLeaveOrigin", fields: [parentEventId], references: [id], onDelete: SetNull)
@@ -548,8 +554,8 @@ model CustomerOrder {
 }
 
 model LeadCustomer {
-  id                            String               @id @default(cuid())
-  phone                         String               @unique
+  id                            String                  @id @default(cuid())
+  phone                         String                  @unique
   batchId                       String
   ownerId                       String
   // 录入人负责客户流程；粉的归属用于代理线和后续业绩归属，二者可以不同。
@@ -560,23 +566,23 @@ model LeadCustomer {
   groupDeviceAccountNumber      String?
   expertDeviceAccountId         String?
   expertDeviceAccountNumber     String?
-  invalid                       Boolean              @default(false)
+  invalid                       Boolean                 @default(false)
   invalidReason                 String?
-  receptionCategory             ReceptionCategory    @default(VALID)
-  replyStatus                   LeadReplyStatus      @default(NOT_REPLIED)
+  receptionCategory             ReceptionCategory       @default(VALID)
+  replyStatus                   LeadReplyStatus         @default(NOT_REPLIED)
   repliedOn                     String?
-  followUpCount                 Int                  @default(0)
+  followUpCount                 Int                     @default(0)
   lastFollowedUpOn              String?
   customerName                  String?
   customerEmail                 String?
   lossAmountCents               Int?
   customerPlatform              String?
-  groupStatus                   LeadGroupStatus      @default(NOT_JOINED)
+  groupStatus                   LeadGroupStatus         @default(NOT_JOINED)
   joinedOn                      String?
   leftOn                        String?
   leftWithOrder                 Boolean?
   leftNote                      String?
-  leftAutomatically             Boolean              @default(false)
+  leftAutomatically             Boolean                 @default(false)
   expertIntroducedOn            String?
   expertContactedOn             String?
   expertContactNote             String?
@@ -594,37 +600,37 @@ model LeadCustomer {
   nextPlan                      String?
   nextFollowUpOn                String?
   notes                         String?
-  receptionChatStatus           ReceptionChatStatus  @default(NORMAL_CHAT)
+  receptionChatStatus           ReceptionChatStatus     @default(NORMAL_CHAT)
   receptionStatusChangedAt      DateTime?
   receptionArchivedAt           DateTime?
   receptionArchiveReason        String?
   receptionArchiveVisitCount    Int?
-  isHistoricalRecord            Boolean              @default(false)
+  isHistoricalRecord            Boolean                 @default(false)
   historicalSourceName          String?
   historicalBaselineStage       String?
-  historicalReplyCounted        Boolean              @default(false)
-  historicalJoinCounted         Boolean              @default(false)
-  historicalLeaveCounted        Boolean              @default(false)
-  historicalExpertIntroCounted  Boolean              @default(false)
-  historicalRegistrationCounted Boolean              @default(false)
+  historicalReplyCounted        Boolean                 @default(false)
+  historicalJoinCounted         Boolean                 @default(false)
+  historicalLeaveCounted        Boolean                 @default(false)
+  historicalExpertIntroCounted  Boolean                 @default(false)
+  historicalRegistrationCounted Boolean                 @default(false)
   // 历史补录必须组长审核才生效，未审核前不进任何报表（需求文档7.3，模式抄自 InvalidFanReport）。
   historicalReviewStatus        HistoricalReviewStatus?
   historicalReviewedById        String?
   historicalReviewedAt          DateTime?
-  batch                         SourceBatch          @relation(fields: [batchId], references: [id])
-  owner                         User                 @relation(fields: [ownerId], references: [id])
-  attributionOwner              User?                @relation("FanAttributionOwner", fields: [attributionOwnerId], references: [id])
-  device                        Device?              @relation(fields: [deviceId], references: [id])
+  batch                         SourceBatch             @relation(fields: [batchId], references: [id])
+  owner                         User                    @relation(fields: [ownerId], references: [id])
+  attributionOwner              User?                   @relation("FanAttributionOwner", fields: [attributionOwnerId], references: [id])
+  device                        Device?                 @relation(fields: [deviceId], references: [id])
   customerOrder                 CustomerOrder?
   expertOwnerId                 String?
-  expertOwner                   User?                @relation("ExpertOwner", fields: [expertOwnerId], references: [id])
+  expertOwner                   User?                   @relation("ExpertOwner", fields: [expertOwnerId], references: [id])
   groupOperatorOwnerId          String?
-  groupOperatorOwner            User?                @relation("GroupOperatorOwner", fields: [groupOperatorOwnerId], references: [id])
-  historicalReviewedBy          User?                @relation("HistoricalReviewedBy", fields: [historicalReviewedById], references: [id])
+  groupOperatorOwner            User?                   @relation("GroupOperatorOwner", fields: [groupOperatorOwnerId], references: [id])
+  historicalReviewedBy          User?                   @relation("HistoricalReviewedBy", fields: [historicalReviewedById], references: [id])
   activities                    LeadActivity[]
   exceptions                    LeadException[]
-  createdAt                     DateTime             @default(now())
-  updatedAt                     DateTime             @updatedAt
+  createdAt                     DateTime                @default(now())
+  updatedAt                     DateTime                @updatedAt
 
   @@index([ownerId, updatedAt])
   @@index([ownerId, receptionChatStatus, updatedAt])

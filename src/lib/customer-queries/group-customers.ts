@@ -216,10 +216,22 @@ async function loadGroupPerformanceSummary(input: GroupCustomerQuery, groupId: s
   // 只有选了范围才需要另外查一遍不限范围的在群人数覆盖回去。
   if (!input.sourceDate) return summaries;
   const unboundedInGroup = await loadCurrentInGroupByOperator(groupId, input.query);
-  return summaries.map((summary) => ({
+  const overridden = summaries.map((summary) => ({
     ...summary,
     inGroup: unboundedInGroup.get(summary.operatorId) ?? 0,
   }));
+  // 选中范围内这个操作员一条经手记录都没有，但手里还有更早进群、至今没退的客户——
+  // 这个操作员在窄范围的查询里根本不会出现一行，上面的 map 就轮不到他，只能单独补一行。
+  const knownOperatorIds = new Set(summaries.map((summary) => summary.operatorId));
+  const onlyInGroupRows: GroupPerformanceSummary[] = [...unboundedInGroup.entries()]
+    .filter(([operatorId]) => !knownOperatorIds.has(operatorId))
+    .map(([operatorId, inGroupCount]) => ({
+      operatorId,
+      handled: 0, inGroup: inGroupCount, introduced: 0, left: 0, earlyLeft: 0, watchLeft: 0,
+      normalLeft: 0, unknownLeft: 0, leftWithOrder: 0, leftWithoutOrder: 0, pendingIntroduction: 0,
+      firstDepositCents: 0, receptionNames: [],
+    }));
+  return [...overridden, ...onlyInGroupRows];
 }
 
 export async function loadGroupCustomerWorkspace(input: GroupCustomerQuery) {

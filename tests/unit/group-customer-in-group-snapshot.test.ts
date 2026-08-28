@@ -28,6 +28,9 @@ const ids = {
   channel: `snapshot-channel-${suffix}`,
   reception: `snapshot-reception-${suffix}`,
   operator: `snapshot-operator-${suffix}`,
+  // 这个操作员在窄范围里一条经手记录都没有——用来验证 performanceSummary
+  // 不能只从范围过滤后的查询结果里找操作员，漏了这种"范围内零记录、但手里还有在群客户"的人。
+  onlyOldOperator: `snapshot-only-old-operator-${suffix}`,
   oldBatch: `snapshot-old-batch-${suffix}`,
   recentBatch: `snapshot-recent-batch-${suffix}`,
 };
@@ -37,6 +40,7 @@ beforeAll(async () => {
   await db.channel.create({ data: { id: ids.channel, groupId: ids.group, name: "快照渠道", normalizedName: "快照渠道" } });
   await db.user.create({ data: { id: ids.reception, username: `snapshot-reception-${suffix}`, name: "快照接粉员", passwordHash: "test", role: "RECEPTION", groupId: ids.group } });
   await db.user.create({ data: { id: ids.operator, username: `snapshot-operator-${suffix}`, name: "快照组长", passwordHash: "test", role: "GROUP_OPERATOR", groupId: ids.group } });
+  await db.user.create({ data: { id: ids.onlyOldOperator, username: `snapshot-only-old-operator-${suffix}`, name: "只有老客户的组长", passwordHash: "test", role: "GROUP_OPERATOR", groupId: ids.group } });
   await db.sourceBatch.create({ data: { id: ids.oldBatch, groupId: ids.group, channelId: ids.channel, sourceDate: "2026-07-01" } });
   await db.sourceBatch.create({ data: { id: ids.recentBatch, groupId: ids.group, channelId: ids.channel, sourceDate: "2026-08-20" } });
   await db.leadCustomer.create({
@@ -59,6 +63,17 @@ beforeAll(async () => {
       groupOperatorOwnerId: ids.operator,
       groupStatus: "JOINED",
       joinedOn: "2026-08-20",
+    },
+  });
+  await db.leadCustomer.create({
+    data: {
+      id: `snapshot-only-old-lead-${suffix}`,
+      phone: `snapshot-only-old-phone-${suffix}`,
+      batchId: ids.oldBatch,
+      ownerId: ids.reception,
+      groupOperatorOwnerId: ids.onlyOldOperator,
+      groupStatus: "JOINED",
+      joinedOn: "2026-07-01",
     },
   });
 });
@@ -86,5 +101,18 @@ describe("炒群工作台在群人数快照", () => {
     const narrowRow = narrow.performanceSummary.find((row) => row.operatorId === ids.operator);
     expect(wideRow?.inGroup).toBe(2);
     expect(narrowRow?.inGroup).toBe(2);
+  });
+
+  it("窄范围内一条经手记录都没有的操作员，也必须单独出现一行，不能因为查不到行就被当成0", async () => {
+    const narrow = await loadGroupCustomerWorkspace({
+      groupIds: [ids.group], userId: ids.onlyOldOperator, isLead: true, isGroupOperator: false,
+      isReceptionist: false, query: "", skip: 0, take: 50, view: "inGroup" as const,
+      sourceDate: { gte: "2026-08-01", lte: "2026-08-31" },
+    });
+
+    const narrowRow = narrow.performanceSummary.find((row) => row.operatorId === ids.onlyOldOperator);
+    expect(narrowRow).toBeDefined();
+    expect(narrowRow?.inGroup).toBe(1);
+    expect(narrowRow?.handled).toBe(0);
   });
 });

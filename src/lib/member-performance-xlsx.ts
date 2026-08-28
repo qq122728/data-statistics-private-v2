@@ -22,6 +22,10 @@ type MemberMetricRow = {
   effective: Value;
   replied: Value;
   joined: Value;
+  // “进群”这一栏是接粉专属概念；炒群没有对应的原始计数可以展示（接手客户数是另一个概念，
+  // 这张共享表里没有它的位置），但异常退群率仍需要接手客户数当分母，所以单独留一个字段给它，
+  // 不能借用 joined——那样会把接手客户数误标成“进群”显示出来。
+  abnormalLeaveRateBase?: Value;
   left: Value;
   abnormalLeft: Value;
   introduced: Value;
@@ -57,13 +61,13 @@ function receptionRow(row: ReceptionRankingRow, role = "前台接粉", keyPrefix
   };
 }
 
-function operatorRow(row: GroupOperatorRankingRow): MemberMetricRow {
+export function operatorRow(row: GroupOperatorRankingRow): MemberMetricRow {
   return {
     key: `operator:${row.id}`, id: row.id, group: row.groupName, name: row.name, role: "前台炒群",
     added: null, lowAmount: null, noWs: null, duplicate: null, effective: null, replied: null,
-    // “进群”这一栏跟接粉共用同一组表头，炒群没有独立的“当前在群”列，
-    // 用接手客户数（跟异常退群率的分母同一批人）填，不能用当前在群快照——那是不受日期范围限制的全量数，跟这里的期间字段不是同一批人。
-    joined: row.sharedCustomerCount, left: row.leaveActions, abnormalLeft: row.abnormalLeaveActions ?? 0, introduced: row.introducedActions, contacted: row.downstreamContacted ?? 0,
+    // 炒群没有“进群”这个原始概念可填（接手客户数是另一个概念，这张共享表放不下），留空；
+    // 异常退群率仍按接手客户数当分母（同一批人），走专门的 abnormalLeaveRateBase 字段。
+    joined: null, abnormalLeaveRateBase: row.sharedCustomerCount, left: row.leaveActions, abnormalLeft: row.abnormalLeaveActions ?? 0, introduced: row.introducedActions, contacted: row.downstreamContacted ?? 0,
     registered: row.downstreamRegistered, orders: row.downstreamOrders,
     firstDepositCents: row.firstDepositCents, depositCents: row.depositCents, withdrawalCents: row.withdrawalCents, netPerformanceCents: row.netCents,
   };
@@ -91,10 +95,10 @@ const headers = [
   "推专家", "专家已联系", "注册", "注册率", "开单", "开单率", "首充（美元）", "入金（美元）", "出金（美元）", "总业绩（美元）",
 ];
 
-function metricValues(row: MemberMetricRow) {
+export function metricValues(row: MemberMetricRow) {
   return [
     row.added, row.duplicate, row.lowAmount, row.noWs, row.effective, row.replied, rate(row.replied, row.effective),
-    row.joined, rate(row.joined, row.replied), row.left, rate(row.abnormalLeft, row.joined), row.introduced, row.contacted,
+    row.joined, rate(row.joined, row.replied), row.left, rate(row.abnormalLeft, row.abnormalLeaveRateBase ?? row.joined), row.introduced, row.contacted,
     row.registered, rate(row.registered, row.contacted ?? row.introduced), row.orders, rate(row.orders, row.registered),
     money(row.firstDepositCents), money(row.depositCents), money(row.withdrawalCents), money(row.netPerformanceCents),
   ];

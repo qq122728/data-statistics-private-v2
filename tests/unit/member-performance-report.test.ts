@@ -14,4 +14,21 @@ describe("组员业绩导出", () => {
     expect(csv).toContain("$1,130.00");
     expect(csv.startsWith("\uFEFF")).toBe(true);
   });
+
+  it("\u7092\u7FA4\u884C\u7684\u8FDB\u7FA4\u5217\u7559\u7A7A\uFF0C\u5F02\u5E38\u9000\u7FA4\u7387\u4ECD\u6309\u63A5\u624B\u5BA2\u6237\u6570\u8BA1\u7B97\uFF0C\u4E0D\u5192\u5145\u5F53\u524D\u5728\u7FA4\u6216\u8FDB\u7FA4", () => {
+    const rows = memberPerformanceReportRows({
+      reception: [], experts: [], groups: [], standardsByGroup: {},
+      groupOperators: [{
+        id: "op", name: "\u7EC4\u957F A", active: true, groupId: "g", groupName: "A\u7EC4",
+        pairedReceptionCount: 1, sharedCustomerCount: 10, currentInGroup: 40,
+        introducedActions: 3, leaveActions: 2, abnormalLeaveActions: 2,
+        downstreamRegistered: 1, downstreamContacted: 1, downstreamOrders: 1,
+        firstDepositCents: 0, depositCents: 0, withdrawalCents: 0, netCents: 0,
+        eligibleForIntroduction: 5, introducedEligible: 3,
+      }],
+    });
+    // \u5F53\u524D\u5728\u7FA4(40)\u662F\u4E0D\u53D7\u65E5\u671F\u8303\u56F4\u9650\u5236\u7684\u5168\u91CF\u5FEB\u7167\uFF0C\u8DDF"\u63A5\u624B\u5BA2\u6237"(10)\u4E0D\u662F\u540C\u4E00\u4E2A\u6570\u2014\u2014
+    // \u8FDB\u7FA4\u5217\u5FC5\u987B\u7559\u7A7A\uFF0C\u4E0D\u80FD\u663E\u793A\u6210\u4EFB\u4F55\u4E00\u4E2A\u5BB9\u6613\u88AB\u8BEF\u8BFB\u6210"\u8FDB\u7FA4"\u7684\u6570\u5B57\u3002
+    expect(rows[0]).toMatchObject({ joined: "\u2014", leaveRate: "20.0%" });
+  });
 });

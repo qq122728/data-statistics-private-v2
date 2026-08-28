@@ -57,7 +57,7 @@ export default async function RoleRankingsPage({ searchParams }: { searchParams:
   const preserved = { departmentId: scope.departmentId, countryCode: scope.countryCode, groupId: scope.groupId, normalizedName: scope.normalizedName };
 
   return <main className="page-shell workflow-wide-page data-center-page space-y-2">
-    <div className="page-heading"><div><h1 className="page-title">完整榜单</h1><p className="page-description">按小组统一排行，使用项目现有的有效数据、流程转化和计入业绩口径；点击小组可查看每日明细。</p></div></div>
+    <div className="page-heading"><div><h1 className="page-title">完整榜单</h1><p className="page-description">按小组统一排行，使用项目现有的有效数据、流程转化和净业绩口径；点击小组可查看每日明细。</p></div></div>
     {user.role === "LEAD" ? <LeadWorkspaceTabs kind="team" /> : null}
     <LeadDateRangeFilter pathname="/role-rankings" range={dateRange} today={today} preserve={preserved} ariaLabel="完整榜单时间范围" />
     <AnalysisFilters action="/role-rankings" visible={{ department: user.role === "ADMIN" || user.role === "RESOURCE_MANAGER" || user.role === "FINANCE", country: globalViewer, group: globalViewer, channel: true }} primary={globalViewer ? ["department", "country", "group"] : ["channel"]} options={{ departments, countries: countryOptions, groups: groupOptions, channels: channelOptions }} values={scope} preserve={{ range: dateRange.preset, sourceDateFrom: dateRange.from, sourceDateTo: dateRange.to }} compact />

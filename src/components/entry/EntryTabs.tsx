@@ -354,7 +354,7 @@ export function EntryTabs({
       setNewChannelName("");
       setNewChannelType("SMS");
       setAddingChannel(false);
-      setNotice(result.created ? `已创建${newChannelType === "ADS" ? "投流粉" : newChannelType === "REBATE" ? "底料返点" : "短信粉"}渠道“${channel.name}”并选中；价格由资源部维护。` : `渠道“${channel.name}”已存在，已为你选中`);
+      setNotice(result.created ? `已创建${newChannelType === "ADS" ? "投流粉" : newChannelType === "REBATE" ? "底料返点" : "短信粉"}渠道“${channel.name}”并选中` : `渠道“${channel.name}”已存在，已为你选中`);
       router.refresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "渠道创建失败");
@@ -534,7 +534,7 @@ export function EntryTabs({
     extra: Record<string, unknown> = {},
   ) {
     const config = {
-      restoreValid: ["确认恢复为有效数据？", "恢复后会重新进入待回复，并重新计入有效数据和资源成本。", "确认恢复有效", false],
+      restoreValid: ["确认恢复为有效数据？", "恢复后会重新进入待回复，并重新计入有效数据。", "确认恢复有效", false],
       followUp: ["确认记录一次回访？", "确认后回访次数会增加 1 次，并记录今天为最近回访日期。", "确认回访 +1", false],
       reply: ["确认客户已经联系？", lead.invalid ? "会保留在扣粉统计，并标记已联系；不会计入有效数据或转化率。" : "确认后客户会从待回复进入待入群，设备号会记录为本次实际联系使用的前台设备。", "确认已回复", false],
       undoReply: ["确认撤销客户回复？", "撤销后客户会回到待回复。仅未拉群、未推专家、未开单的客户可以撤销；请填写原因，方便以后核对。", "确认撤销回复", true],

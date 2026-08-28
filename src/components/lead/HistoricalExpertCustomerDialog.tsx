@@ -102,7 +102,7 @@ export function HistoricalExpertCustomerDialog({
               <option value="">不填写历史来源</option>
               {sourceChannels.map((channel) => <option key={channel.id} value={channel.name}>{channel.name}</option>)}
             </select> : <input value={manualSourceName} onChange={(event) => setManualSourceName(event.target.value)} maxLength={100} placeholder="例如：旧 FB 投流 / 老名单" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />}
-            <span className="text-xs font-normal text-slate-500">仅记录历史来源，选择已有渠道不会改变该渠道的粉数、成本或报表。</span>
+            <span className="text-xs font-normal text-slate-500">仅记录历史来源，选择已有渠道不会改变该渠道的粉数或报表。</span>
           </div>
           <label className="grid gap-1 text-sm font-medium text-slate-700">历史接粉归属<select required name="receptionOwnerId" defaultValue="" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="" disabled>请选择当时实际接粉人</option>{receptionOwners.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><span className="text-xs font-normal text-slate-500">可选择本组全部成员；按历史实际负责人填写。</span></label>
           <label className="grid gap-1 text-sm font-medium text-slate-700">历史炒群归属<select required name="groupOperatorOwnerId" defaultValue="" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><option value="" disabled>请选择当时实际炒群人</option>{groupOperators.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select><span className="text-xs font-normal text-slate-500">可选择本组全部成员；保存后会在该成员的炒群客户中显示。</span></label>

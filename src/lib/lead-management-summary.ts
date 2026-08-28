@@ -3,7 +3,7 @@ import { customerStagnationDays } from "./customer-follow-up";
 
 export type LeadManagementInput = {
   sourceDate: string;
-  /** 这三类可继续跟进，但不能计为有效数据或资源成本。 */
+  /** 这三类可继续跟进，但不能计为有效数据。 */
   receptionCategory?: "PENDING" | "VALID" | "INVALID" | "LOW_AMOUNT" | "NO_WS";
   invalid?: boolean;
   repliedOn: string | null;

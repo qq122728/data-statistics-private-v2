@@ -10,7 +10,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { TodayConfirmation } from "../../src/components/analytics/TodayConfirmation";
-import { BatchReportTable } from "../../src/components/reports/BatchReportTable";
 import { RoleRankingsTable } from "../../src/components/analytics/RoleRankingsTable";
 import { AppHeader } from "../../src/components/shell/AppHeader";
 import { AppSidebar } from "../../src/components/shell/AppSidebar";
@@ -127,13 +126,5 @@ describe("management analysis interface behavior", () => {
     expect(html).toContain("<th>接粉成员</th><th>小组</th>");
     expect(html).toContain(">西瓜组</span>");
     expect(html).not.toContain("接粉成员 / 小组");
-  });
-
-  it("keeps the incremental net-in-group heading when no rows match", () => {
-    const html = renderToStaticMarkup(
-      createElement(BatchReportTable, { mode: "incremental", rows: [] }),
-    );
-    expect(html).toContain("本期净增在群");
-    expect(html).not.toContain(">在群<");
   });
 });

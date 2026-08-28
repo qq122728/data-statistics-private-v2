@@ -93,11 +93,17 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
     customerOrder: null,
     OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: [...abandonedExpertStages] } }],
   } satisfies Prisma.LeadCustomerWhereInput;
+  // STALLED（停止维护）按需求文档8.2定义只能在已开单后发生（markExpertStalled
+  // 强制要求有效 customerOrder），customerOrder 不会是 null；DECLINED_DEPOSIT
+  // （未成交）则相反，只能在未开单时发生。两个分支不能共用同一个 customerOrder
+  // 条件，否则 STALLED 客户永远匹配不上，自动交接给组长会静默失效。
   const abandonedExpertWhere = {
     batch: { groupId: member.groupId },
     expertOwnerId: member.id,
-    customerOrder: null,
-    expertWorkflowStage: { in: [...abandonedExpertStages] },
+    OR: [
+      { expertWorkflowStage: "DECLINED_DEPOSIT" as const, customerOrder: null },
+      { expertWorkflowStage: "STALLED" as const },
+    ],
   } satisfies Prisma.LeadCustomerWhereInput;
 
   const [customerCount, receptionCount, operatorCount, expertCount, abandonedExpertCount, deviceCount, deviceAccountCount, handoffMembers, groupLeader] = await Promise.all([

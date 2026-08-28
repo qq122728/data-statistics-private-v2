@@ -38,6 +38,7 @@ afterEach(async () => {
   const userIds = users.map((user) => user.id);
   await db.auditLog.deleteMany({ where: { OR: [{ entityId: { in: userIds } }, { actorId: { in: userIds } }] } });
   await db.session.deleteMany({ where: { userId: { in: userIds } } });
+  await db.customerOrder.deleteMany({ where: { batch: { groupId: { startsWith: prefix } } } });
   await db.leadCustomer.deleteMany({ where: { batch: { groupId: { startsWith: prefix } } } });
   await db.sourceBatch.deleteMany({ where: { groupId: { startsWith: prefix } } });
   await db.channel.deleteMany({ where: { groupId: { startsWith: prefix } } });
@@ -91,12 +92,19 @@ describe.sequential("transferUserPosition 岗位冻结", () => {
     const data = await fixture();
     // ownerId（接粉归属）故意挂在组长名下，跟 expertOwnerId 区分开，避免这两个
     // 客户被"接粉在办"计数误伤挡住转岗——这里只测专家侧的放弃状态判定。
+    // DECLINED_DEPOSIT（未成交）按需求文档8.2只能在开单前发生，不建 CustomerOrder；
+    // STALLED（停止维护）按8.2只能在开单后发生，markExpertStalled 强制要求已开单
+    // （见 mutations.ts:214），所以这里必须真建一笔 CustomerOrder，否则测的是一个
+    // 业务上不可达的数据状态，会掩盖 customerOrder 相关的判断漏洞。
+    const declinedPhone = `6${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`;
     const declined = await db.leadCustomer.create({
-      data: { phone: `6${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", registeredOn: "2026-08-07", expertWorkflowStage: "DECLINED_DEPOSIT", noInitialDepositOn: "2026-08-08", noInitialDepositReason: "NO_BUDGET" },
+      data: { phone: declinedPhone, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", registeredOn: "2026-08-07", expertWorkflowStage: "DECLINED_DEPOSIT", noInitialDepositOn: "2026-08-08", noInitialDepositReason: "NO_BUDGET" },
     });
+    const stalledPhone = `5${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`;
     const stalled = await db.leadCustomer.create({
-      data: { phone: `5${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", registeredOn: "2026-08-07", expertWorkflowStage: "STALLED", expertStalledOn: "2026-08-09", expertStalledReason: "NO_RESPONSE" },
+      data: { phone: stalledPhone, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", registeredOn: "2026-08-07", expertWorkflowStage: "STALLED", expertStalledOn: "2026-08-09", expertStalledReason: "NO_RESPONSE" },
     });
+    await db.customerOrder.create({ data: { phone: stalledPhone, batchId: data.batchId, enteredById: data.userId, openedOn: "2026-08-08", initialDepositCents: 500_000, leadId: stalled.id } });
 
     const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
       method: "POST",
@@ -108,10 +116,39 @@ describe.sequential("transferUserPosition 岗位冻结", () => {
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: stalled.id }, select: { expertOwnerId: true } })).resolves.toEqual({ expertOwnerId: data.leaderId });
   });
 
+  it("找不到原组在职组长时，放弃状态客户保持原样，不报错也不阻挡转岗", async () => {
+    const data = await fixture();
+    await db.user.update({ where: { id: data.leaderId }, data: { active: false } });
+    const declined = await db.leadCustomer.create({
+      data: { phone: `3${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", registeredOn: "2026-08-07", expertWorkflowStage: "DECLINED_DEPOSIT", noInitialDepositOn: "2026-08-08", noInitialDepositReason: "NO_BUDGET" },
+    });
+
+    const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", secondaryRoles: [], effectiveOn: "2026-08-16", reason: "调至B组继续担任专家" }),
+    }));
+    expect(response.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: declined.id }, select: { expertOwnerId: true } })).resolves.toEqual({ expertOwnerId: data.userId });
+  });
+
   it("真正还在办的专家客户（未放弃）仍然需要指定接手人才能转岗", async () => {
     const data = await fixture();
     await db.leadCustomer.create({
       data: { phone: `4${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", expertWorkflowStage: "TRACKING" },
+    });
+
+    const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", secondaryRoles: [], effectiveOn: "2026-08-16", reason: "调至B组继续担任专家" }),
+    }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: "还有 1 位专家阶段客户，请选择原小组专家接收人" });
+  });
+
+  it("刚推专家、还没进入任何放弃或推进阶段（expertWorkflowStage 为 null）的客户仍算在办", async () => {
+    const data = await fixture();
+    await db.leadCustomer.create({
+      data: { phone: `2${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", expertWorkflowStage: null },
     });
 
     const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {

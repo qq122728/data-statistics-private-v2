@@ -157,31 +157,7 @@ npm run build
 
 这三条命令分别检查业务逻辑、浏览器里的完整流程和生产构建。
 
-## 11.1 历史底料渠道一次性回填
-
-旧数据升级后不能只凭渠道名称猜测哪些属于底料。先从管理员渠道列表确认“渠道 ID + 小组 ID”，然后只做预览：
-
-```bash
-REBATE_CHANNEL_REFS="渠道ID@小组ID,另一个渠道ID@小组ID" npm run db:backfill:rebate
-```
-
-核对预览中的名称和历史批次数量无误后，再明确确认执行：
-
-```bash
-REBATE_CHANNEL_REFS="渠道ID@小组ID,另一个渠道ID@小组ID" CONFIRM_BACKUP_TAKEN=YES CONFIRM_REBATE_BACKFILL=YES npm run db:backfill:rebate
-```
-
-默认按 30% 返点回填；其他比例可额外设置 `REBATE_RATE_BPS`，例如 `2500` 代表 25%。执行前先备份数据库。
-
-先运行下面这条只读巡检，检查历史批次是否缺少单价、投流凭证或返点比例：
-
-```bash
-npm run db:audit:snapshots
-```
-
-它不会修改任何数据。旧投流批次若缺“当次产粉数”，系统会明确列为待人工核对，不会用今天剩下的客户数量反推旧账。
-
-## 11.2 生产环境首次账号与默认密码轮换
+## 11.1 生产环境首次账号与默认密码轮换
 
 生产环境不要运行 `db:seed`。首次管理员账号应通过受控的部署流程创建，并使用独立随机密码。
 

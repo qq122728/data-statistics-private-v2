@@ -183,8 +183,6 @@ async function main() {
         normalizedName: "演示投流渠道",
         createdById: DEMO.accounts.resource,
         active: true,
-        fanCostMode: "PAID",
-        effectiveFanPriceCents: 3500,
       },
     });
 
@@ -197,8 +195,6 @@ async function main() {
           groupId: DEMO.groupId,
           channelId: DEMO.channelId,
           sourceDate,
-          fanCostModeSnapshot: "PAID",
-          effectiveFanPriceCentsSnapshot: 3500,
         },
       });
       batchByDate.set(sourceDate, batch.id);

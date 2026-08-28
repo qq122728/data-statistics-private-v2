@@ -12,8 +12,8 @@ const db = new PrismaClient({
 });
 
 const groups = [
-  { id: "demo-company-group-b", name: "B组", channelId: "demo-company-b-channel", channelName: "演示-B组-投流", price: 2_800 },
-  { id: "demo-company-group-c", name: "C组", channelId: "demo-company-c-channel", channelName: "演示-C组-短信", price: 4_200 },
+  { id: "demo-company-group-b", name: "B组", channelId: "demo-company-b-channel", channelName: "演示-B组-投流" },
+  { id: "demo-company-group-c", name: "C组", channelId: "demo-company-c-channel", channelName: "演示-C组-短信" },
 ];
 
 function hashPassword(password) {
@@ -83,8 +83,6 @@ async function seedGroup(group, groupIndex) {
       name: group.channelName,
       normalizedName: group.channelName.toLowerCase(),
       createdById: users.lead,
-      fanCostMode: "PAID",
-      effectiveFanPriceCents: group.price,
     },
   });
 
@@ -96,8 +94,6 @@ async function seedGroup(group, groupIndex) {
         groupId: group.id,
         channelId: group.channelId,
         sourceDate,
-        fanCostModeSnapshot: "PAID",
-        effectiveFanPriceCentsSnapshot: group.price,
       },
     });
   }));

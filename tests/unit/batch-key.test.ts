@@ -117,6 +117,7 @@ describe("source batch keys", () => {
   it("lets multiple receptionists share one batch under the same channel and date", async () => {
     const channelId = "test-shared-batch-channel";
     const receptionists = ["shared-batch-reception-a", "shared-batch-reception-b"];
+    await db.metricEvent.deleteMany({ where: { batch: { channelId } } });
     await db.sourceBatch.deleteMany({ where: { channelId } });
     await db.channel.deleteMany({ where: { id: channelId } });
     await db.user.createMany({ data: receptionists.map((id) => ({ id, username: id, name: id, role: "RECEPTION", groupId: "group-a" })) });
@@ -124,5 +125,11 @@ describe("source batch keys", () => {
     const first = await getOrCreateSourceBatch({ groupId: "group-a", channelId, sourceDate: "2026-08-19" });
     const second = await getOrCreateSourceBatch({ groupId: "group-a", channelId, sourceDate: "2026-08-19" });
     expect(second.id).toBe(first.id);
+
+    await db.metricEvent.createMany({ data: receptionists.map((enteredById) => ({
+      batchId: second.id, enteredById, occurredOn: "2026-08-19", kind: "EFFECTIVE_FANS", quantity: 1,
+    })) });
+    const events = await db.metricEvent.findMany({ where: { batchId: first.id }, select: { enteredById: true } });
+    expect(new Set(events.map((event) => event.enteredById))).toEqual(new Set(receptionists));
   });
 });

@@ -49,10 +49,8 @@ async function main() {
         normalizedName: "颜色状态演示渠道",
         createdById: "initial-admin",
         active: true,
-        fanCostMode: "PAID",
-        effectiveFanPriceCents: 3500,
       },
-      update: { active: true, fanCostMode: "PAID", effectiveFanPriceCents: 3500 },
+      update: { active: true },
     });
     await transaction.sourceBatch.create({
       data: {
@@ -60,8 +58,6 @@ async function main() {
         groupId: DEMO.groupId,
         channelId: DEMO.channelId,
         sourceDate: DEMO.date,
-        fanCostModeSnapshot: "PAID",
-        effectiveFanPriceCentsSnapshot: 3500,
       },
     });
 

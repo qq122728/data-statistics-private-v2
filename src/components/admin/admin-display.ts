@@ -1,6 +1,6 @@
 type AdminEntity = "member" | "group" | "channel";
 type AdminMutation = "create" | "update" | "disable" | "enable" | "reset";
-export type AdminFormField = "employeeCode" | "username" | "name" | "password" | "role" | "groupId" | "departmentId" | "effectiveFanPriceCents" | "hireDate" | "recruitmentSource" | "referrerName" | "stageOverride" | "stageOverrideReason";
+export type AdminFormField = "employeeCode" | "username" | "name" | "password" | "role" | "groupId" | "departmentId" | "hireDate" | "recruitmentSource" | "referrerName" | "stageOverride" | "stageOverrideReason";
 export type AdminFormError = { message: string; field: AdminFormField | null };
 
 const entityNames: Record<AdminEntity, string> = {
@@ -144,7 +144,6 @@ export function classifyAdminFormError(entity: AdminEntity, message: string): Ad
   } else {
     if (/渠道名称|同名渠道|渠道.*存在/.test(message)) field = "name";
     else if (/所属小组|启用中的小组/.test(message)) field = "groupId";
-    else if (/单价|整数分/.test(message)) field = "effectiveFanPriceCents";
   }
   return { message, field };
 }

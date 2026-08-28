@@ -29,8 +29,6 @@
     "db:postgres:test:copy": "POSTGRES_TEST_DATABASE_URL=postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55432/data_statistics_test?schema=public node scripts/migrate-sqlite-to-postgres.mjs",
     "test:db-runtime-privileges:postgres": "bash tests/integration/db-runtime-privileges-postgres.sh",
     "test:api-02:acceptance": "npm run db:generate:sqlite && vitest --run tests/unit/api-request-limits.test.ts tests/unit/api-request-acceptance-tool.test.ts",
-    "db:backfill:rebate": "node scripts/backfill-rebate-channel-snapshots.mjs",
-    "db:audit:snapshots": "node scripts/audit-batch-snapshots.mjs",
     "security:rotate-initial-passwords": "npm run db:generate:postgres && node scripts/rotate-initial-account-passwords.mjs",
     "boss:brief": "node scripts/trigger-boss-daily-brief.mjs",
     "boss:backup": "node scripts/send-daily-backup.mjs",

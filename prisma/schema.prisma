@@ -19,10 +19,22 @@ enum Role {
   EXPERT
 }
 
+// 总公司层，暂不单独建表：总公司管理员就是"没有 company 限定"的超级权限（需求文档1.1）。
+model Company {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  active      Boolean      @default(true)
+  departments Department[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
 model Department {
   id               String      @id
   name             String      @unique
   active           Boolean     @default(true)
+  companyId        String?
+  company          Company?    @relation(fields: [companyId], references: [id])
   countryCode      String      @default("CN")
   timezone         String      @default("Asia/Shanghai")
   workStartMinutes Int         @default(600)
@@ -31,6 +43,8 @@ model Department {
   managers         User[]
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
+
+  @@index([companyId])
 }
 
 enum MetricKind {
@@ -199,6 +213,30 @@ enum ExpertWorkflowStage {
   STALLED
 }
 
+// 岗位：干哪道工序。接粉/炒群可互相兼任，专家跟接粉/炒群互斥（需求文档1.4）。
+enum Position {
+  RECEPTION
+  GROUP_OPERATOR
+  EXPERT
+}
+
+// 职务：管不管人的"帽子"，0或1个，可以跟任意岗位叠加（组长+专家场景）。
+enum Duty {
+  LEAD
+  DEPARTMENT_MANAGER
+  COMPANY_MANAGER
+  HQ_MANAGER
+  RESOURCE_MANAGER
+  FINANCE
+}
+
+// 历史客户补录审核状态，模式抄自 InvalidFanReportStatus（需求文档7.3）。
+enum HistoricalReviewStatus {
+  PENDING
+  APPROVED
+  RETURNED
+}
+
 model User {
   id                        String                   @id
   employeeCode              String?                  @unique
@@ -207,6 +245,8 @@ model User {
   passwordHash              String                   @default("")
   mustChangePassword        Boolean                  @default(false)
   role                      Role
+  // 职务"帽子"，跟 role/UserPosition 的岗位维度独立叠加，不参与业绩归属（需求文档1.4）。
+  duty                      Duty?
   active                    Boolean                  @default(true)
   groupId                   String?
   group                     TeamGroup?               @relation(fields: [groupId], references: [id])
@@ -234,6 +274,9 @@ model User {
   invalidFanReportAudits    InvalidFanReportAudit[]  @relation("InvalidFanReportAuditActor")
   roleAssignments           UserRoleAssignment[]
   membershipHistory         UserGroupMembership[]
+  positionHistory           UserPosition[]           @relation("UserPositionAssignee")
+  createdUserPositions      UserPosition[]           @relation("UserPositionCreatedBy")
+  historicalReviewedLeads   LeadCustomer[]           @relation("HistoricalReviewedBy")
   resourceChannelAccess     ResourceChannelAccess[]
   sessions                  Session[]
   confirmations             DailyEntryConfirmation[]
@@ -292,6 +335,28 @@ model UserGroupMembership {
   @@index([userId, effectiveTo])
 }
 
+// 强制的岗位历史表，取代 UserGroupMembership 的选填/手动模式（需求文档1.5/1.6）。
+// 只能通过 transferUserPosition 服务函数写入：原子地关闭旧行的 effectiveTo、开一条新的。
+// 按人统计业绩要用这张表查"当时的岗位"，不能读 User.groupId/role 这种活字段。
+model UserPosition {
+  id            String    @id @default(cuid())
+  userId        String
+  position      Position
+  groupId       String
+  effectiveFrom String
+  effectiveTo   String?
+  reason        String?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  user          User      @relation("UserPositionAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  group         TeamGroup @relation(fields: [groupId], references: [id])
+  createdBy     User?     @relation("UserPositionCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([userId, effectiveFrom])
+  @@index([groupId, effectiveFrom, effectiveTo])
+  @@index([userId, effectiveTo])
+}
+
 // 资源部账号按渠道目录 ID 授权；同一目录渠道在各小组的副本共用同一个 channelId。
 model ResourceChannelAccess {
   userId    String
@@ -315,6 +380,7 @@ model TeamGroup {
   workEndMinutes              Int?
   members                     User[]
   membershipHistory           UserGroupMembership[]
+  positionHistory             UserPosition[]
   channels                    Channel[]
   batches                     SourceBatch[]
   devices                     Device[]
@@ -540,6 +606,10 @@ model LeadCustomer {
   historicalLeaveCounted        Boolean              @default(false)
   historicalExpertIntroCounted  Boolean              @default(false)
   historicalRegistrationCounted Boolean              @default(false)
+  // 历史补录必须组长审核才生效，未审核前不进任何报表（需求文档7.3，模式抄自 InvalidFanReport）。
+  historicalReviewStatus        HistoricalReviewStatus?
+  historicalReviewedById        String?
+  historicalReviewedAt          DateTime?
   batch                         SourceBatch          @relation(fields: [batchId], references: [id])
   owner                         User                 @relation(fields: [ownerId], references: [id])
   attributionOwner              User?                @relation("FanAttributionOwner", fields: [attributionOwnerId], references: [id])
@@ -549,6 +619,7 @@ model LeadCustomer {
   expertOwner                   User?                @relation("ExpertOwner", fields: [expertOwnerId], references: [id])
   groupOperatorOwnerId          String?
   groupOperatorOwner            User?                @relation("GroupOperatorOwner", fields: [groupOperatorOwnerId], references: [id])
+  historicalReviewedBy          User?                @relation("HistoricalReviewedBy", fields: [historicalReviewedById], references: [id])
   activities                    LeadActivity[]
   exceptions                    LeadException[]
   createdAt                     DateTime             @default(now())
@@ -570,6 +641,7 @@ model LeadCustomer {
   @@index([expertOwnerId, expertStalledOn, updatedAt])
   @@index([expertOwnerId, noInitialDepositOn, updatedAt])
   @@index([groupOperatorOwnerId, updatedAt])
+  @@index([isHistoricalRecord, historicalReviewStatus])
 }
 
 model GroupOperatorReception {

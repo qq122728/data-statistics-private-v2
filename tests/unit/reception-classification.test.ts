@@ -34,11 +34,14 @@ describe("reception number classification", () => {
     });
   });
 
-  it("also automatically classifies a low amount when it is filled in later", () => {
+  it("also automatically classifies a low amount when it is filled in later, even after a reply", () => {
     expect(buildBasicCustomerMutation({ action: "updateProfile", lossAmountCents: 499_999, customerPlatform: "MT5" }, lead, "2026-08-17")).toMatchObject({
       update: { receptionCategory: "LOW_AMOUNT", invalid: true, lossAmountCents: 499_999, customerPlatform: "MT5" },
     });
-    expect(buildBasicCustomerMutation({ action: "updateProfile", lossAmountCents: 499_999 }, { ...lead, repliedOn: "2026-08-17" }, "2026-08-17")).toMatchObject({ status: 400 });
+    expect(buildBasicCustomerMutation({ action: "updateProfile", lossAmountCents: 499_999 }, { ...lead, repliedOn: "2026-08-17" }, "2026-08-17")).toMatchObject({
+      update: { receptionCategory: "LOW_AMOUNT", invalid: true, lossAmountCents: 499_999 },
+    });
+    expect(buildBasicCustomerMutation({ action: "updateProfile", lossAmountCents: 499_999 }, { ...lead, registeredOn: "2026-08-17" }, "2026-08-17")).toMatchObject({ status: 400 });
   });
 
   it("stores no-WS notes and removes the number from the funnel", () => {
@@ -71,7 +74,15 @@ describe("reception number classification", () => {
     expect(roleAllowsCustomerAction("RECEPTION", "undoReply" as never)).toBe(true);
   });
 
-  it("does not allow a customer with downstream progress to be hidden as invalid", () => {
-    expect(buildBasicCustomerMutation({ action: "classifyReception", receptionCategory: "NO_WS" }, { ...lead, repliedOn: "2026-08-17" }, "2026-08-17")).toMatchObject({ status: 400 });
+  it("allows reclassifying a customer with reply or group progress as invalid, but not after expert handoff", () => {
+    expect(buildBasicCustomerMutation({ action: "classifyReception", receptionCategory: "NO_WS" }, { ...lead, repliedOn: "2026-08-17" }, "2026-08-17")).toMatchObject({
+      update: { receptionCategory: "NO_WS", invalid: true },
+    });
+    expect(buildBasicCustomerMutation({ action: "classifyReception", receptionCategory: "NO_WS" }, { ...lead, repliedOn: "2026-08-17", groupStatus: "JOINED" }, "2026-08-17")).toMatchObject({
+      update: { receptionCategory: "NO_WS", invalid: true },
+    });
+    expect(buildBasicCustomerMutation({ action: "classifyReception", receptionCategory: "NO_WS" }, { ...lead, expertIntroducedOn: "2026-08-17" }, "2026-08-17")).toMatchObject({ status: 400 });
+    expect(buildBasicCustomerMutation({ action: "classifyReception", receptionCategory: "NO_WS" }, { ...lead, registeredOn: "2026-08-17" }, "2026-08-17")).toMatchObject({ status: 400 });
+    expect(buildBasicCustomerMutation({ action: "classifyReception", receptionCategory: "NO_WS" }, { ...lead, customerOrder: { voidedAt: null } }, "2026-08-17")).toMatchObject({ status: 400 });
   });
 });

@@ -52,9 +52,12 @@ export function buildBasicCustomerMutation(
   if (lead.invalid && ["introduceExpert", "markExpertContacted", "beginExpertReception", "beginExpertTracking", "markPendingRegistration", "register", "markExpertStalled", "markNoInitialDeposit", "updateExpertDetails", "voidOrder"].includes(input.action))
     return { status: 400, error: "无效库转入客户仅供炒群记录，不进入专家和业绩流程" };
 
-  const hasReceptionOrDownstreamProgress = Boolean(
-    lead.repliedOn ||
-    lead.groupStatus !== "NOT_JOINED" ||
+  // 回复、入群这两步允许改判无效——需求文档3.1.1明确这类客户跟进过程中
+  // 才发现金额不足/无WS是常见场景，无效库客户本来就还能继续回复、入群
+  // （见上面两条 invalid 分支），改判本身不影响这些操作。但一旦进入专家
+  // 环节或已开单，改判无效会连带把后续专家操作也锁死（见上面的 invalid
+  // 阻断列表），这是真实的功能冲突，必须继续禁止。
+  const hasExpertOrOrderProgress = Boolean(
     lead.expertIntroducedOn ||
     lead.expertContactedOn ||
     lead.registeredOn ||
@@ -78,8 +81,8 @@ export function buildBasicCustomerMutation(
     case "classifyReception": {
       if (!input.receptionCategory)
         return { status: 400, error: "请选择低金额或无 WS 号码" };
-      if (input.receptionCategory !== "VALID" && hasReceptionOrDownstreamProgress)
-        return { status: 400, error: "客户已有回复或后续跟进，不能直接归入无效库" };
+      if (input.receptionCategory !== "VALID" && hasExpertOrOrderProgress)
+        return { status: 400, error: "客户已进入专家跟进流程，不能改为低金额或无 WS 客户" };
       if (input.receptionCategory === "LOW_AMOUNT") {
         if (input.lossAmountCents === undefined || input.lossAmountCents === null)
           return { status: 400, error: "低金额必须填写客户金额" };
@@ -272,11 +275,11 @@ export function buildBasicCustomerMutation(
       return { update: { notes: input.notes || null } };
     case "updateProfile":
       // 导入时未填金额的客户，后续补资料时也要遵守同一条低金额规则。
-      // 已进入下游流程的客户不能被接粉员突然移出流程，避免炒群/专家
-      // 正在跟进时客户消失。
+      // 已进入专家环节的客户不能被接粉员突然移出流程，避免专家正在
+      // 跟进时被锁死后续操作；回复、入群阶段允许改判（见上方注释）。
       if (input.lossAmountCents !== undefined && input.lossAmountCents !== null && input.lossAmountCents < 500_000) {
-        if (hasReceptionOrDownstreamProgress)
-          return { status: 400, error: "客户已有回复或后续跟进，不能改为低金额客户" };
+        if (hasExpertOrOrderProgress)
+          return { status: 400, error: "客户已进入专家跟进流程，不能改为低金额客户" };
         return {
           update: {
             ...(input.customerName !== undefined ? { customerName: input.customerName || null } : {}),

@@ -20,8 +20,10 @@ function metricsForDate(leads: EntryLead[], reports: InvalidReport[], date: stri
   const activeOrders = leads.filter((lead) => lead.customerOrder && !lead.customerOrder.voidedAt);
   const initialCents = activeOrders.filter((lead) => lead.customerOrder?.openedOn === date)
     .reduce((sum, lead) => sum + (lead.customerOrder?.initialDepositCents ?? 0), 0);
+  // 登记开单时会额外写一条 continuationNumber 为空的 RECHARGE 镜像行（金额=首充），
+  // 只有带序号的才是真实续充；不过滤会把首充再算一遍（下方 incomeCents 已单独加过首充）。
   const rechargeCents = activeOrders.reduce((sum, lead) => sum + (lead.customerOrder?.events ?? [])
-    .filter((event) => event.kind === "RECHARGE" && event.occurredOn === date && !event.voidedAt)
+    .filter((event) => event.kind === "RECHARGE" && event.continuationNumber !== null && event.occurredOn === date && !event.voidedAt)
     .reduce((subtotal, event) => subtotal + (event.amountCents ?? 0), 0), 0);
   const withdrawalCents = activeOrders.reduce((sum, lead) => sum + (lead.customerOrder?.events ?? [])
     .filter((event) => event.kind === "WITHDRAWAL" && event.occurredOn === date && !event.voidedAt)

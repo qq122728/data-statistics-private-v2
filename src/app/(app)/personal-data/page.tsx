@@ -31,7 +31,7 @@ type PersonalLead = {
     openedOn: string;
     initialDepositCents: number;
     voidedAt: Date | null;
-    events: Array<{ kind: string; occurredOn: string; amountCents: number | null; voidedAt: Date | null }>;
+    events: Array<{ kind: string; occurredOn: string; amountCents: number | null; continuationNumber: number | null; voidedAt: Date | null }>;
   };
 };
 
@@ -79,7 +79,9 @@ function summarize(leads: PersonalLead[], range: LeadDateRange) {
     }
     for (const event of order.events) {
       if (event.voidedAt || !isInRange(event.occurredOn, range)) continue;
-      if (event.kind === "RECHARGE") totals.rechargeCents += event.amountCents ?? 0;
+      // 登记开单时会额外写一条 continuationNumber 为空的 RECHARGE 镜像行（金额=首充），
+      // 只有带序号的才是真实续充；不过滤会把首充再算一遍。
+      if (event.kind === "RECHARGE" && event.continuationNumber !== null) totals.rechargeCents += event.amountCents ?? 0;
       if (event.kind === "WITHDRAWAL") totals.withdrawalCents += event.amountCents ?? 0;
     }
   }
@@ -151,7 +153,7 @@ export default async function PersonalDataPage({ searchParams }: { searchParams:
     select: {
       isHistoricalRecord: true, invalid: true, receptionCategory: true, repliedOn: true, joinedOn: true, leftOn: true, groupStatus: true, expertIntroducedOn: true, expertContactedOn: true, registeredOn: true, expertStalledOn: true, noInitialDepositOn: true,
       batch: { select: { sourceDate: true, isHistoricalRecord: true } },
-      customerOrder: { select: { openedOn: true, initialDepositCents: true, voidedAt: true, events: { where: { kind: { in: ["RECHARGE", "WITHDRAWAL"] } }, select: { kind: true, occurredOn: true, amountCents: true, voidedAt: true } } } },
+      customerOrder: { select: { openedOn: true, initialDepositCents: true, voidedAt: true, events: { where: { kind: { in: ["RECHARGE", "WITHDRAWAL"] } }, select: { kind: true, occurredOn: true, amountCents: true, continuationNumber: true, voidedAt: true } } } },
     },
   }) as PersonalLead[];
   const heading = role === "RECEPTION" ? ["个人数据", "查看本人接粉数据、转化和后续业绩。"] : role === "GROUP_OPERATOR" ? ["个人数据", "查看本人接手、在群、推专家和退群情况。"] : ["个人数据", "查看本人客户的联系、注册、开单和资金结果。"];

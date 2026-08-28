@@ -129,7 +129,13 @@ describe("channel quality query", () => {
     // 渠道行本身按"选中范围内有没有活动"出现；这条记录只是让行出现，不影响当前在群这个快照字段。
     await db.metricEvent.create({ data: { batchId: newBatchId, enteredById: ids.leadA, occurredOn: "2026-08-05", kind: "NEW_FANS", quantity: 1 } });
 
-    const narrowRange = await loadChannelAnalysis(adminScope({ channelIds: [channelId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-12" }), "2026-08-12");
+    const [narrowRange, wideRange] = await Promise.all([
+      loadChannelAnalysis(adminScope({ channelIds: [channelId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-12" }), "2026-08-12"),
+      loadChannelAnalysis(adminScope({ channelIds: [channelId], sourceDateFrom: "2026-06-01", sourceDateTo: "2026-08-12" }), "2026-08-12"),
+    ]);
     expect(narrowRange.rows.find((row) => row.normalizedName === `在群快照测试渠道-${suffix}`)).toMatchObject({ newFans: 1, currentInGroup: 1 });
+    // 把范围放宽到包含老批次的到店日期后，添加数据会把老批次也算进来（这是应该的，添加数据本来就该随范围变），
+    // 但在群人数是快照，不管范围怎么选都必须是同一个数——这才是这个用例真正要验证的点。
+    expect(wideRange.rows.find((row) => row.normalizedName === `在群快照测试渠道-${suffix}`)).toMatchObject({ newFans: 2, currentInGroup: 1 });
   });
 });

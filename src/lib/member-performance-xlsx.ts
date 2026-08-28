@@ -61,7 +61,9 @@ function operatorRow(row: GroupOperatorRankingRow): MemberMetricRow {
   return {
     key: `operator:${row.id}`, id: row.id, group: row.groupName, name: row.name, role: "前台炒群",
     added: null, lowAmount: null, noWs: null, duplicate: null, effective: null, replied: null,
-    joined: row.currentInGroup, left: row.leaveActions, abnormalLeft: row.abnormalLeaveActions ?? 0, introduced: row.introducedActions, contacted: row.downstreamContacted ?? 0,
+    // “进群”这一栏跟接粉共用同一组表头，炒群没有独立的“当前在群”列，
+    // 用接手客户数（跟异常退群率的分母同一批人）填，不能用当前在群快照——那是不受日期范围限制的全量数，跟这里的期间字段不是同一批人。
+    joined: row.sharedCustomerCount, left: row.leaveActions, abnormalLeft: row.abnormalLeaveActions ?? 0, introduced: row.introducedActions, contacted: row.downstreamContacted ?? 0,
     registered: row.downstreamRegistered, orders: row.downstreamOrders,
     firstDepositCents: row.firstDepositCents, depositCents: row.depositCents, withdrawalCents: row.withdrawalCents, netPerformanceCents: row.netCents,
   };

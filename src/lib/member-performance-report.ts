@@ -56,7 +56,8 @@ function operatorRow(row: GroupOperatorRankingRow): MemberPerformanceReportRow {
   return {
     group: row.groupName, name: row.name, role: "前台炒群",
     added: "—", lowAmount: "—", noWs: "—", duplicate: "—", effective: "—", replied: "—", replyRate: "—",
-    joined: row.currentInGroup, joinRate: "—", left: row.leaveActions, leaveRate: rate(row.abnormalLeaveActions ?? 0, row.sharedCustomerCount),
+    // 跟异常退群率共用同一批人：接手客户数，不是不受日期范围限制的当前在群快照。
+    joined: row.sharedCustomerCount, joinRate: "—", left: row.leaveActions, leaveRate: rate(row.abnormalLeaveActions ?? 0, row.sharedCustomerCount),
     introduced: row.introducedActions, contacted: row.downstreamContacted ?? 0,
     registered: row.downstreamRegistered, registrationRate: rate(row.downstreamRegistered, row.downstreamContacted ?? 0),
     orders: row.downstreamOrders, orderRate: rate(row.downstreamOrders, row.downstreamRegistered),

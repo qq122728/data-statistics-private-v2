@@ -82,7 +82,10 @@ async function loadCurrentInGroupByChannel(scope: AnalysisScope, today: string, 
     where: {
       isHistoricalRecord: false,
       joinedOn: { not: null, lte: today },
-      ...(scope.memberId ? { ownerId: scope.memberId } : {}),
+      // 跟 loadCanonicalMetricEvents 保持一致：业绩按“粉的归属”统计，ownerId 只是兜底。
+      ...(scope.memberId
+        ? { OR: [{ attributionOwnerId: scope.memberId }, { attributionOwnerId: null, ownerId: scope.memberId }] }
+        : {}),
       batch: {
         groupId: { in: scope.groupIds },
         isHistoricalRecord: false,

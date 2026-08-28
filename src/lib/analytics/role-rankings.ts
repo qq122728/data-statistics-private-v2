@@ -177,13 +177,14 @@ function activeOrder(lead: LoadedLead, today: string) {
 /**
  * 需求文档6.1.1：当前在群是快照，只看截止日期，人群不能被报表的日期范围卡住——
  * 不管选的是哪个 sourceDateFrom，只要 joinedOn <= today 且还没退群，就该算在内。
- * 因此这里故意不复用 loadLeads 的 sourceDate 范围过滤。
+ * 因此这里故意不复用 loadLeads 的 sourceDate 范围过滤，只按 group/channel 筛选。
+ * 归属判定要跟主循环的三层 fallback（明确指派 → 最近一次推专家动作 → 当前配对组长）
+ * 保持完全一致，否则明确指派为空、靠配对兜底的客户会在这里被漏算成0。
  */
-async function loadCurrentInGroupByOperator(groupIds: string[], today: string, channelIds?: string[], normalizedName?: string): Promise<Map<string, number>> {
-  const leads = await db.leadCustomer.findMany({
+async function loadUnboundedInGroupLeadsForOperator(groupIds: string[], today: string, channelIds?: string[], normalizedName?: string) {
+  return db.leadCustomer.findMany({
     where: {
       isHistoricalRecord: false,
-      groupOperatorOwnerId: { not: null },
       joinedOn: { not: null, lte: today },
       batch: {
         groupId: { in: groupIds },
@@ -192,15 +193,16 @@ async function loadCurrentInGroupByOperator(groupIds: string[], today: string, c
         ...(normalizedName ? { channel: { normalizedName } } : {}),
       },
     },
-    select: { groupOperatorOwnerId: true, leftOn: true },
+    select: {
+      ownerId: true,
+      groupOperatorOwnerId: true,
+      leftOn: true,
+      activities: {
+        where: { kind: "EXPERT_INTRODUCED", occurredOn: { lte: today } },
+        select: { actorId: true, occurredOn: true },
+      },
+    },
   });
-  const counts = new Map<string, number>();
-  for (const lead of leads) {
-    if (lead.leftOn && lead.leftOn <= today) continue;
-    const operatorId = lead.groupOperatorOwnerId!;
-    counts.set(operatorId, (counts.get(operatorId) ?? 0) + 1);
-  }
-  return counts;
 }
 
 function isResourceEligible(lead: LoadedLead) {
@@ -272,7 +274,7 @@ export async function loadRoleRankings(input: {
 }): Promise<RoleRankingsResult> {
   if (!input.groupIds.length) return { reception: [], fanOwners: [], groupOperators: [], experts: [], groups: [], standardsByGroup: {} };
   const today = input.today ?? input.sourceDateTo;
-  const [people, fanOwnerPeople, groups, leads, duplicateEvents, approvedInvalidReports, currentInGroupByOperator] = await Promise.all([
+  const [people, fanOwnerPeople, groups, leads, duplicateEvents, approvedInvalidReports, unboundedInGroupLeads] = await Promise.all([
     db.user.findMany({
       where: {
         OR: [
@@ -337,7 +339,7 @@ export async function loadRoleRankings(input: {
       normalizedChannelName: input.normalizedName,
       channelIds: input.channelIds,
     }),
-    loadCurrentInGroupByOperator(input.groupIds, today, input.channelIds, input.normalizedName),
+    loadUnboundedInGroupLeadsForOperator(input.groupIds, today, input.channelIds, input.normalizedName),
   ]);
 
   const duplicateByReception = new Map<string, number>();
@@ -365,6 +367,15 @@ export async function loadRoleRankings(input: {
     if (!hasOperatorRole) continue;
     for (const assignment of person.groupOperatorAssignments)
       currentOperatorByReception.set(assignment.receptionistId, person.id);
+  }
+  const currentInGroupByOperator = new Map<string, number>();
+  for (const lead of unboundedInGroupLeads) {
+    if (lead.leftOn && lead.leftOn <= today) continue;
+    const latestIntro = lead.activities
+      .sort((left, right) => right.occurredOn.localeCompare(left.occurredOn))[0];
+    const operatorId = lead.groupOperatorOwnerId ?? latestIntro?.actorId ?? currentOperatorByReception.get(lead.ownerId);
+    if (!operatorId) continue;
+    currentInGroupByOperator.set(operatorId, (currentInGroupByOperator.get(operatorId) ?? 0) + 1);
   }
   const leadsByOperator = new Map<string, LoadedLead[]>();
   const introducedActionsByActor = new Map<string, LoadedLead[]>();

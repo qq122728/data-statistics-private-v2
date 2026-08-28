@@ -121,6 +121,34 @@ type RawGroupPerformance = Omit<GroupPerformanceSummary, "handled" | "inGroup" |
   receptionNames: string | null;
 };
 
+/**
+ * 需求文档6.1.1：当前在群是快照，只看截止日期，不能被报表选中的 sourceDate 范围卡人群——
+ * 跟 loadGroupPerformanceSummary 里其他字段（handled/introduced/left…）不一样，那些字段
+ * 本来就该是"这个范围内经手的这批人现在怎么样了"的同批口径，唯独在群人数不能这样算。
+ * 所以这里单独查一遍不带 sourceDateFilter 的版本，只覆盖 inGroup 这一个字段。
+ */
+async function loadCurrentInGroupByOperator(groupId: string, query: string) {
+  const queryFilter = query
+    ? Prisma.sql`AND (lc."phone" LIKE ${`%${query}%`} OR COALESCE(lc."customerName", '') LIKE ${`%${query}%`})`
+    : Prisma.sql``;
+  const regularCustomer = Prisma.sql`batch."isHistoricalRecord" = ${false} AND lc."isHistoricalRecord" = ${false}`;
+  const joinedAfterCutover = Prisma.sql`lc."isHistoricalRecord" = ${true} AND lc."historicalJoinCounted" = ${true}`;
+  const rows = await db.$queryRaw<Array<{ operatorId: string | null; inGroup: bigint | number }>>(Prisma.sql`
+    SELECT
+      COALESCE(lc."groupOperatorOwnerId", gor."groupOperatorId") AS "operatorId",
+      SUM(CASE WHEN ((${regularCustomer}) OR (${joinedAfterCutover})) AND lc."groupStatus" = 'JOINED' THEN 1 ELSE 0 END) AS "inGroup"
+    FROM "LeadCustomer" lc
+    INNER JOIN "SourceBatch" batch ON batch."id" = lc."batchId"
+    LEFT JOIN "GroupOperatorReception" gor ON gor."receptionistId" = lc."ownerId"
+    WHERE batch."groupId" = ${groupId}
+      AND lc."invalid" = ${false}
+      AND lc."groupStatus" IN ('JOINED', 'LEFT')
+      ${queryFilter}
+    GROUP BY COALESCE(lc."groupOperatorOwnerId", gor."groupOperatorId")
+  `);
+  return new Map(rows.map((row) => [row.operatorId, Number(row.inGroup)]));
+}
+
 async function loadGroupPerformanceSummary(input: GroupCustomerQuery, groupId: string) {
   if (!input.isLead) return [] as GroupPerformanceSummary[];
   const queryFilter = input.query
@@ -168,7 +196,7 @@ async function loadGroupPerformanceSummary(input: GroupCustomerQuery, groupId: s
       ${queryFilter}
     GROUP BY COALESCE(lc."groupOperatorOwnerId", gor."groupOperatorId")
   `);
-  return rows.map((row) => ({
+  const summaries = rows.map((row) => ({
     operatorId: row.operatorId,
     handled: Number(row.handled),
     inGroup: Number(row.inGroup),
@@ -183,6 +211,14 @@ async function loadGroupPerformanceSummary(input: GroupCustomerQuery, groupId: s
     pendingIntroduction: Number(row.pendingIntroduction),
     firstDepositCents: Number(row.firstDepositCents),
     receptionNames: row.receptionNames?.split(",").filter(Boolean) ?? [],
+  }));
+  // 没选日期范围时上面的查询本来就没被 sourceDateFilter 卡过，直接用；
+  // 只有选了范围才需要另外查一遍不限范围的在群人数覆盖回去。
+  if (!input.sourceDate) return summaries;
+  const unboundedInGroup = await loadCurrentInGroupByOperator(groupId, input.query);
+  return summaries.map((summary) => ({
+    ...summary,
+    inGroup: unboundedInGroup.get(summary.operatorId) ?? 0,
   }));
 }
 

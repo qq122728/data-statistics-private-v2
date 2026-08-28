@@ -105,6 +105,53 @@ describe.sequential("老板简报岗位统计截止日", () => {
     expect(narrowRange.groupOperators.find((row) => row.id === fixtureData.operatorA.id)).toMatchObject({ sharedCustomerCount: 1, currentInGroup: 2 });
   });
 
+  it("当前在群跟主榜单用同一套归属兜底——没有明确指派的客户按配对组长算，不会被漏成0", async () => {
+    const fixtureData = await fixture();
+    // fixture() 已经把 operatorB 配对到 reception；这条客户没有明确指派 groupOperatorOwnerId，
+    // 只能靠"当前配对组长"这层兜底才能归到 operatorB 名下——如果快照查询漏了这层兜底就会算成0。
+    await db.leadCustomer.create({
+      data: {
+        id: `${prefix}lead-${randomUUID()}`,
+        phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+        batchId: fixtureData.batchId,
+        ownerId: fixtureData.reception.id,
+        joinedOn: "2026-08-10",
+        groupStatus: "JOINED",
+      },
+    });
+
+    const result = await loadRoleRankings({ groupIds: [fixtureData.groupId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-16", today: "2026-08-16" });
+    expect(result.groupOperators.find((row) => row.id === fixtureData.operatorB.id)).toMatchObject({ currentInGroup: 1 });
+  });
+
+  it("炒群每日明细的当日在群/可推专家也不受报表日期范围卡人群", async () => {
+    const fixtureData = await fixture();
+    const oldBatchId = `${prefix}old-batch-${randomUUID()}`;
+    await db.sourceBatch.create({ data: { id: oldBatchId, groupId: fixtureData.groupId, channelId: (await db.sourceBatch.findUniqueOrThrow({ where: { id: fixtureData.batchId } })).channelId, sourceDate: "2026-07-01" } });
+    await db.leadCustomer.create({
+      data: {
+        id: `${prefix}lead-${randomUUID()}`,
+        phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+        batchId: oldBatchId,
+        ownerId: fixtureData.reception.id,
+        groupOperatorOwnerId: fixtureData.operatorA.id,
+        joinedOn: "2026-07-05",
+        groupStatus: "JOINED",
+      },
+    });
+
+    const detail = await loadMemberDailyDetail({
+      groupIds: [fixtureData.groupId],
+      memberId: fixtureData.operatorA.id,
+      role: "GROUP_OPERATOR",
+      from: "2026-08-01",
+      to: "2026-08-16",
+    });
+    // 报表范围是08-01至08-16，早于范围的07-05入群客户在 leads 的[from,to]过滤里根本不会出现，
+    // 但当日在群是快照，08-16这一行照样要把这个人算进去。
+    expect(detail?.rows.find((row) => row.date === "2026-08-16")).toMatchObject({ inGroup: 1 });
+  });
+
   it("接粉员改配后，已有客户仍归原炒群负责人", async () => {
     const fixtureData = await fixture();
     const lead = await db.leadCustomer.create({

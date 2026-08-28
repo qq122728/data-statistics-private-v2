@@ -13,7 +13,7 @@ type SearchParams = Record<string, string | string[] | undefined>;
 type ReceptionCategory = "PENDING" | "VALID" | "INVALID" | "LOW_AMOUNT" | "NO_WS";
 type FrontlineRole = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
 
-type PersonalLead = {
+export type PersonalLead = {
   isHistoricalRecord: boolean;
   invalid: boolean;
   receptionCategory: ReceptionCategory;
@@ -103,6 +103,32 @@ function currentInGroup(leads: PersonalLead[]) {
   return leads.filter((lead) => !isHistorical(lead) && lead.groupStatus === "JOINED").length;
 }
 
+/**
+ * 需求文档6.1：推专家率必须来自同一批人——本时间段内进群的这批客户，
+ * 看其中有多少在区间截止日前被推了专家；不能用各自独立按日期筛出来的
+ * "进群"总数和"推专家"总数相除，那通常是两拨不同的客户。
+ */
+export function operatorCohortFunnel(leads: PersonalLead[], range: LeadDateRange) {
+  const cohort = leads.filter((lead) => !isHistorical(lead) && isInRange(lead.joinedOn, range));
+  const introduced = cohort.filter((lead) => Boolean(lead.expertIntroducedOn && lead.expertIntroducedOn <= range.to)).length;
+  return { cohortSize: cohort.length, introduced };
+}
+
+/**
+ * 需求文档6.1：联系率/注册率/开单率同理——本时间段内推给我的这批客户，
+ * 依次看谁在截止日前被联系、注册、开单，每一步分母都来自上一步的同一批人。
+ */
+export function expertCohortFunnel(leads: PersonalLead[], range: LeadDateRange) {
+  const cohort = leads.filter((lead) => !isHistorical(lead) && isInRange(lead.expertIntroducedOn, range));
+  const contacted = cohort.filter((lead) => Boolean(lead.expertContactedOn && lead.expertContactedOn <= range.to)).length;
+  const registered = cohort.filter((lead) => Boolean(lead.registeredOn && lead.registeredOn <= range.to)).length;
+  const orders = cohort.filter((lead) => {
+    const order = lead.customerOrder;
+    return Boolean(order && !order.voidedAt && order.openedOn <= range.to);
+  }).length;
+  return { cohortSize: cohort.length, contacted, registered, orders };
+}
+
 function CoreData({ title, description, items }: { title: string; description: string; items: Array<[string, string | number]> }) {
   return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white"><div className="border-b border-slate-100 px-4 py-3"><h2 className="m-0 text-base font-bold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-500">{description}</p></div><div className="data-table-wrap"><table className="data-table whitespace-nowrap"><thead><tr>{items.map(([label]) => <th key={label}>{label}</th>)}</tr></thead><tbody><tr>{items.map(([label, value]) => <td key={label} className={label === "净业绩" ? "font-semibold text-slate-900" : undefined}>{value}</td>)}</tr></tbody></table></div></section>;
 }
@@ -112,7 +138,7 @@ function ReceptionTables({ leads, range }: { leads: PersonalLead[]; range: LeadD
   const rows = dailyRows(leads, range);
   return <>
     <CoreData title="我的核心数据" description="撞粉、低金额和无 WS 号码不计入有效数据；后续流程和资金仍按所有本人客户统计。" items={[["添加", totals.added], ["低金额", totals.lowAmount], ["无 WS 号码", totals.noWs], ["有效数据", totals.effective], ["回复", totals.replied], ["进群", totals.joined], ["推专家", totals.introduced], ["注册", totals.registered], ["开单", totals.orders], ["入金", formatUsd(totals.initialDepositCents + totals.rechargeCents)], ["出金", formatUsd(totals.withdrawalCents)], ["净业绩", formatUsd(totals.netCents)]]} />
-    <section className="personal-data-table"><h2>每日明细</h2><p>回复率 = 回复 ÷ 有效数据；进群率 = 进群 ÷ 回复；开单率 = 开单 ÷ 注册。</p><div className="data-table-wrap"><table className="data-table whitespace-nowrap"><thead><tr><th>日期</th><th>添加</th><th>低金额</th><th>无 WS 号码</th><th>有效</th><th>回复</th><th>回复率</th><th>进群</th><th>进群率</th><th>推专家</th><th>注册</th><th>开单</th><th>开单率</th><th>入金</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{rows.map(({ date, totals: row }) => <tr key={date}><td className="font-semibold">{date}</td><td>{row.added}</td><td>{row.lowAmount}</td><td>{row.noWs}</td><td>{row.effective}</td><td>{row.replied}</td><td>{rate(row.replied, row.effective)}</td><td>{row.joined}</td><td>{rate(row.joined, row.replied)}</td><td>{row.introduced}</td><td>{row.registered}</td><td>{row.orders}</td><td>{rate(row.orders, row.registered)}</td><td>{formatUsd(row.initialDepositCents + row.rechargeCents)}</td><td>{formatUsd(row.withdrawalCents)}</td><td className="font-semibold">{formatUsd(row.netCents)}</td></tr>)}{!rows.length && <EmptyRow columns={16} />}</tbody></table></div></section>
+    <section className="personal-data-table"><h2>每日明细</h2><p>每日活动按实际发生日期归入当天，转化率会横跨多天，不在这里逐日拆分。</p><div className="data-table-wrap"><table className="data-table whitespace-nowrap"><thead><tr><th>日期</th><th>添加</th><th>低金额</th><th>无 WS 号码</th><th>有效</th><th>回复</th><th>进群</th><th>推专家</th><th>注册</th><th>开单</th><th>入金</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{rows.map(({ date, totals: row }) => <tr key={date}><td className="font-semibold">{date}</td><td>{row.added}</td><td>{row.lowAmount}</td><td>{row.noWs}</td><td>{row.effective}</td><td>{row.replied}</td><td>{row.joined}</td><td>{row.introduced}</td><td>{row.registered}</td><td>{row.orders}</td><td>{formatUsd(row.initialDepositCents + row.rechargeCents)}</td><td>{formatUsd(row.withdrawalCents)}</td><td className="font-semibold">{formatUsd(row.netCents)}</td></tr>)}{!rows.length && <EmptyRow columns={13} />}</tbody></table></div></section>
   </>;
 }
 
@@ -120,9 +146,10 @@ function GroupOperatorTables({ leads, range }: { leads: PersonalLead[]; range: L
   const totals = summarize(leads, range);
   const rows = dailyRows(leads, range);
   const workflowLeads = leads.filter((lead) => !isHistorical(lead));
+  const cohort = operatorCohortFunnel(leads, range);
   return <>
-    <CoreData title="我的核心数据" description="只统计你接手的常规客户。历史补录不进入群数量和流程转化，但其开单与资金仍计入财务。" items={[["接手客户", workflowLeads.length], ["进群", totals.joined], ["当前在群", currentInGroup(leads)], ["退群", totals.left], ["提前退群", totals.earlyLeft], ["推专家", totals.introduced], ["推专家率", rate(totals.introduced, totals.joined)], ["专家已联系", totals.contacted], ["已注册", totals.registered], ["已开单", totals.orders]]} />
-    <section className="personal-data-table"><h2>每日明细</h2><p>在群存量按当天结束时仍在群的常规客户计算，方便看群内客户是否在流失。</p><div className="data-table-wrap"><table className="data-table whitespace-nowrap"><thead><tr><th>日期</th><th>进群</th><th>退群</th><th>提前退群</th><th>在群存量</th><th>推专家</th><th>推专家率</th><th>专家已联系</th><th>已注册</th><th>已开单</th></tr></thead><tbody>{rows.map(({ date, totals: row }) => <tr key={date}><td className="font-semibold">{date}</td><td>{row.joined}</td><td>{row.left}</td><td>{row.earlyLeft}</td><td>{workflowLeads.filter((lead) => Boolean(lead.joinedOn && lead.joinedOn <= date && (!lead.leftOn || lead.leftOn > date))).length}</td><td>{row.introduced}</td><td>{rate(row.introduced, row.joined)}</td><td>{row.contacted}</td><td>{row.registered}</td><td>{row.orders}</td></tr>)}{!rows.length && <EmptyRow columns={10} />}</tbody></table></div></section>
+    <CoreData title="我的核心数据" description="只统计你接手的常规客户。历史补录不进入群数量和流程转化，但其开单与资金仍计入财务。" items={[["接手客户", workflowLeads.length], ["进群", totals.joined], ["当前在群", currentInGroup(leads)], ["退群", totals.left], ["提前退群", totals.earlyLeft], ["推专家", totals.introduced], ["推专家率", rate(cohort.introduced, cohort.cohortSize)], ["专家已联系", totals.contacted], ["已注册", totals.registered], ["已开单", totals.orders]]} />
+    <section className="personal-data-table"><h2>每日明细</h2><p>在群存量按当天结束时仍在群的常规客户计算，方便看群内客户是否在流失；转化率会横跨多天，不在这里逐日拆分。</p><div className="data-table-wrap"><table className="data-table whitespace-nowrap"><thead><tr><th>日期</th><th>进群</th><th>退群</th><th>提前退群</th><th>在群存量</th><th>推专家</th><th>专家已联系</th><th>已注册</th><th>已开单</th></tr></thead><tbody>{rows.map(({ date, totals: row }) => <tr key={date}><td className="font-semibold">{date}</td><td>{row.joined}</td><td>{row.left}</td><td>{row.earlyLeft}</td><td>{workflowLeads.filter((lead) => Boolean(lead.joinedOn && lead.joinedOn <= date && (!lead.leftOn || lead.leftOn > date))).length}</td><td>{row.introduced}</td><td>{row.contacted}</td><td>{row.registered}</td><td>{row.orders}</td></tr>)}{!rows.length && <EmptyRow columns={9} />}</tbody></table></div></section>
   </>;
 }
 
@@ -130,9 +157,10 @@ function ExpertTables({ leads, range }: { leads: PersonalLead[]; range: LeadDate
   const totals = summarize(leads, range);
   const rows = dailyRows(leads, range);
   const workflowLeads = leads.filter((lead) => !isHistorical(lead));
+  const cohort = expertCohortFunnel(leads, range);
   return <>
-    <CoreData title="我的核心数据" description="只统计分配给你的常规客户。历史补录只贡献开单和资金；金额 = 首充 + 续充 − 出金。" items={[["跟进客户", workflowLeads.length], ["已联系", totals.contacted], ["联系率", rate(totals.contacted, workflowLeads.length)], ["已注册", totals.registered], ["注册率", rate(totals.registered, totals.contacted)], ["已开单", totals.orders], ["开单率", rate(totals.orders, totals.registered)], ["首充", formatUsd(totals.initialDepositCents)], ["续充", formatUsd(totals.rechargeCents)], ["出金", formatUsd(totals.withdrawalCents)], ["净业绩", formatUsd(totals.netCents)], ["不首充", totals.noInitialDeposit], ["杀不动", totals.stalled]]} />
-    <section className="personal-data-table"><h2>每日明细</h2><p>注册率 = 注册 ÷ 已联系；开单率 = 开单 ÷ 已注册。金额按当天实际发生日期计算。</p><div className="data-table-wrap"><table className="data-table whitespace-nowrap"><thead><tr><th>日期</th><th>已联系</th><th>已注册</th><th>注册率</th><th>已开单</th><th>开单率</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>不首充</th><th>杀不动</th></tr></thead><tbody>{rows.map(({ date, totals: row }) => <tr key={date}><td className="font-semibold">{date}</td><td>{row.contacted}</td><td>{row.registered}</td><td>{rate(row.registered, row.contacted)}</td><td>{row.orders}</td><td>{rate(row.orders, row.registered)}</td><td>{formatUsd(row.initialDepositCents)}</td><td>{formatUsd(row.rechargeCents)}</td><td>{formatUsd(row.withdrawalCents)}</td><td className="font-semibold">{formatUsd(row.netCents)}</td><td>{row.noInitialDeposit}</td><td>{row.stalled}</td></tr>)}{!rows.length && <EmptyRow columns={12} />}</tbody></table></div></section>
+    <CoreData title="我的核心数据" description="只统计分配给你的常规客户。历史补录只贡献开单和资金；金额 = 首充 + 续充 − 出金。" items={[["跟进客户", workflowLeads.length], ["已联系", totals.contacted], ["联系率", rate(cohort.contacted, cohort.cohortSize)], ["已注册", totals.registered], ["注册率", rate(cohort.registered, cohort.contacted)], ["已开单", totals.orders], ["开单率", rate(cohort.orders, cohort.registered)], ["首充", formatUsd(totals.initialDepositCents)], ["续充", formatUsd(totals.rechargeCents)], ["出金", formatUsd(totals.withdrawalCents)], ["净业绩", formatUsd(totals.netCents)], ["不首充", totals.noInitialDeposit], ["杀不动", totals.stalled]]} />
+    <section className="personal-data-table"><h2>每日明细</h2><p>金额按当天实际发生日期计算；转化率会横跨多天，不在这里逐日拆分。</p><div className="data-table-wrap"><table className="data-table whitespace-nowrap"><thead><tr><th>日期</th><th>已联系</th><th>已注册</th><th>已开单</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>不首充</th><th>杀不动</th></tr></thead><tbody>{rows.map(({ date, totals: row }) => <tr key={date}><td className="font-semibold">{date}</td><td>{row.contacted}</td><td>{row.registered}</td><td>{row.orders}</td><td>{formatUsd(row.initialDepositCents)}</td><td>{formatUsd(row.rechargeCents)}</td><td>{formatUsd(row.withdrawalCents)}</td><td className="font-semibold">{formatUsd(row.netCents)}</td><td>{row.noInitialDeposit}</td><td>{row.stalled}</td></tr>)}{!rows.length && <EmptyRow columns={10} />}</tbody></table></div></section>
   </>;
 }
 

@@ -179,6 +179,24 @@ export async function loadMemberDailyDetail(input: {
       normalizedChannelName: input.normalizedName,
     })
     : [];
+  // 需求文档6.1.1：当日在群/可推专家是快照，人群不能被报表选中的 [from,to] 卡住——
+  // leads 是按"某个日期字段落在 [from,to] 内"筛出来的，joinedOn 早于 from 的客户就漏了。
+  const inGroupLeads = input.role === "GROUP_OPERATOR"
+    ? await db.leadCustomer.findMany({
+      where: {
+        groupOperatorOwnerId: member.id,
+        isHistoricalRecord: false,
+        joinedOn: { not: null },
+        batch: {
+          groupId: { in: input.groupIds },
+          isHistoricalRecord: false,
+          ...(input.channelIds ? { channelId: { in: input.channelIds } } : {}),
+          ...(input.normalizedName ? { channel: { normalizedName: input.normalizedName } } : {}),
+        },
+      },
+      select: { invalid: true, receptionCategory: true, joinedOn: true, leftOn: true, expertIntroducedOn: true },
+    })
+    : [];
 
   const rows = new Map(allDates(input.from, input.to).map((date) => [date, emptyRow(date)]));
   const rowFor = (date: string | null | undefined) => date && rows.get(date);
@@ -242,8 +260,8 @@ export async function loadMemberDailyDetail(input: {
 
   if (input.role === "GROUP_OPERATOR") {
     for (const row of rows.values()) {
-      row.inGroup = leads.filter((lead) => !lead.isHistoricalRecord && !lead.batch.isHistoricalRecord && isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= row.date && (!lead.leftOn || lead.leftOn > row.date)).length;
-      row.eligibleForExpert = leads.filter((lead) => !lead.isHistoricalRecord && !lead.batch.isHistoricalRecord && isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= addDays(row.date, -2) && (!lead.leftOn || lead.leftOn > row.date) && (!lead.expertIntroducedOn || lead.expertIntroducedOn > row.date)).length;
+      row.inGroup = inGroupLeads.filter((lead) => isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= row.date && (!lead.leftOn || lead.leftOn > row.date)).length;
+      row.eligibleForExpert = inGroupLeads.filter((lead) => isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= addDays(row.date, -2) && (!lead.leftOn || lead.leftOn > row.date) && (!lead.expertIntroducedOn || lead.expertIntroducedOn > row.date)).length;
     }
   }
   for (const row of rows.values()) row.netCents = row.depositCents - row.withdrawalCents;

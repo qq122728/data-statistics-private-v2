@@ -54,7 +54,7 @@ beforeAll(async () => {
     { id: ids.otherMember, username: ids.otherMember, name: "其他组成员", passwordHash: "test", role: "RECEPTION", groupId: ids.groupB },
   ] });
   const [shared, d0, d4to7, stalled, other] = await Promise.all([
-    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-01", channelTypeSnapshot: "ADS", advertisingFanCount: 20, advertisingSpendCents: 10_000, advertisingServiceFeeRateBps: 1_500, effectiveFanPriceCentsSnapshot: 575 } }),
+    db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-01", channelTypeSnapshot: "ADS" } }),
     db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-12" } }),
     db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-05" } }),
     db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: ids.channelA, sourceDate: "2026-08-04" } }),
@@ -102,7 +102,7 @@ describe.sequential("batch tracking query", () => {
     const leadScope = scope("LEAD", [ids.groupA], { groupId: ids.groupA });
     const result = await loadBatchTracking(leadScope, "2026-08-12");
     expect(new Set(result.rows.map((row) => row.groupId))).toEqual(new Set([ids.groupA]));
-    expect(await loadBatchDetail(leadScope, sharedBatchId, ids.memberA, "2026-08-12")).toMatchObject({ batchId: sharedBatchId, memberId: ids.memberA, channelType: "ADS", advertisingFanCount: 20, advertisingSpendCents: 10_000, effectiveFanPriceCentsSnapshot: 575, d7: { totals: { orders: 2 } }, customers: [] });
+    expect(await loadBatchDetail(leadScope, sharedBatchId, ids.memberA, "2026-08-12")).toMatchObject({ batchId: sharedBatchId, memberId: ids.memberA, channelType: "ADS", d7: { totals: { orders: 2 } }, customers: [] });
     expect(await loadBatchDetail({ ...leadScope, sourceDateFrom: "2026-08-12", sourceDateTo: "2026-08-12", normalizedName: "不存在" }, sharedBatchId, ids.memberA, "2026-08-12")).toMatchObject({ batchId: sharedBatchId, memberId: ids.memberA });
     expect(await loadBatchDetail(leadScope, sharedBatchId, ids.otherMember, "2026-08-12")).toBeNull();
   });

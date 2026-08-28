@@ -6,13 +6,11 @@ import { formatMetricEventValue, metricKindLabels } from "../../../lib/metrics";
 import { FunnelSummary } from "../FunnelSummary";
 import { MaturityWindowCards } from "../MaturityWindowCards";
 import { formatUsd as money } from "../../../lib/money";
-import { AdvertisingSpendEditor } from "./AdvertisingSpendEditor";
 
-export function BatchDetail({ detail, filters, canEditAdvertisingSpend }: { detail: BatchDetailData; filters: Partial<AnalysisFilters>; canEditAdvertisingSpend: boolean }) {
+export function BatchDetail({ detail, filters }: { detail: BatchDetailData; filters: Partial<AnalysisFilters> }) {
   const historyHref = buildAnalysisHref("/history", filters, { sourceDateFrom: detail.sourceDate, sourceDateTo: detail.sourceDate, memberId: detail.memberId, normalizedName: detail.normalizedName });
   return <div className="space-y-4">
     <section className="panel p-5"><h2 className="panel-title">批次身份</h2><dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><div><dt className="text-sm text-slate-500">来源日期</dt><dd className="mt-1 font-semibold">{detail.sourceDate} · {detail.ageLabel}</dd></div><div><dt className="text-sm text-slate-500">渠道</dt><dd className="mt-1 font-semibold">{detail.channelName}</dd></div><div><dt className="text-sm text-slate-500">人员</dt><dd className="mt-1 font-semibold">{detail.memberName}</dd></div><div><dt className="text-sm text-slate-500">小组</dt><dd className="mt-1 font-semibold">{detail.groupName}</dd></div></dl></section>
-    {detail.channelType === "ADS" ? <AdvertisingSpendEditor batchId={detail.batchId} advertisingSpendCents={detail.advertisingSpendCents} advertisingFanCount={detail.advertisingFanCount} advertisingServiceFeeRateBps={detail.advertisingServiceFeeRateBps} effectiveFanPriceCentsSnapshot={detail.effectiveFanPriceCentsSnapshot} canEdit={canEditAdvertisingSpend} /> : null}
     <section className="panel p-5"><h2 className="mb-4 panel-title">完整漏斗</h2><FunnelSummary totals={detail.totals} rates={detail.rates} largestDrop={detail.largestDrop} /></section>
     <MaturityWindowCards d7={detail.d7} d14={detail.d14} />
     <section className="panel">

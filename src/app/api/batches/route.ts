@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
-import { db, getOrCreateSourceBatch, refreshAdvertisingBatchCost } from "../../../lib/db";
+import { db, getOrCreateSourceBatch } from "../../../lib/db";
 import { ChannelResolutionError, isConcurrentChannelCreateError, isRetryableSqliteTransactionError, resolveOrCreateChannel } from "../../../lib/channels";
 import { parseNewFansInput, type NewFansInput } from "../../../lib/validation";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
@@ -99,10 +99,7 @@ export async function POST(request: Request) {
             kind: kind as "NEW_FANS" | "EFFECTIVE_FANS" | "NO_NUMBER" | "DUPLICATE_FANS",
             quantity: quantity as number,
           })));
-          const refreshedBatch = batch.channelTypeSnapshot === "ADS"
-            ? await refreshAdvertisingBatchCost(batch.id, transaction)
-            : batch;
-          saved.push({ batch: refreshedBatch, event: events[0] });
+          saved.push({ batch, event: events[0] });
         } catch (error) {
           if (error instanceof ChannelResolutionError) {
             throw Object.assign(error, { rowIndex: index, field: input.channelName ? "channelName" : "channelId" });

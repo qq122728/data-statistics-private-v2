@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseHistoryGroupUpdate, parseMetricInput, parseNewFansInput } from "../../src/lib/validation";
+import { parseHistoryGroupUpdate, parseMetricInput, parseNewFansInput, validateFanBreakdown } from "../../src/lib/validation";
 
 const completeHistoryGroupUpdate = {
   eventIds: ["event-a", "event-b"],
@@ -175,5 +175,25 @@ describe("history group update validation", () => {
   it("rejects unknown payload properties and malformed fingerprints", () => {
     expect(() => parseHistoryGroupUpdate({ ...completeHistoryGroupUpdate, unexpected: true })).toThrow();
     expect(() => parseHistoryGroupUpdate({ ...completeHistoryGroupUpdate, fingerprint: "A".repeat(64) })).toThrow();
+  });
+});
+
+describe("fan breakdown validation", () => {
+  it("rejects fan statuses that exceed the acquired-fan total", () => {
+    expect(validateFanBreakdown({
+      newFans: 100,
+      effectiveFans: 60,
+      noNumber: 30,
+      duplicateFans: 20,
+    })).toEqual({ valid: false, message: "有效粉、无 WS 号码和撞粉合计不能大于提交号码" });
+  });
+
+  it("accepts fan statuses that exactly account for acquired fans", () => {
+    expect(validateFanBreakdown({
+      newFans: 100,
+      effectiveFans: 60,
+      noNumber: 30,
+      duplicateFans: 10,
+    })).toEqual({ valid: true });
   });
 });

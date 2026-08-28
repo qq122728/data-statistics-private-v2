@@ -159,7 +159,7 @@ export function ChannelManager({
         <div>
           <h2 className="text-2xl font-bold">渠道管理</h2>
           <p className="mt-1 text-sm text-slate-600">
-            {companyMode ? "仅管理本公司：保存后会同步到本公司所有小组；其他公司的渠道不会受到影响。所有修改都会写入审计日志。" : resourceMode ? "全局渠道：保存后所有公司和小组都可以选择；资源部负责渠道的日常维护和投流批次规则。所有修改都会写入审计日志。" : "日常渠道由资源部维护；总公司仅在特殊情况下介入，并必须填写原因和管理员密码。"}
+            {companyMode ? "仅管理本公司：保存后会同步到本公司所有小组；其他公司的渠道不会受到影响。所有修改都会写入审计日志。" : resourceMode ? "全局渠道：保存后所有公司和小组都可以选择；资源部负责渠道的日常维护。所有修改都会写入审计日志。" : "日常渠道由资源部维护；总公司仅在特殊情况下介入，并必须填写原因和管理员密码。"}
           </p>
         </div>
         <button
@@ -237,7 +237,7 @@ export function ChannelManager({
                 <label className="block text-sm font-medium">渠道类型<select value={channelType} disabled={Boolean(channel)} onChange={(event) => setChannelType(event.target.value as ChannelType)} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2.5 disabled:bg-slate-100"><option value="SMS">短信粉</option><option value="ADS">投流粉</option><option value="REBATE">底料返点</option></select>{channel ? <span className="mt-1 block text-xs font-normal text-slate-500">已产生历史批次的渠道不能改类型，避免旧账变口径。</span> : null}</label>
                 {companyMode ? <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">保存后，本公司的所有小组会使用同一条渠道。</p> : null}
                 <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3 text-sm text-blue-800">
-                  {channelType === "ADS" ? "组长先建立共享投流批次并填写一次广告费；多位接粉员选择同一渠道和日期导入，系统按广告消耗 × 115% ÷ 全部有效新增数自动统一核算单粉成本。" : "渠道类型只用于统计口径分类，对比不同来源的转化质量。"}
+                  {channelType === "ADS" ? "投流粉渠道支持多位接粉员共用同一渠道和日期导入到同一批次。" : "渠道类型只用于统计口径分类，对比不同来源的转化质量。"}
                 </div>
               </form>
               {channel && (

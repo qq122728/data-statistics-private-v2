@@ -25,10 +25,6 @@ export type BatchTrackingRow = {
 
 export type BatchDetail = BatchTrackingRow & {
   channelType: "SMS" | "ADS" | "REBATE";
-  advertisingSpendCents: number | null;
-  advertisingFanCount: number | null;
-  advertisingServiceFeeRateBps: number | null;
-  effectiveFanPriceCentsSnapshot: number | null;
   rates: ConversionRates;
   maturity: ReturnType<typeof getMaturity>;
   d7: { state: "MATURE" | "PENDING"; totals: BatchTotals; rates: ConversionRates };
@@ -126,10 +122,6 @@ export async function loadBatchDetail(scope: AnalysisScope, batchId: string, mem
     where: { id: batchId, groupId: { in: scope.groupIds }, ...(scope.channelIds ? { channelId: { in: scope.channelIds } } : {}) },
     select: {
       channelTypeSnapshot: true,
-      advertisingSpendCents: true,
-      advertisingFanCount: true,
-      advertisingServiceFeeRateBps: true,
-      effectiveFanPriceCentsSnapshot: true,
     },
   });
   if (!batch) return null;
@@ -207,10 +199,6 @@ export async function loadBatchDetail(scope: AnalysisScope, batchId: string, mem
   return {
     ...row,
     channelType: batch.channelTypeSnapshot,
-    advertisingSpendCents: batch.advertisingSpendCents,
-    advertisingFanCount: batch.advertisingFanCount,
-    advertisingServiceFeeRateBps: batch.advertisingServiceFeeRateBps,
-    effectiveFanPriceCentsSnapshot: batch.effectiveFanPriceCentsSnapshot,
     rates: calculateConversionRates(row.totals),
     maturity,
     d7: window(7),

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
-import { db, getOrCreateSourceBatch, refreshAdvertisingBatchCost } from "../../../lib/db";
+import { db, getOrCreateSourceBatch } from "../../../lib/db";
 import { ChannelResolutionError, resolveOrCreateChannel } from "../../../lib/channels";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
 import { recordMetricEvents } from "../../../lib/metric-events";
@@ -142,7 +142,6 @@ export async function POST(request: Request) {
         groupId: channel.groupId,
         channelId: channel.id,
         sourceDate: input.sourceDate,
-        advertisingFanCount: acceptedRows.length,
       }, transaction);
       const selectedDeviceIds = [...new Set(acceptedRows.flatMap((row) => row.deviceId ? [row.deviceId] : []))];
       const selectedDevices = selectedDeviceIds.length
@@ -203,14 +202,9 @@ export async function POST(request: Request) {
         { batchId: batch.id, enteredById, occurredOn: input.sourceDate, kind: "NEW_FANS" as const, quantity, derivedFromLedger: true },
         { batchId: batch.id, enteredById, occurredOn: input.sourceDate, kind: "EFFECTIVE_FANS" as const, quantity, derivedFromLedger: true },
       ]));
-      // 同一投流批次可由多位接粉员共同导入。每次导入后合计全批有效新增数，
-      // 让所有人的号码使用同一笔自动更新的单粉成本。
-      const refreshedBatch = batch.channelTypeSnapshot === "ADS"
-        ? await refreshAdvertisingBatchCost(batch.id, transaction)
-        : batch;
       await touchDailyEntryConfirmations(transaction, user.id, [input.sourceDate]);
       return {
-        batch: refreshedBatch,
+        batch,
         imported: acceptedRows.length,
         duplicateCount: Math.max(0, duplicateCount),
         duplicateInPasteCount: Math.max(0, duplicateInPasteCount),

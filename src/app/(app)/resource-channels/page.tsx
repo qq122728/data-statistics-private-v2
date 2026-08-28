@@ -48,7 +48,7 @@ export default async function ResourceChannelsPage() {
   });
 
   return <main className="page-shell space-y-3">
-    <div className="page-heading"><div><h1 className="page-title">渠道与结算规则</h1><p className="page-description">{companyMode ? "你可以管理本公司的渠道和启用状态；其他公司的渠道不会显示，也不能修改。" : "渠道分为短信粉、投流粉和底料返点，用于对比来源质量。投流批次由组长先填写一次广告费，多位接粉员共同导入后，系统按全部有效新增数和广告费 × 115% 自动核算统一成本。"}</p></div></div>
+    <div className="page-heading"><div><h1 className="page-title">渠道与结算规则</h1><p className="page-description">{companyMode ? "你可以管理本公司的渠道和启用状态；其他公司的渠道不会显示，也不能修改。" : "渠道分为短信粉、投流粉和底料返点，用于对比来源质量。同一渠道和日期的投流批次可由多位接粉员共同导入。"}</p></div></div>
     <section className="panel p-4"><ChannelManager channels={channels} groups={groups} resourceMode={!companyMode} companyMode={companyMode} /></section>
   </main>;
 }

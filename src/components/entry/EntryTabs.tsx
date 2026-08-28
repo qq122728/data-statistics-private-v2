@@ -689,7 +689,7 @@ export function EntryTabs({
   function requestDeleteLead(lead: Lead) {
     setConfirmation({
       title: "确认删除错误导入？",
-      description: "仅能删除尚未回复、未拉群的错误导入。删除后会同步冲销该批次的新增和有效数据，资源部统计与广告单粉成本会自动更正。",
+      description: "仅能删除尚未回复、未拉群的错误导入。删除后会同步冲销该批次的新增和有效数据，资源部统计会自动更正。",
       confirmLabel: "确认删除并冲销统计",
       target: `${lead.phone}${lead.customerName ? ` · ${lead.customerName}` : ""}`,
       tone: "danger",

@@ -15,7 +15,6 @@ import { GET as getDownstreamProgress } from "../../src/app/api/leads/[leadId]/d
 import { PATCH as voidFinance } from "../../src/app/api/customer-finance/[eventId]/route";
 import { POST as createFinance } from "../../src/app/api/customer-finance/route";
 import { POST as createOrder } from "../../src/app/api/customer-orders/route";
-import { PATCH as saveAdvertisingSpend } from "../../src/app/api/batches/[batchId]/advertising-spend/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "", databaseUrl: "" }));
 
@@ -39,19 +38,13 @@ vi.mock("../../src/lib/db", async () => {
   return {
     db: new PrismaClient({ datasourceUrl: databaseUrl }),
     getOrCreateSourceBatch: (
-      key: { groupId: string; channelId: string; sourceDate: string; advertisingSpendCents?: number | null; advertisingFanCount?: number | null },
+      key: { groupId: string; channelId: string; sourceDate: string },
       client: InstanceType<typeof PrismaClient>,
-    ) => {
-      const { advertisingSpendCents: _advertisingSpendCents, advertisingFanCount: _advertisingFanCount, ...batchKey } = key;
-      return (
-      client.sourceBatch.upsert({
-        where: { groupId_channelId_sourceDate: batchKey },
-        update: {},
-        create: batchKey,
-      })
-      );
-    },
-    refreshAdvertisingBatchCost: async (batchId: string, client: InstanceType<typeof PrismaClient>) => client.sourceBatch.findUniqueOrThrow({ where: { id: batchId } }),
+    ) => client.sourceBatch.upsert({
+      where: { groupId_channelId_sourceDate: key },
+      update: {},
+      create: key,
+    }),
   };
 });
 
@@ -154,7 +147,6 @@ async function signInAs(id: string) {
 }
 
 const leadContext = (leadId: string) => ({ params: Promise.resolve({ leadId }) });
-const batchContext = (batchId: string) => ({ params: Promise.resolve({ batchId }) });
 
 function historicalExpertRequest(phone: string) {
   return new Request("http://localhost/api/expert-customers/historical", {
@@ -176,27 +168,6 @@ function historicalExpertRequest(phone: string) {
 }
 
 describe.sequential("frontline role boundaries", () => {
-  it("only lets the owning group lead fill and correct an ads batch cost", async () => {
-    const channel = await db.channel.create({ data: { id: `ads-${suffix}`, groupId: ids.groupA, name: "投流权限测试", normalizedName: `投流权限测试-${suffix}`, channelType: "ADS", fanCostMode: "PAID" } });
-    const batch = await db.sourceBatch.create({ data: { groupId: ids.groupA, channelId: channel.id, sourceDate: "2026-08-16", channelTypeSnapshot: "ADS", advertisingFanCount: 10 } });
-
-    await signInAs(ids.receptionA);
-    expect((await saveAdvertisingSpend(new Request("http://localhost/api/batches/ads/advertising-spend", { method: "PATCH", body: JSON.stringify({ advertisingSpendCents: 10_000 }) }), batchContext(batch.id))).status).toBe(403);
-
-    vi.restoreAllMocks();
-    await signInAs(ids.leadA);
-    const first = await saveAdvertisingSpend(new Request("http://localhost/api/batches/ads/advertising-spend", { method: "PATCH", body: JSON.stringify({ advertisingSpendCents: 10_000 }) }), batchContext(batch.id));
-    expect(first.status).toBe(200);
-    await expect(db.sourceBatch.findUniqueOrThrow({ where: { id: batch.id } })).resolves.toMatchObject({ advertisingSpendCents: 10_000, advertisingFanCount: 10, advertisingServiceFeeRateBps: 1_500, effectiveFanPriceCentsSnapshot: 1_150 });
-
-    const withoutReason = await saveAdvertisingSpend(new Request("http://localhost/api/batches/ads/advertising-spend", { method: "PATCH", body: JSON.stringify({ advertisingSpendCents: 12_000 }) }), batchContext(batch.id));
-    expect(withoutReason.status).toBe(400);
-    const correction = await saveAdvertisingSpend(new Request("http://localhost/api/batches/ads/advertising-spend", { method: "PATCH", body: JSON.stringify({ advertisingSpendCents: 12_000, correctionReason: "广告后台金额修正" }) }), batchContext(batch.id));
-    expect(correction.status).toBe(200);
-    await expect(db.sourceBatch.findUniqueOrThrow({ where: { id: batch.id } })).resolves.toMatchObject({ advertisingSpendCents: 12_000, effectiveFanPriceCentsSnapshot: 1_380 });
-    await expect(db.auditLog.findFirst({ where: { entityId: batch.id, action: "ADS_BATCH_SPEND_CORRECTED" } })).resolves.toMatchObject({ actorId: ids.leadA });
-  });
-
   it.each(["groupOperatorA", "expertA"] as const)(
     "blocks %s from the generic customer write and delete endpoints",
     async (actorKey) => {

@@ -1,7 +1,7 @@
 import type { EmployeeStageOverride, Role } from "@prisma/client";
 import { db } from "../db";
 import { resolveEmployeeStage, type EmployeeStage } from "../employee-stage";
-import { validateFanBreakdown } from "../finance";
+import { validateFanBreakdown } from "../validation";
 import {
   addBatchTotals,
   calculateBatchTotals,

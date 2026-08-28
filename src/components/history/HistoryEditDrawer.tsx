@@ -7,7 +7,7 @@ import type { HistoryGroup, HistoryMetricTotals } from "../../lib/history-groups
 import { BatchPicker } from "../entry/BatchPicker";
 import { FieldError } from "../entry/FieldError";
 import { Button } from "../ui/Button";
-import { validateFanBreakdown } from "../../lib/finance";
+import { validateFanBreakdown } from "../../lib/validation";
 import {
   formatHistoryMetric,
   historyMetricDisplay,

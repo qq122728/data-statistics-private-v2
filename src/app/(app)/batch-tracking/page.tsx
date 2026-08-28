@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { AnalysisFilters } from "../../../components/analytics/AnalysisFilters";
 import { AnalysisFilterNotice } from "../../../components/analytics/AnalysisState";
 import { BatchTrackingTable } from "../../../components/analytics/batch/BatchTrackingTable";
-import { AdvertisingBatchCreator } from "../../../components/analytics/batch/AdvertisingBatchCreator";
 import { loadBatchTracking } from "../../../lib/analytics/batch-tracking";
 import { parseAnalysisFilters, resolveAnalysisScope } from "../../../lib/analytics/scope";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
@@ -30,15 +29,12 @@ export default async function BatchTrackingPage({ searchParams }: { searchParams
   const parsed = parseAnalysisFilters(new URLSearchParams(rawValues));
   const dateRange = resolveDateRangeWithDefault(rawValues, today, "month");
   const scope = resolveAnalysisScope(user, { ...parsed, sourceDateFrom: dateRange.from, sourceDateTo: dateRange.to }, today, readableGroups.map((group) => group.id));
-  const [result, members, channels, advertisingChannels] = await Promise.all([
+  const [result, members, channels] = await Promise.all([
     loadBatchTracking(scope, today),
     db.user.findMany({ where: { groupId: { in: scope.groupIds }, role: { in: ["LEAD", "RECEPTION"] }, ...(scope.includeInactive ? {} : { active: true }) }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
     db.channel.findMany({ where: { groupId: { in: scope.groupIds } }, select: { normalizedName: true, name: true, active: true }, orderBy: [{ active: "desc" }, { name: "asc" }] }),
-    user.role === "LEAD" && user.groupId
-      ? db.channel.findMany({ where: { groupId: user.groupId, active: true, channelType: "ADS" }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-      : Promise.resolve([]),
   ]);
   const channelOptions = [...new Map(channels.map((channel) => [channel.normalizedName, channel])).values()];
   const preserved = { groupId: scope.groupId, memberId: scope.memberId, normalizedName: scope.normalizedName, includeInactive: scope.includeInactive };
-  return <main className="page-shell space-y-4"><div className="page-heading"><div><h1 className="page-title">批次追踪</h1><p className="page-description">先处理数据异常和停滞批次，再查看正常推进和已开单批次。</p></div></div>{user.role === "LEAD" ? <LeadWorkspaceTabs kind="acquisition" /> : null}{user.role === "LEAD" ? <AdvertisingBatchCreator channels={advertisingChannels} today={today} /> : null}<LeadDateRangeFilter pathname="/batch-tracking" range={dateRange} today={today} preserve={preserved} ariaLabel="批次追踪时间范围" /><AnalysisFilters action="/batch-tracking" visible={{ group: user.role === "ADMIN", member: true, channel: true, includeInactive: true }} primary={["member", "channel", "group"]} options={{ groups: readableGroups, members, channels: channelOptions }} values={scope} preserve={{ range: dateRange.preset, sourceDateFrom: dateRange.from, sourceDateTo: dateRange.to }} compact /><AnalysisFilterNotice message={scope.filterWarning} /><BatchTrackingTable rows={result.rows} filters={scope} showGroup={user.role === "ADMIN"} /></main>;
+  return <main className="page-shell space-y-4"><div className="page-heading"><div><h1 className="page-title">批次追踪</h1><p className="page-description">先处理数据异常和停滞批次，再查看正常推进和已开单批次。</p></div></div>{user.role === "LEAD" ? <LeadWorkspaceTabs kind="acquisition" /> : null}<LeadDateRangeFilter pathname="/batch-tracking" range={dateRange} today={today} preserve={preserved} ariaLabel="批次追踪时间范围" /><AnalysisFilters action="/batch-tracking" visible={{ group: user.role === "ADMIN", member: true, channel: true, includeInactive: true }} primary={["member", "channel", "group"]} options={{ groups: readableGroups, members, channels: channelOptions }} values={scope} preserve={{ range: dateRange.preset, sourceDateFrom: dateRange.from, sourceDateTo: dateRange.to }} compact /><AnalysisFilterNotice message={scope.filterWarning} /><BatchTrackingTable rows={result.rows} filters={scope} showGroup={user.role === "ADMIN"} /></main>;
 }

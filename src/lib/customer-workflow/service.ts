@@ -1,5 +1,5 @@
 import type { LeadActivityKind } from "@prisma/client";
-import { db, refreshAdvertisingBatchCost } from "../db";
+import { db } from "../db";
 import { recordAudit } from "../audit";
 import { touchDailyEntryConfirmations } from "../daily-confirmations";
 import { normalizeCustomerPhone } from "../entry-ledger";
@@ -418,7 +418,7 @@ export async function deleteCustomerWorkflow(actor: WorkflowActor, leadId: strin
     if (!liveActor?.active) return { status: 403 as const, error: "当前岗位不能删除客户" };
     const lead = await transaction.leadCustomer.findUnique({
       where: { id: leadId },
-      include: { batch: { select: { groupId: true, sourceDate: true, channelTypeSnapshot: true, isHistoricalRecord: true } }, customerOrder: { select: { id: true } } },
+      include: { batch: { select: { groupId: true, sourceDate: true, isHistoricalRecord: true } }, customerOrder: { select: { id: true } } },
     });
     if (!lead) return { status: 404 as const, error: "客户不存在" };
     const accessFailure = authorizeCustomerDelete(liveActor, lead);
@@ -444,8 +444,6 @@ export async function deleteCustomerWorkflow(actor: WorkflowActor, leadId: strin
       summary: { phone: lead.phone, batchId: lead.batchId, ownerId: lead.ownerId, metricCorrection: Boolean(hasImportedMetric) },
     });
     await transaction.leadCustomer.delete({ where: { id: lead.id } });
-    if (hasImportedMetric && lead.batch.channelTypeSnapshot === "ADS")
-      await refreshAdvertisingBatchCost(lead.batchId, transaction);
     return { status: 200 as const };
   });
 }

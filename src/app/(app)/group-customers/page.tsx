@@ -22,6 +22,15 @@ import { autoMarkExpiredGroupMemberships } from "../../../lib/group-lifecycle";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
+/**
+ * 需求文档6.1.1：未分配炒群岗这一行不能只看 handled（选中范围内有没有经手记录）——
+ * 范围内零经手记录、但手里还有没退群老客户时 handled 是0，只看 handled 会让这行
+ * 跟着日期范围时隐时现，是当前在群快照要消灭的问题本身。
+ */
+export function shouldShowUnassignedRow<T extends { handled: number; inGroup: number }>(summary: T | undefined): summary is T {
+  return Boolean(summary && (summary.handled || summary.inGroup));
+}
+
 export default async function GroupCustomersPage({ searchParams = Promise.resolve({}) }: { searchParams?: Promise<SearchParams> }) {
   let user;
   try {
@@ -146,7 +155,7 @@ export default async function GroupCustomersPage({ searchParams = Promise.resolv
     };
   });
   const unassignedSummary = summaryByOperator.get("__unassigned__");
-  if (unassignedSummary?.handled) operatorPerformance.unshift({
+  if (shouldShowUnassignedRow(unassignedSummary)) operatorPerformance.unshift({
     id: "__unassigned__",
     name: "未分配炒群岗",
     active: false,

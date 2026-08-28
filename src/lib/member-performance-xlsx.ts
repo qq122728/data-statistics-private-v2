@@ -66,7 +66,10 @@ export function operatorRow(row: GroupOperatorRankingRow): MemberMetricRow {
     key: `operator:${row.id}`, id: row.id, group: row.groupName, name: row.name, role: "前台炒群",
     added: null, lowAmount: null, noWs: null, duplicate: null, effective: null, replied: null,
     // 炒群没有“进群”这个原始概念可填（接手客户数是另一个概念，这张共享表放不下），留空；
-    // 异常退群率仍按接手客户数当分母（同一批人），走专门的 abnormalLeaveRateBase 字段。
+    // 异常退群率的分母改回 role-rankings.ts 里 sharedCustomerCount 的既有算法，走专门的
+    // abnormalLeaveRateBase 字段。注意 sharedCustomerCount 按客户归属统计，abnormalLeft
+    // 按谁点了退群操作统计，同事代班处理时两者可能不是完全同一批人——这是 role-rankings.ts
+    // 里这两个字段本身的既有口径差异，不是这次改动引入的，暂不在本轮修复范围内。
     joined: null, abnormalLeaveRateBase: row.sharedCustomerCount, left: row.leaveActions, abnormalLeft: row.abnormalLeaveActions ?? 0, introduced: row.introducedActions, contacted: row.downstreamContacted ?? 0,
     registered: row.downstreamRegistered, orders: row.downstreamOrders,
     firstDepositCents: row.firstDepositCents, depositCents: row.depositCents, withdrawalCents: row.withdrawalCents, netPerformanceCents: row.netCents,

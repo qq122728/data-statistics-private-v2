@@ -57,7 +57,10 @@ function operatorRow(row: GroupOperatorRankingRow): MemberPerformanceReportRow {
     group: row.groupName, name: row.name, role: "前台炒群",
     added: "—", lowAmount: "—", noWs: "—", duplicate: "—", effective: "—", replied: "—", replyRate: "—",
     // 炒群没有“进群”这个原始概念可填（接手客户数是另一个概念，这张共享表放不下），留空；
-    // 异常退群率仍按接手客户数当分母（同一批人），不受“进群”这一栏留不留空影响。
+    // 异常退群率的分母改回 role-rankings.ts 里 sharedCustomerCount 的既有算法（不受“进群”
+    // 这一栏留不留空影响）。注意 sharedCustomerCount 按客户归属统计，abnormalLeaveActions
+    // 按谁点了退群操作统计，同事代班处理时两者可能不是完全同一批人——这是 role-rankings.ts
+    // 里这两个字段本身的既有口径差异，不是这次改动引入的，暂不在本轮修复范围内。
     joined: "—", joinRate: "—", left: row.leaveActions, leaveRate: rate(row.abnormalLeaveActions ?? 0, row.sharedCustomerCount),
     introduced: row.introducedActions, contacted: row.downstreamContacted ?? 0,
     registered: row.downstreamRegistered, registrationRate: rate(row.downstreamRegistered, row.downstreamContacted ?? 0),

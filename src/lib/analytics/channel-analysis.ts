@@ -72,12 +72,16 @@ type ImportChannelEvent = {
 
 const ratio = (value: number, base: number) => base === 0 ? null : value / base;
 
+type ChannelSnapshot = { count: number; displayName: string; groups: Map<string, string> };
+
 /**
  * 需求文档6.1.1：当前在群是快照，人群不能被报表的日期范围卡住——
  * 不管选的是哪个 sourceDateFrom，只要 joinedOn <= today 且还没退群，就该算在内。
  * 因此这里故意不复用上面按 scope.sourceDateFrom/To 过滤出来的 events。
+ * 顺带带上渠道展示名和所属小组——某个渠道选中范围内一条动态都没有、但手里还有没退群的
+ * 老客户时，这里是它唯一的数据来源，下面拼行时得能从这张表本身把整行搭出来。
  */
-async function loadCurrentInGroupByChannel(scope: AnalysisScope, today: string, normalizedFilter?: string): Promise<Map<string, number>> {
+async function loadCurrentInGroupByChannel(scope: AnalysisScope, today: string, normalizedFilter?: string): Promise<Map<string, ChannelSnapshot>> {
   const leads = await db.leadCustomer.findMany({
     where: {
       isHistoricalRecord: false,
@@ -93,15 +97,21 @@ async function loadCurrentInGroupByChannel(scope: AnalysisScope, today: string, 
         ...(normalizedFilter ? { channel: { normalizedName: normalizedFilter } } : {}),
       },
     },
-    select: { leftOn: true, batch: { select: { channel: { select: { name: true, normalizedName: true } } } } },
+    select: {
+      leftOn: true,
+      batch: { select: { channel: { select: { name: true, normalizedName: true } }, group: { select: { id: true, name: true } } } },
+    },
   });
-  const counts = new Map<string, number>();
+  const snapshots = new Map<string, ChannelSnapshot>();
   for (const lead of leads) {
     if (lead.leftOn && lead.leftOn <= today) continue;
     const key = normalizeChannelName(lead.batch.channel.normalizedName || lead.batch.channel.name);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const current = snapshots.get(key) ?? { count: 0, displayName: lead.batch.channel.name.trim(), groups: new Map<string, string>() };
+    current.count += 1;
+    current.groups.set(lead.batch.group.id, lead.batch.group.name);
+    snapshots.set(key, current);
   }
-  return counts;
+  return snapshots;
 }
 
 const windowFor = (events: ChannelEvent[], today: string, days: 7 | 14): MatureChannelWindow => {
@@ -210,7 +220,7 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
     classifications.set(key, current);
   }
 
-  const rows = [...grouped.entries()].map(([normalizedName, value]): ChannelQualityRow => {
+  const groupedRows = [...grouped.entries()].map(([normalizedName, value]): ChannelQualityRow => {
     const totals = calculateBatchTotals(value.events);
     const rates = calculateConversionRates(totals);
     const importQuantity = (kind: ImportChannelEvent["kind"]) => value.imports.filter((event) => event.kind === kind).reduce((sum, event) => sum + (event.quantity ?? 0), 0);
@@ -237,7 +247,7 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
       normalizedName,
       displayName: value.displayName,
       newFans: submitted,
-      currentInGroup: currentInGroupByChannel.get(normalizedName) ?? 0,
+      currentInGroup: currentInGroupByChannel.get(normalizedName)?.count ?? 0,
       groupRate: rates.groupRate,
       registrationRate: rates.registrationRate,
       orderRate: rates.orderRate,
@@ -261,7 +271,44 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
       lowAmount: classified.lowAmount + approvedInvalid.lowAmountCount,
       noWs: classified.noWs + approvedInvalid.noWsCount + importQuantity("NO_NUMBER"),
     };
-  }).sort((left, right) => Number(right.rankable) - Number(left.rankable)
+  });
+  // 选中范围内一条动态都没有、但手里还有没退群老客户的渠道，在 grouped 里根本不会有条目——
+  // 不单独补一行的话，这类渠道会随着日期范围选择时隐时现，正是6.1.1要消灭的问题。
+  const snapshotOnlyRows: ChannelQualityRow[] = [...currentInGroupByChannel.entries()]
+    .filter(([normalizedName]) => !grouped.has(normalizedName))
+    .map(([normalizedName, snapshot]): ChannelQualityRow => {
+      const totals = calculateBatchTotals([]);
+      const rates = calculateConversionRates(totals);
+      return {
+        normalizedName,
+        displayName: snapshot.displayName,
+        newFans: 0,
+        currentInGroup: snapshot.count,
+        groupRate: rates.groupRate,
+        registrationRate: rates.registrationRate,
+        orderRate: rates.orderRate,
+        rechargePerOrderCents: null,
+        rankable: false,
+        groupCount: snapshot.groups.size,
+        groups: [...snapshot.groups.values()].sort((left, right) => left.localeCompare(right, "zh-CN")),
+        totals,
+        rates,
+        submitted: 0,
+        effective: 0,
+        duplicate: 0,
+        invalid: 0,
+        effectiveRate: null,
+        customerReplyRate: null,
+        duplicateRate: null,
+        invalidRate: null,
+        d7Sample: 0,
+        d7Orders: 0,
+        d7OrderRate: null,
+        lowAmount: 0,
+        noWs: 0,
+      };
+    });
+  const rows = [...groupedRows, ...snapshotOnlyRows].sort((left, right) => Number(right.rankable) - Number(left.rankable)
     || (right.rechargePerOrderCents ?? -1) - (left.rechargePerOrderCents ?? -1)
     || (right.orderRate ?? -1) - (left.orderRate ?? -1)
     || left.displayName.localeCompare(right.displayName, "zh-CN"));

@@ -138,4 +138,24 @@ describe("channel quality query", () => {
     // 但在群人数是快照，不管范围怎么选都必须是同一个数——这才是这个用例真正要验证的点。
     expect(wideRange.rows.find((row) => row.normalizedName === `在群快照测试渠道-${suffix}`)).toMatchObject({ newFans: 2, currentInGroup: 1 });
   });
+
+  it("渠道选中范围内一条动态都没有、但手里还有没退群老客户时，仍要单独出一行——不能因为查不到活动就整行消失", async () => {
+    const channelId = `snapshot-only-channel-${suffix}`;
+    const oldBatchId = `snapshot-only-old-batch-${suffix}`;
+    await db.channel.create({ data: { id: channelId, name: "只剩快照渠道", normalizedName: `只剩快照渠道-${suffix}`, groupId: ids.groupA } });
+    await db.sourceBatch.create({ data: { id: oldBatchId, groupId: ids.groupA, channelId, sourceDate: "2026-06-01" } });
+    await db.leadCustomer.create({ data: {
+      id: `snapshot-only-lead-${suffix}`,
+      phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+      batchId: oldBatchId,
+      ownerId: ids.leadA,
+      joinedOn: "2026-06-05",
+      groupStatus: "JOINED",
+    } });
+    // 这个渠道在窄范围里没有任何 metricEvent/导入记录/无效上报——grouped 里根本不会有它的条目。
+    const narrow = await loadChannelAnalysis(adminScope({ channelIds: [channelId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-12" }), "2026-08-12");
+    const row = narrow.rows.find((candidate) => candidate.normalizedName === `只剩快照渠道-${suffix}`);
+    expect(row).toBeDefined();
+    expect(row).toMatchObject({ currentInGroup: 1, newFans: 0, rankable: false });
+  });
 });

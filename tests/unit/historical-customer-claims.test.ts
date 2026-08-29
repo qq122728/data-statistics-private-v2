@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { hashPassword } from "../../src/lib/auth";
-import { POST as claimHistoricalCustomer } from "../../src/app/api/historical-claims/route";
+import { GET as loadClaimContext, POST as claimHistoricalCustomer } from "../../src/app/api/historical-claims/route";
 import { GET as listClaims, POST as reviewClaim } from "../../src/app/api/historical-claims/review/route";
 import { loadCanonicalMetricEvents } from "../../src/lib/analytics/canonical-events";
 import { executeCustomerWorkflow } from "../../src/lib/customer-workflow/service";
@@ -47,6 +47,25 @@ function claimRequest(input: Record<string, unknown>) {
 }
 
 describe.sequential("historical customer claim review", () => {
+  it("returns role-scoped v2 form options and the actor's recent claims", async () => {
+    const data = await fixture();
+    vi.spyOn(auth, "requireUser").mockResolvedValue(data.groupOperator);
+    const context = await loadClaimContext(new Request("http://localhost/api/historical-claims?baselineOn=2026-08-20"));
+    expect(context.status).toBe(200);
+    await expect(context.json()).resolves.toMatchObject({
+      baselineOn: "2026-08-20",
+      actor: { id: data.groupOperator.id },
+      allowedStages: ["JOINED"],
+      channels: [{ id: data.channelId, name: "历史渠道" }],
+      members: {
+        reception: [expect.objectContaining({ id: data.reception.id })],
+        groupOperator: [expect.objectContaining({ id: data.groupOperator.id })],
+        expert: [expect.objectContaining({ id: data.expert.id })],
+      },
+      claims: [],
+    });
+  });
+
   it("enforces stage ownership and keeps a valid claim locked until its own lead approves it", async () => {
     const data = await fixture();
     vi.spyOn(auth, "requireUser").mockResolvedValue(data.reception);
@@ -139,5 +158,29 @@ describe.sequential("historical customer claim review", () => {
       historicalRegistrationCounted: false,
     });
     await expect(loadCanonicalMetricEvents({ groupIds: [data.groupId] })).resolves.toHaveLength(0);
+  });
+
+  it("allows an owner who belonged to the group on the historical date even after a later transfer", async () => {
+    const data = await fixture();
+    const currentGroup = await fixture();
+    await db.userPosition.create({ data: {
+      userId: currentGroup.reception.id,
+      position: "RECEPTION",
+      groupId: data.groupId,
+      effectiveFrom: "2026-08-01",
+      effectiveTo: "2026-08-20",
+      reason: "历史归属测试",
+    } });
+    vi.spyOn(auth, "requireUser").mockResolvedValue(data.expert);
+    const response = await claimHistoricalCustomer(claimRequest({
+      phone: `14${String(Date.now()).slice(-9)}`,
+      channelId: data.channelId,
+      baselineStage: "INTRODUCED",
+      baselineOn: "2026-08-18",
+      receptionOwnerId: currentGroup.reception.id,
+      groupOperatorOwnerId: data.groupOperator.id,
+      expertOwnerId: data.expert.id,
+    }));
+    expect(response.status).toBe(201);
   });
 });

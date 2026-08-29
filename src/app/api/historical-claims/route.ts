@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type Role } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
@@ -47,6 +47,70 @@ function claimedOwnerId(input: z.infer<typeof inputSchema>) {
   return input.expertOwnerId;
 }
 
+const frontlineRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const satisfies readonly Role[];
+
+function splitRoles(value: string | null | undefined): Role[] {
+  return (value ?? "").split(",").map((role) => role.trim()).filter((role): role is Role =>
+    frontlineRoles.includes(role as (typeof frontlineRoles)[number]));
+}
+
+function activeOn(effectiveFrom: string, effectiveTo: string | null, baselineOn: string) {
+  return effectiveFrom <= baselineOn && (!effectiveTo || effectiveTo >= baselineOn);
+}
+
+type HistoricalMember = {
+  id: string;
+  name: string;
+  active: boolean;
+  groupId: string | null;
+  role: Role;
+  roleAssignments: Array<{ role: Role }>;
+  positionHistory: Array<{ position: string; secondaryPositions: string | null; effectiveFrom: string; effectiveTo: string | null }>;
+  membershipHistory: Array<{ role: Role; secondaryRoles: string | null; effectiveFrom: string; effectiveTo: string | null }>;
+};
+
+function rolesForHistoricalMember(member: HistoricalMember, groupId: string, baselineOn: string) {
+  const roles = new Set<Role>();
+  if (member.active && member.groupId === groupId) {
+    roles.add(member.role);
+    member.roleAssignments.forEach((assignment) => roles.add(assignment.role));
+  }
+  member.positionHistory.filter((row) => activeOn(row.effectiveFrom, row.effectiveTo, baselineOn)).forEach((row) => {
+    if (frontlineRoles.includes(row.position as (typeof frontlineRoles)[number])) roles.add(row.position as Role);
+    splitRoles(row.secondaryPositions).forEach((role) => roles.add(role));
+  });
+  member.membershipHistory.filter((row) => activeOn(row.effectiveFrom, row.effectiveTo, baselineOn)).forEach((row) => {
+    roles.add(row.role);
+    splitRoles(row.secondaryRoles).forEach((role) => roles.add(role));
+  });
+  return [...roles].filter((role) => frontlineRoles.includes(role as (typeof frontlineRoles)[number]));
+}
+
+async function loadHistoricalMembers(client: Prisma.TransactionClient | typeof db, groupId: string, baselineOn: string) {
+  const members = await client.user.findMany({
+    where: {
+      OR: [
+        { groupId },
+        { positionHistory: { some: { groupId } } },
+        { membershipHistory: { some: { groupId } } },
+      ],
+    },
+    select: {
+      id: true, name: true, active: true, groupId: true, role: true,
+      roleAssignments: { select: { role: true } },
+      positionHistory: { where: { groupId }, select: { position: true, secondaryPositions: true, effectiveFrom: true, effectiveTo: true } },
+      membershipHistory: { where: { groupId }, select: { role: true, secondaryRoles: true, effectiveFrom: true, effectiveTo: true } },
+    },
+    orderBy: [{ active: "desc" }, { name: "asc" }],
+  });
+  return members.map((member) => ({
+    id: member.id,
+    name: member.name,
+    current: member.active && member.groupId === groupId,
+    roles: rolesForHistoricalMember(member, groupId, baselineOn),
+  })).filter((member) => member.roles.length > 0);
+}
+
 async function sessionActor() {
   try { return { actor: await requireUser(), error: null } as const; }
   catch (error) {
@@ -54,6 +118,58 @@ async function sessionActor() {
       return { actor: null, error: NextResponse.json({ error: "请先登录" }, { status: 401 }) } as const;
     throw error;
   }
+}
+
+/**
+ * v2 一线认领面板所需的真实选项和本人最近提交记录。
+ * 人员候选按历史状态日期读取岗位历史，转岗后仍可还原当时的真实负责人。
+ */
+export async function GET(request: Request) {
+  const session = await sessionActor();
+  if (session.error) return session.error;
+  const actor = session.actor;
+  const roles = getAssignedRoles(actor);
+  if (!roles.some((role) => ["LEAD", ...frontlineRoles].includes(role as "LEAD" | (typeof frontlineRoles)[number])))
+    return authorizationDenied(actor, "当前岗位不能认领历史客户");
+  if (!actor.groupId) return authorizationDenied(actor, "当前账号未绑定小组");
+
+  const settings = await getSystemSettings();
+  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(actor, settings.timezone));
+  const requestedOn = new URL(request.url).searchParams.get("baselineOn") || today;
+  const baselineOn = isCalendarDate(requestedOn) && requestedOn <= today ? requestedOn : today;
+  const allowedStages = claimStages.filter((stage) => hasAssignedRole(actor, "LEAD") || hasAssignedRole(actor, claimRoleFor(stage)));
+
+  const [channels, members, claimAudits] = await Promise.all([
+    db.channel.findMany({ where: { groupId: actor.groupId, active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    loadHistoricalMembers(db, actor.groupId, baselineOn),
+    db.auditLog.findMany({
+      where: { actorId: actor.id, action: "HISTORICAL_CUSTOMER_CLAIMED", entityType: "LeadCustomer" },
+      select: { entityId: true }, orderBy: { createdAt: "desc" }, take: 20,
+    }),
+  ]);
+  const claimIds = claimAudits.map((audit) => audit.entityId);
+  const claims = claimIds.length ? await db.leadCustomer.findMany({
+    where: { id: { in: claimIds }, batch: { groupId: actor.groupId } },
+    select: {
+      id: true, phone: true, customerName: true, historicalBaselineStage: true, historicalReviewStatus: true,
+      historicalSourceName: true, invalidReason: true, createdAt: true,
+    },
+  }) : [];
+  const claimById = new Map(claims.map((claim) => [claim.id, claim]));
+
+  return NextResponse.json({
+    baselineOn,
+    today,
+    actor: { id: actor.id, name: actor.name },
+    allowedStages,
+    channels,
+    members: {
+      reception: members.filter((member) => member.roles.includes("RECEPTION")),
+      groupOperator: members.filter((member) => member.roles.includes("GROUP_OPERATOR")),
+      expert: members.filter((member) => member.roles.includes("EXPERT")),
+    },
+    claims: claimIds.map((id) => claimById.get(id)).filter(Boolean),
+  });
 }
 
 /**
@@ -99,11 +215,15 @@ export async function POST(request: Request) {
       const ownerIds = [input.receptionOwnerId, input.groupOperatorOwnerId, input.expertOwnerId]
         .filter((value): value is string => Boolean(value));
       const [members, channel] = await Promise.all([
-        tx.user.findMany({ where: { id: { in: ownerIds }, groupId: actor.groupId }, select: { id: true } }),
+        loadHistoricalMembers(tx, actor.groupId, input.baselineOn),
         tx.channel.findFirst({ where: { id: input.channelId, groupId: actor.groupId }, select: { id: true, name: true, channelType: true } }),
       ]);
-      if (members.length !== new Set(ownerIds).size)
-        return { status: 400 as const, error: "归属只能选择本组成员" };
+      const memberById = new Map(members.map((member) => [member.id, member]));
+      const expectedRoles = new Map<string, Role>([[input.receptionOwnerId, "RECEPTION"]]);
+      if (input.groupOperatorOwnerId) expectedRoles.set(input.groupOperatorOwnerId, "GROUP_OPERATOR");
+      if (input.expertOwnerId) expectedRoles.set(input.expertOwnerId, "EXPERT");
+      if (ownerIds.some((id) => !memberById.get(id)?.roles.includes(expectedRoles.get(id)!)))
+        return { status: 400 as const, error: "负责人必须是历史状态日期当天属于本组的对应岗位人员" };
       if (!channel) return { status: 400 as const, error: "历史渠道只能选择本组渠道" };
 
       const batch = await tx.sourceBatch.upsert({

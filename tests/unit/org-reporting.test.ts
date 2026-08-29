@@ -162,6 +162,16 @@ describe.sequential("新版组长真实客户进度 API", () => {
       { id: id("customer-group"), phone: `42${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED", groupStatus: "JOINED", joinedOn: "2026-07-03" },
       { id: id("customer-expert"), phone: `43${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED", groupStatus: "JOINED", joinedOn: "2026-07-03", expertIntroducedOn: "2026-07-04" },
     ] });
+    const expertCustomer = await db.leadCustomer.findUniqueOrThrow({ where: { id: id("customer-expert") } });
+    const order = await db.customerOrder.create({ data: {
+      id: id("customer-order"), phone: expertCustomer.phone, batchId: expertCustomer.batchId,
+      leadId: expertCustomer.id, enteredById: ids.lead, openedOn: "2026-07-06", initialDepositCents: 10_000,
+    } });
+    await db.metricEvent.createMany({ data: [
+      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-06", kind: "RECHARGE", amountCents: 10_000, customerOrderId: order.id, derivedFromLedger: true },
+      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-07", kind: "RECHARGE", amountCents: 2_500, continuationNumber: 1, customerOrderId: order.id, derivedFromLedger: true },
+      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-08", kind: "WITHDRAWAL", amountCents: 500, customerOrderId: order.id, derivedFromLedger: true },
+    ] });
     await signIn(ids.lead);
     const reception = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=reception"))).json();
     const group = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=group"))).json();
@@ -172,6 +182,9 @@ describe.sequential("新版组长真实客户进度 API", () => {
     expect(reception.customers.map((customer: { id: string }) => customer.id)).not.toContain(id("customer-archived"));
     expect(group.customers.map((customer: { id: string }) => customer.id)).toEqual(expect.arrayContaining([id("customer-group"), id("customer-expert")]));
     expect(expert.customers.map((customer: { id: string }) => customer.id)).toContain(id("customer-expert"));
+    expect(expert.customers.find((customer: { id: string }) => customer.id === id("customer-expert")).order).toMatchObject({
+      initialDepositCents: 10_000, rechargeCents: 2_500, withdrawalCents: 500, nextContinuationNumber: 2,
+    });
   });
 
   it("非组长不能读取客户号码", async () => {

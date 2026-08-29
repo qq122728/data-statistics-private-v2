@@ -5,6 +5,9 @@ import { db } from "../../../../lib/db";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { getSystemSettings } from "../../../../lib/settings";
+import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
+import { localDateYYYYMMDD } from "../../../../lib/dates";
 
 const stages = new Set(["reception", "group", "expert"]);
 const PAGE_SIZE = 50;
@@ -34,6 +37,9 @@ export async function GET(request: Request) {
   const pageValue = Number(params.get("page") ?? "1");
   const page = Number.isSafeInteger(pageValue) && pageValue > 0 ? pageValue : 1;
   const query = (params.get("q") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
+  const settings = await getSystemSettings();
+  const timezone = await resolveUserBusinessTimezone(actor, settings.timezone);
+  const today = localDateYYYYMMDD(new Date(), timezone);
   const baseWhere: Prisma.LeadCustomerWhereInput = {
     batch: { groupId: actor.groupId },
     invalid: false,
@@ -55,11 +61,11 @@ export async function GET(request: Request) {
         owner: { select: { id: true, name: true } },
         groupOperatorOwner: { select: { id: true, name: true } },
         expertOwner: { select: { id: true, name: true } },
-        batch: { select: { sourceDate: true, channel: { select: { name: true } }, group: { select: { name: true } } } },
+        batch: { select: { id: true, sourceDate: true, channel: { select: { name: true } }, group: { select: { name: true } } } },
         customerOrder: {
           select: {
             id: true, openedOn: true, initialDepositCents: true, voidedAt: true,
-            events: { where: { voidedAt: null, kind: { in: ["RECHARGE", "WITHDRAWAL"] } }, select: { kind: true, amountCents: true } },
+            events: { where: { voidedAt: null, kind: { in: ["RECHARGE", "WITHDRAWAL"] } }, select: { kind: true, amountCents: true, continuationNumber: true } },
           },
         },
         activities: {
@@ -77,18 +83,20 @@ export async function GET(request: Request) {
   ]);
 
   return NextResponse.json({
-    stage, page, pageSize: PAGE_SIZE, total,
+    stage, page, pageSize: PAGE_SIZE, total, today, timezone,
     counts: Object.fromEntries(countStages.map((value, index) => [value, counts[index]])),
     customers: customers.map((customer) => {
       const activeOrder = customer.customerOrder && !customer.customerOrder.voidedAt ? customer.customerOrder : null;
+      const continuations = activeOrder?.events.filter((event) => event.kind === "RECHARGE" && event.continuationNumber !== null) ?? [];
       return {
         ...customer,
         order: activeOrder ? {
           id: activeOrder.id,
           openedOn: activeOrder.openedOn,
           initialDepositCents: activeOrder.initialDepositCents,
-          rechargeCents: activeOrder.events.filter((event) => event.kind === "RECHARGE").reduce((sum, event) => sum + (event.amountCents ?? 0), 0),
+          rechargeCents: continuations.reduce((sum, event) => sum + (event.amountCents ?? 0), 0),
           withdrawalCents: activeOrder.events.filter((event) => event.kind === "WITHDRAWAL").reduce((sum, event) => sum + (event.amountCents ?? 0), 0),
+          nextContinuationNumber: Math.max(0, ...continuations.map((event) => event.continuationNumber ?? 0)) + 1,
         } : null,
         customerOrder: undefined,
       };

@@ -928,6 +928,43 @@ describe.sequential("frontline role boundaries", () => {
     });
   });
 
+  it("rolls expert correction state back together instead of leaving a stale stage", async () => {
+    vi.restoreAllMocks();
+    await signInAs(ids.leadA);
+    const undoContact = await updateLead(
+      new Request("http://localhost/api/leads/target", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "undoExpertContacted", occurredOn: "2026-08-14", reason: "设备号录错" }),
+      }),
+      leadContext(ids.leadCustomerC),
+    );
+    expect(undoContact.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: ids.leadCustomerC } })).resolves.toMatchObject({
+      expertContactedOn: null,
+      expertWorkflowStage: "QUEUED",
+      expertTrackingStartedAt: null,
+      expertDeviceAccountId: null,
+      expertDeviceAccountNumber: null,
+    });
+
+    vi.restoreAllMocks();
+    await signInAs(ids.groupOperatorA);
+    const undoIntroduction = await updateLead(
+      new Request("http://localhost/api/leads/target", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "undoIntroduceExpert", occurredOn: "2026-08-14", reason: "推错专家" }),
+      }),
+      leadContext(ids.leadCustomerC),
+    );
+    expect(undoIntroduction.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: ids.leadCustomerC } })).resolves.toMatchObject({
+      expertIntroducedOn: null,
+      expertOwnerId: null,
+      expertWorkflowStage: null,
+      expertTrackingStartedAt: null,
+    });
+  });
+
   it("lets the lead and assigned expert edit expert follow-up details", async () => {
     await signInAs(ids.expertA);
     const expertUpdate = await updateLead(

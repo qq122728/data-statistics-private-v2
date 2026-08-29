@@ -72,6 +72,7 @@ export async function executeCustomerWorkflow(
       if (assignment) update.groupOperatorOwnerId = assignment.groupOperatorId;
       else if (lead.ownerId === liveActor.id && hasAssignedRole(liveActor, "RECEPTION") && hasAssignedRole(liveActor, "GROUP_OPERATOR"))
         update.groupOperatorOwnerId = liveActor.id;
+      else return { status: 400 as const, error: "当前接粉尚未配对炒群，请组长先完成配对" };
     }
 
     const updatingReceptionDevice = input.action === "updateProfile" && Boolean(input.deviceId || input.deviceCode);
@@ -222,6 +223,18 @@ export async function executeCustomerWorkflow(
       update.expertWorkflowStage = "PENDING_REGISTRATION";
       update.expertStageChangedAt = new Date();
       if (lead.isHistoricalRecord) update.historicalRegistrationCounted = false;
+    }
+    if (input.action === "undoExpertContacted") {
+      update.expertWorkflowStage = "QUEUED";
+      update.expertStageChangedAt = new Date();
+      update.expertTrackingStartedAt = null;
+      update.expertDeviceAccountId = null;
+      update.expertDeviceAccountNumber = null;
+    }
+    if (input.action === "undoIntroduceExpert") {
+      update.expertWorkflowStage = null;
+      update.expertStageChangedAt = new Date();
+      update.expertTrackingStartedAt = null;
     }
     if (input.action === "markNoInitialDeposit") {
       update.expertWorkflowStage = "DECLINED_DEPOSIT";

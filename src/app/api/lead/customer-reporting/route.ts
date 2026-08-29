@@ -65,7 +65,11 @@ export async function GET(request: Request) {
         customerOrder: {
           select: {
             id: true, openedOn: true, initialDepositCents: true, voidedAt: true,
-            events: { where: { voidedAt: null, kind: { in: ["RECHARGE", "WITHDRAWAL"] } }, select: { kind: true, amountCents: true, continuationNumber: true } },
+            events: {
+              where: { voidedAt: null, kind: { in: ["RECHARGE", "WITHDRAWAL"] } },
+              select: { id: true, kind: true, amountCents: true, occurredOn: true, continuationNumber: true },
+              orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+            },
           },
         },
         activities: {
@@ -97,6 +101,7 @@ export async function GET(request: Request) {
           rechargeCents: continuations.reduce((sum, event) => sum + (event.amountCents ?? 0), 0),
           withdrawalCents: activeOrder.events.filter((event) => event.kind === "WITHDRAWAL").reduce((sum, event) => sum + (event.amountCents ?? 0), 0),
           nextContinuationNumber: Math.max(0, ...continuations.map((event) => event.continuationNumber ?? 0)) + 1,
+          financeEvents: activeOrder.events.filter((event) => event.kind === "WITHDRAWAL" || event.continuationNumber !== null),
         } : null,
         customerOrder: undefined,
       };

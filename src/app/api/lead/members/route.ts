@@ -14,6 +14,7 @@ import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied, type SecurityEventActor } from "../../../../lib/security-events";
 import { getSystemSettings } from "../../../../lib/settings";
 import { resolveGroupBusinessDate } from "../../../../lib/business-time";
+import { replaceReceptionistGroupOperatorAssignment } from "../../../../lib/group-operator-collaboration";
 
 type MemberRequest = {
   id?: unknown;
@@ -27,6 +28,7 @@ type MemberRequest = {
   hireDate?: unknown;
   stageOverride?: unknown;
   stageOverrideReason?: unknown;
+  pairedGroupOperatorId?: unknown;
 };
 
 type RequestedMemberUpdate = {
@@ -65,6 +67,38 @@ function hasAdminOnlyEmploymentField(body: MemberRequest): boolean {
 
 function adminOnlyEmploymentFieldResponse(actor: SecurityEventActor) {
   return authorizationDenied(actor, "只有管理员可以修改入职日期和员工阶段");
+}
+
+function parsePairing(body: MemberRequest) {
+  const included = Object.prototype.hasOwnProperty.call(body, "pairedGroupOperatorId");
+  if (!included) return { included: false as const, value: null };
+  if (body.pairedGroupOperatorId === null || body.pairedGroupOperatorId === "") {
+    return { included: true as const, value: null };
+  }
+  if (typeof body.pairedGroupOperatorId !== "string" || body.pairedGroupOperatorId.length > API_LIMITS.identifierCharacters) {
+    return null;
+  }
+  return { included: true as const, value: body.pairedGroupOperatorId };
+}
+
+async function isActiveGroupOperator(
+  client: Parameters<Parameters<typeof db.$transaction>[0]>[0],
+  userId: string,
+  groupId: string,
+) {
+  const operator = await client.user.findFirst({
+    where: {
+      id: userId,
+      groupId,
+      active: true,
+      OR: [
+        { role: "GROUP_OPERATOR" },
+        { roleAssignments: { some: { role: "GROUP_OPERATOR" } } },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(operator);
 }
 
 export async function GET() {
@@ -137,8 +171,15 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const pairing = parsePairing(body);
+  if (!pairing) return NextResponse.json({ error: "配对炒群参数不正确" }, { status: 400 });
+  const assignedRoles = new Set([role, ...secondaryRoles.value]);
+  if (pairing.value && !assignedRoles.has("RECEPTION")) {
+    return NextResponse.json({ error: "只有接粉岗位可以设置配对炒群" }, { status: 400 });
+  }
   const settings = await getSystemSettings();
   const now = new Date();
+  const memberId = randomUUID();
 
   try {
     const result = await db.$transaction(
@@ -147,10 +188,18 @@ export async function POST(request: Request) {
         if (!group)
           return { error: "组长必须归属启用中的小组", status: 403 as const };
         const effectiveFrom = await resolveGroupBusinessDate(group.id, settings.timezone, now, client);
+        const pairingOperatorId = pairing.value ?? (
+          pairing.included && assignedRoles.has("RECEPTION") && assignedRoles.has("GROUP_OPERATOR")
+            ? memberId
+            : null
+        );
+        if (pairingOperatorId && pairingOperatorId !== memberId && !await isActiveGroupOperator(client, pairingOperatorId, group.id)) {
+          return { error: "只能配对本组启用中的炒群员", status: 400 as const };
+        }
 
         const member = await client.user.create({
           data: {
-            id: randomUUID(),
+            id: memberId,
             employeeCode: username,
             username,
             name,
@@ -163,6 +212,15 @@ export async function POST(request: Request) {
           },
           select: safeLeadMemberSelect,
         });
+        if (pairing.included && assignedRoles.has("RECEPTION")) {
+          await replaceReceptionistGroupOperatorAssignment({
+            tx: client,
+            receptionistId: member.id,
+            groupOperatorId: pairingOperatorId,
+            actorId: access.actor.id,
+            reason: "组长开通账号时设置配对",
+          });
+        }
         await recordAudit(client, {
           actorId: access.actor.id,
           action: "MEMBER_CREATED",
@@ -202,6 +260,8 @@ export async function PATCH(request: Request) {
   if (typeof body.id !== "string" || !body.id || body.id.length > API_LIMITS.identifierCharacters) {
     return NextResponse.json({ error: "成员参数不正确" }, { status: 400 });
   }
+  const pairing = parsePairing(body);
+  if (!pairing) return NextResponse.json({ error: "配对炒群参数不正确" }, { status: 400 });
 
   const requested: RequestedMemberUpdate = {};
   if (typeof body.username === "string") {
@@ -236,7 +296,7 @@ export async function PATCH(request: Request) {
     }
     requested.passwordHash = hashPassword(body.password);
   }
-  if (!Object.keys(requested).length && !includesSecondaryRoles) {
+  if (!Object.keys(requested).length && !includesSecondaryRoles && !pairing.included) {
     return NextResponse.json(
       { error: "没有可更新的成员信息" },
       { status: 400 },
@@ -313,6 +373,19 @@ export async function PATCH(request: Request) {
           || currentSecondaryRoles.length !== nextSecondaryRoles.value.length
           || currentSecondaryRoles.some((assignedRole) => !nextSecondaryRoles.value.includes(assignedRole));
         if (roleAssignmentsChanged) changedFields.push("secondaryRoles");
+        const nextAssignedRoles = new Set([nextRole, ...nextSecondaryRoles.value]);
+        if (pairing.value && !nextAssignedRoles.has("RECEPTION")) {
+          return { error: "只有接粉岗位可以设置配对炒群", status: 400 as const };
+        }
+        const shouldUpdatePairing = pairing.included || !nextAssignedRoles.has("RECEPTION");
+        const nextOperatorId = nextAssignedRoles.has("RECEPTION") ? pairing.value : null;
+        if (pairing.value) {
+          const validOperator = pairing.value === existing.id
+            ? nextAssignedRoles.has("GROUP_OPERATOR")
+            : await isActiveGroupOperator(client, pairing.value, group.id);
+          if (!validOperator) return { error: "只能配对本组启用中的炒群员", status: 400 as const };
+        }
+        if (shouldUpdatePairing) changedFields.push("pairedGroupOperatorId");
         if (!changedFields.length) {
           return { error: "没有可更新的成员信息", status: 400 as const };
         }
@@ -326,6 +399,15 @@ export async function PATCH(request: Request) {
           },
           select: safeLeadMemberSelect,
         });
+        if (shouldUpdatePairing) {
+          await replaceReceptionistGroupOperatorAssignment({
+            tx: client,
+            receptionistId: existing.id,
+            groupOperatorId: nextOperatorId,
+            actorId: access.actor.id,
+            reason: nextAssignedRoles.has("RECEPTION") ? "组长设置岗位时同步调整配对" : "成员不再担任接粉，关闭当前配对",
+          });
+        }
         if (data.passwordHash) {
           await client.session.deleteMany({ where: { userId: existing.id } });
         }

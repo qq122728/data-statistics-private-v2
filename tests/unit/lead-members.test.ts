@@ -153,6 +153,100 @@ describe.sequential("lead member API", () => {
     }
   });
 
+  it("creates and updates a receptionist pairing in the same member transaction", async () => {
+    const { ownGroupId } = await createFixture();
+    const operatorResponse = await POST(new Request("http://localhost/api/lead/members", {
+      method: "POST",
+      body: JSON.stringify({
+        username: `${fixturePrefix}operator-${randomUUID()}`,
+        name: "配对炒群",
+        password: "member-password",
+        role: "GROUP_OPERATOR",
+      }),
+    }));
+    const operator = await operatorResponse.json() as { id: string };
+
+    const receptionistResponse = await POST(new Request("http://localhost/api/lead/members", {
+      method: "POST",
+      body: JSON.stringify({
+        username: `${fixturePrefix}reception-${randomUUID()}`,
+        name: "配对接粉",
+        password: "member-password",
+        role: "RECEPTION",
+        pairedGroupOperatorId: operator.id,
+      }),
+    }));
+    expect(receptionistResponse.status).toBe(201);
+    const receptionist = await receptionistResponse.json() as { id: string };
+    await expect(db.groupOperatorReception.findUnique({
+      where: { groupOperatorId_receptionistId: { groupOperatorId: operator.id, receptionistId: receptionist.id } },
+    })).resolves.toBeTruthy();
+
+    const pendingResponse = await PATCH(new Request("http://localhost/api/lead/members", {
+      method: "PATCH",
+      body: JSON.stringify({ id: receptionist.id, pairedGroupOperatorId: null }),
+    }));
+    expect(pendingResponse.status).toBe(200);
+    await expect(db.groupOperatorReception.findFirst({ where: { receptionistId: receptionist.id } })).resolves.toBeNull();
+    await expect(db.groupOperatorReceptionHistory.findFirst({
+      where: { receptionistId: receptionist.id, groupOperatorId: operator.id },
+      orderBy: { effectiveFrom: "desc" },
+    })).resolves.toMatchObject({ effectiveTo: expect.any(Date) });
+
+    const outsideGroupId = `${fixturePrefix}outside-group-${randomUUID()}`;
+    await db.teamGroup.create({ data: { id: outsideGroupId, name: "外组" } });
+    const outsider = await db.user.create({
+      data: {
+        id: `${fixturePrefix}outside-operator-${randomUUID()}`,
+        username: `${fixturePrefix}outside-operator-${randomUUID()}`,
+        name: "外组炒群",
+        passwordHash: hashPassword("demo-password"),
+        role: "GROUP_OPERATOR",
+        groupId: outsideGroupId,
+      },
+    });
+    const rejected = await PATCH(new Request("http://localhost/api/lead/members", {
+      method: "PATCH",
+      body: JSON.stringify({ id: receptionist.id, role: "EXPERT", pairedGroupOperatorId: outsider.id }),
+    }));
+    expect(rejected.status).toBe(400);
+    await expect(db.user.findUniqueOrThrow({ where: { id: receptionist.id }, select: { role: true } })).resolves.toEqual({ role: "RECEPTION" });
+    await expect(db.groupOperatorReception.findFirst({ where: { receptionistId: receptionist.id } })).resolves.toBeNull();
+    await expect(db.user.findUniqueOrThrow({ where: { id: operator.id }, select: { groupId: true } })).resolves.toEqual({ groupId: ownGroupId });
+
+    const dualUsername = `${fixturePrefix}dual-${randomUUID()}`;
+    const dualResponse = await POST(new Request("http://localhost/api/lead/members", {
+      method: "POST",
+      body: JSON.stringify({
+        username: dualUsername,
+        name: "接粉炒群兼任",
+        password: "member-password",
+        role: "RECEPTION",
+        secondaryRoles: ["GROUP_OPERATOR"],
+        pairedGroupOperatorId: null,
+      }),
+    }));
+    expect(dualResponse.status).toBe(201);
+    const dual = await dualResponse.json() as { id: string };
+    await expect(db.groupOperatorReception.findUnique({
+      where: { groupOperatorId_receptionistId: { groupOperatorId: dual.id, receptionistId: dual.id } },
+    })).resolves.toBeTruthy();
+
+    const rejectedUsername = `${fixturePrefix}invalid-pair-${randomUUID()}`;
+    const rejectedCreate = await POST(new Request("http://localhost/api/lead/members", {
+      method: "POST",
+      body: JSON.stringify({
+        username: rejectedUsername,
+        name: "不应落库",
+        password: "member-password",
+        role: "RECEPTION",
+        pairedGroupOperatorId: outsider.id,
+      }),
+    }));
+    expect(rejectedCreate.status).toBe(400);
+    await expect(db.user.findUnique({ where: { username: rejectedUsername } })).resolves.toBeNull();
+  });
+
   it("rechecks the lead's current group before returning the member list", async () => {
     const { lead, ownGroupId, otherGroupId } = await createFixture();
     const formerGroupMember = await createUser({ role: "RECEPTION", groupId: ownGroupId });

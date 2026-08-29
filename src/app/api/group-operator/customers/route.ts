@@ -68,7 +68,7 @@ export async function GET(request: Request) {
     ],
   };
 
-  const [candidates, pairings] = await Promise.all([
+  const [candidates, pairings, expertAssignees] = await Promise.all([
     db.leadCustomer.findMany({
       where: baseWhere,
       select: {
@@ -88,6 +88,18 @@ export async function GET(request: Request) {
     db.groupOperatorReception.findMany({
       where: { groupOperator: { groupId: actor.groupId } },
       select: { receptionistId: true, groupOperatorId: true },
+    }),
+    db.user.findMany({
+      where: {
+        groupId: actor.groupId,
+        active: true,
+        OR: [
+          { role: { in: ["LEAD", "EXPERT"] } },
+          { roleAssignments: { some: { role: "EXPERT" } } },
+        ],
+      },
+      select: { id: true, name: true, role: true },
+      orderBy: [{ role: "asc" }, { name: "asc" }],
     }),
   ]);
   const currentOperatorByReception = new Map(pairings.map((item) => [item.receptionistId, item.groupOperatorId]));
@@ -156,7 +168,7 @@ export async function GET(request: Request) {
     }];
   });
 
-  return NextResponse.json({ stage, page, pageSize: PAGE_SIZE, total: matched.length, counts, customers }, {
+  return NextResponse.json({ stage, page, pageSize: PAGE_SIZE, total: matched.length, counts, expertAssignees, customers }, {
     headers: { "Cache-Control": "private, no-store" },
   });
 }

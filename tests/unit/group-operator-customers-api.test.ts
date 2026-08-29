@@ -89,6 +89,10 @@ describe.sequential("新版炒群本人客户 API", () => {
 
     expect(active.customers.map((customer: { phone: string }) => customer.phone)).toEqual(["491000000001"]);
     expect(introduced.counts).toEqual({ active: 1, introduced: 1, left: 1 });
+    expect(introduced.expertAssignees).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ids.expert, name: "本组专家" }),
+      expect.objectContaining({ id: ids.lead, name: "本组组长" }),
+    ]));
     expect(introduced.customers[0]).toMatchObject({ phone: "491000000002", stage: "introduced", expertOwner: { id: ids.expert } });
     expect(left.customers[0]).toMatchObject({ phone: "491000000003", stage: "left", groupOperatorOwnerId: ids.operator });
     expect(JSON.stringify([active, introduced, left])).not.toMatch(/49100000000[4-7]/);

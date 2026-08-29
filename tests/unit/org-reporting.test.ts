@@ -4,6 +4,7 @@ import * as auth from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { GET as getOrgReporting } from "../../src/app/api/org/reporting/route";
 import { GET as getLeadChannelReporting } from "../../src/app/api/lead/channel-reporting/route";
+import { GET as getLeadCustomerReporting } from "../../src/app/api/lead/customer-reporting/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -149,5 +150,28 @@ describe.sequential("新版组长真实渠道报表 API", () => {
   it("非组长不能借该接口读取渠道明细", async () => {
     await signIn(ids.departmentManager);
     expect((await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=month"))).status).toBe(403);
+  });
+});
+
+describe.sequential("新版组长真实客户进度 API", () => {
+  it("按接粉、炒群、专家阶段读取本组真实客户并返回分页数量", async () => {
+    await db.leadCustomer.createMany({ data: [
+      { id: id("customer-reception"), phone: `41${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED" },
+      { id: id("customer-group"), phone: `42${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED", groupStatus: "JOINED", joinedOn: "2026-07-03" },
+      { id: id("customer-expert"), phone: `43${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED", groupStatus: "JOINED", joinedOn: "2026-07-03", expertIntroducedOn: "2026-07-04" },
+    ] });
+    await signIn(ids.lead);
+    const reception = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=reception"))).json();
+    const group = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=group"))).json();
+    const expert = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=expert"))).json();
+    expect(reception.counts).toMatchObject({ reception: 1, group: 2, expert: 1 });
+    expect(reception.customers.map((customer: { id: string }) => customer.id)).toContain(id("customer-reception"));
+    expect(group.customers.map((customer: { id: string }) => customer.id)).toEqual(expect.arrayContaining([id("customer-group"), id("customer-expert")]));
+    expect(expert.customers.map((customer: { id: string }) => customer.id)).toContain(id("customer-expert"));
+  });
+
+  it("非组长不能读取客户号码", async () => {
+    await signIn(ids.companyManager);
+    expect((await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=expert"))).status).toBe(403);
   });
 });

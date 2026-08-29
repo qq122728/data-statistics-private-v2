@@ -233,7 +233,7 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
     const importedSubmitted = importQuantity("NEW_FANS");
     // 历史汇总和启用后的号码数据可以同时存在于同一渠道，必须相加，不能二选一。
     const submitted = importedSubmitted + totals.newFans + approvedInvalid.total;
-    const importedEffective = importQuantity("EFFECTIVE_FANS") + totals.effectiveFans;
+    const importedEffective = importQuantity("EFFECTIVE_FANS");
     const duplicate = importQuantity("DUPLICATE_FANS") + totals.duplicateFans + approvedInvalid.collisionCount;
     const importInvalid = importQuantity("NO_NUMBER") + totals.noNumber;
     const d7 = windowFor(value.events, today, 7);
@@ -241,7 +241,9 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
     const reclassifiedInvalid = classified.lowAmount + classified.noWs + classified.invalidCount;
     // 导入时的有效数需要扣掉后来被确认的低金额、无 WS 和旧版作废记录，
     // 才能和资源部及财务使用的有效数据口径一致。
-    const effective = Math.max(0, importedEffective - reclassifiedInvalid);
+    // 历史汇总的有效数没有逐号码状态，需要扣除后来改判的无效粉；电话账本生成的
+    // totals.effectiveFans 在 canonical-events 中已经排除无效/低金额/无 WS，不能再扣一次。
+    const effective = Math.max(0, importedEffective - reclassifiedInvalid) + totals.effectiveFans;
     const invalid = importInvalid + reclassifiedInvalid + approvedInvalid.total;
     return {
       normalizedName,

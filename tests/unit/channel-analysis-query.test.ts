@@ -111,6 +111,20 @@ describe("channel quality query", () => {
     expect(douyin).toMatchObject({ noWs: 4, lowAmount: 0, invalid: 4 });
   });
 
+  it("不会把电话账本已经排除的无效客户从有效数据里重复扣第二次", async () => {
+    const channelId = `effective-once-channel-${suffix}`;
+    const batchId = `effective-once-batch-${suffix}`;
+    await db.channel.create({ data: { id: channelId, name: "有效粉只扣一次", normalizedName: `有效粉只扣一次-${suffix}`, groupId: ids.groupA } });
+    await db.sourceBatch.create({ data: { id: batchId, groupId: ids.groupA, channelId, sourceDate: "2026-08-06" } });
+    await db.leadCustomer.createMany({ data: [
+      { id: `effective-valid-${suffix}`, phone: `2${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId, ownerId: ids.leadA, receptionCategory: "VALID" },
+      { id: `effective-invalid-${suffix}`, phone: `3${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId, ownerId: ids.leadA, receptionCategory: "INVALID", invalid: true },
+    ] });
+
+    const result = await loadChannelAnalysis(adminScope({ channelIds: [channelId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-12" }), "2026-08-12");
+    expect(result.rows[0]).toMatchObject({ submitted: 2, effective: 1, invalid: 1 });
+  });
+
   it("当前在群不受报表日期范围卡人群——早于选中范围到店、还没退群的客户照样算", async () => {
     const channelId = `in-group-channel-${suffix}`;
     const oldBatchId = `in-group-old-batch-${suffix}`;

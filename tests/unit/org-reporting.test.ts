@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { GET as getOrgReporting } from "../../src/app/api/org/reporting/route";
+import { GET as getLeadChannelReporting } from "../../src/app/api/lead/channel-reporting/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -129,5 +130,24 @@ describe.sequential("新版组织范围真实报表 API", () => {
 
     await signIn(ids.resource);
     expect((await getOrgReporting(request())).status).toBe(403);
+  });
+});
+
+describe.sequential("新版组长真实渠道报表 API", () => {
+  it("组长只能读取自己的渠道，并按本组当地日期计算今日", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
+    await signIn(ids.lead);
+    const response = await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=today"));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.group).toMatchObject({ id: ids.berlinGroup, timezone: "Europe/Berlin" });
+    expect(body.range).toMatchObject({ today: "2026-09-01", from: "2026-09-01", to: "2026-09-01" });
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0]).toMatchObject({ name: "柏林渠道", totals: { added: 3, effective: 2, replied: 1 } });
+  });
+
+  it("非组长不能借该接口读取渠道明细", async () => {
+    await signIn(ids.departmentManager);
+    expect((await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=month"))).status).toBe(403);
   });
 });

@@ -153,7 +153,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
   });
 });
 
-describe.sequential("新版组长真实客户进度 API", () => {
+describe.sequential("新版客户进度 API", () => {
   it("按接粉、炒群、专家阶段读取本组真实客户并返回分页数量", async () => {
     await db.leadCustomer.createMany({ data: [
       { id: id("customer-pending-reply"), phone: `40${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception },
@@ -187,8 +187,15 @@ describe.sequential("新版组长真实客户进度 API", () => {
     });
   });
 
-  it("非组长不能读取客户号码", async () => {
+  it("接粉只能读取本人客户；公司管理员必须明确选择权限内小组", async () => {
+    await signIn(ids.berlinReception);
+    const self = await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=group"));
+    expect(self.status).toBe(200);
+    expect((await self.json()).customers.every((customer: { owner: { id: string } }) => customer.owner.id === ids.berlinReception)).toBe(true);
+    expect((await getLeadCustomerReporting(new Request(`http://localhost/api/lead/customer-reporting?stage=group&groupId=${ids.newYorkGroup}`))).status).toBe(403);
+
     await signIn(ids.companyManager);
-    expect((await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=expert"))).status).toBe(403);
+    expect((await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=expert"))).status).toBe(400);
+    expect((await getLeadCustomerReporting(new Request(`http://localhost/api/lead/customer-reporting?stage=expert&groupId=${ids.berlinGroup}`))).status).toBe(200);
   });
 });

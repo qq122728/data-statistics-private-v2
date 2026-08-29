@@ -33,7 +33,8 @@ export async function GET(request: Request) {
   if (!actor.active) return authorizationDenied(actor, "当前账号已停用");
   const isLead = Boolean(actor.groupId) && hasAssignedRole(actor, "LEAD");
   const requestedGroupId = (params.get("groupId") ?? "").trim();
-  const targetGroupId = isLead ? actor.groupId! : requestedGroupId;
+  const isReceptionSelf = Boolean(actor.groupId) && hasAssignedRole(actor, "RECEPTION") && !requestedGroupId;
+  const targetGroupId = isLead || isReceptionSelf ? actor.groupId! : requestedGroupId;
   if (!targetGroupId) return NextResponse.json({ error: "请先选择一个具体小组" }, { status: 400 });
   const group = await db.teamGroup.findFirst({
     where: { id: targetGroupId, active: true },
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
       department: { select: { companyId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
     },
   });
-  if (!group || (!isLead && !canViewOrgScope(actor, { level: "group", groupId: group.id, departmentId: group.departmentId, companyId: group.department.companyId })))
+  if (!group || (!isLead && !isReceptionSelf && !canViewOrgScope(actor, { level: "group", groupId: group.id, departmentId: group.departmentId, companyId: group.department.companyId })))
     return authorizationDenied(actor, "没有权限查看这个小组的客户进度");
 
   const stage = stages.has(params.get("stage") ?? "") ? params.get("stage")! : "reception";
@@ -54,6 +55,7 @@ export async function GET(request: Request) {
   const today = localDateYYYYMMDD(new Date(), timezone);
   const baseWhere: Prisma.LeadCustomerWhereInput = {
     batch: { groupId: group.id },
+    ...(isReceptionSelf ? { ownerId: actor.id } : {}),
     invalid: false,
     ...(query ? { OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] } : {}),
   };

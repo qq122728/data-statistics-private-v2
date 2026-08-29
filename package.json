@@ -34,7 +34,8 @@
     "boss:backup": "node scripts/send-daily-backup.mjs",
     "boss:daily": "node scripts/run-daily-boss-job.mjs",
     "dr:validate": "node scripts/dr/validate-dr-config.mjs",
-    "seed:local-demo": "node scripts/seed-local-demo.mjs"
+    "seed:local-demo": "node scripts/seed-local-demo.mjs",
+    "db:backfill:department-manager-duty": "node scripts/backfill-department-manager-duty.mjs"
   },
   "prisma": {
     "seed": "node --experimental-strip-types prisma/seed.ts"

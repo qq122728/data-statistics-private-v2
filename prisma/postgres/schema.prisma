@@ -30,6 +30,8 @@ model Company {
   name        String       @unique
   active      Boolean      @default(true)
   departments Department[]
+  // 阶段5a新增：Duty.COMPANY_MANAGER 账号的管辖范围（User.companyId 的反向关系）。
+  managers    User[]
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 }
@@ -252,6 +254,12 @@ model User {
   group                     TeamGroup?               @relation(fields: [groupId], references: [id])
   departmentId              String?
   department                Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  // 阶段5a新增：仅供 Duty.COMPANY_MANAGER 账号使用，限定其管辖的公司（新架构 Company 层，
+  // 与老 Role.COMPANY_MANAGER 用的 departmentId 是两条独立的权限线，互不影响）。
+  // null 视为未设置=无权限，不是"全部"，避免忘填导致越权。Duty.HQ_MANAGER 不需要范围字段，
+  // 见 Company 模型注释：总公司本身无限定即超级权限。
+  companyId                 String?
+  company                   Company?                 @relation(fields: [companyId], references: [id], onDelete: SetNull)
   managementScopeName       String?
   managementCountryCode     String?
   events                    MetricEvent[]
@@ -299,6 +307,7 @@ model User {
 
   @@index([departmentId])
   @@index([departmentId, managementCountryCode])
+  @@index([companyId])
 }
 
 // 主岗位仍保存在 User.role，兼任岗位单独保存，避免改写历史数据的岗位口径。

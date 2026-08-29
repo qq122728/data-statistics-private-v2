@@ -12,6 +12,7 @@ if (process.env.DATABASE_URL && !process.env.DATABASE_URL.startsWith("file:")) {
 const db = new PrismaClient({ datasourceUrl: databaseUrl });
 
 const DEMO = {
+  companyId: "demo-company-org",
   departmentId: "demo-department",
   groupId: "demo-group",
   channelId: "demo-channel",
@@ -19,7 +20,9 @@ const DEMO = {
   accounts: {
     admin: "demo-admin",
     resource: "demo-resource",
-    company: "demo-company",
+    departmentManager: "demo-department-manager",
+    companyManager: "demo-company",
+    hqManager: "demo-hq-manager",
     lead: "demo-lead",
     reception: "demo-reception",
     operator: "demo-operator",
@@ -51,9 +54,11 @@ const today = daysAgo(0);
 const date = (days) => daysAgo(days);
 
 const accounts = [
-  { key: "admin", username: "demo_admin", name: "演示总公司管理员", password: "AdminDemo@56790", role: "ADMIN", groupId: null, departmentId: null },
+  { key: "admin", username: "demo_admin", name: "演示系统管理员", password: "AdminDemo@56790", role: "ADMIN", duty: null, groupId: null, departmentId: null, companyId: null },
   { key: "resource", username: "demo_resource", name: "演示资源部管理员", password: "ResourceDemo@56790", role: "RESOURCE_MANAGER", groupId: null, departmentId: null },
-  { key: "company", username: "demo_company", name: "演示公司管理员", password: "CompanyDemo@56790", role: "COMPANY_MANAGER", groupId: null, departmentId: DEMO.departmentId },
+  { key: "departmentManager", username: "demo_department", name: "演示部门管理员", password: "DepartmentDemo@56790", role: "COMPANY_MANAGER", duty: "DEPARTMENT_MANAGER", groupId: null, departmentId: DEMO.departmentId, companyId: null },
+  { key: "companyManager", username: "demo_company", name: "演示公司管理员", password: "CompanyDemo@56790", role: "COMPANY_MANAGER", duty: "COMPANY_MANAGER", groupId: null, departmentId: null, companyId: DEMO.companyId },
+  { key: "hqManager", username: "demo_hq", name: "演示总公司管理员", password: "HqDemo@56790", role: "COMPANY_MANAGER", duty: "HQ_MANAGER", groupId: null, departmentId: null, companyId: null },
   { key: "lead", username: "demo_lead", name: "演示组长", password: "LeadDemo@56790", role: "LEAD", groupId: DEMO.groupId, departmentId: null },
   { key: "reception", username: "demo_reception", name: "演示接粉", password: "ReceptionDemo@56790", role: "RECEPTION", groupId: DEMO.groupId, departmentId: null },
   { key: "operator", username: "demo_operator", name: "演示炒群", password: "OperatorDemo@56790", role: "GROUP_OPERATOR", groupId: DEMO.groupId, departmentId: null },
@@ -83,11 +88,18 @@ async function clearOnlyDemoOperationalData(transaction) {
 
 async function main() {
   await db.$transaction(async (transaction) => {
+    await transaction.company.upsert({
+      where: { id: DEMO.companyId },
+      update: { name: "系统演示总公司", active: true },
+      create: { id: DEMO.companyId, name: "系统演示总公司", active: true },
+    });
+
     await transaction.department.upsert({
       where: { id: DEMO.departmentId },
       update: {
         name: "系统演示公司",
         active: true,
+        companyId: DEMO.companyId,
         countryCode: "US",
         timezone: "America/New_York",
         workStartMinutes: 600,
@@ -97,6 +109,7 @@ async function main() {
         id: DEMO.departmentId,
         name: "系统演示公司",
         active: true,
+        companyId: DEMO.companyId,
         countryCode: "US",
         timezone: "America/New_York",
         workStartMinutes: 600,
@@ -135,9 +148,11 @@ async function main() {
         name: account.name,
         passwordHash: hashPassword(account.password),
         role: account.role,
+        duty: account.duty ?? null,
         active: true,
         groupId: account.groupId,
         departmentId: account.departmentId,
+        companyId: account.companyId ?? null,
         hireDate: date(30),
       };
       await transaction.user.upsert({ where: { id }, update: data, create: { id, ...data } });
@@ -284,7 +299,7 @@ async function main() {
   });
   console.log(`本地演示数据已准备完成：${today}，系统演示公司 / 系统演示组。`);
   console.log(`客户状态：${summary.map((item) => `${item.groupStatus} ${item._count._all}`).join("；")}`);
-  console.log("演示账号已创建：demo_reception、demo_operator、demo_expert、demo_lead（以及 demo_company、demo_resource、demo_admin）。");
+  console.log("演示账号已创建：demo_reception、demo_operator、demo_expert、demo_lead、demo_department、demo_company、demo_hq、demo_resource（以及系统初始化账号 demo_admin）。");
 }
 
 main()

@@ -6,6 +6,8 @@ import { API_LIMITS } from "../../../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../../../lib/security-events";
 import { transferUserPosition } from "../../../../../../lib/user-position/transfer";
 import { requireOrgManagerRequest } from "../../../_auth";
+import { getSystemSettings } from "../../../../../../lib/settings";
+import { resolveGroupBusinessDate } from "../../../../../../lib/business-time";
 
 function isDate(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
@@ -45,8 +47,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
   if (!targetGroupId || targetGroupId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "小组参数不正确" }, { status: 400 });
   if (!userId || userId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "人员参数不正确" }, { status: 400 });
   if (!isDate(effectiveOn)) return NextResponse.json({ error: "请选择正确的生效日期" }, { status: 400 });
-  if (effectiveOn > new Date().toISOString().slice(0, 10)) return NextResponse.json({ error: "调动生效日期不能晚于今天" }, { status: 400 });
   if (reason.length < 4 || reason.length > API_LIMITS.accountReasonCharacters) return NextResponse.json({ error: "调动原因需要填写 4 到 500 个字" }, { status: 400 });
+  const settings = await getSystemSettings();
+  const now = new Date();
 
   const result = await db.$transaction(async (tx) => {
     const [targetGroup, member] = await Promise.all([
@@ -60,6 +63,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
       }),
     ]);
     if (!targetGroup) return { error: "目标小组不存在或已经停用", status: 400 as const };
+    const targetBusinessDate = await resolveGroupBusinessDate(targetGroup.id, settings.timezone, now, tx);
+    if (effectiveOn > targetBusinessDate)
+      return { error: `调动生效日期不能晚于目标小组当地今天 ${targetBusinessDate}`, status: 400 as const };
 
     const targetScope: GroupScope = { id: targetGroup.id, departmentId: targetGroup.departmentId, companyId: targetGroup.department.companyId };
     if (!canAppointOrTransferLead(access.actor, targetScope)) return { denied: true as const };

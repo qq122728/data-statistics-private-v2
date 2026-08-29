@@ -91,10 +91,20 @@ function buildDailyRows(events: Awaited<ReturnType<typeof loadCanonicalMetricEve
   return [...rows.values()].sort((left, right) => right.occurredOn.localeCompare(left.occurredOn) || left.groupName.localeCompare(right.groupName, "zh-CN"));
 }
 
-export async function loadTeamPerformance(scope: AnalysisScope, today: string) {
+type GroupBusinessPeriod = { today: string; from: string; to: string };
+
+export async function loadTeamPerformance(scope: AnalysisScope, today: string, options?: { groupPeriods?: Record<string, GroupBusinessPeriod> }) {
   if (scope.requestedForbiddenGroup || scope.groupIds.length === 0) return { groupRows: [] as GroupPerformanceRow[], memberRows: [] as MemberPerformanceRow[], dailyRows: [] as TeamDailyRow[], selectedMemberDetail: null as MemberPerformanceDetail | null };
 
-  const [groups, currentPeople, events, dailyEvents, approvedInvalidReports] = await Promise.all([
+  const groupPeriod = (groupId: string): GroupBusinessPeriod => options?.groupPeriods?.[groupId] ?? { today, from: scope.sourceDateFrom, to: scope.sourceDateTo };
+  const periods = scope.groupIds.map(groupPeriod);
+  const minimum = (values: string[]) => values.filter(Boolean).sort()[0] || undefined;
+  const maximum = (values: string[]) => values.filter(Boolean).sort().at(-1) || undefined;
+  const sourceDateFrom = minimum(periods.map((period) => period.from));
+  const sourceDateTo = maximum(periods.map((period) => period.to));
+  const occurredOnTo = maximum(periods.map((period) => period.today)) ?? today;
+
+  const [groups, currentPeople, rawEvents, rawDailyEvents, rawApprovedInvalidReports] = await Promise.all([
     db.teamGroup.findMany({
       where: { id: { in: scope.groupIds } },
       select: { id: true, name: true, department: { select: { id: true, name: true } } },
@@ -106,26 +116,34 @@ export async function loadTeamPerformance(scope: AnalysisScope, today: string) {
     loadCanonicalMetricEvents({
       groupIds: scope.groupIds,
       channelIds: scope.channelIds,
-      sourceDateFrom: scope.sourceDateFrom,
-      sourceDateTo: scope.sourceDateTo,
+      sourceDateFrom,
+      sourceDateTo,
       normalizedName: scope.normalizedName,
-      occurredOnTo: today,
+      occurredOnTo,
     }),
     loadCanonicalMetricEvents({
       groupIds: scope.groupIds,
       channelIds: scope.channelIds,
       normalizedName: scope.normalizedName,
-      occurredOnFrom: scope.sourceDateFrom,
-      occurredOnTo: scope.sourceDateTo,
+      occurredOnFrom: sourceDateFrom,
+      occurredOnTo: sourceDateTo,
     }),
     getApprovedInvalidFanTotals({
       groupIds: scope.groupIds,
       channelIds: scope.channelIds,
-      sourceDateFrom: scope.sourceDateFrom,
-      sourceDateTo: scope.sourceDateTo,
+      sourceDateFrom,
+      sourceDateTo,
       normalizedChannelName: scope.normalizedName,
     }),
   ]);
+
+  const inSourcePeriod = (groupId: string, date: string) => {
+    const period = groupPeriod(groupId);
+    return (!period.from || date >= period.from) && (!period.to || date <= period.to);
+  };
+  const events = rawEvents.filter((event) => inSourcePeriod(event.batch.group.id, event.batch.sourceDate) && event.occurredOn <= groupPeriod(event.batch.group.id).today);
+  const dailyEvents = rawDailyEvents.filter((event) => inSourcePeriod(event.batch.group.id, event.occurredOn));
+  const approvedInvalidReports = rawApprovedInvalidReports.filter((report) => inSourcePeriod(report.groupId, report.sourceDate));
 
   type PerformanceEvent = (typeof events)[number];
   type OwnerGroup = {
@@ -156,13 +174,14 @@ export async function loadTeamPerformance(scope: AnalysisScope, today: string) {
   }
   const allMemberRows: MemberPerformanceRow[] = [...owners.values()].map(({ person, group, events: personEvents }) => {
     const totals = calculateBatchTotals(personEvents);
-    const matureEvents = personEvents.filter((event) => getMaturity(event.batch.sourceDate, today).d7);
+    const businessToday = groupPeriod(group.id).today;
+    const matureEvents = personEvents.filter((event) => getMaturity(event.batch.sourceDate, businessToday).d7);
     const matureTotals = calculateBatchTotals(matureEvents);
     const personReports = reportsByReception.get(`${group.id}:${person.id}`) ?? [];
     for (const report of personReports) {
       totals.newFans += report.total;
       totals.duplicateFans += report.collisionCount;
-      if (getMaturity(report.sourceDate, today).d7) {
+      if (getMaturity(report.sourceDate, businessToday).d7) {
         matureTotals.newFans += report.total;
         matureTotals.duplicateFans += report.collisionCount;
       }
@@ -221,7 +240,7 @@ export async function loadTeamPerformance(scope: AnalysisScope, today: string) {
     if (!current) continue;
     addBatchTotals(current.totals, row.totals);
     const personEvents = eventsByRow.get(`${row.groupId}:${row.userId}`) ?? [];
-    addBatchTotals(current.matureTotals, calculateBatchTotals(personEvents.filter((event) => getMaturity(event.batch.sourceDate, today).d7)));
+    addBatchTotals(current.matureTotals, calculateBatchTotals(personEvents.filter((event) => getMaturity(event.batch.sourceDate, groupPeriod(row.groupId).today).d7)));
     groupMap.set(row.groupId, current);
   }
   const groupRows = [...groupMap.values()].map(({ matureTotals, ...group }) => ({

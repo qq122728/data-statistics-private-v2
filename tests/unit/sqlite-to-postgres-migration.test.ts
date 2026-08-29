@@ -15,11 +15,15 @@ let target: PrismaClient | undefined;
 async function seedCurrentReleaseData(databasePath: string) {
   const sql = `
     PRAGMA foreign_keys = ON;
-    INSERT INTO "Department" ("id", "name", "updatedAt") VALUES ('${fixtureId}-department', '${fixtureId}-department', '2026-08-21T00:00:00.000Z');
+    INSERT INTO "Company" ("id", "name", "createdAt", "updatedAt") VALUES ('${fixtureId}-company', '${fixtureId}-company', '2026-08-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z');
+    INSERT INTO "Department" ("id", "name", "companyId", "updatedAt") VALUES ('${fixtureId}-department', '${fixtureId}-department', '${fixtureId}-company', '2026-08-21T00:00:00.000Z');
     INSERT INTO "TeamGroup" ("id", "name", "departmentId", "updatedAt") VALUES ('${fixtureId}-group', '${fixtureId}-group', '${fixtureId}-department', '2026-08-21T00:00:00.000Z');
     INSERT INTO "User" ("id", "username", "name", "passwordHash", "role", "groupId", "departmentId", "updatedAt") VALUES ('${fixtureId}-user', '${fixtureId}-user', '迁移验证用户', 'hash', 'LEAD', '${fixtureId}-group', '${fixtureId}-department', '2026-08-21T00:00:00.000Z');
     INSERT INTO "UserRoleAssignment" ("id", "userId", "role", "createdAt") VALUES ('${fixtureId}-role', '${fixtureId}-user', 'EXPERT', '2026-08-21T00:00:00.000Z');
+    INSERT INTO "UserGroupMembership" ("id", "userId", "groupId", "role", "effectiveFrom", "reason", "createdById", "createdAt") VALUES ('${fixtureId}-membership', '${fixtureId}-user', '${fixtureId}-group', 'LEAD', '2026-08-21', '迁移调组历史', '${fixtureId}-user', '2026-08-21T00:00:00.000Z');
+    INSERT INTO "UserPosition" ("id", "userId", "position", "secondaryPositions", "groupId", "effectiveFrom", "reason", "createdById", "createdAt") VALUES ('${fixtureId}-position', '${fixtureId}-user', 'GROUP_OPERATOR', 'RECEPTION', '${fixtureId}-group', '2026-08-21', '迁移岗位历史', '${fixtureId}-user', '2026-08-21T00:00:00.000Z');
     INSERT INTO "Channel" ("id", "groupId", "name", "normalizedName", "createdById", "createdAt", "updatedAt") VALUES ('${fixtureId}-channel', '${fixtureId}-group', '${fixtureId}-channel', '${fixtureId}-channel', '${fixtureId}-user', '2026-08-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z');
+    INSERT INTO "ResourceChannelAccess" ("userId", "channelId", "createdAt") VALUES ('${fixtureId}-user', '${fixtureId}-channel', '2026-08-21T00:00:00.000Z');
     INSERT INTO "SourceBatch" ("id", "groupId", "channelId", "sourceDate", "createdAt", "updatedAt") VALUES ('${fixtureId}-batch', '${fixtureId}-group', '${fixtureId}-channel', '2026-08-21', '2026-08-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z');
     INSERT INTO "LeadCustomer" ("id", "phone", "batchId", "ownerId", "customerEmail", "expertWorkflowStage", "expertTrackingStartedAt", "createdAt", "updatedAt") VALUES ('${fixtureId}-lead', '13900000001', '${fixtureId}-batch', '${fixtureId}-user', 'migration@example.test', 'TRACKING', '2026-08-21T01:02:03.000Z', '2026-08-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z');
     INSERT INTO "InvalidFanReport" ("id", "batchId", "reporterId", "status", "noWsCount", "lowAmountCount", "collisionCount", "reviewedById", "reviewReason", "createdAt", "updatedAt") VALUES ('${fixtureId}-report', '${fixtureId}-batch', '${fixtureId}-user', 'APPROVED', 2, 3, 4, '${fixtureId}-user', '验证审核原因', '2026-08-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z');
@@ -27,6 +31,9 @@ async function seedCurrentReleaseData(databasePath: string) {
     INSERT INTO "AttendanceRecord" ("id", "userId", "groupId", "businessDate", "timezone", "scheduledStartMinutes", "scheduledEndMinutes", "clockInStatus", "leaveType", "leaveReason", "updatedAt") VALUES ('${fixtureId}-attendance', '${fixtureId}-user', '${fixtureId}-group', '2026-08-21', 'Asia/Shanghai', 600, 1320, 'LATE', 'SICK', '迁移病假', '2026-08-21T00:00:00.000Z');
     INSERT INTO "Notification" ("id", "title", "content", "type", "requiresAck", "targetType", "senderId", "targetRole", "createdAt") VALUES ('${fixtureId}-notification', '迁移通知', '当前发布通知内容', 'IMPORTANT', true, 'ROLE', '${fixtureId}-user', 'EXPERT', '2026-08-21T00:00:00.000Z');
     INSERT INTO "NotificationRecipient" ("id", "notificationId", "userId", "readAt", "acknowledgedAt") VALUES ('${fixtureId}-recipient', '${fixtureId}-notification', '${fixtureId}-user', '2026-08-21T02:00:00.000Z', '2026-08-21T02:01:00.000Z');
+    INSERT INTO "GroupOperatorReception" ("groupOperatorId", "receptionistId", "createdAt") VALUES ('${fixtureId}-user', '${fixtureId}-user', '2026-08-21T00:00:00.000Z');
+    INSERT INTO "GroupOperatorReceptionHistory" ("id", "groupOperatorId", "receptionistId", "effectiveFrom", "reason", "createdById", "createdAt") VALUES ('${fixtureId}-pairing-history', '${fixtureId}-user', '${fixtureId}-user', '2026-08-21T00:00:00.000Z', '迁移配对历史', '${fixtureId}-user', '2026-08-21T00:00:00.000Z');
+    INSERT INTO "Session" ("id", "userId", "expiresAt", "createdAt") VALUES ('${fixtureId}-session', '${fixtureId}-user', '2026-09-21T00:00:00.000Z', '2026-08-21T00:00:00.000Z');
   `;
   execFileSync("sqlite3", [databasePath], { input: sql });
 }
@@ -50,9 +57,28 @@ describe.runIf(postgresUrl)("SQLite to PostgreSQL current-release migration", ()
     });
 
     target = new PrismaClient({ datasourceUrl: postgresUrl });
+    await expect(target.company.findUnique({ where: { id: `${fixtureId}-company` } })).resolves.toMatchObject({
+      name: `${fixtureId}-company`,
+    });
     await expect(target.userRoleAssignment.findUnique({
       where: { userId_role: { userId: `${fixtureId}-user`, role: "EXPERT" } },
     })).resolves.toMatchObject({ id: `${fixtureId}-role` });
+    await expect(target.userGroupMembership.findUnique({
+      where: { userId_effectiveFrom: { userId: `${fixtureId}-user`, effectiveFrom: "2026-08-21" } },
+    })).resolves.toMatchObject({ id: `${fixtureId}-membership`, reason: "迁移调组历史" });
+    await expect(target.userPosition.findUnique({
+      where: { userId_effectiveFrom: { userId: `${fixtureId}-user`, effectiveFrom: "2026-08-21" } },
+    })).resolves.toMatchObject({
+      id: `${fixtureId}-position`,
+      position: "GROUP_OPERATOR",
+      secondaryPositions: "RECEPTION",
+    });
+    await expect(target.resourceChannelAccess.findUnique({
+      where: { userId_channelId: { userId: `${fixtureId}-user`, channelId: `${fixtureId}-channel` } },
+    })).resolves.toMatchObject({ userId: `${fixtureId}-user` });
+    await expect(target.groupOperatorReceptionHistory.findUnique({
+      where: { id: `${fixtureId}-pairing-history` },
+    })).resolves.toMatchObject({ reason: "迁移配对历史" });
     await expect(target.leadCustomer.findUnique({ where: { id: `${fixtureId}-lead` } })).resolves.toMatchObject({
       customerEmail: "migration@example.test",
       expertWorkflowStage: "TRACKING",
@@ -85,5 +111,6 @@ describe.runIf(postgresUrl)("SQLite to PostgreSQL current-release migration", ()
         acknowledgedAt: expect.any(Date),
       })],
     });
+    await expect(target.session.findUnique({ where: { id: `${fixtureId}-session` } })).resolves.toBeNull();
   });
 });

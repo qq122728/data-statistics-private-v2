@@ -1,6 +1,6 @@
 "use client";
 
-import { Buildings, Key, Plus, SpinnerGap, UsersThree, X } from "@phosphor-icons/react";
+import { Buildings, Key, Plus, SpinnerGap, UserSwitch, UsersThree, X } from "@phosphor-icons/react";
 import type { Duty } from "@prisma/client";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { BUSINESS_TIMEZONE_OPTIONS, businessTimezoneOption } from "../../lib/business-time-config";
@@ -14,7 +14,17 @@ type Editor =
   | { kind: "group"; departmentId: string }
   | { kind: "company-manager"; companyId: string }
   | { kind: "department-manager"; departmentId: string }
+  | { kind: "lead"; groupId: string; groupName: string; currentLeadId: string | null }
   | null;
+
+type LeadCandidate = {
+  id: string;
+  name: string;
+  role: "LEAD" | "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
+  groupId: string;
+  groupName: string;
+  alreadyLead: boolean;
+};
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init });
@@ -32,6 +42,7 @@ function editorTitle(editor: Exclude<Editor, null>) {
   if (editor.kind === "department") return "新建部门";
   if (editor.kind === "group") return "开设小组";
   if (editor.kind === "company-manager") return "开设公司管理员账号";
+  if (editor.kind === "lead") return "任命或调入组长";
   return "开设部门管理员账号";
 }
 
@@ -42,6 +53,8 @@ export function CompanyOrganizationManager({ duty }: { duty: Extract<Duty, "DEPA
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [editor, setEditor] = useState<Editor>(null);
+  const [leadCandidates, setLeadCandidates] = useState<LeadCandidate[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -52,6 +65,17 @@ export function CompanyOrganizationManager({ duty }: { duty: Extract<Duty, "DEPA
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (editor?.kind !== "lead") return;
+    let cancelled = false;
+    setCandidatesLoading(true);
+    setError("");
+    void requestJson<{ candidates: LeadCandidate[] }>(`/api/org/lead-candidates?groupId=${encodeURIComponent(editor.groupId)}`)
+      .then((result) => { if (!cancelled) setLeadCandidates(result.candidates); })
+      .catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "组长候选人员加载失败"); })
+      .finally(() => { if (!cancelled) setCandidatesLoading(false); });
+    return () => { cancelled = true; };
+  }, [editor]);
 
   const normalized = useMemo(() => payload ? normalizeOrgStructure(payload) : { companies: [], unassignedDepartments: [] }, [payload]);
   const departmentCount = normalized.companies.reduce((count, company) => count + company.departments.length, 0) + normalized.unassignedDepartments.length;
@@ -84,10 +108,15 @@ export function CompanyOrganizationManager({ duty }: { duty: Extract<Duty, "DEPA
       url = "/api/org/company-managers";
       body = { companyId: editor.companyId, name: String(data.get("name") ?? ""), username: String(data.get("username") ?? ""), password: String(data.get("password") ?? "") };
       success = `已开设公司管理员账号“${body.name}”`;
-    } else {
+    } else if (editor.kind === "department-manager") {
       url = "/api/org/department-managers";
       body = { departmentId: editor.departmentId, name: String(data.get("name") ?? ""), username: String(data.get("username") ?? ""), password: String(data.get("password") ?? "") };
       success = `已开设部门管理员账号“${body.name}”`;
+    } else {
+      url = `/api/org/groups/${encodeURIComponent(editor.groupId)}/lead`;
+      body = { userId: String(data.get("userId") ?? ""), effectiveOn: String(data.get("effectiveOn") ?? ""), reason: String(data.get("reason") ?? "") };
+      const candidate = leadCandidates.find((item) => item.id === body.userId);
+      success = candidate?.groupId === editor.groupId ? `已任命“${candidate.name}”为组长` : `已将“${candidate?.name ?? "候选人员"}”调入${editor.groupName}担任组长`;
     }
 
     setBusy(true);
@@ -136,7 +165,14 @@ export function CompanyOrganizationManager({ duty }: { duty: Extract<Duty, "DEPA
         <header className="flex items-start justify-between border-b px-6 py-5"><div><h2 className="text-xl font-bold text-slate-950">{editorTitle(editor)}</h2><p className="mt-1 text-sm text-slate-500">保存后立即写入真实数据库。</p></div><button type="button" aria-label="关闭" disabled={busy} onClick={() => setEditor(null)} className="rounded-md p-2 text-slate-500 hover:bg-slate-100"><X size={20} /></button></header>
         <div className="space-y-4 p-6">
           {editor.kind === "department" ? <><label className="block text-sm font-semibold text-slate-700">所属公司<select name="companyId" required defaultValue={editor.companyId} className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal">{normalized.companies.filter((company) => company.active).map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label><label className="block text-sm font-semibold text-slate-700">国家/时区<select name="timezone" required defaultValue="Asia/Shanghai" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal">{BUSINESS_TIMEZONE_OPTIONS.map((option) => <option key={option.timezone} value={option.timezone}>{option.label}</option>)}</select><span className="mt-1 block text-xs font-normal text-slate-500">国家属性挂在部门这一层，小组会自动继承。</span></label></> : null}
-          {editor.kind === "company" || editor.kind === "department" || editor.kind === "group" ? <label className="block text-sm font-semibold text-slate-700">{editor.kind === "company" ? "公司名称" : editor.kind === "department" ? "部门名称" : "小组名称"}<input name="name" required maxLength={100} autoFocus className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label> : <>
+          {editor.kind === "company" || editor.kind === "department" || editor.kind === "group" ? <label className="block text-sm font-semibold text-slate-700">{editor.kind === "company" ? "公司名称" : editor.kind === "department" ? "部门名称" : "小组名称"}<input name="name" required maxLength={100} autoFocus className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label> : editor.kind === "lead" ? <>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">目标小组：<strong>{editor.groupName}</strong>。候选人只来自你有权管理的范围，不需要也不能手填 userId。</div>
+            <label className="block text-sm font-semibold text-slate-700">组长候选人员<select name="userId" required disabled={candidatesLoading} defaultValue="" className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 font-normal"><option value="" disabled>{candidatesLoading ? "正在读取候选人员…" : "请选择人员"}</option>{leadCandidates.filter((candidate) => candidate.id !== editor.currentLeadId).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.groupName}{candidate.alreadyLead ? " · 现任组长（调组）" : ""}</option>)}</select></label>
+            {!candidatesLoading && !leadCandidates.some((candidate) => candidate.id !== editor.currentLeadId) ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">当前管理范围没有可任命的启用人员。</p> : null}
+            <label className="block text-sm font-semibold text-slate-700">生效日期<input name="effectiveOn" type="date" required className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+            <label className="block text-sm font-semibold text-slate-700">任命或调组原因<textarea name="reason" required minLength={4} maxLength={500} className="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" placeholder="例如：新组组长任命" /></label>
+            <p className="text-xs leading-5 text-slate-500">如果候选人在原岗位还有在办客户，系统会阻止调动并明确提示先完成交接，不会悄悄改客户负责人。</p>
+          </> : <>
             <label className="block text-sm font-semibold text-slate-700">管理员姓名<input name="name" required maxLength={100} autoFocus className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
             <label className="block text-sm font-semibold text-slate-700">登录账号<input name="username" required autoComplete="off" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
             <label className="block text-sm font-semibold text-slate-700">临时密码<input name="password" type="password" required minLength={12} autoComplete="new-password" className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /><span className="mt-1 block text-xs font-normal text-slate-500">至少 12 位；本人首次登录必须修改。</span></label>
@@ -155,6 +191,6 @@ function DepartmentCard({ department, canCreateDepartmentManager, onOpen }: { de
       <div><div className="flex flex-wrap items-center gap-2"><h3 className="font-bold text-slate-900">{department.name}</h3><StatusBadge active={department.active} /><Badge>{department.countryCode}</Badge></div><p className="mt-1 text-sm text-slate-500">{businessTimezoneOption(department.timezone).label} · {department.groups.length} 个小组</p></div>
       <div className="flex flex-wrap gap-2">{canCreateDepartmentManager ? <Button type="button" variant="secondary" disabled={!department.active} onClick={() => onOpen({ kind: "department-manager", departmentId: department.id })}><Key size={15} />开部门管理员账号</Button> : null}<Button type="button" disabled={!department.active} onClick={() => onOpen({ kind: "group", departmentId: department.id })}><Plus size={15} />开设小组</Button></div>
     </div>
-    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{department.groups.map((group) => <div key={group.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4"><div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 font-semibold text-slate-800"><UsersThree size={18} />{group.name}</span><StatusBadge active={group.active} /></div><p className="mt-2 text-sm text-slate-500">组长：{group.leadName ?? "空缺"}</p></div>)}{!department.groups.length ? <p className="rounded-lg border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500 sm:col-span-2 xl:col-span-3">该部门还没有小组</p> : null}</div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{department.groups.map((group) => <div key={group.id} className="rounded-lg border border-slate-200 bg-slate-50 p-4"><div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 font-semibold text-slate-800"><UsersThree size={18} />{group.name}</span><StatusBadge active={group.active} /></div><p className="mt-2 text-sm text-slate-500">组长：{group.leadName ?? "空缺"}</p>{group.active && !group.leadId ? <Button type="button" variant="secondary" className="mt-3 w-full justify-center" onClick={() => onOpen({ kind: "lead", groupId: group.id, groupName: group.name, currentLeadId: group.leadId })}><UserSwitch size={15} />任命或调入组长</Button> : group.leadId ? <p className="mt-3 rounded bg-emerald-50 px-2 py-1.5 text-xs text-emerald-700">组长已在岗；跨组调动请在空缺的目标小组选择此人。</p> : null}</div>)}{!department.groups.length ? <p className="rounded-lg border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500 sm:col-span-2 xl:col-span-3">该部门还没有小组</p> : null}</div>
   </article>;
 }

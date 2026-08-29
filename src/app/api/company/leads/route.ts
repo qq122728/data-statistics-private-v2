@@ -7,6 +7,8 @@ import { db } from "../../../../lib/db";
 import { isActiveLeadGroupConstraintError, isUniqueConstraintError } from "../../admin/users/validation";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { getSystemSettings } from "../../../../lib/settings";
+import { resolveGroupBusinessDate } from "../../../../lib/business-time";
 
 type LeadRequest = { id?: unknown; username?: unknown; name?: unknown; password?: unknown; role?: unknown; groupId?: unknown; departmentId?: unknown; active?: unknown };
 
@@ -31,6 +33,8 @@ export async function POST(request: Request) {
   if (username.length > API_LIMITS.loginUsernameCharacters || name.length > API_LIMITS.accountDisplayNameCharacters || groupId.length > API_LIMITS.identifierCharacters)
     return NextResponse.json({ error: "账号、姓名或小组参数过长" }, { status: 400 });
   if (password.length < PASSWORD_MIN_LENGTH || password.length > API_LIMITS.loginPasswordCharacters) return NextResponse.json({ error: `临时密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` }, { status: 400 });
+  const settings = await getSystemSettings();
+  const now = new Date();
   try {
     const result = await db.$transaction(async (client) => {
       const company = await getActiveCompanyScope(access.actor.id, client);
@@ -38,7 +42,8 @@ export async function POST(request: Request) {
       const group = await client.teamGroup.findFirst({ where: { id: groupId, ...companyManagedGroupWhere(company), active: true }, select: { id: true, name: true } });
       if (!group) return { error: "只能选择本公司启用中的小组", status: 400 as const };
       if (await client.user.findFirst({ where: { role: "LEAD", active: true, groupId }, select: { id: true } })) return { error: "该小组已经有一位启用中的组长", status: 409 as const };
-      const lead = await client.user.create({ data: { id: randomUUID(), employeeCode: username, username, name, passwordHash: hashPassword(password), mustChangePassword: true, role: "LEAD", groupId, departmentId: null, membershipHistory: { create: { groupId, role: "LEAD", effectiveFrom: new Date().toISOString().slice(0, 10), reason: "公司管理员创建组长", createdById: access.actor.id } } }, select: safeCompanyLeadSelect });
+      const effectiveFrom = await resolveGroupBusinessDate(group.id, settings.timezone, now, client);
+      const lead = await client.user.create({ data: { id: randomUUID(), employeeCode: username, username, name, passwordHash: hashPassword(password), mustChangePassword: true, role: "LEAD", groupId, departmentId: null, membershipHistory: { create: { groupId, role: "LEAD", effectiveFrom, reason: "公司管理员创建组长", createdById: access.actor.id } } }, select: safeCompanyLeadSelect });
       await recordAudit(client, { actorId: access.actor.id, action: "MEMBER_CREATED", entityType: "User", entityId: lead.id, summary: { changedFields: ["name", "username", "role", "groupId"], companyId: company.id, groupId, groupName: group.name } });
       return { lead };
     }, { isolationLevel: "Serializable" });

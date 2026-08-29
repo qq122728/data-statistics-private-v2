@@ -13,6 +13,7 @@ import { LeadWorkspaceTabs } from "../../../components/lead/LeadWorkspaceTabs";
 import { LeadDateRangeFilter } from "../../../components/lead/LeadDateRangeFilter";
 import { resolveDateRangeWithDefault } from "../../../lib/lead-date-range";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
+import { buildGroupBusinessPeriods } from "../../../lib/analytics/group-business-periods";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 const first = (value: string | string[] | undefined) => typeof value === "string" ? value : undefined;
@@ -30,10 +31,11 @@ export default async function TeamPerformancePage({ searchParams }: { searchPara
   const [raw, settings, allGroups, departments] = await Promise.all([
     searchParams,
     getSystemSettings(),
-    db.teamGroup.findMany({ select: { id: true, name: true, active: true, departmentId: true, countryCode: true, department: { select: { name: true, countryCode: true } } }, orderBy: [{ department: { name: "asc" } }, { name: "asc" }] }),
+    db.teamGroup.findMany({ select: { id: true, name: true, active: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, department: { select: { name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } } }, orderBy: [{ department: { name: "asc" } }, { name: "asc" }] }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const now = new Date();
+  const today = localDateYYYYMMDD(now, await resolveUserBusinessTimezone(user, settings.timezone));
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => first(value) === undefined ? [] : [[key, first(value)!]]));
   const parsedFilters = parseAnalysisFilters(new URLSearchParams(rawValues));
   // 各角色的经营统计统一默认看当月，避免不同岗位打开同一指标却看到不同周期。
@@ -42,8 +44,9 @@ export default async function TeamPerformancePage({ searchParams }: { searchPara
   const departmentGroups = parsedFilters.departmentId ? allReadableGroups.filter((group) => group.departmentId === parsedFilters.departmentId) : allReadableGroups;
   const readableGroups = parsedFilters.countryCode ? departmentGroups.filter((group) => (group.countryCode || group.department.countryCode) === parsedFilters.countryCode) : departmentGroups;
   const scope = resolveAnalysisScope(user, { ...parsedFilters, sourceDateFrom: dateRange.from, sourceDateTo: dateRange.to }, today, readableGroups.map((group) => group.id));
+  const groupPeriods = buildGroupBusinessPeriods(readableGroups.filter((group) => scope.groupIds.includes(group.id)), now, dateRange);
   const [result, members, channels] = await Promise.all([
-    loadTeamPerformance(scope, today),
+    loadTeamPerformance(scope, today, { groupPeriods }),
     db.user.findMany({ where: { groupId: { in: scope.groupIds }, role: { in: ["LEAD", "RECEPTION"] }, ...(scope.includeInactive ? {} : { active: true }) }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
     db.channel.findMany({ where: { groupId: { in: scope.groupIds }, ...(scope.channelIds ? { id: { in: scope.channelIds } } : {}) }, select: { normalizedName: true, name: true, active: true }, orderBy: [{ active: "desc" }, { name: "asc" }] }),
   ]);

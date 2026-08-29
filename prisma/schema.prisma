@@ -2,6 +2,13 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// SQLite → PostgreSQL 搬运只使用权威根 schema 生成的独立客户端。
+// 不再依赖 prisma/sqlite/schema.prisma（该文件是过时分叉）。
+generator sqliteMigrationClient {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/sqlite-migration-client"
+}
+
 datasource db {
   provider = "sqlite"
   url      = env("DATABASE_URL")

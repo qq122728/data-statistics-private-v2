@@ -10,6 +10,8 @@ import { authorizationDenied } from "../../../../lib/security-events";
 import { getMemberProtectionError, isActiveLeadGroupConstraintError, isUniqueConstraintError, parseEmploymentUpdate, parseRecruitmentUpdate, type EmploymentStage, type RecruitmentSource } from "./validation";
 import { parseFrontlineSecondaryRoles } from "../../../../lib/role-assignments";
 import { API_LIMITS } from "../../../../lib/request-limits";
+import { getSystemSettings } from "../../../../lib/settings";
+import { resolveGroupBusinessDate } from "../../../../lib/business-time";
 
 type UserRequest = { id?: unknown; employeeCode?: unknown; username?: unknown; name?: unknown; password?: unknown; role?: unknown; secondaryRoles?: unknown; resourceChannelIds?: unknown; groupId?: unknown; departmentId?: unknown; managementScopeName?: unknown; managementCountryCode?: unknown; active?: unknown; hireDate?: unknown; recruitmentSource?: unknown; referrerName?: unknown; stageOverride?: unknown; stageOverrideReason?: unknown; highRiskReason?: unknown; currentPassword?: unknown };
 const roles = ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER", "FINANCE", "HR", "LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
@@ -96,6 +98,8 @@ export async function POST(request: Request) {
   if (!employment.success) return NextResponse.json({ error: employment.error }, { status: 400 });
   const recruitment = parseRecruitmentUpdate(body as Record<string, unknown>);
   if (!recruitment.success) return NextResponse.json({ error: recruitment.error }, { status: 400 });
+  const settings = await getSystemSettings();
+  const now = new Date();
 
   try {
     const result = await db.$transaction(async (client) => {
@@ -115,12 +119,15 @@ export async function POST(request: Request) {
       const highRisk = role === "ADMIN"
         ? await authorizeHighRiskOperation(client, access.actor.id, body)
         : null;
+      const membershipEffectiveFrom = groupId
+        ? employment.value.hireDate ?? await resolveGroupBusinessDate(groupId, settings.timezone, now, client)
+        : null;
       const created = await client.user.create({
         data: {
           id: randomUUID(), employeeCode, username, name, passwordHash: hashPassword(password), mustChangePassword: true, role, groupId, departmentId, managementScopeName, managementCountryCode,
           roleAssignments: { create: [role, ...secondaryRoles.value].map((assignedRole) => ({ role: assignedRole })) },
           ...(resourceChannels.value.length ? { resourceChannelAccess: { create: resourceChannels.value.map((channelId) => ({ channelId })) } } : {}),
-          ...(groupId ? { membershipHistory: { create: { groupId, role, secondaryRoles: secondaryRoles.value.join(",") || null, effectiveFrom: employment.value.hireDate ?? new Date().toISOString().slice(0, 10), reason: "创建人员档案", createdById: access.actor.id } } } : {}),
+          ...(groupId ? { membershipHistory: { create: { groupId, role, secondaryRoles: secondaryRoles.value.join(",") || null, effectiveFrom: membershipEffectiveFrom!, reason: "创建人员档案", createdById: access.actor.id } } } : {}),
           ...employment.value,
           ...recruitment.value,
           ...(employment.value.stageOverride ? { stageOverrideAt: new Date() } : {}),

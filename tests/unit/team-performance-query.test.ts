@@ -103,4 +103,16 @@ describe("team performance query", () => {
     const forged = await loadTeamPerformance({ ...scope("LEAD", [ids.groupA], ids.groupA), memberId: ids.otherMember }, "2026-08-12");
     expect(forged.selectedMemberDetail).toBeNull();
   });
+
+  it("cuts off each group's events at that group's own local today", async () => {
+    const result = await loadTeamPerformance(scope("ADMIN", [ids.groupA, ids.groupB]), "2026-08-12", {
+      groupPeriods: {
+        [ids.groupA]: { today: "2026-08-12", from: "2026-07-14", to: "2026-08-12" },
+        [ids.groupB]: { today: "2026-07-31", from: "2026-07-01", to: "2026-08-12" },
+      },
+    });
+
+    expect(result.groupRows.find((row) => row.groupId === ids.groupA)?.totals.newFans).toBe(20);
+    expect(result.groupRows.find((row) => row.groupId === ids.groupB)?.totals.newFans).toBe(0);
+  });
 });

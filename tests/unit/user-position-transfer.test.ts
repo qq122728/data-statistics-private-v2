@@ -48,6 +48,23 @@ afterEach(async () => {
 });
 
 describe.sequential("transferUserPosition 岗位冻结", () => {
+  it("按目标小组纽约当地日期拒绝未来调动", async () => {
+    const data = await fixture();
+    await db.teamGroup.update({ where: { id: data.groupB }, data: { countryCode: "US", timezone: "America/New_York" } });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
+    try {
+      const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+        method: "POST",
+        body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", secondaryRoles: [], effectiveOn: "2026-09-01", reason: "验证目标小组当地日期" }),
+      }));
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: "调动生效日期不能晚于目标小组当地今天 2026-08-31" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("调组后关闭旧的 UserPosition 行、开一条新的，历史行不变", async () => {
     const data = await fixture();
     const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {

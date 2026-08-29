@@ -14,6 +14,7 @@ import { db } from "../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../lib/lead-date-range";
 import { resolveReadableReportGroups } from "../../../lib/report-scope";
 import { getSystemSettings } from "../../../lib/settings";
+import { buildGroupBusinessPeriods } from "../../../lib/analytics/group-business-periods";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -39,12 +40,13 @@ export default async function GroupDailyDetailPage({ searchParams }: { searchPar
     searchParams,
     getSystemSettings(),
     db.teamGroup.findMany({
-      select: { id: true, name: true, active: true, departmentId: true, countryCode: true, department: { select: { name: true, countryCode: true } } },
+      select: { id: true, name: true, active: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, department: { select: { name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } } },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
     }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const now = new Date();
+  const today = localDateYYYYMMDD(now, await resolveUserBusinessTimezone(user, settings.timezone));
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => first(value) === undefined ? [] : [[key, first(value)!]]));
   const dateRange = resolveDateRangeWithDefault(rawValues, today, "month");
   const parsed = parseAnalysisFilters(new URLSearchParams(rawValues));
@@ -65,8 +67,9 @@ export default async function GroupDailyDetailPage({ searchParams }: { searchPar
     groupIds: selectedGroupIds,
     requestedForbiddenGroup: baseScope.requestedForbiddenGroup || rejectedGroup,
   };
+  const groupPeriods = buildGroupBusinessPeriods(filteredGroups.filter((group) => selectedGroupIds.includes(group.id)), now, dateRange);
   const [result, channels] = await Promise.all([
-    loadTeamPerformance(scope, today),
+    loadTeamPerformance(scope, today, { groupPeriods }),
     db.channel.findMany({ where: { groupId: { in: filteredGroups.map((group) => group.id) }, ...(scope.channelIds ? { id: { in: scope.channelIds } } : {}) }, select: { normalizedName: true, name: true, active: true }, orderBy: [{ active: "desc" }, { name: "asc" }] }),
   ]);
   const visibleChannels = [...new Map(channels.map((channel) => [channel.normalizedName, channel])).values()];

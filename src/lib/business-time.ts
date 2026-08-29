@@ -1,6 +1,7 @@
 import type { User } from "@prisma/client";
 import { db } from "./db";
 import { resolveGroupBusinessTime } from "./business-time-config";
+import { localDateYYYYMMDD } from "./dates";
 
 export * from "./business-time-config";
 
@@ -19,4 +20,35 @@ export async function resolveUserBusinessTimezone(user: Pick<User, "groupId" | "
     if (department) return department.timezone;
   }
   return fallbackTimezone;
+}
+
+type BusinessTimeClient = Pick<typeof db, "teamGroup">;
+
+/** 管理操作和跨组报表必须按目标小组取时区，不能按操作人所在地取日期。 */
+export async function resolveGroupBusinessTimezone(
+  groupId: string | null | undefined,
+  fallbackTimezone: string,
+  client: BusinessTimeClient = db,
+): Promise<string> {
+  if (!groupId) return fallbackTimezone;
+  const group = await client.teamGroup.findUnique({
+    where: { id: groupId },
+    select: {
+      countryCode: true,
+      timezone: true,
+      workStartMinutes: true,
+      workEndMinutes: true,
+      department: { select: { countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
+    },
+  });
+  return group ? resolveGroupBusinessTime(group).timezone : fallbackTimezone;
+}
+
+export async function resolveGroupBusinessDate(
+  groupId: string | null | undefined,
+  fallbackTimezone: string,
+  now = new Date(),
+  client: BusinessTimeClient = db,
+): Promise<string> {
+  return localDateYYYYMMDD(now, await resolveGroupBusinessTimezone(groupId, fallbackTimezone, client));
 }

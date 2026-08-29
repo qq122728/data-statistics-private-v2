@@ -119,3 +119,51 @@ jobs:
           DATABASE_URL='postgresql://migration_replay:ci_only_password@127.0.0.1:5432/migration_replay?schema=public&options=-c%20lock_timeout%3D10000%20-c%20statement_timeout%3D600000'
           ./node_modules/.bin/prisma migrate deploy --schema prisma/postgres/schema.prisma
       - run: ./node_modules/.bin/prisma migrate status --schema prisma/postgres/schema.prisma
+
+  postgres-data-copy:
+    name: Rehearse SQLite data copy into PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: data_statistics_test
+          POSTGRES_USER: data_statistics_test
+          POSTGRES_PASSWORD: local_test_only_change_me
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U data_statistics_test -d data_statistics_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+      postgres-schema-reference:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: data_statistics_test
+          POSTGRES_USER: data_statistics_test
+          POSTGRES_PASSWORD: local_test_only_change_me
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U data_statistics_test -d data_statistics_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      POSTGRES_TEST_DATABASE_URL: postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55432/data_statistics_test?schema=public
+      POSTGRES_SCHEMA_REFERENCE_DATABASE_URL: postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55433/data_statistics_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate:postgres:verify
+      - name: Build the target only from formal migrations and reject schema drift
+        run: npm run db:postgres:test:prepare
+      - name: Copy a linked current-schema fixture and verify every copied table
+        run: npx vitest run tests/unit/sqlite-to-postgres-migration.test.ts tests/unit/sqlite-to-postgres-migration-safety.test.ts
+      - name: Verify the copied target still matches the authoritative schema
+        run: npm run db:postgres:test:check-drift

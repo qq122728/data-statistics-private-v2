@@ -7,7 +7,10 @@ import {
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, tooLargeResponse } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
-import { replaceGroupOperatorReceptionAssignments } from "../../../../lib/group-operator-collaboration";
+import {
+  replaceGroupOperatorReceptionAssignments,
+  replaceReceptionistGroupOperatorAssignment,
+} from "../../../../lib/group-operator-collaboration";
 
 export async function GET() {
   const access = await requireLeadRequest();
@@ -25,12 +28,49 @@ export async function GET() {
 export async function PUT(request: Request) {
   const access = await requireLeadRequest();
   if ("response" in access) return access.response;
-  let body: { groupOperatorId?: unknown; receptionistIds?: unknown };
+  let body: { groupOperatorId?: unknown; receptionistId?: unknown; receptionistIds?: unknown };
   try {
     body = await readLimitedJson(request, API_LIMITS.collaborationBodyBytes) as typeof body;
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) return tooLargeResponse(error);
     return NextResponse.json({ error: "请求格式不正确" }, { status: 400 });
+  }
+  const receptionistCentric = Object.prototype.hasOwnProperty.call(body, "receptionistId");
+  if (receptionistCentric) {
+    if (
+      typeof body.receptionistId !== "string" ||
+      !body.receptionistId ||
+      body.receptionistId.length > API_LIMITS.identifierCharacters ||
+      !(
+        body.groupOperatorId === null ||
+        (typeof body.groupOperatorId === "string" && body.groupOperatorId.length > 0 && body.groupOperatorId.length <= API_LIMITS.identifierCharacters)
+      )
+    ) {
+      return NextResponse.json({ error: "配合关系参数不正确" }, { status: 400 });
+    }
+    const group = await getActiveLeadGroup(access.actor.id);
+    if (!group) return authorizationDenied(access.actor, "组长必须归属启用中的小组");
+    const ids = [body.receptionistId, body.groupOperatorId].filter((id): id is string => typeof id === "string");
+    const people = await db.user.findMany({
+      where: { id: { in: ids }, groupId: group.id, active: true },
+      select: { id: true, role: true, active: true, roleAssignments: { select: { role: true } } },
+    });
+    const receptionist = people.find((person) => person.id === body.receptionistId);
+    const operator = body.groupOperatorId === null ? null : people.find((person) => person.id === body.groupOperatorId);
+    if (!receptionist || !hasAssignedRole(receptionist, "RECEPTION") || (body.groupOperatorId !== null && (!operator || !hasAssignedRole(operator, "GROUP_OPERATOR")))) {
+      return NextResponse.json({ error: "只能配置本组启用中的接粉员和炒群员" }, { status: 400 });
+    }
+    const result = await db.$transaction((tx) => replaceReceptionistGroupOperatorAssignment({
+      tx,
+      receptionistId: body.receptionistId as string,
+      groupOperatorId: body.groupOperatorId as string | null,
+      actorId: access.actor.id,
+    }), { isolationLevel: "Serializable" });
+    return NextResponse.json({
+      receptionistId: body.receptionistId,
+      groupOperatorId: body.groupOperatorId,
+      previousGroupOperatorId: result.previousGroupOperatorId,
+    });
   }
   if (
     typeof body.groupOperatorId !== "string" ||

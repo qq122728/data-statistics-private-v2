@@ -12,6 +12,8 @@ import { isUniqueConstraintError } from "../../admin/users/validation";
 import { parseFrontlineSecondaryRoles } from "../../../../lib/role-assignments";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied, type SecurityEventActor } from "../../../../lib/security-events";
+import { getSystemSettings } from "../../../../lib/settings";
+import { resolveGroupBusinessDate } from "../../../../lib/business-time";
 
 type MemberRequest = {
   id?: unknown;
@@ -135,6 +137,8 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const settings = await getSystemSettings();
+  const now = new Date();
 
   try {
     const result = await db.$transaction(
@@ -142,6 +146,7 @@ export async function POST(request: Request) {
         const group = await getActiveLeadGroup(access.actor.id, client);
         if (!group)
           return { error: "组长必须归属启用中的小组", status: 403 as const };
+        const effectiveFrom = await resolveGroupBusinessDate(group.id, settings.timezone, now, client);
 
         const member = await client.user.create({
           data: {
@@ -154,7 +159,7 @@ export async function POST(request: Request) {
             role,
             groupId: group.id,
             roleAssignments: { create: [role, ...secondaryRoles.value].map((assignedRole) => ({ role: assignedRole })) },
-            membershipHistory: { create: { groupId: group.id, role, secondaryRoles: secondaryRoles.value.join(",") || null, effectiveFrom: new Date().toISOString().slice(0, 10), reason: "组长创建成员", createdById: access.actor.id } },
+            membershipHistory: { create: { groupId: group.id, role, secondaryRoles: secondaryRoles.value.join(",") || null, effectiveFrom, reason: "组长创建成员", createdById: access.actor.id } },
           },
           select: safeLeadMemberSelect,
         });

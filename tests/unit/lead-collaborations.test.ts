@@ -42,6 +42,22 @@ afterEach(async () => {
 });
 
 describe.sequential("lead collaboration assignment", () => {
+  it("lets a lead explicitly save a receptionist as pending without changing assigned customers", async () => {
+    const { operatorA, receptionist } = await fixture();
+    expect((await assign(operatorA.id, [receptionist.id])).status).toBe(200);
+    const response = await PUT(new Request("http://localhost/api/lead/collaborations", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ receptionistId: receptionist.id, groupOperatorId: null }),
+    }));
+    expect(response.status).toBe(200);
+    await expect(db.groupOperatorReception.findMany({ where: { receptionistId: receptionist.id } })).resolves.toEqual([]);
+    await expect(db.groupOperatorReceptionHistory.findFirstOrThrow({
+      where: { receptionistId: receptionist.id },
+      orderBy: { effectiveFrom: "desc" },
+    })).resolves.toMatchObject({ groupOperatorId: operatorA.id, effectiveTo: expect.any(Date) });
+  });
+
   it("moves a receptionist to the newly selected operator instead of counting them twice", async () => {
     const { operatorA, operatorB, receptionist } = await fixture();
     expect((await assign(operatorA.id, [receptionist.id])).status).toBe(200);

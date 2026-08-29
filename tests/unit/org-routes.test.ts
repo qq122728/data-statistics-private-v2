@@ -11,6 +11,7 @@ import { GET as getOrgStructure } from "../../src/app/api/org/structure/route";
 import { POST as createDepartmentManagerAccount } from "../../src/app/api/org/department-managers/route";
 import { POST as createCompanyManagerAccount } from "../../src/app/api/org/company-managers/route";
 import { POST as createHqManagerAccount } from "../../src/app/api/org/hq-managers/route";
+import { GET as getLeadCandidates } from "../../src/app/api/org/lead-candidates/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -43,6 +44,7 @@ const ids = {
   deptA1Manager: `dept-a1-manager-${suffix}`,
   candidateA1: `candidate-a1-${suffix}`,
   candidateB1: `candidate-b1-${suffix}`,
+  candidateA1Reader: `candidate-a1-reader-${suffix}`,
   plainLead: `plain-lead-${suffix}`,
   admin: `admin-${suffix}`,
 };
@@ -69,6 +71,7 @@ beforeAll(async () => {
     { id: ids.deptA1Manager, username: ids.deptA1Manager, name: "A一部部门管理员", role: "COMPANY_MANAGER", duty: "DEPARTMENT_MANAGER", departmentId: ids.deptA1 },
     { id: ids.candidateA1, username: ids.candidateA1, name: "A1组待任命组长", role: "RECEPTION", groupId: ids.groupA1 },
     { id: ids.candidateB1, username: ids.candidateB1, name: "B1组待任命组长", role: "RECEPTION", groupId: ids.groupB1 },
+    { id: ids.candidateA1Reader, username: ids.candidateA1Reader, name: "A1组候选读取测试", role: "EXPERT", groupId: ids.groupA1 },
     // 故意不挂 groupId：这个账号只用来测"没有管理职务的人连权限入口都进不去"，
     // 挂上 groupId 反而会占掉 groupA1 的"唯一在职组长"名额，干扰后面的任命测试。
     { id: ids.plainLead, username: ids.plainLead, name: "普通组长", role: "LEAD" },
@@ -233,6 +236,22 @@ describe.sequential("阶段5a组织架构路由：任免/调动组长 (calls tra
     );
     expect(response.status).toBe(200);
   });
+
+  it("rejects a date that is tomorrow in the target group's New York timezone", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
+    try {
+      await signInAs(ids.hq);
+      const response = await appointLead(
+        jsonRequest(`http://localhost/api/org/groups/${ids.groupB1}/lead`, { userId: ids.candidateB1, effectiveOn: "2026-09-01", reason: "验证目标小组当地日期" }),
+        { params: Promise.resolve({ groupId: ids.groupB1 }) },
+      );
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: "调动生效日期不能晚于目标小组当地今天 2026-08-31" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe.sequential("阶段5a组织架构路由：只读组织结构树 (5.2/5.5 可见范围)", () => {
@@ -268,6 +287,27 @@ describe.sequential("阶段5a组织架构路由：只读组织结构树 (5.2/5.5
   it("blocks a plain lead with no management duty from reading the org structure endpoint", async () => {
     await signInAs(ids.plainLead);
     const response = await getOrgStructure();
+    expect(response.status).toBe(403);
+  });
+});
+
+describe.sequential("阶段5b组织架构路由：范围受控的组长候选人员", () => {
+  it("returns selector-safe candidates only from a department manager's own department", async () => {
+    await signInAs(ids.deptA1Manager);
+    const response = await getLeadCandidates(new Request(`http://localhost/api/org/lead-candidates?groupId=${ids.groupA1}`));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ids.candidateA1Reader, name: "A1组候选读取测试", groupId: ids.groupA1 }),
+    ]));
+    expect(body.candidates.some((candidate: { id: string }) => candidate.id === ids.candidateB1)).toBe(false);
+    expect(body.candidates[0]).not.toHaveProperty("username");
+    expect(body.candidates[0]).not.toHaveProperty("passwordHash");
+  });
+
+  it("does not let a department manager use the candidate endpoint to inspect another department", async () => {
+    await signInAs(ids.deptA1Manager);
+    const response = await getLeadCandidates(new Request(`http://localhost/api/org/lead-candidates?groupId=${ids.groupB1}`));
     expect(response.status).toBe(403);
   });
 });

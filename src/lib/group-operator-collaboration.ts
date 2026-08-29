@@ -117,6 +117,62 @@ export async function replaceGroupOperatorReceptionAssignments(input: {
   return { addedCount: added.length, removedCount: removed.length };
 }
 
+/**
+ * 以接粉员为中心更新一条当前配对。groupOperatorId 为空表示明确保存为“待配对”。
+ * 这条入口只关闭该接粉员自己的当前关系；兼任炒群的人员仍可继续承接其他接粉员，
+ * 不会因为把自己设为待配对而误删其作为炒群员的其他配对。
+ */
+export async function replaceReceptionistGroupOperatorAssignment(input: {
+  tx: Prisma.TransactionClient;
+  receptionistId: string;
+  groupOperatorId: string | null;
+  actorId: string;
+  reason?: string;
+  effectiveAt?: Date;
+}) {
+  const effectiveAt = input.effectiveAt ?? new Date();
+  const reason = input.reason?.trim() || "组长调整接粉与炒群配对";
+  const current = await input.tx.groupOperatorReception.findFirst({
+    where: { receptionistId: input.receptionistId },
+    select: { groupOperatorId: true, receptionistId: true, createdAt: true },
+  });
+  if (current?.groupOperatorId === input.groupOperatorId) {
+    return { changed: false, previousGroupOperatorId: current.groupOperatorId };
+  }
+  if (current) {
+    await closePairingHistory(input.tx, current, effectiveAt, input.actorId, reason);
+    await input.tx.groupOperatorReception.delete({
+      where: {
+        groupOperatorId_receptionistId: {
+          groupOperatorId: current.groupOperatorId,
+          receptionistId: current.receptionistId,
+        },
+      },
+    });
+  }
+  if (input.groupOperatorId) {
+    await input.tx.groupOperatorReception.create({
+      data: {
+        groupOperatorId: input.groupOperatorId,
+        receptionistId: input.receptionistId,
+      },
+    });
+    await input.tx.groupOperatorReceptionHistory.create({
+      data: {
+        groupOperatorId: input.groupOperatorId,
+        receptionistId: input.receptionistId,
+        effectiveFrom: effectiveAt,
+        createdById: input.actorId,
+        reason,
+      },
+    });
+  }
+  return {
+    changed: true,
+    previousGroupOperatorId: current?.groupOperatorId ?? null,
+  };
+}
+
 /** 转岗/停用时关闭涉及该成员的当前配对，同时保留已结束的历史行。 */
 export async function closeGroupOperatorReceptionAssignmentsForMember(input: {
   tx: Prisma.TransactionClient;

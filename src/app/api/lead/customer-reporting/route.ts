@@ -5,9 +5,9 @@ import { db } from "../../../../lib/db";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
-import { getSystemSettings } from "../../../../lib/settings";
-import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
+import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { canViewOrgScope } from "../../../../lib/org-permissions";
 
 const stages = new Set(["reception", "group", "expert"]);
 const PAGE_SIZE = 50;
@@ -28,20 +28,32 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
     throw error;
   }
-  if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "LEAD"))
-    return authorizationDenied(actor, "只有在职组长可以查看本组客户进度");
-
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params)) return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
+  if (!actor.active) return authorizationDenied(actor, "当前账号已停用");
+  const isLead = Boolean(actor.groupId) && hasAssignedRole(actor, "LEAD");
+  const requestedGroupId = (params.get("groupId") ?? "").trim();
+  const targetGroupId = isLead ? actor.groupId! : requestedGroupId;
+  if (!targetGroupId) return NextResponse.json({ error: "请先选择一个具体小组" }, { status: 400 });
+  const group = await db.teamGroup.findFirst({
+    where: { id: targetGroupId, active: true },
+    select: {
+      id: true, departmentId: true, countryCode: true, timezone: true,
+      workStartMinutes: true, workEndMinutes: true,
+      department: { select: { companyId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
+    },
+  });
+  if (!group || (!isLead && !canViewOrgScope(actor, { level: "group", groupId: group.id, departmentId: group.departmentId, companyId: group.department.companyId })))
+    return authorizationDenied(actor, "没有权限查看这个小组的客户进度");
+
   const stage = stages.has(params.get("stage") ?? "") ? params.get("stage")! : "reception";
   const pageValue = Number(params.get("page") ?? "1");
   const page = Number.isSafeInteger(pageValue) && pageValue > 0 ? pageValue : 1;
   const query = (params.get("q") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
-  const settings = await getSystemSettings();
-  const timezone = await resolveUserBusinessTimezone(actor, settings.timezone);
+  const timezone = resolveGroupBusinessTime(group).timezone;
   const today = localDateYYYYMMDD(new Date(), timezone);
   const baseWhere: Prisma.LeadCustomerWhereInput = {
-    batch: { groupId: actor.groupId },
+    batch: { groupId: group.id },
     invalid: false,
     ...(query ? { OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] } : {}),
   };

@@ -1,6 +1,7 @@
 import type { Role } from "@prisma/client";
 import { db } from "../db";
 import { getApprovedInvalidFanTotals } from "../invalid-fan-reports";
+import { resolveGroupOperatorId } from "../group-operator-attribution";
 
 export type DailyMemberRole = Extract<Role, "RECEPTION" | "GROUP_OPERATOR" | "EXPERT">;
 
@@ -107,33 +108,56 @@ export async function loadMemberDailyDetail(input: {
   });
   if (!member?.group) return null;
 
+  const operatorAssignments = input.role === "GROUP_OPERATOR"
+    ? await db.groupOperatorReception.findMany({
+      where: { groupOperatorId: member.id },
+      select: { receptionistId: true },
+    })
+    : [];
+  const pairedReceptionistIds = operatorAssignments.map((assignment) => assignment.receptionistId);
+  const currentOperatorByReception = new Map(
+    pairedReceptionistIds.map((receptionistId) => [receptionistId, member.id]),
+  );
+
   const ownerWhere = input.role === "RECEPTION"
     ? { ownerId: member.id }
     : input.role === "GROUP_OPERATOR"
-      ? { groupOperatorOwnerId: member.id }
+      ? {
+        OR: [
+          { groupOperatorOwnerId: member.id },
+          { groupOperatorOwnerId: null, activities: { some: { actorId: member.id, kind: "EXPERT_INTRODUCED" as const, occurredOn: { lte: input.to } } } },
+          ...(pairedReceptionistIds.length
+            ? [{ groupOperatorOwnerId: null, ownerId: { in: pairedReceptionistIds } }]
+            : []),
+        ],
+      }
       : { expertOwnerId: member.id };
   const dateRange = { gte: input.from, lte: input.to };
   const leads = await db.leadCustomer.findMany({
     where: {
-      ...ownerWhere,
+      AND: [
+        ownerWhere,
+        { OR: [
+          { batch: { sourceDate: dateRange } },
+          { repliedOn: dateRange },
+          { joinedOn: dateRange },
+          { leftOn: dateRange },
+          { expertIntroducedOn: dateRange },
+          { expertContactedOn: dateRange },
+          { registeredOn: dateRange },
+          { customerOrder: { is: { openedOn: dateRange, voidedAt: null } } },
+          { customerOrder: { is: { events: { some: { occurredOn: dateRange, voidedAt: null } } } } },
+        ] },
+      ],
       batch: {
         groupId: member.group ? { in: input.groupIds } : undefined,
         ...(input.channelIds ? { channelId: { in: input.channelIds } } : {}),
         ...(input.normalizedName ? { channel: { normalizedName: input.normalizedName } } : {}),
       },
-      OR: [
-        { batch: { sourceDate: dateRange } },
-        { repliedOn: dateRange },
-        { joinedOn: dateRange },
-        { leftOn: dateRange },
-        { expertIntroducedOn: dateRange },
-        { expertContactedOn: dateRange },
-        { registeredOn: dateRange },
-        { customerOrder: { is: { openedOn: dateRange, voidedAt: null } } },
-        { customerOrder: { is: { events: { some: { occurredOn: dateRange, voidedAt: null } } } } },
-      ],
     },
     select: {
+      ownerId: true,
+      groupOperatorOwnerId: true,
       isHistoricalRecord: true,
       invalid: true,
       receptionCategory: true,
@@ -143,6 +167,10 @@ export async function loadMemberDailyDetail(input: {
       expertIntroducedOn: true,
       expertContactedOn: true,
       registeredOn: true,
+      activities: {
+        where: { kind: "EXPERT_INTRODUCED", occurredOn: { lte: input.to } },
+        select: { actorId: true, kind: true, occurredOn: true },
+      },
       batch: { select: { sourceDate: true, isHistoricalRecord: true } },
       customerOrder: {
         select: {
@@ -184,7 +212,13 @@ export async function loadMemberDailyDetail(input: {
   const inGroupLeads = input.role === "GROUP_OPERATOR"
     ? await db.leadCustomer.findMany({
       where: {
-        groupOperatorOwnerId: member.id,
+        OR: [
+          { groupOperatorOwnerId: member.id },
+          { groupOperatorOwnerId: null, activities: { some: { actorId: member.id, kind: "EXPERT_INTRODUCED", occurredOn: { lte: input.to } } } },
+          ...(pairedReceptionistIds.length
+            ? [{ groupOperatorOwnerId: null, ownerId: { in: pairedReceptionistIds } }]
+            : []),
+        ],
         isHistoricalRecord: false,
         joinedOn: { not: null },
         batch: {
@@ -194,13 +228,32 @@ export async function loadMemberDailyDetail(input: {
           ...(input.normalizedName ? { channel: { normalizedName: input.normalizedName } } : {}),
         },
       },
-      select: { invalid: true, receptionCategory: true, joinedOn: true, leftOn: true, expertIntroducedOn: true },
+      select: {
+        ownerId: true,
+        groupOperatorOwnerId: true,
+        invalid: true,
+        receptionCategory: true,
+        joinedOn: true,
+        leftOn: true,
+        expertIntroducedOn: true,
+        activities: {
+          where: { kind: "EXPERT_INTRODUCED", occurredOn: { lte: input.to } },
+          select: { actorId: true, kind: true, occurredOn: true },
+        },
+      },
     })
     : [];
 
+  const attributedLeads = input.role === "GROUP_OPERATOR"
+    ? leads.filter((lead) => resolveGroupOperatorId(lead, currentOperatorByReception, input.to) === member.id)
+    : leads;
+  const attributedInGroupLeads = inGroupLeads.filter(
+    (lead) => resolveGroupOperatorId(lead, currentOperatorByReception, input.to) === member.id,
+  );
+
   const rows = new Map(allDates(input.from, input.to).map((date) => [date, emptyRow(date)]));
   const rowFor = (date: string | null | undefined) => date && rows.get(date);
-  for (const lead of leads) {
+  for (const lead of attributedLeads) {
     const historical = lead.isHistoricalRecord || lead.batch.isHistoricalRecord;
     const reportEligible = isResourceEligible(lead);
     if (!historical && input.role === "RECEPTION") {
@@ -260,8 +313,8 @@ export async function loadMemberDailyDetail(input: {
 
   if (input.role === "GROUP_OPERATOR") {
     for (const row of rows.values()) {
-      row.inGroup = inGroupLeads.filter((lead) => isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= row.date && (!lead.leftOn || lead.leftOn > row.date)).length;
-      row.eligibleForExpert = inGroupLeads.filter((lead) => isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= addDays(row.date, -2) && (!lead.leftOn || lead.leftOn > row.date) && (!lead.expertIntroducedOn || lead.expertIntroducedOn > row.date)).length;
+      row.inGroup = attributedInGroupLeads.filter((lead) => isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= row.date && (!lead.leftOn || lead.leftOn > row.date)).length;
+      row.eligibleForExpert = attributedInGroupLeads.filter((lead) => isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= addDays(row.date, -2) && (!lead.leftOn || lead.leftOn > row.date) && (!lead.expertIntroducedOn || lead.expertIntroducedOn > row.date)).length;
     }
   }
   for (const row of rows.values()) row.netCents = row.depositCents - row.withdrawalCents;

@@ -66,6 +66,8 @@ export function buildBasicCustomerMutation(
 
   switch (input.action) {
     case "voidErroneousEntry":
+      if (hasExpertOrOrderProgress)
+        return { status: 400, error: "客户已进入专家跟进或开单流程，不能按误录作废；请使用对应流程的纠错功能" };
       // 已产生回复、入群或专家记录时不能物理删除；保留历史供管理员
       // 核对，但将误录客户从所有有效转化和业绩口径中排除。
       return {

@@ -2,6 +2,7 @@ import { db } from "../db";
 import { hasReachedBusinessDay, standardsFromGroup, type GroupConversionStandards } from "../conversion-standards";
 import { getApprovedInvalidFanTotals } from "../invalid-fan-reports";
 import { assessGroupLeave } from "../group-leave";
+import { resolveGroupOperatorId } from "../group-operator-attribution";
 
 export type ReceptionRankingRow = {
   id: string;
@@ -371,9 +372,7 @@ export async function loadRoleRankings(input: {
   const currentInGroupByOperator = new Map<string, number>();
   for (const lead of unboundedInGroupLeads) {
     if (lead.leftOn && lead.leftOn <= today) continue;
-    const latestIntro = lead.activities
-      .sort((left, right) => right.occurredOn.localeCompare(left.occurredOn))[0];
-    const operatorId = lead.groupOperatorOwnerId ?? latestIntro?.actorId ?? currentOperatorByReception.get(lead.ownerId);
+    const operatorId = resolveGroupOperatorId(lead, currentOperatorByReception, today);
     if (!operatorId) continue;
     currentInGroupByOperator.set(operatorId, (currentInGroupByOperator.get(operatorId) ?? 0) + 1);
   }
@@ -386,12 +385,7 @@ export async function loadRoleRankings(input: {
     append(leadsByFanOwner, lead.attributionOwnerId ?? lead.ownerId, lead);
     append(leadsByExpert, lead.expertOwnerId, lead);
     append(leadsByGroup, lead.batch.groupId, lead);
-    const latestIntro = lead.activities
-      .filter((activity) => activity.kind === "EXPERT_INTRODUCED" && activity.occurredOn <= today)
-      .sort((left, right) => right.occurredOn.localeCompare(left.occurredOn))[0];
-    const operatorId = lead.groupOperatorOwnerId
-      ?? latestIntro?.actorId
-      ?? currentOperatorByReception.get(lead.ownerId);
+    const operatorId = resolveGroupOperatorId(lead, currentOperatorByReception, today);
     append(leadsByOperator, operatorId, lead);
     if (isHistorical(lead)) continue;
     for (const activity of lead.activities) {

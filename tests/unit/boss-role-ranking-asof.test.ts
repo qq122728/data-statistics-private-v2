@@ -124,6 +124,45 @@ describe.sequential("老板简报岗位统计截止日", () => {
     expect(result.groupOperators.find((row) => row.id === fixtureData.operatorB.id)).toMatchObject({ currentInGroup: 1 });
   });
 
+  it("炒群每日明细与主榜单共用三层归属——明确指派优先，其次最近推专家，最后当前配对", async () => {
+    const fixtureData = await fixture();
+    const createLead = async (suffix: string, groupOperatorOwnerId: string | null) => db.leadCustomer.create({
+      data: {
+        id: `${prefix}lead-${suffix}-${randomUUID()}`,
+        phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+        batchId: fixtureData.batchId,
+        ownerId: fixtureData.reception.id,
+        groupOperatorOwnerId,
+        joinedOn: "2026-08-10",
+        groupStatus: "JOINED",
+      },
+    });
+
+    // 没有明确负责人和推专家动作，只能按 reception 当前配对归 operatorB。
+    await createLead("paired", null);
+    // 没有明确负责人，但最近推专家动作是 operatorA，动作归属优先于当前配对。
+    const activityLead = await createLead("activity", null);
+    await db.leadActivity.create({
+      data: { leadId: activityLead.id, actorId: fixtureData.operatorA.id, kind: "EXPERT_INTRODUCED", occurredOn: "2026-08-12" },
+    });
+    // 明确负责人是 operatorB，即使 operatorA 做过推专家动作，也仍以明确负责人为准。
+    const explicitLead = await createLead("explicit", fixtureData.operatorB.id);
+    await db.leadActivity.create({
+      data: { leadId: explicitLead.id, actorId: fixtureData.operatorA.id, kind: "EXPERT_INTRODUCED", occurredOn: "2026-08-13" },
+    });
+
+    const [ranking, detailA, detailB] = await Promise.all([
+      loadRoleRankings({ groupIds: [fixtureData.groupId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-16", today: "2026-08-16" }),
+      loadMemberDailyDetail({ groupIds: [fixtureData.groupId], memberId: fixtureData.operatorA.id, role: "GROUP_OPERATOR", from: "2026-08-01", to: "2026-08-16" }),
+      loadMemberDailyDetail({ groupIds: [fixtureData.groupId], memberId: fixtureData.operatorB.id, role: "GROUP_OPERATOR", from: "2026-08-01", to: "2026-08-16" }),
+    ]);
+
+    expect(ranking.groupOperators.find((row) => row.id === fixtureData.operatorA.id)).toMatchObject({ currentInGroup: 1 });
+    expect(ranking.groupOperators.find((row) => row.id === fixtureData.operatorB.id)).toMatchObject({ currentInGroup: 2 });
+    expect(detailA?.rows.find((row) => row.date === "2026-08-16")).toMatchObject({ inGroup: 1 });
+    expect(detailB?.rows.find((row) => row.date === "2026-08-16")).toMatchObject({ inGroup: 2 });
+  });
+
   it("快照归属到一个连组长身份都没有的人时，这个人也必须单独出现一行——不能因为进不了角色花名册筛选就把快照漏掉", async () => {
     const fixtureData = await fixture();
     const oldBatchId = `${prefix}old-batch-${randomUUID()}`;

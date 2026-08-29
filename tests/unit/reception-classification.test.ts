@@ -85,4 +85,18 @@ describe("reception number classification", () => {
     expect(buildBasicCustomerMutation({ action: "classifyReception", receptionCategory: "NO_WS" }, { ...lead, registeredOn: "2026-08-17" }, "2026-08-17")).toMatchObject({ status: 400 });
     expect(buildBasicCustomerMutation({ action: "classifyReception", receptionCategory: "NO_WS" }, { ...lead, customerOrder: { voidedAt: null } }, "2026-08-17")).toMatchObject({ status: 400 });
   });
+
+  it("allows voiding a true mistaken entry before expert handoff, but protects expert and order progress", () => {
+    expect(buildBasicCustomerMutation({ action: "voidErroneousEntry", reason: "重复录入" }, { ...lead, repliedOn: "2026-08-17", groupStatus: "JOINED" }, "2026-08-17")).toMatchObject({
+      update: { invalid: true, receptionCategory: "INVALID" },
+      activityKind: "MARKED_INVALID",
+    });
+    expect(buildBasicCustomerMutation({ action: "voidErroneousEntry", reason: "误录" }, { ...lead, expertIntroducedOn: "2026-08-17" }, "2026-08-17")).toMatchObject({
+      status: 400,
+      error: expect.stringContaining("不能按误录作废"),
+    });
+    expect(buildBasicCustomerMutation({ action: "voidErroneousEntry", reason: "误录" }, { ...lead, expertContactedOn: "2026-08-17" }, "2026-08-17")).toMatchObject({ status: 400 });
+    expect(buildBasicCustomerMutation({ action: "voidErroneousEntry", reason: "误录" }, { ...lead, registeredOn: "2026-08-17" }, "2026-08-17")).toMatchObject({ status: 400 });
+    expect(buildBasicCustomerMutation({ action: "voidErroneousEntry", reason: "误录" }, { ...lead, customerOrder: { voidedAt: null } }, "2026-08-17")).toMatchObject({ status: 400 });
+  });
 });

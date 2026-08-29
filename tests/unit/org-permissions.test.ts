@@ -6,6 +6,7 @@ import {
   canCreateDepartment,
   canCreateDepartmentManagerAccount,
   canCreateGroup,
+  canCreateGroupLeadAccount,
   canCreateHqManagerAccount,
   canOperateCustomer,
   canViewOrgScope,
@@ -139,6 +140,29 @@ describe("org-permissions: 5.6 组织结构操作权限", () => {
 
     it("blocks a frontline user with no management duty", () => {
       expect(canAppointOrTransferLead(user({ role: "LEAD", groupId: "group-a" }), groupInDepartmentA)).toBe(false);
+    });
+  });
+
+  describe("canCreateGroupLeadAccount", () => {
+    const groupInDepartmentA = { id: "group-a", departmentId: "department-a", companyId: "company-a" };
+    const groupInDepartmentB = { id: "group-b", departmentId: "department-b", companyId: "company-b" };
+
+    it("allows ADMIN for system bootstrap", () => {
+      expect(canCreateGroupLeadAccount(user({ role: "ADMIN" }), groupInDepartmentA)).toBe(true);
+    });
+
+    it("uses the same organization scope as lead appointment for managers", () => {
+      expect(canCreateGroupLeadAccount(user({ duty: "HQ_MANAGER" }), groupInDepartmentB)).toBe(true);
+      expect(canCreateGroupLeadAccount(user({ duty: "COMPANY_MANAGER", companyId: "company-a" }), groupInDepartmentA)).toBe(true);
+      expect(canCreateGroupLeadAccount(user({ duty: "COMPANY_MANAGER", companyId: "company-a" }), groupInDepartmentB)).toBe(false);
+      expect(canCreateGroupLeadAccount(user({ duty: "DEPARTMENT_MANAGER", departmentId: "department-a" }), groupInDepartmentA)).toBe(true);
+      expect(canCreateGroupLeadAccount(user({ duty: "DEPARTMENT_MANAGER", departmentId: "department-a" }), groupInDepartmentB)).toBe(false);
+    });
+
+    it("blocks inactive managers and frontline users", () => {
+      expect(canCreateGroupLeadAccount(user({ role: "ADMIN", active: false }), groupInDepartmentA)).toBe(false);
+      expect(canCreateGroupLeadAccount(user({ duty: "HQ_MANAGER", active: false }), groupInDepartmentA)).toBe(false);
+      expect(canCreateGroupLeadAccount(user({ role: "LEAD", groupId: "group-a" }), groupInDepartmentA)).toBe(false);
     });
   });
 });

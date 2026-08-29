@@ -5,8 +5,8 @@ import { hasAssignedRole } from "./role-access";
  * 阶段5a新增的权限网关（需求文档第五章）。只服务阶段5新增的组织架构/组织权限路由，
  * 不接管老53个路由的权限判断，不读 Role 字符串做层级判断——只有两处明确例外：
  * 5.1 的 canOperateCustomer（那条规则本来就是按岗位 Role 定义的，跟组织结构层级无关）、
- * 以及阶段5a补充的三个账号创建函数（canCreateDepartmentManagerAccount/
- * canCreateCompanyManagerAccount/canCreateHqManagerAccount，见下方对应小节——
+ * 以及组织架构账号创建函数（canCreateGroupLeadAccount/
+ * canCreateDepartmentManagerAccount/canCreateCompanyManagerAccount/canCreateHqManagerAccount，见下方对应小节——
  * 需要识别 Role.ADMIN 这个没有 Duty 的系统自举角色）。
  *
  * 命名坑提醒（/Users/aaaa/.claude/plans/merry-sauteeing-cook.md 阶段5开工前摸底确认）：
@@ -79,6 +79,17 @@ export function canAppointOrTransferLead(user: OrgPermissionUser, targetGroup: G
   if (user.duty === "COMPANY_MANAGER") return Boolean(user.companyId) && targetGroup.companyId === user.companyId;
   if (user.duty === "DEPARTMENT_MANAGER") return Boolean(user.departmentId) && targetGroup.departmentId === user.departmentId;
   return false;
+}
+
+/**
+ * 给空缺小组直接开设一名全新的组长账号。组织管理者的范围跟任命/调动现有人完全一致；
+ * 额外放行 ADMIN 只用于系统初始化。单独保留这个函数，不把 ADMIN 塞进
+ * canAppointOrTransferLead，避免扩大既有“调动现有人”接口的权限范围。
+ */
+export function canCreateGroupLeadAccount(user: OrgPermissionUser, targetGroup: GroupScope): boolean {
+  if (!user.active) return false;
+  if (user.role === "ADMIN") return true;
+  return canAppointOrTransferLead(user, targetGroup);
 }
 
 // ---------------------------------------------------------------------------

@@ -33,7 +33,7 @@ export default async function AppLayout({
     throw error;
   }
 
-  const [group, company, settings, unreadNotifications] = await Promise.all([
+  const [group, department, managedCompany, settings, unreadNotifications] = await Promise.all([
     user.groupId
       ? db.teamGroup.findUnique({
           where: { id: user.groupId },
@@ -43,13 +43,17 @@ export default async function AppLayout({
     user.departmentId
       ? db.department.findUnique({ where: { id: user.departmentId }, select: { name: true } })
       : Promise.resolve(null),
+    user.companyId
+      ? db.company.findUnique({ where: { id: user.companyId }, select: { name: true } })
+      : Promise.resolve(null),
     getSystemSettings(),
     unreadNotificationCount(user.id),
   ]);
 
   const roles = getAssignedRoles(user);
-  const role = user.role === "COMPANY_MANAGER" && user.managementCountryCode ? "部门管理员" : roles.map((item) => roleNames[item]).join(" / ");
-  const organizationName = user.managementScopeName ?? group?.name ?? company?.name;
+  const orgDutyLabel = user.duty === "HQ_MANAGER" ? "总公司管理员" : user.duty === "COMPANY_MANAGER" ? "公司管理员" : user.duty === "DEPARTMENT_MANAGER" ? "部门管理员" : null;
+  const role = orgDutyLabel ?? roles.map((item) => roleNames[item]).join(" / ");
+  const organizationName = user.managementScopeName ?? group?.name ?? department?.name ?? managedCompany?.name;
   const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
   return (
     <div className="app-shell">
@@ -61,7 +65,7 @@ export default async function AppLayout({
           roles,
           roleLabel: role,
           groupName: organizationName,
-          departmentManager: user.role === "COMPANY_MANAGER" && Boolean(user.managementCountryCode),
+          departmentManager: user.duty === "DEPARTMENT_MANAGER" || (user.role === "COMPANY_MANAGER" && Boolean(user.managementCountryCode)),
         }}
       />
       <AppHeader

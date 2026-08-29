@@ -12,7 +12,7 @@ describe("application header identity", () => {
     ]);
 
     expect(layout).toContain("userName={user.name}");
-    expect(layout).toContain("const organizationName = user.managementScopeName ?? group?.name ?? company?.name");
+    expect(layout).toContain("const organizationName = user.managementScopeName ?? group?.name ?? department?.name ?? managedCompany?.name");
     expect(layout).toContain("groupName={organizationName}");
     expect(header).toContain("userName");
     expect(header).toContain("groupName");

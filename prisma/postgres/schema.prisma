@@ -272,6 +272,9 @@ model User {
   groupOperatorLeads        LeadCustomer[]           @relation("GroupOperatorOwner")
   groupOperatorAssignments  GroupOperatorReception[] @relation("GroupOperatorAssignments")
   receptionistAssignments   GroupOperatorReception[] @relation("ReceptionistAssignments")
+  groupOperatorPairingHistory GroupOperatorReceptionHistory[] @relation("GroupOperatorPairingHistory")
+  receptionistPairingHistory  GroupOperatorReceptionHistory[] @relation("ReceptionistPairingHistory")
+  createdPairingHistory       GroupOperatorReceptionHistory[] @relation("PairingHistoryCreatedBy")
   assignedDevices           Device[]                 @relation("DeviceAssignedMember")
   deviceAccounts            DeviceAccount[]
   leadActivities            LeadActivity[]
@@ -651,6 +654,26 @@ model GroupOperatorReception {
   createdAt       DateTime @default(now())
 
   @@id([groupOperatorId, receptionistId])
+}
+
+// 当前配对仍由 GroupOperatorReception 提供快速、兼容的读取；本表只追加历史版本，
+// 用来回答“某天谁和谁配对”，换配对不会覆盖旧关系。
+model GroupOperatorReceptionHistory {
+  id              String    @id @default(cuid())
+  groupOperatorId String
+  receptionistId  String
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  reason          String?
+  createdById     String?
+  groupOperator   User      @relation("GroupOperatorPairingHistory", fields: [groupOperatorId], references: [id], onDelete: Cascade)
+  receptionist    User      @relation("ReceptionistPairingHistory", fields: [receptionistId], references: [id], onDelete: Cascade)
+  createdBy       User?     @relation("PairingHistoryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
+
+  @@index([receptionistId, effectiveFrom, effectiveTo])
+  @@index([groupOperatorId, effectiveFrom, effectiveTo])
+  @@index([createdById])
 }
 
 model Device {

@@ -1,5 +1,6 @@
 import type { Prisma, Role } from "@prisma/client";
 import { recordAudit } from "../audit";
+import { closeGroupOperatorReceptionAssignmentsForMember } from "../group-operator-collaboration";
 
 export const transferableRoles = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
 export type TransferableRole = (typeof transferableRoles)[number];
@@ -140,9 +141,16 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
       roleAssignments: { deleteMany: {}, create: [role, ...secondaryRoles].map((assignedRole) => ({ role: assignedRole })) },
     },
   });
+  if (shouldResetCollaboration) {
+    await closeGroupOperatorReceptionAssignmentsForMember({
+      tx,
+      userId: member.id,
+      actorId: actor.id,
+      reason: `人员转岗：${reason}`,
+    });
+  }
   await Promise.all([
     tx.session.deleteMany({ where: { userId: member.id } }),
-    shouldResetCollaboration ? tx.groupOperatorReception.deleteMany({ where: { OR: [{ groupOperatorId: member.id }, { receptionistId: member.id }] } }) : Promise.resolve(),
     groupChanged ? tx.device.updateMany({ where: { groupId: member.groupId, memberId: member.id }, data: { memberId: null } }) : Promise.resolve(),
     shouldHandoffReception && receptionHandoffId ? tx.leadCustomer.updateMany({ where: { batch: { groupId: member.groupId }, ownerId: member.id, joinedOn: null, receptionArchivedAt: null }, data: { ownerId: receptionHandoffId } }) : Promise.resolve(),
     shouldHandoffOperator && operatorHandoffId ? tx.leadCustomer.updateMany({ where: { batch: { groupId: member.groupId }, groupOperatorOwnerId: member.id, expertIntroducedOn: null, leftOn: null }, data: { groupOperatorOwnerId: operatorHandoffId } }) : Promise.resolve(),

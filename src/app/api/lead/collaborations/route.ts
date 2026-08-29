@@ -7,6 +7,7 @@ import {
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, tooLargeResponse } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { replaceGroupOperatorReceptionAssignments } from "../../../../lib/group-operator-collaboration";
 
 export async function GET() {
   const access = await requireLeadRequest();
@@ -68,24 +69,12 @@ export async function PUT(request: Request) {
     );
   }
   await db.$transaction(async (client) => {
-    await client.groupOperatorReception.deleteMany({
-      where: { groupOperatorId: body.groupOperatorId as string },
+    await replaceGroupOperatorReceptionAssignments({
+      tx: client,
+      groupOperatorId: body.groupOperatorId as string,
+      receptionistIds,
+      actorId: access.actor.id,
     });
-    if (receptionistIds.length) {
-      // 同一个接粉员只能归属一个炒群员；重新勾选时视为调岗到当前炒群员。
-      await client.groupOperatorReception.deleteMany({
-        where: {
-          receptionistId: { in: receptionistIds },
-          groupOperatorId: { not: body.groupOperatorId as string },
-        },
-      });
-      await client.groupOperatorReception.createMany({
-        data: receptionistIds.map((receptionistId) => ({
-          groupOperatorId: body.groupOperatorId as string,
-          receptionistId,
-        })),
-      });
-    }
   }, { isolationLevel: "Serializable" });
   return NextResponse.json({
     groupOperatorId: body.groupOperatorId,

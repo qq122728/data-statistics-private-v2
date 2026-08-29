@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { PUT } from "../../src/app/api/lead/collaborations/route";
+import { POST as HANDOFF } from "../../src/app/api/lead/collaborations/handoff/route";
 import { db } from "../../src/lib/db";
 
 const prefix = "lead-collaboration-test-";
@@ -29,6 +30,12 @@ afterEach(async () => {
   vi.restoreAllMocks();
   const users = await db.user.findMany({ where: { id: { startsWith: prefix } }, select: { id: true } });
   const ids = users.map((user) => user.id);
+  const groups = await db.teamGroup.findMany({ where: { id: { startsWith: prefix } }, select: { id: true } });
+  const groupIds = groups.map((group) => group.id);
+  await db.auditLog.deleteMany({ where: { OR: [{ actorId: { in: ids } }, { entityId: { in: groupIds } }] } });
+  await db.leadCustomer.deleteMany({ where: { batch: { groupId: { in: groupIds } } } });
+  await db.sourceBatch.deleteMany({ where: { groupId: { in: groupIds } } });
+  await db.channel.deleteMany({ where: { groupId: { in: groupIds } } });
   await db.groupOperatorReception.deleteMany({ where: { OR: [{ groupOperatorId: { in: ids } }, { receptionistId: { in: ids } }] } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.teamGroup.deleteMany({ where: { id: { startsWith: prefix } } });
@@ -42,6 +49,21 @@ describe.sequential("lead collaboration assignment", () => {
 
     await expect(db.groupOperatorReception.findMany({ where: { receptionistId: receptionist.id } }))
       .resolves.toEqual([expect.objectContaining({ groupOperatorId: operatorB.id, receptionistId: receptionist.id })]);
+    const history = await db.groupOperatorReceptionHistory.findMany({
+      where: { receptionistId: receptionist.id },
+      orderBy: { effectiveFrom: "asc" },
+    });
+    expect(history).toHaveLength(2);
+    expect(history[0]).toMatchObject({ groupOperatorId: operatorA.id });
+    expect(history[0].effectiveTo).not.toBeNull();
+    expect(history[1]).toMatchObject({ groupOperatorId: operatorB.id, effectiveTo: null });
+  });
+
+  it("does not create duplicate history when saving an unchanged pairing", async () => {
+    const { operatorA, receptionist } = await fixture();
+    expect((await assign(operatorA.id, [receptionist.id])).status).toBe(200);
+    expect((await assign(operatorA.id, [receptionist.id])).status).toBe(200);
+    await expect(db.groupOperatorReceptionHistory.count({ where: { receptionistId: receptionist.id } })).resolves.toBe(1);
   });
 
   it("enforces the one-receptionist rule at database level", async () => {
@@ -63,5 +85,35 @@ describe.sequential("lead collaboration assignment", () => {
     await expect(db.groupOperatorReception.findUnique({
       where: { groupOperatorId_receptionistId: { groupOperatorId: receptionist.id, receptionistId: receptionist.id } },
     })).resolves.toMatchObject({ groupOperatorId: receptionist.id, receptionistId: receptionist.id });
+  });
+
+  it("previews and explicitly hands off only active group-stage customers", async () => {
+    const { operatorA, operatorB, receptionist } = await fixture();
+    const groupId = receptionist.groupId!;
+    const channel = await db.channel.create({
+      data: { id: `${prefix}channel-${randomUUID()}`, groupId, name: "交接渠道", normalizedName: `${prefix}${randomUUID()}` },
+    });
+    const batch = await db.sourceBatch.create({ data: { groupId, channelId: channel.id, sourceDate: "2026-08-28" } });
+    const active = await db.leadCustomer.create({
+      data: { phone: `491${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: batch.id, ownerId: receptionist.id, groupOperatorOwnerId: operatorA.id, joinedOn: "2026-08-28" },
+    });
+    const alreadyIntroduced = await db.leadCustomer.create({
+      data: { phone: `492${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: batch.id, ownerId: receptionist.id, groupOperatorOwnerId: operatorA.id, joinedOn: "2026-08-28", expertIntroducedOn: "2026-08-28" },
+    });
+    const request = (body: object) => HANDOFF(new Request("http://localhost/api/lead/collaborations/handoff", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+    const base = { receptionistId: receptionist.id, fromGroupOperatorId: operatorA.id, toGroupOperatorId: operatorB.id };
+    const preview = await request({ ...base, mode: "preview" });
+    const previewBody = await preview.json();
+    expect(preview.status, JSON.stringify(previewBody)).toBe(200);
+    expect(previewBody).toEqual({ count: 1 });
+    const confirmed = await request({ ...base, mode: "confirm", expectedCount: 1, reason: "换配对后交接在办客户" });
+    expect(confirmed.status).toBe(200);
+    await expect(confirmed.json()).resolves.toEqual({ transferredCount: 1 });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: active.id }, select: { groupOperatorOwnerId: true } })).resolves.toEqual({ groupOperatorOwnerId: operatorB.id });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: alreadyIntroduced.id }, select: { groupOperatorOwnerId: true } })).resolves.toEqual({ groupOperatorOwnerId: operatorA.id });
   });
 });

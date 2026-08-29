@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
+import { verifyPassword } from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { POST as createCompany } from "../../src/app/api/org/companies/route";
 import { POST as createDepartment } from "../../src/app/api/org/departments/route";
 import { POST as createGroup } from "../../src/app/api/org/groups/route";
 import { POST as appointLead } from "../../src/app/api/org/groups/[groupId]/lead/route";
 import { GET as getOrgStructure } from "../../src/app/api/org/structure/route";
+import { POST as createDepartmentManagerAccount } from "../../src/app/api/org/department-managers/route";
+import { POST as createCompanyManagerAccount } from "../../src/app/api/org/company-managers/route";
+import { POST as createHqManagerAccount } from "../../src/app/api/org/hq-managers/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -40,6 +44,7 @@ const ids = {
   candidateA1: `candidate-a1-${suffix}`,
   candidateB1: `candidate-b1-${suffix}`,
   plainLead: `plain-lead-${suffix}`,
+  admin: `admin-${suffix}`,
 };
 
 beforeAll(async () => {
@@ -67,6 +72,8 @@ beforeAll(async () => {
     // 故意不挂 groupId：这个账号只用来测"没有管理职务的人连权限入口都进不去"，
     // 挂上 groupId 反而会占掉 groupA1 的"唯一在职组长"名额，干扰后面的任命测试。
     { id: ids.plainLead, username: ids.plainLead, name: "普通组长", role: "LEAD" },
+    // Role.ADMIN，没有 duty——专门测账号创建三条新路由对系统自举账号的放行。
+    { id: ids.admin, username: ids.admin, name: "系统管理员", role: "ADMIN" },
   ] });
 });
 
@@ -261,6 +268,204 @@ describe.sequential("阶段5a组织架构路由：只读组织结构树 (5.2/5.5
   it("blocks a plain lead with no management duty from reading the org structure endpoint", async () => {
     await signInAs(ids.plainLead);
     const response = await getOrgStructure();
+    expect(response.status).toBe(403);
+  });
+});
+
+describe.sequential("阶段5a补充：创建 Duty.DEPARTMENT_MANAGER 账号 (POST /api/org/department-managers)", () => {
+  it("lets a company manager create a department-manager account for their own company's department", async () => {
+    await signInAs(ids.companyAManager);
+    const username = `new-dept-mgr-a-${randomUUID()}`;
+    const response = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptA2, username, name: "A二部新部门管理员", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.duty).toBe("DEPARTMENT_MANAGER");
+    expect(body.departmentId).toBe(ids.deptA2);
+    expect(body.mustChangePassword).toBe(true);
+
+    const created = await db.user.findUniqueOrThrow({ where: { id: body.id } });
+    expect(created.role).toBe("COMPANY_MANAGER"); // 阶段5a既有占位惯例，权限判断不读这个字段
+    expect(created.companyId).toBeNull();
+    expect(created.groupId).toBeNull();
+    expect(created.passwordHash).not.toBe("temporary-password-1");
+    expect(verifyPassword("temporary-password-1", created.passwordHash)).toBe(true);
+  });
+
+  it("blocks a company manager from creating one for a different company's department", async () => {
+    await signInAs(ids.companyAManager);
+    const response = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptB1, username: `越权-${randomUUID()}`, name: "越权部门管理员", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it("lets the HQ manager create a department-manager account for any department, skip-level", async () => {
+    await signInAs(ids.hq);
+    const username = `new-dept-mgr-b-${randomUUID()}`;
+    const response = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptB1, username, name: "B一部新部门管理员（总公司越级任命）", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.departmentId).toBe(ids.deptB1);
+  });
+
+  it("lets ADMIN create a department-manager account for any department (system bootstrap)", async () => {
+    await signInAs(ids.admin);
+    const username = `new-dept-mgr-admin-${randomUUID()}`;
+    const response = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptA1, username, name: "ADMIN创建的部门管理员", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(201);
+  });
+
+  it("blocks a department manager from creating any manager account at all (5a: only creates groups / appoints leads)", async () => {
+    await signInAs(ids.deptA1Manager);
+    const response = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptA1, username: `越权2-${randomUUID()}`, name: "越权部门管理员2", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it("blocks a plain lead (no management duty, not ADMIN) from even reaching the permission check", async () => {
+    await signInAs(ids.plainLead);
+    const response = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptA1, username: `越权3-${randomUUID()}`, name: "越权部门管理员3", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it("rejects a nonexistent or inactive department", async () => {
+    await signInAs(ids.hq);
+    const response = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: `does-not-exist-${randomUUID()}`, username: `orphan-${randomUUID()}`, name: "不存在的部门", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a password shorter than the minimum length", async () => {
+    await signInAs(ids.hq);
+    const response = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptA1, username: `short-pw-${randomUUID()}`, name: "密码太短", password: "short",
+    }));
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a duplicate username with 409", async () => {
+    await signInAs(ids.hq);
+    const username = `dup-dept-mgr-${randomUUID()}`;
+    const first = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptA1, username, name: "重复账号第一次", password: "temporary-password-1",
+    }));
+    expect(first.status).toBe(201);
+    const second = await createDepartmentManagerAccount(jsonRequest("http://localhost/api/org/department-managers", {
+      departmentId: ids.deptA1, username, name: "重复账号第二次", password: "temporary-password-1",
+    }));
+    expect(second.status).toBe(409);
+  });
+});
+
+describe.sequential("阶段5a补充：创建 Duty.COMPANY_MANAGER 账号 (POST /api/org/company-managers)", () => {
+  it("lets the HQ manager create a company-manager account for an existing company", async () => {
+    await signInAs(ids.hq);
+    const username = `new-company-mgr-${randomUUID()}`;
+    const response = await createCompanyManagerAccount(jsonRequest("http://localhost/api/org/company-managers", {
+      companyId: ids.companyB, username, name: "B公司新公司管理员", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.duty).toBe("COMPANY_MANAGER");
+    expect(body.companyId).toBe(ids.companyB);
+    expect(body.mustChangePassword).toBe(true);
+
+    const created = await db.user.findUniqueOrThrow({ where: { id: body.id } });
+    expect(created.departmentId).toBeNull();
+    expect(created.groupId).toBeNull();
+    expect(verifyPassword("temporary-password-1", created.passwordHash)).toBe(true);
+  });
+
+  it("lets ADMIN create a company-manager account (system bootstrap)", async () => {
+    await signInAs(ids.admin);
+    const username = `new-company-mgr-admin-${randomUUID()}`;
+    const response = await createCompanyManagerAccount(jsonRequest("http://localhost/api/org/company-managers", {
+      companyId: ids.companyA, username, name: "ADMIN创建的公司管理员", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(201);
+  });
+
+  it("blocks a company manager from creating another company-manager account (not itself a skip-level case)", async () => {
+    await signInAs(ids.companyAManager);
+    const response = await createCompanyManagerAccount(jsonRequest("http://localhost/api/org/company-managers", {
+      companyId: ids.companyA, username: `越权-${randomUUID()}`, name: "越权公司管理员", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it("blocks a department manager from creating a company-manager account", async () => {
+    await signInAs(ids.deptA1Manager);
+    const response = await createCompanyManagerAccount(jsonRequest("http://localhost/api/org/company-managers", {
+      companyId: ids.companyA, username: `越权2-${randomUUID()}`, name: "越权公司管理员2", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it("rejects a nonexistent or inactive company", async () => {
+    await signInAs(ids.hq);
+    const response = await createCompanyManagerAccount(jsonRequest("http://localhost/api/org/company-managers", {
+      companyId: `does-not-exist-${randomUUID()}`, username: `orphan-${randomUUID()}`, name: "不存在的公司", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(400);
+  });
+});
+
+describe.sequential("阶段5a补充：创建 Duty.HQ_MANAGER 账号 (POST /api/org/hq-managers)", () => {
+  it("lets ADMIN create an HQ-manager account (the sole bootstrap path)", async () => {
+    await signInAs(ids.admin);
+    const username = `new-hq-mgr-${randomUUID()}`;
+    const response = await createHqManagerAccount(jsonRequest("http://localhost/api/org/hq-managers", {
+      username, name: "新总公司管理员", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.duty).toBe("HQ_MANAGER");
+    expect(body.mustChangePassword).toBe(true);
+
+    const created = await db.user.findUniqueOrThrow({ where: { id: body.id } });
+    expect(created.companyId).toBeNull();
+    expect(created.departmentId).toBeNull();
+    expect(created.groupId).toBeNull();
+    expect(verifyPassword("temporary-password-1", created.passwordHash)).toBe(true);
+  });
+
+  it("blocks an existing HQ manager from creating another HQ-manager account", async () => {
+    await signInAs(ids.hq);
+    const response = await createHqManagerAccount(jsonRequest("http://localhost/api/org/hq-managers", {
+      username: `越权-${randomUUID()}`, name: "越权总公司管理员", password: "temporary-password-1",
+    }));
+    expect(response.status).toBe(403);
+  });
+
+  it("blocks a company manager and a department manager", async () => {
+    await signInAs(ids.companyAManager);
+    const companyManagerResponse = await createHqManagerAccount(jsonRequest("http://localhost/api/org/hq-managers", {
+      username: `越权2-${randomUUID()}`, name: "越权总公司管理员2", password: "temporary-password-1",
+    }));
+    expect(companyManagerResponse.status).toBe(403);
+
+    await signInAs(ids.deptA1Manager);
+    const departmentManagerResponse = await createHqManagerAccount(jsonRequest("http://localhost/api/org/hq-managers", {
+      username: `越权3-${randomUUID()}`, name: "越权总公司管理员3", password: "temporary-password-1",
+    }));
+    expect(departmentManagerResponse.status).toBe(403);
+  });
+
+  it("blocks a plain lead with no management duty and no ADMIN role", async () => {
+    await signInAs(ids.plainLead);
+    const response = await createHqManagerAccount(jsonRequest("http://localhost/api/org/hq-managers", {
+      username: `越权4-${randomUUID()}`, name: "越权总公司管理员4", password: "temporary-password-1",
+    }));
     expect(response.status).toBe(403);
   });
 });

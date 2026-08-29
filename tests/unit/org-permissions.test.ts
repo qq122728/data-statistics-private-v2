@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   canAppointOrTransferLead,
   canCreateCompany,
+  canCreateCompanyManagerAccount,
   canCreateDepartment,
+  canCreateDepartmentManagerAccount,
   canCreateGroup,
+  canCreateHqManagerAccount,
   canOperateCustomer,
   canViewOrgScope,
   type OrgPermissionUser,
@@ -136,6 +139,93 @@ describe("org-permissions: 5.6 组织结构操作权限", () => {
 
     it("blocks a frontline user with no management duty", () => {
       expect(canAppointOrTransferLead(user({ role: "LEAD", groupId: "group-a" }), groupInDepartmentA)).toBe(false);
+    });
+  });
+});
+
+describe("org-permissions: 5.6 补充 创建下一档管理员账号", () => {
+  describe("canCreateDepartmentManagerAccount", () => {
+    const departmentInCompanyA = { id: "department-a", companyId: "company-a" };
+    const departmentInCompanyB = { id: "department-b", companyId: "company-b" };
+    const departmentWithNoCompany = { id: "department-legacy", companyId: null };
+
+    it("allows ADMIN regardless of duty (system bootstrap)", () => {
+      expect(canCreateDepartmentManagerAccount(user({ role: "ADMIN", duty: null }), departmentInCompanyA)).toBe(true);
+    });
+
+    it("allows HQ manager for any department, skip-level", () => {
+      expect(canCreateDepartmentManagerAccount(user({ duty: "HQ_MANAGER" }), departmentInCompanyA)).toBe(true);
+      expect(canCreateDepartmentManagerAccount(user({ duty: "HQ_MANAGER" }), departmentWithNoCompany)).toBe(true);
+    });
+
+    it("allows a company manager to create a department-manager account for their own company's department", () => {
+      const manager = user({ duty: "COMPANY_MANAGER", companyId: "company-a" });
+      expect(canCreateDepartmentManagerAccount(manager, departmentInCompanyA)).toBe(true);
+    });
+
+    it("blocks a company manager from creating one for a different company's department", () => {
+      const manager = user({ duty: "COMPANY_MANAGER", companyId: "company-a" });
+      expect(canCreateDepartmentManagerAccount(manager, departmentInCompanyB)).toBe(false);
+    });
+
+    it("blocks a company manager with no companyId set (unset must not mean unlimited)", () => {
+      const manager = user({ duty: "COMPANY_MANAGER", companyId: null });
+      expect(canCreateDepartmentManagerAccount(manager, departmentInCompanyA)).toBe(false);
+    });
+
+    it("blocks a department manager from creating any manager account at all (5a: only appoints/transfers leads, creates groups)", () => {
+      const manager = user({ duty: "DEPARTMENT_MANAGER", departmentId: "department-a" });
+      expect(canCreateDepartmentManagerAccount(manager, departmentInCompanyA)).toBe(false);
+    });
+
+    it("blocks a plain frontline user with no duty and no ADMIN role", () => {
+      expect(canCreateDepartmentManagerAccount(user({ duty: null }), departmentInCompanyA)).toBe(false);
+    });
+
+    it("blocks an inactive ADMIN or HQ manager", () => {
+      expect(canCreateDepartmentManagerAccount(user({ role: "ADMIN", active: false }), departmentInCompanyA)).toBe(false);
+      expect(canCreateDepartmentManagerAccount(user({ duty: "HQ_MANAGER", active: false }), departmentInCompanyA)).toBe(false);
+    });
+  });
+
+  describe("canCreateCompanyManagerAccount", () => {
+    it("allows ADMIN (system bootstrap)", () => {
+      expect(canCreateCompanyManagerAccount(user({ role: "ADMIN", duty: null }))).toBe(true);
+    });
+
+    it("allows HQ manager", () => {
+      expect(canCreateCompanyManagerAccount(user({ duty: "HQ_MANAGER" }))).toBe(true);
+    });
+
+    it("blocks a company manager (cannot create another company manager, not itself a skip-level case)", () => {
+      expect(canCreateCompanyManagerAccount(user({ duty: "COMPANY_MANAGER", companyId: "company-a" }))).toBe(false);
+    });
+
+    it("blocks a department manager", () => {
+      expect(canCreateCompanyManagerAccount(user({ duty: "DEPARTMENT_MANAGER", departmentId: "department-a" }))).toBe(false);
+    });
+
+    it("blocks an inactive ADMIN", () => {
+      expect(canCreateCompanyManagerAccount(user({ role: "ADMIN", active: false }))).toBe(false);
+    });
+  });
+
+  describe("canCreateHqManagerAccount", () => {
+    it("allows ADMIN only", () => {
+      expect(canCreateHqManagerAccount(user({ role: "ADMIN", duty: null }))).toBe(true);
+    });
+
+    it("blocks an existing HQ manager (no business tier can authorize creating another HQ manager)", () => {
+      expect(canCreateHqManagerAccount(user({ duty: "HQ_MANAGER" }))).toBe(false);
+    });
+
+    it("blocks a company manager and a department manager", () => {
+      expect(canCreateHqManagerAccount(user({ duty: "COMPANY_MANAGER", companyId: "company-a" }))).toBe(false);
+      expect(canCreateHqManagerAccount(user({ duty: "DEPARTMENT_MANAGER", departmentId: "department-a" }))).toBe(false);
+    });
+
+    it("blocks an inactive ADMIN", () => {
+      expect(canCreateHqManagerAccount(user({ role: "ADMIN", active: false }))).toBe(false);
     });
   });
 });

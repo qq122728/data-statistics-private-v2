@@ -3,8 +3,11 @@ import { hasAssignedRole } from "./role-access";
 
 /**
  * 阶段5a新增的权限网关（需求文档第五章）。只服务阶段5新增的组织架构/组织权限路由，
- * 不接管老53个路由的权限判断，不读 Role 字符串做层级判断（只有 5.1 的 canOperateCustomer
- * 例外——那条规则本来就是按岗位 Role 定义的，跟组织结构层级无关）。
+ * 不接管老53个路由的权限判断，不读 Role 字符串做层级判断——只有两处明确例外：
+ * 5.1 的 canOperateCustomer（那条规则本来就是按岗位 Role 定义的，跟组织结构层级无关）、
+ * 以及阶段5a补充的三个账号创建函数（canCreateDepartmentManagerAccount/
+ * canCreateCompanyManagerAccount/canCreateHqManagerAccount，见下方对应小节——
+ * 需要识别 Role.ADMIN 这个没有 Duty 的系统自举角色）。
  *
  * 命名坑提醒（/Users/aaaa/.claude/plans/merry-sauteeing-cook.md 阶段5开工前摸底确认）：
  * 老 Role.COMPANY_MANAGER 语义其实是"管一个部门"，对应这里的 Duty.DEPARTMENT_MANAGER
@@ -76,6 +79,55 @@ export function canAppointOrTransferLead(user: OrgPermissionUser, targetGroup: G
   if (user.duty === "COMPANY_MANAGER") return Boolean(user.companyId) && targetGroup.companyId === user.companyId;
   if (user.duty === "DEPARTMENT_MANAGER") return Boolean(user.departmentId) && targetGroup.departmentId === user.departmentId;
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// 5.6 补充：创建下一档管理员账号（阶段5a遗留缺口，本次补上）。
+//
+// 这三个函数需要读 Role（专门检查 `user.role === "ADMIN"`），是本文件"只读 Duty，
+// 不读 Role 字符串做层级判断"这条既有约定之外的**第二处**明确例外（第一处是下面
+// canOperateCustomer 的 5.1 岗位判断，那条规则本来就是按 Role 定义的）。这里读 Role
+// 的原因不一样：ADMIN 是系统既有的超级管理员角色，没有对应的 Duty，纯粹靠 Role 识别；
+// 账号创建这件事绕不开"系统怎么自举出第一批管理账号"这个问题，ADMIN 就是那个自举入口，
+// 不是把 Role 当层级判断的主线在用，仍然是刻意的窄口子，不是这条既有约定被悄悄放开了。
+// ---------------------------------------------------------------------------
+
+/**
+ * 新建 Duty.DEPARTMENT_MANAGER 账号，绑定到一个已存在的部门（需求文档5.6："公司管理员
+ * ……既能任免部门管理员"）。公司管理员限本公司名下的部门、总公司管理员不限（可越级），
+ * ADMIN 系统自举兜底。部门本身是否存在/启用是路由自己的数据校验，这里只判断调用方
+ * 对"这个部门"这一条目标有没有权限，跟 canCreateGroup 是同一种"接收已解析范围对象"写法。
+ */
+export function canCreateDepartmentManagerAccount(user: OrgPermissionUser, department: DepartmentScope): boolean {
+  if (!user.active) return false;
+  if (user.role === "ADMIN") return true;
+  if (user.duty === "HQ_MANAGER") return true;
+  if (user.duty === "COMPANY_MANAGER") return Boolean(user.companyId) && department.companyId === user.companyId;
+  return false;
+}
+
+/**
+ * 新建 Duty.COMPANY_MANAGER 账号，绑定到一个已存在的公司。5.6没有给公司管理员这一档
+ * 授权创建同档账号的能力——总公司管理员是唯一能做这件事的非ADMIN档位，这不是"越级"
+ * （越级指的是跳过中间层直接管更低一档，比如总公司直接任免组长），而是"公司管理员这一档
+ * 本身就没有这项权限，只有更高一档才有"，所以不像 canCreateGroup/canAppointOrTransferLead
+ * 那样需要按调用方的 companyId 跟目标比对——判断只看调用方是不是 HQ_MANAGER 或 ADMIN，
+ * 不需要接收目标公司这个参数（跟 canCreateCompany/canCreateDepartment 已有的
+ * "目标参数不影响判断结果就不接收"这条约定一致）。
+ */
+export function canCreateCompanyManagerAccount(user: OrgPermissionUser): boolean {
+  if (!user.active) return false;
+  return user.role === "ADMIN" || user.duty === "HQ_MANAGER";
+}
+
+/**
+ * 新建 Duty.HQ_MANAGER 账号：纯系统自举操作，业务层级里没有比总公司更高的档位能授权这件事
+ * ——即便是现任总公司管理员本人，也不能创建另一个总公司管理员账号，跟"谁创建第一个 admin
+ * 账号"是同一类问题，只能靠 ADMIN 兜底。刻意不放行任何 Duty（哪怕是 HQ_MANAGER 本人），
+ * 否则会退化成"总公司管理员可以无限复制自己的账号"，绕开了系统本该有的唯一自举入口。
+ */
+export function canCreateHqManagerAccount(user: OrgPermissionUser): boolean {
+  return user.active && user.role === "ADMIN";
 }
 
 // ---------------------------------------------------------------------------

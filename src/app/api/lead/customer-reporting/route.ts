@@ -63,7 +63,7 @@ export async function GET(request: Request) {
           },
         },
         activities: {
-          where: { kind: { in: ["REPLIED", "JOINED_GROUP", "GROUP_PROGRESS_UPDATED", "EXPERT_CONTACTED", "REGISTERED", "PLAN_UPDATED"] } },
+          where: { kind: { in: ["REPLIED", "JOINED_GROUP", "LEFT_GROUP", "GROUP_PROGRESS_UPDATED", "EXPERT_INTRODUCED", "EXPERT_CONTACTED", "REGISTERED", "PLAN_UPDATED"] } },
           select: { id: true, kind: true, occurredOn: true, note: true, actor: { select: { name: true } } },
           orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
           take: 3,

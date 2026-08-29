@@ -10,7 +10,7 @@ const stages = new Set(["reception", "group", "expert"]);
 const PAGE_SIZE = 50;
 
 function stageWhere(stage: string): Prisma.LeadCustomerWhereInput {
-  if (stage === "reception") return { groupStatus: "NOT_JOINED", repliedOn: { not: null } };
+  if (stage === "reception") return { groupStatus: "NOT_JOINED", receptionArchivedAt: null };
   if (stage === "expert") return { expertIntroducedOn: { not: null } };
   return { groupStatus: { in: ["JOINED", "LEFT"] } };
 }
@@ -63,7 +63,7 @@ export async function GET(request: Request) {
           },
         },
         activities: {
-          where: { kind: { in: ["GROUP_PROGRESS_UPDATED", "EXPERT_CONTACTED", "REGISTERED", "PLAN_UPDATED"] } },
+          where: { kind: { in: ["REPLIED", "JOINED_GROUP", "GROUP_PROGRESS_UPDATED", "EXPERT_CONTACTED", "REGISTERED", "PLAN_UPDATED"] } },
           select: { id: true, kind: true, occurredOn: true, note: true, actor: { select: { name: true } } },
           orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
           take: 3,

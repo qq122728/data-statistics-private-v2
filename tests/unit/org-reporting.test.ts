@@ -156,7 +156,9 @@ describe.sequential("新版组长真实渠道报表 API", () => {
 describe.sequential("新版组长真实客户进度 API", () => {
   it("按接粉、炒群、专家阶段读取本组真实客户并返回分页数量", async () => {
     await db.leadCustomer.createMany({ data: [
+      { id: id("customer-pending-reply"), phone: `40${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception },
       { id: id("customer-reception"), phone: `41${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED" },
+      { id: id("customer-archived"), phone: `44${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED", receptionArchivedAt: new Date("2026-07-05T12:00:00Z"), receptionArchiveReason: "历史归档", receptionArchiveVisitCount: 2 },
       { id: id("customer-group"), phone: `42${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED", groupStatus: "JOINED", joinedOn: "2026-07-03" },
       { id: id("customer-expert"), phone: `43${suffix.replaceAll("-", "").slice(0, 10)}`, batchId: (await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.berlinGroup } })).id, ownerId: ids.berlinReception, repliedOn: "2026-07-02", replyStatus: "REPLIED", groupStatus: "JOINED", joinedOn: "2026-07-03", expertIntroducedOn: "2026-07-04" },
     ] });
@@ -164,8 +166,10 @@ describe.sequential("新版组长真实客户进度 API", () => {
     const reception = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=reception"))).json();
     const group = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=group"))).json();
     const expert = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=expert"))).json();
-    expect(reception.counts).toMatchObject({ reception: 1, group: 2, expert: 1 });
+    expect(reception.counts).toMatchObject({ reception: 2, group: 2, expert: 1 });
+    expect(reception.customers.map((customer: { id: string }) => customer.id)).toContain(id("customer-pending-reply"));
     expect(reception.customers.map((customer: { id: string }) => customer.id)).toContain(id("customer-reception"));
+    expect(reception.customers.map((customer: { id: string }) => customer.id)).not.toContain(id("customer-archived"));
     expect(group.customers.map((customer: { id: string }) => customer.id)).toEqual(expect.arrayContaining([id("customer-group"), id("customer-expert")]));
     expect(expert.customers.map((customer: { id: string }) => customer.id)).toContain(id("customer-expert"));
   });

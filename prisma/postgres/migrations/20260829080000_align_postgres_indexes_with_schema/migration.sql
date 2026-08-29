@@ -1,0 +1,10 @@
+DROP INDEX "LeadCustomer_isHistoricalRecord_idx";
+
+ALTER INDEX "LeadCustomer_expertOwnerId_expertWorkflowStage_expertTrackingSt"
+RENAME TO "LeadCustomer_expertOwnerId_expertWorkflowStage_expertTracki_idx";
+
+ALTER INDEX "GroupOperatorReceptionHistory_groupOperatorId_effectiveFrom_eff"
+RENAME TO "GroupOperatorReceptionHistory_groupOperatorId_effectiveFrom_idx";
+
+ALTER INDEX "GroupOperatorReceptionHistory_receptionistId_effectiveFrom_effe"
+RENAME TO "GroupOperatorReceptionHistory_receptionistId_effectiveFrom__idx";

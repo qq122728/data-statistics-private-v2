@@ -31,6 +31,7 @@
     "20260828140651_add_acting_position_and_secondary_positions/migration.sql": "c43a91e3680fa4869ae78b3514c56085ce70b15d64cd2145659e169a911d87aa",
     "20260828150000_remove_channel_cost_pricing_fields/migration.sql": "ea0577b8f48e01da8640b7579c328924dbf121fc581c2386e901474c9ae59ca8",
     "20260829030000_add_user_company_id/migration.sql": "63878b7af9aeea68ce39d8a672eef628bf9acf3e65fbb18b2a495e46e9c1d04b",
-    "20260829050000_add_group_operator_pairing_history/migration.sql": "1ef232e0725d1a298c58df7e71232ad1dddba5fa116f49a3e1119bae468fe96b"
+    "20260829050000_add_group_operator_pairing_history/migration.sql": "1ef232e0725d1a298c58df7e71232ad1dddba5fa116f49a3e1119bae468fe96b",
+    "20260829080000_align_postgres_indexes_with_schema/migration.sql": "8068d0b9bce28be2932b628482cd6db5f45f8937ee3c29e8e739b4e3bb91fd2c"
   }
 }

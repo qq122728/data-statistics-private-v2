@@ -66,6 +66,7 @@ const accounts = [
 ];
 
 async function clearOnlyDemoOperationalData(transaction) {
+  await transaction.resourceChannelAccess.deleteMany({ where: { userId: DEMO.accounts.resource } });
   const batches = await transaction.sourceBatch.findMany({
     where: { groupId: DEMO.groupId },
     select: { id: true },
@@ -199,6 +200,9 @@ async function main() {
         createdById: DEMO.accounts.resource,
         active: true,
       },
+    });
+    await transaction.resourceChannelAccess.create({
+      data: { userId: DEMO.accounts.resource, channelId: DEMO.channelId },
     });
 
     const batchDates = [date(16), date(10), date(7), date(4), date(1), today];

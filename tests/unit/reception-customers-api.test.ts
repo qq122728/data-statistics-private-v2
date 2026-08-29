@@ -25,7 +25,7 @@ const suffix = randomUUID();
 const id = (value: string) => `reception-api-${value}-${suffix}`;
 const ids = {
   company: id("company"), department: id("department"), group: id("group"), otherGroup: id("other-group"),
-  reception: id("reception"), peer: id("peer"), other: id("other"), lead: id("lead"),
+  reception: id("reception"), peer: id("peer"), other: id("other"), lead: id("lead"), operator: id("operator"),
   channel: id("channel"), otherChannel: id("other-channel"), batch: id("batch"), otherBatch: id("other-batch"),
 };
 
@@ -41,7 +41,9 @@ beforeAll(async () => {
     { id: ids.peer, username: ids.peer, name: "同组接粉", role: "RECEPTION", groupId: ids.group },
     { id: ids.other, username: ids.other, name: "其它组接粉", role: "RECEPTION", groupId: ids.otherGroup },
     { id: ids.lead, username: ids.lead, name: "本组组长", role: "LEAD", duty: "LEAD", groupId: ids.group },
+    { id: ids.operator, username: ids.operator, name: "配对炒群", role: "GROUP_OPERATOR", groupId: ids.group },
   ] });
+  await db.groupOperatorReception.create({ data: { receptionistId: ids.reception, groupOperatorId: ids.operator } });
   await db.channel.createMany({ data: [
     { id: ids.channel, groupId: ids.group, name: "本人渠道", normalizedName: "本人渠道" },
     { id: ids.otherChannel, groupId: ids.otherGroup, name: "其它渠道", normalizedName: "其它渠道" },
@@ -86,6 +88,7 @@ describe.sequential("新版接粉本人客户 API", () => {
     const archived = await (await GET(request("stage=archived"))).json();
 
     expect(reply.counts).toEqual({ reply: 1, group: 1, archived: 2 });
+    expect(reply.currentGroupOperator).toEqual({ id: ids.operator, name: "配对炒群" });
     expect(reply.customers.map((customer: { phone: string }) => customer.phone)).toEqual(["491111111111"]);
     expect(group.customers).toHaveLength(1);
     expect(group.customers[0]).toMatchObject({ phone: "492222222222", customerName: "待进群客户" });

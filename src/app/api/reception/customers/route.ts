@@ -66,6 +66,16 @@ export async function GET(request: Request) {
   };
   const where: Prisma.LeadCustomerWhereInput = { AND: [baseWhere, stageWhere(stage)] };
 
+  // 待入群客户在真正交棒前还没有冻结 groupOperatorOwner；把当前配对
+  // 单独返回给前端，既能显示将交给谁，也能在“待配对”时明确阻止误点。
+  const pairing = await db.groupOperatorReception.findUnique({
+    where: { receptionistId: actor.id },
+    select: { groupOperator: { select: { id: true, name: true, active: true, groupId: true } } },
+  });
+  const currentGroupOperator = pairing?.groupOperator.active && pairing.groupOperator.groupId === actor.groupId
+    ? { id: pairing.groupOperator.id, name: pairing.groupOperator.name }
+    : null;
+
   const [total, customers, ...counts] = await Promise.all([
     db.leadCustomer.count({ where }),
     db.leadCustomer.findMany({
@@ -116,6 +126,7 @@ export async function GET(request: Request) {
     page,
     pageSize: PAGE_SIZE,
     total,
+    currentGroupOperator,
     counts: Object.fromEntries(stages.map((value, index) => [value, counts[index]])),
     customers,
   }, { headers: { "Cache-Control": "private, no-store" } });

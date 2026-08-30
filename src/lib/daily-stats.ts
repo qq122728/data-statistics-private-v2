@@ -244,8 +244,23 @@ export async function saveDailyStat(
   const existing = input.entryId
     ? await tx.dailyStatEntry.findUnique({ where: { id: input.entryId }, include: { revisions: { orderBy: { version: "desc" }, take: 1 } } })
     : await tx.dailyStatEntry.findUnique({ where: { identityKey }, include: { revisions: { orderBy: { version: "desc" }, take: 1 } } });
-  if (existing && (existing.ownerId !== actor.id || existing.identityKey !== identityKey)) {
+  const migratedEntry = Boolean(existing && (
+    existing.identityKey.startsWith("legacy-metric-v1:")
+    || existing.identityKey.startsWith("transition-customer-v1:")
+  ));
+  const migratedScopeMatches = Boolean(existing && migratedEntry
+    && existing.groupId === actor.groupId
+    && existing.businessDate === input.businessDate
+    && existing.position === input.position
+    && existing.channelId === input.channelId);
+  if (existing && (existing.ownerId !== actor.id || (existing.identityKey !== identityKey && !migratedScopeMatches))) {
     throw new DailyStatError("不能修改其他员工或其他来源线的数据", 403);
+  }
+  if (existing && migratedScopeMatches && existing.identityKey !== identityKey) {
+    const identityConflict = await tx.dailyStatEntry.findUnique({ where: { identityKey }, select: { id: true } });
+    if (identityConflict && identityConflict.id !== existing.id) {
+      throw new DailyStatError("该日期和来源线已经有一条正常记录，请直接修改正常记录", 409);
+    }
   }
   if (existing?.approvedRevisionId && !input.changeReason) {
     throw new DailyStatError("已确认数据必须填写更正原因", 400);
@@ -285,6 +300,7 @@ export async function saveDailyStat(
   return tx.dailyStatEntry.update({
     where: { id: entry.id },
     data: {
+      ...(migratedScopeMatches ? { identityKey, ...sources } : {}),
       currentRevisionId: revision.id,
       status: requiresResourceCheck ? "RESOURCE_PENDING" : "APPROVED",
       // 接粉纠错在资源部确认前继续保留上一版正式数字；炒群/专家保存后立即采用最新版。

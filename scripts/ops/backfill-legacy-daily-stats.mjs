@@ -91,6 +91,10 @@ async function main() {
       row.values.lowAmountCount = Math.max(0,
         row.values.dispatchCount - row.values.duplicateCount - row.values.noWsCount - row.values.effectiveCount);
     }
+    if (row.position === "GROUP_OPERATOR") {
+      // Legacy GROUP_LEAVE is the total leave count while ABNORMAL_GROUP_LEAVE is its subset.
+      row.values.normalLeaveCount = Math.max(0, row.values.normalLeaveCount - row.values.abnormalLeaveCount);
+    }
   }
 
   const rows = [...aggregates.values()];

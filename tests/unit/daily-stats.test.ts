@@ -81,6 +81,46 @@ const emptyValues = {
 };
 
 describe.sequential("独立每日数据填写、修改与审核", () => {
+  it("lets the original employee correct a migrated historical row and converts its identity", async () => {
+    const data = await fixture();
+    const entryId = `${prefix}migrated-entry-${randomUUID()}`;
+    const revisionId = `${prefix}migrated-revision-${randomUUID()}`;
+    await db.dailyStatEntry.create({ data: {
+      id: entryId,
+      identityKey: `legacy-metric-v1:${entryId}`,
+      ownerId: data.reception.id,
+      groupId: data.groupId,
+      channelId: data.channelId,
+      businessDate: "2026-08-29",
+      timezone: "UTC",
+      position: "RECEPTION",
+      status: "APPROVED",
+    } });
+    await db.dailyStatRevision.create({ data: {
+      id: revisionId, entryId, version: 1, createdById: data.reception.id,
+      changeReason: "迁移记录", dispatchCount: 20, effectiveCount: 20, replyCount: 5,
+    } });
+    await db.dailyStatEntry.update({ where: { id: entryId }, data: { currentRevisionId: revisionId, approvedRevisionId: revisionId } });
+
+    signInAs(data.reception);
+    const response = await POST(request("POST", {
+      entryId,
+      businessDate: "2026-08-29",
+      position: "RECEPTION",
+      channelId: data.channelId,
+      changeReason: "旧数据回复数填少了",
+      values: { ...emptyValues, dispatchCount: 20, replyCount: 6 },
+    }));
+    expect(response.status).toBe(201);
+    await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: entryId }, include: { currentRevision: true, approvedRevision: true } }))
+      .resolves.toMatchObject({
+        identityKey: expect.not.stringContaining("legacy-metric-v1:"),
+        status: "RESOURCE_PENDING",
+        currentRevision: { version: 2, replyCount: 6 },
+        approvedRevision: { version: 1, replyCount: 5 },
+      });
+  });
+
   it("lets a resource account confirm every same-type channel it can see, but not another channel type", async () => {
     const data = await fixture();
     const departmentId = (await db.teamGroup.findUniqueOrThrow({ where: { id: data.groupId } })).departmentId;

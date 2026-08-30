@@ -153,10 +153,25 @@ export async function deleteSession(sessionId?: string) {
   }
 }
 
+export function configuredSessionCookieDomain(value?: string): string | undefined {
+  const domain = value?.trim().toLowerCase();
+  if (!domain) return undefined;
+  const hostname = domain.startsWith(".") ? domain.slice(1) : domain;
+  const hostnamePattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+  const isIpv4Address = hostname.split(".").length === 4 && hostname.split(".").every((part) => /^\d{1,3}$/.test(part));
+  if (!hostnamePattern.test(hostname) || isIpv4Address) {
+    throw new Error("SESSION_COOKIE_DOMAIN 必须是允许共享登录的纯域名，不能包含协议、端口或路径");
+  }
+  return domain;
+}
+
+const sharedSessionCookieDomain = configuredSessionCookieDomain(process.env.SESSION_COOKIE_DOMAIN);
+
 export const sessionCookie = {
   httpOnly: true,
   maxAge: Math.floor(SESSION_DURATION_MS / 1000),
   path: "/",
   sameSite: "lax" as const,
   secure: process.env.NODE_ENV === "production",
+  ...(sharedSessionCookieDomain ? { domain: sharedSessionCookieDomain } : {}),
 };

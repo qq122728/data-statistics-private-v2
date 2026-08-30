@@ -14,6 +14,7 @@ import {
 } from "../../../../lib/login-throttle";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, tooLargeResponse } from "../../../../lib/request-limits";
 import { recordSecurityEvent } from "../../../../lib/security-events";
+import { workspaceForUser } from "../../../../lib/workspace-routing";
 
 type LoginRequest = {
   username?: unknown;
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
   const response = NextResponse.json({
     user: { id: user.id, name: user.name, role: user.role },
     mustChangePassword: user.mustChangePassword,
+    workspace: workspaceForUser(user),
   });
   response.cookies.set(SESSION_COOKIE, session.id, sessionCookie);
   return response;

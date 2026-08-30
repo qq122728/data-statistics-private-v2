@@ -87,12 +87,12 @@ describe.sequential("新版接粉本人客户 API", () => {
     const group = await (await GET(request("stage=group&q=待进群"))).json();
     const archived = await (await GET(request("stage=archived"))).json();
 
-    expect(reply.counts).toEqual({ reply: 1, group: 1, archived: 2 });
+    expect(reply.counts).toEqual({ reply: 2, group: 1, archived: 1 });
     expect(reply.currentGroupOperator).toEqual({ id: ids.operator, name: "配对炒群" });
-    expect(reply.customers.map((customer: { phone: string }) => customer.phone)).toEqual(["491111111111"]);
+    expect(new Set(reply.customers.map((customer: { phone: string }) => customer.phone))).toEqual(new Set(["491111111111", "493333333333"]));
     expect(group.customers).toHaveLength(1);
     expect(group.customers[0]).toMatchObject({ phone: "492222222222", customerName: "待进群客户" });
-    expect(new Set(archived.customers.map((customer: { phone: string }) => customer.phone))).toEqual(new Set(["493333333333", "494444444444"]));
+    expect(archived.customers.map((customer: { phone: string }) => customer.phone)).toEqual(["494444444444"]);
     expect(JSON.stringify([reply, group, archived])).not.toContain("495555555555");
     expect(JSON.stringify([reply, group, archived])).not.toContain("496666666666");
     expect(JSON.stringify([reply, group, archived])).not.toContain("497777777777");

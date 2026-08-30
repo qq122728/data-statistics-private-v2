@@ -80,10 +80,11 @@ export async function POST(request: Request) {
       }
 
       const stage = lead.historicalBaselineStage;
-      if (!stage || !["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED"].includes(stage))
+      const stages = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "CONTACTED", "TRACKING", "REGISTERED"];
+      if (!stage || !stages.includes(stage))
         return { status: 400 as const, error: "历史阶段无效，请退回后重新认领" };
       const sourceDate = lead.batch.sourceDate;
-      const rank = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED"].indexOf(stage);
+      const rank = stages.indexOf(stage);
       await tx.leadCustomer.update({ where: { id: lead.id }, data: {
         invalid: false,
         invalidReason: null,
@@ -96,8 +97,8 @@ export async function POST(request: Request) {
         joinedOn: rank >= 2 ? sourceDate : null,
         expertIntroducedOn: rank >= 3 ? sourceDate : null,
         expertContactedOn: rank >= 4 ? sourceDate : null,
-        registeredOn: rank >= 4 ? sourceDate : null,
-        expertWorkflowStage: rank >= 4 ? "PENDING_ORDER" : rank >= 3 ? "QUEUED" : null,
+        registeredOn: stage === "REGISTERED" ? sourceDate : null,
+        expertWorkflowStage: stage === "REGISTERED" ? "PENDING_ORDER" : stage === "TRACKING" ? "TRACKING" : stage === "CONTACTED" ? "MATERIALS" : rank >= 3 ? "QUEUED" : null,
         expertStageChangedAt: rank >= 3 ? new Date(`${sourceDate}T12:00:00.000Z`) : null,
         // 历史底账全部保持 false；只有审核通过后通过正常工作流发生的新动作才会改为 true。
         historicalReplyCounted: false,

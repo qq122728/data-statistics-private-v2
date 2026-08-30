@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { loadPerformanceLeaderboard } from "../../../lib/analytics/performance-leaderboard-query";
-import { loadRoleRankings } from "../../../lib/analytics/role-rankings";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../lib/dates";
@@ -9,6 +7,7 @@ import { db } from "../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../lib/lead-date-range";
 import { hasOversizedQueryValue } from "../../../lib/request-limits";
 import { getSystemSettings } from "../../../lib/settings";
+import { authorizationDenied } from "../../../lib/security-events";
 
 export async function GET(request: Request) {
   let actor;
@@ -20,7 +19,7 @@ export async function GET(request: Request) {
     throw error;
   }
   if (!actor.active)
-    return NextResponse.json({ error: "当前账号已停用" }, { status: 403 });
+    return authorizationDenied(actor, "当前账号已停用");
 
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params))
@@ -62,44 +61,62 @@ export async function GET(request: Request) {
     ? (actor.resourceChannelAccess ?? []).map((access) => access.channelId)
     : undefined;
 
-  const [groupRows, roleRows] = await Promise.all([
-    loadPerformanceLeaderboard({
-      groupIds,
-      sourceDateFrom: range.from,
-      sourceDateTo: range.to,
-      today,
-      channelIds,
-    }),
-    loadRoleRankings({
-      groupIds,
-      sourceDateFrom: range.from,
-      sourceDateTo: range.to,
-      today,
-      channelIds,
-    }),
-  ]);
+  const entries = groupIds.length ? await db.dailyStatEntry.findMany({
+    where: {
+      groupId: { in: groupIds }, businessDate: { gte: range.from, lte: range.to }, approvedRevisionId: { not: null },
+      ...(channelIds ? { channelId: { in: channelIds } } : {}),
+    },
+    select: { groupId: true, position: true, ownerId: true, owner: { select: { id: true, name: true, active: true } }, approvedRevision: true },
+  }) : [];
+  type Sum = { joined: number; orders: number; depositCents: number; withdrawalCents: number };
+  const fresh = (): Sum => ({ joined: 0, orders: 0, depositCents: 0, withdrawalCents: 0 });
+  const groupSums = new Map<string, Sum>();
+  const peopleByRole = new Map<string, { person: (typeof entries)[number]["owner"]; groupId: string; sum: Sum }>();
+  for (const entry of entries) {
+    const value = entry.approvedRevision;
+    if (!value) continue;
+    const groupSum = groupSums.get(entry.groupId) ?? fresh();
+    if (entry.position === "RECEPTION") groupSum.joined += value.joinCount;
+    if (entry.position === "EXPERT") {
+      groupSum.orders += value.orderCount;
+      groupSum.depositCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
+      groupSum.withdrawalCents += value.withdrawalCents;
+    }
+    groupSums.set(entry.groupId, groupSum);
+    const key = `${entry.position}:${entry.groupId}:${entry.ownerId}`;
+    const personRow = peopleByRole.get(key) ?? { person: entry.owner, groupId: entry.groupId, sum: fresh() };
+    if (entry.position === "RECEPTION") personRow.sum.joined += value.joinCount;
+    if (entry.position === "GROUP_OPERATOR") personRow.sum.joined += value.operatorReceivedCount;
+    if (entry.position === "EXPERT") {
+      personRow.sum.orders += value.orderCount;
+      personRow.sum.depositCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
+      personRow.sum.withdrawalCents += value.withdrawalCents;
+    }
+    peopleByRole.set(key, personRow);
+  }
+  const groupById = new Map(groups.map((group) => [group.id, group]));
+  const rowsForRole = (position: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT") => [...peopleByRole.entries()]
+    .filter(([key]) => key.startsWith(`${position}:`))
+    .map(([, row]) => ({
+      id: row.person.id, name: row.person.name, active: row.person.active,
+      groupName: groupById.get(row.groupId)?.name ?? "未知小组", joined: row.sum.joined,
+      orders: row.sum.orders, netCents: row.sum.depositCents - row.sum.withdrawalCents,
+    }));
 
   return NextResponse.json({
     today,
     timezone,
     range,
-    groups: groupRows.map((row) => ({
-      id: row.groupId,
-      name: row.groupName,
-      departmentName: row.departmentName,
-      countryCode: row.countryCode,
-      orders: row.orders,
-      joined: row.groupJoin,
-      netCents: row.netPerformanceCents,
-    })),
-    receptions: roleRows.reception.map((row) => ({
-      id: row.id,
-      name: row.name,
-      groupName: row.groupName,
-      active: row.active,
-      joined: row.joined,
-      orders: row.orders,
-      netCents: row.netCents,
-    })),
+    groups: groups.map((group) => {
+      const sum = groupSums.get(group.id) ?? fresh();
+      return {
+        id: group.id, name: group.name, departmentName: group.department.name,
+        countryCode: group.countryCode ?? group.department.countryCode,
+        orders: sum.orders, joined: sum.joined, netCents: sum.depositCents - sum.withdrawalCents,
+      };
+    }),
+    receptions: rowsForRole("RECEPTION"),
+    operators: rowsForRole("GROUP_OPERATOR"),
+    experts: rowsForRole("EXPERT"),
   }, { headers: { "Cache-Control": "private, no-store" } });
 }

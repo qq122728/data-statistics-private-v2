@@ -21,17 +21,13 @@ function stageWhere(stage: Stage): Prisma.LeadCustomerWhereInput {
   if (stage === "archived") {
     return {
       groupStatus: "NOT_JOINED",
-      OR: [
-        { receptionArchivedAt: { not: null } },
-        { repliedOn: null, followUpCount: { gte: 5 } },
-      ],
+      receptionArchivedAt: { not: null },
     };
   }
   return {
     groupStatus: "NOT_JOINED",
     repliedOn: null,
     receptionArchivedAt: null,
-    followUpCount: { lt: 5 },
   };
 }
 

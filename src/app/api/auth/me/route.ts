@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
+import { getResourceChannelTypes } from "../../../../lib/resource-channel-access";
 import { getAssignedRoles } from "../../../../lib/role-access";
 
 export async function GET() {
@@ -11,6 +12,17 @@ export async function GET() {
       user.departmentId ? db.department.findUnique({ where: { id: user.departmentId }, select: { name: true } }) : null,
       user.companyId ? db.company.findUnique({ where: { id: user.companyId }, select: { name: true } }) : null,
     ]);
+    // 资源部账号按需求文档4.4拆成投流/短信两个独立账号，各绑一个渠道——v2 前端要靠
+    // 这个字段判断落在哪个身份（RESOURCE_TRAFFIC/RESOURCE_SMS），不能只看笼统的
+    // role === "RESOURCE_MANAGER"。user.resourceChannelAccess 是 getSessionUser() 已经
+    // 按渠道类型展开过的结果（见 lib/auth.ts），这里只需要反查出具体是哪个类型。
+    const resourceChannelIds = user.resourceChannelAccess?.map((access) => access.channelId) ?? [];
+    const resourceChannelTypes = resourceChannelIds.length
+      ? getResourceChannelTypes(
+          await db.channel.findMany({ where: { id: { in: resourceChannelIds } }, select: { id: true, channelType: true } }),
+          resourceChannelIds,
+        )
+      : [];
     return NextResponse.json({
       user: {
         id: user.id,
@@ -26,6 +38,7 @@ export async function GET() {
         companyId: user.companyId,
         companyName: company?.name ?? null,
         mustChangePassword: user.mustChangePassword,
+        resourceChannelTypes,
       },
     });
   } catch (error) {

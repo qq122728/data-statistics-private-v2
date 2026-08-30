@@ -28,11 +28,7 @@ export function parsePhoneImport(value: string, options: PhoneImportOptions = {}
   const invalidPhones: string[] = [];
   for (const phone of rawPhones) {
     try {
-      if (/^\d{6}$/.test(phone) && options.customerCodePrefix && options.channelName) {
-        normalizedPhones.push(buildCustomerCode(options.customerCodePrefix, options.channelName, phone));
-      } else {
-        normalizedPhones.push(normalizeCustomerPhone(phone));
-      }
+      normalizedPhones.push(normalizeCustomerPhone(phone));
     } catch {
       invalidPhones.push(phone);
     }

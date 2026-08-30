@@ -241,74 +241,91 @@ enum HistoricalReviewStatus {
   RETURNED
 }
 
+// 每日统计账的流转状态。客户进度永远不能直接写入这套状态或数字。
+enum DailyStatStatus {
+  DRAFT
+  PENDING
+  RESOURCE_PENDING
+  RETURNED
+  APPROVED
+  CORRECTION_PENDING
+}
+
 model User {
-  id                        String                   @id
-  employeeCode              String?                  @unique
-  username                  String                   @unique @default("")
-  name                      String
-  passwordHash              String                   @default("")
-  mustChangePassword        Boolean                  @default(false)
-  role                      Role
+  id                          String                          @id
+  employeeCode                String?                         @unique
+  username                    String                          @unique @default("")
+  name                        String
+  passwordHash                String                          @default("")
+  mustChangePassword          Boolean                         @default(false)
+  role                        Role
   // 职务"帽子"，跟 role/UserPosition 的岗位维度独立叠加，不参与业绩归属（需求文档1.4）。
-  duty                      Duty?
-  active                    Boolean                  @default(true)
-  groupId                   String?
-  group                     TeamGroup?               @relation(fields: [groupId], references: [id])
-  departmentId              String?
-  department                Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  duty                        Duty?
+  active                      Boolean                         @default(true)
+  groupId                     String?
+  group                       TeamGroup?                      @relation(fields: [groupId], references: [id])
+  departmentId                String?
+  department                  Department?                     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   // 阶段5a新增：仅供 Duty.COMPANY_MANAGER 账号使用，限定其管辖的公司（新架构 Company 层，
   // 与老 Role.COMPANY_MANAGER 用的 departmentId 是两条独立的权限线，互不影响）。
   // null 视为未设置=无权限，不是"全部"，避免忘填导致越权。Duty.HQ_MANAGER 不需要范围字段，
   // 见 Company 模型注释：总公司本身无限定即超级权限。
-  companyId                 String?
-  company                   Company?                 @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  managementScopeName       String?
-  managementCountryCode     String?
-  events                    MetricEvent[]
-  customerOrders            CustomerOrder[]
-  voidedMetricEvents        MetricEvent[]            @relation("MetricEventVoidedBy")
-  voidedCustomerOrders      CustomerOrder[]          @relation("OrderVoidedBy")
-  leads                     LeadCustomer[]
-  attributedLeads           LeadCustomer[]           @relation("FanAttributionOwner")
-  expertLeads               LeadCustomer[]           @relation("ExpertOwner")
-  groupOperatorLeads        LeadCustomer[]           @relation("GroupOperatorOwner")
-  groupOperatorAssignments  GroupOperatorReception[] @relation("GroupOperatorAssignments")
-  receptionistAssignments   GroupOperatorReception[] @relation("ReceptionistAssignments")
+  companyId                   String?
+  company                     Company?                        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  managementScopeName         String?
+  managementCountryCode       String?
+  events                      MetricEvent[]
+  customerOrders              CustomerOrder[]
+  voidedMetricEvents          MetricEvent[]                   @relation("MetricEventVoidedBy")
+  voidedCustomerOrders        CustomerOrder[]                 @relation("OrderVoidedBy")
+  leads                       LeadCustomer[]
+  attributedLeads             LeadCustomer[]                  @relation("FanAttributionOwner")
+  expertLeads                 LeadCustomer[]                  @relation("ExpertOwner")
+  groupOperatorLeads          LeadCustomer[]                  @relation("GroupOperatorOwner")
+  groupOperatorAssignments    GroupOperatorReception[]        @relation("GroupOperatorAssignments")
+  receptionistAssignments     GroupOperatorReception[]        @relation("ReceptionistAssignments")
   groupOperatorPairingHistory GroupOperatorReceptionHistory[] @relation("GroupOperatorPairingHistory")
   receptionistPairingHistory  GroupOperatorReceptionHistory[] @relation("ReceptionistPairingHistory")
   createdPairingHistory       GroupOperatorReceptionHistory[] @relation("PairingHistoryCreatedBy")
-  assignedDevices           Device[]                 @relation("DeviceAssignedMember")
-  deviceAccounts            DeviceAccount[]
-  leadActivities            LeadActivity[]
-  exceptionActions          LeadException[]          @relation("ExceptionActor")
-  exceptionOwnership        LeadException[]          @relation("ExceptionOwner")
-  invalidFanReports         InvalidFanReport[]       @relation("InvalidFanReportReporter")
-  reviewedInvalidFanReports InvalidFanReport[]       @relation("InvalidFanReportReviewer")
-  invalidFanReportAudits    InvalidFanReportAudit[]  @relation("InvalidFanReportAuditActor")
-  roleAssignments           UserRoleAssignment[]
-  membershipHistory         UserGroupMembership[]
-  positionHistory           UserPosition[]           @relation("UserPositionAssignee")
-  createdUserPositions      UserPosition[]           @relation("UserPositionCreatedBy")
-  historicalReviewedLeads   LeadCustomer[]           @relation("HistoricalReviewedBy")
-  resourceChannelAccess     ResourceChannelAccess[]
-  sessions                  Session[]
-  confirmations             DailyEntryConfirmation[]
-  attendanceRecords         AttendanceRecord[]
-  sentNotifications         Notification[]           @relation("NotificationSender")
-  notificationRecipients    NotificationRecipient[]
-  createdChannels           Channel[]                @relation("ChannelCreatedBy")
-  auditLogs                 AuditLog[]
-  riskDecisions             RiskDecision[]           @relation("RiskDecisionMember")
-  madeRiskDecisions         RiskDecision[]           @relation("RiskDecisionActor")
-  hireDate                  String?
-  recruitmentSource         RecruitmentSource?
-  referrerName              String?
-  stageOverride             EmployeeStageOverride?
-  stageOverrideReason       String?
-  stageOverrideAt           DateTime?
-  lastLoginAt               DateTime?
-  createdAt                 DateTime                 @default(now())
-  updatedAt                 DateTime                 @updatedAt
+  assignedDevices             Device[]                        @relation("DeviceAssignedMember")
+  deviceAccounts              DeviceAccount[]
+  leadActivities              LeadActivity[]
+  exceptionActions            LeadException[]                 @relation("ExceptionActor")
+  exceptionOwnership          LeadException[]                 @relation("ExceptionOwner")
+  invalidFanReports           InvalidFanReport[]              @relation("InvalidFanReportReporter")
+  reviewedInvalidFanReports   InvalidFanReport[]              @relation("InvalidFanReportReviewer")
+  invalidFanReportAudits      InvalidFanReportAudit[]         @relation("InvalidFanReportAuditActor")
+  roleAssignments             UserRoleAssignment[]
+  membershipHistory           UserGroupMembership[]
+  positionHistory             UserPosition[]                  @relation("UserPositionAssignee")
+  createdUserPositions        UserPosition[]                  @relation("UserPositionCreatedBy")
+  historicalReviewedLeads     LeadCustomer[]                  @relation("HistoricalReviewedBy")
+  resourceChannelAccess       ResourceChannelAccess[]
+  sessions                    Session[]
+  confirmations               DailyEntryConfirmation[]
+  attendanceRecords           AttendanceRecord[]
+  sentNotifications           Notification[]                  @relation("NotificationSender")
+  notificationRecipients      NotificationRecipient[]
+  createdChannels             Channel[]                       @relation("ChannelCreatedBy")
+  sentChannelReviews          ChannelReviewEntry[]            @relation("ChannelReviewSentBy")
+  reviewedChannelReviews      ChannelReviewEntry[]            @relation("ChannelReviewReviewedBy")
+  dailyStatEntries            DailyStatEntry[]                @relation("DailyStatOwner")
+  reviewedDailyStats          DailyStatEntry[]                @relation("DailyStatReviewer")
+  receptionSourceDailyStats   DailyStatEntry[]                @relation("DailyStatReceptionSource")
+  operatorSourceDailyStats    DailyStatEntry[]                @relation("DailyStatOperatorSource")
+  createdDailyStatRevisions   DailyStatRevision[]             @relation("DailyStatRevisionCreator")
+  auditLogs                   AuditLog[]
+  riskDecisions               RiskDecision[]                  @relation("RiskDecisionMember")
+  madeRiskDecisions           RiskDecision[]                  @relation("RiskDecisionActor")
+  hireDate                    String?
+  recruitmentSource           RecruitmentSource?
+  referrerName                String?
+  stageOverride               EmployeeStageOverride?
+  stageOverrideReason         String?
+  stageOverrideAt             DateTime?
+  lastLoginAt                 DateTime?
+  createdAt                   DateTime                        @default(now())
+  updatedAt                   DateTime                        @updatedAt
 
   @@index([departmentId])
   @@index([departmentId, managementCountryCode])
@@ -400,6 +417,7 @@ model TeamGroup {
   positionHistory             UserPosition[]
   channels                    Channel[]
   batches                     SourceBatch[]
+  channelReviewEntries        ChannelReviewEntry[]
   devices                     Device[]
   deviceAccounts              DeviceAccount[]
   attendanceRecords           AttendanceRecord[]
@@ -414,26 +432,66 @@ model TeamGroup {
   expertOrderExcellentRate    Int                   @default(20)
   createdAt                   DateTime              @default(now())
   updatedAt                   DateTime              @updatedAt
+  dailyStatEntries            DailyStatEntry[]
 
   @@unique([departmentId, name])
 }
 
 model Channel {
-  id                     String
-  name                   String
-  normalizedName         String
-  active                 Boolean       @default(true)
-  groupId                String
-  group                  TeamGroup     @relation(fields: [groupId], references: [id])
-  createdById            String?
-  createdBy              User?         @relation("ChannelCreatedBy", fields: [createdById], references: [id])
-  channelType            ChannelType   @default(SMS)
-  batches                SourceBatch[]
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
+  id                   String
+  name                 String
+  normalizedName       String
+  active               Boolean              @default(true)
+  groupId              String
+  group                TeamGroup            @relation(fields: [groupId], references: [id])
+  createdById          String?
+  createdBy            User?                @relation("ChannelCreatedBy", fields: [createdById], references: [id])
+  channelType          ChannelType          @default(SMS)
+  batches              SourceBatch[]
+  channelReviewEntries ChannelReviewEntry[]
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  dailyStatEntries     DailyStatEntry[]
 
   @@id([id, groupId])
   @@unique([groupId, normalizedName])
+}
+
+// 组长与资源部的按天对账（需求文档4.5）：组长在"渠道数据核对"页面把某个渠道当天的数据发给
+// 对应渠道的资源部账号审核；资源部确认无误（CONFIRMED，终态，不能撤销）或标记异议
+// （DISPUTED，必须写 note），组长自己的页面据此看到回执。模式抄自 InvalidFanReport 的
+// reporter/reviewedBy 分工，但这里没有 InvalidFanReportAudit 那种前后快照表——对账双方
+// 只关心"这一天这个渠道的数据是否一致"这一个状态，不像废号审核要追踪具体数量改动。
+enum ChannelReviewStatus {
+  SENT
+  CONFIRMED
+  DISPUTED
+}
+
+model ChannelReviewEntry {
+  id           String              @id @default(cuid())
+  groupId      String
+  channelId    String
+  // 被核对的那一天（组长自己小组的当地日历日），不是提交时间。
+  reviewDate   String
+  status       ChannelReviewStatus @default(SENT)
+  // 只在 DISPUTED 时必填；重新发送（SENT）会清空上一轮的异议说明。
+  note         String?
+  sentById     String
+  sentAt       DateTime            @default(now())
+  reviewedById String?
+  reviewedAt   DateTime?
+  group        TeamGroup           @relation(fields: [groupId], references: [id])
+  channel      Channel             @relation(fields: [channelId, groupId], references: [id, groupId])
+  sentBy       User                @relation("ChannelReviewSentBy", fields: [sentById], references: [id])
+  reviewedBy   User?               @relation("ChannelReviewReviewedBy", fields: [reviewedById], references: [id])
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  // 一个小组的一个渠道一天只有一条对账记录；重新发送是 upsert 回同一行，不是新建。
+  @@unique([groupId, channelId, reviewDate])
+  @@index([channelId, status])
+  @@index([groupId, reviewDate])
 }
 
 model AuditLog {
@@ -473,22 +531,22 @@ model SystemSetting {
 }
 
 model SourceBatch {
-  id                             String             @id @default(cuid())
-  groupId                        String
-  channelId                      String
-  sourceDate                     String
-  channelTypeSnapshot            ChannelType        @default(SMS)
+  id                  String             @id @default(cuid())
+  groupId             String
+  channelId           String
+  sourceDate          String
+  channelTypeSnapshot ChannelType        @default(SMS)
   // 老客户补录使用独立批次：保留业绩和资金，但不参与新粉和有效粉。
-  isHistoricalRecord             Boolean            @default(false)
-  group                          TeamGroup          @relation(fields: [groupId], references: [id])
-  channel                        Channel            @relation(fields: [channelId, groupId], references: [id, groupId])
-  events                         MetricEvent[]
-  customerOrders                 CustomerOrder[]
-  leads                          LeadCustomer[]
-  exceptions                     LeadException[]
-  invalidFanReports              InvalidFanReport[]
-  createdAt                      DateTime           @default(now())
-  updatedAt                      DateTime           @updatedAt
+  isHistoricalRecord  Boolean            @default(false)
+  group               TeamGroup          @relation(fields: [groupId], references: [id])
+  channel             Channel            @relation(fields: [channelId, groupId], references: [id, groupId])
+  events              MetricEvent[]
+  customerOrders      CustomerOrder[]
+  leads               LeadCustomer[]
+  exceptions          LeadException[]
+  invalidFanReports   InvalidFanReport[]
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
   @@unique([groupId, channelId, sourceDate])
   @@index([groupId, sourceDate])
@@ -527,6 +585,84 @@ model MetricEvent {
   @@index([batchId, occurredOn])
   @@index([enteredById, occurredOn])
   @@index([kind, occurredOn])
+}
+
+// 独立的每日统计账。identityKey 把“人+岗位+日期+渠道+来源线”锁成唯一一行，
+// 不依赖客户号码或客户状态，报表只读取 approvedRevision。
+model DailyStatEntry {
+  id                    String              @id @default(cuid())
+  identityKey           String              @unique
+  ownerId               String
+  groupId               String
+  channelId             String
+  businessDate          String
+  timezone              String
+  position              Position
+  sourceReceptionId     String?
+  sourceGroupOperatorId String?
+  status                DailyStatStatus     @default(DRAFT)
+  currentRevisionId     String?             @unique
+  approvedRevisionId    String?             @unique
+  submittedAt           DateTime?
+  reviewedById          String?
+  reviewedAt            DateTime?
+  reviewReason          String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+  owner                 User                @relation("DailyStatOwner", fields: [ownerId], references: [id])
+  group                 TeamGroup           @relation(fields: [groupId], references: [id])
+  channel               Channel             @relation(fields: [channelId, groupId], references: [id, groupId])
+  sourceReception       User?               @relation("DailyStatReceptionSource", fields: [sourceReceptionId], references: [id], onDelete: SetNull)
+  sourceGroupOperator   User?               @relation("DailyStatOperatorSource", fields: [sourceGroupOperatorId], references: [id], onDelete: SetNull)
+  reviewedBy            User?               @relation("DailyStatReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  revisions             DailyStatRevision[] @relation("DailyStatRevisionEntry")
+  currentRevision       DailyStatRevision?  @relation("DailyStatCurrentRevision", fields: [currentRevisionId], references: [id], onDelete: SetNull)
+  approvedRevision      DailyStatRevision?  @relation("DailyStatApprovedRevision", fields: [approvedRevisionId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, businessDate])
+  @@index([groupId, businessDate, position])
+  @@index([channelId, businessDate])
+  @@index([status, groupId, businessDate])
+  @@index([sourceReceptionId, businessDate])
+  @@index([sourceGroupOperatorId, businessDate])
+}
+
+// 每次保存都新增版本，不覆盖旧值。审核通过只切换 DailyStatEntry.approvedRevisionId。
+model DailyStatRevision {
+  id                        String          @id @default(cuid())
+  entryId                   String
+  version                   Int
+  createdById               String
+  changeReason              String?
+  dispatchCount             Int             @default(0)
+  duplicateCount            Int             @default(0)
+  lowAmountCount            Int             @default(0)
+  noWsCount                 Int             @default(0)
+  effectiveCount            Int             @default(0)
+  replyCount                Int             @default(0)
+  joinCount                 Int             @default(0)
+  operatorReceivedCount     Int             @default(0)
+  normalLeaveCount          Int             @default(0)
+  abnormalLeaveCount        Int             @default(0)
+  currentInGroupCount       Int             @default(0)
+  expertIntroCount          Int             @default(0)
+  expertReceivedCount       Int             @default(0)
+  expertContactedCount      Int             @default(0)
+  registrationCount         Int             @default(0)
+  orderCount                Int             @default(0)
+  cryptoInitialDepositCents Int             @default(0)
+  bankInitialDepositCents   Int             @default(0)
+  cryptoRechargeCents       Int             @default(0)
+  bankRechargeCents         Int             @default(0)
+  withdrawalCents           Int             @default(0)
+  createdAt                 DateTime        @default(now())
+  entry                     DailyStatEntry  @relation("DailyStatRevisionEntry", fields: [entryId], references: [id], onDelete: Cascade)
+  createdBy                 User            @relation("DailyStatRevisionCreator", fields: [createdById], references: [id])
+  currentFor                DailyStatEntry? @relation("DailyStatCurrentRevision")
+  approvedFor               DailyStatEntry? @relation("DailyStatApprovedRevision")
+
+  @@unique([entryId, version])
+  @@index([createdById, createdAt])
 }
 
 model CustomerOrder {

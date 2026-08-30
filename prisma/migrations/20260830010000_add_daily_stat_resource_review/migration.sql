@@ -1,0 +1,1 @@
+-- SQLite stores Prisma enums as TEXT, so RESOURCE_PENDING needs no table rewrite.

@@ -313,7 +313,7 @@ export async function executeCustomerWorkflow(
       try {
         phone = normalizeCustomerPhone(input.phone);
       } catch {
-        return { status: 400 as const, error: "请输入正确的 11 位手机号" };
+        return { status: 400 as const, error: "客户号码至少需要 6 位数字，系统会自动保留末 6 位" };
       }
       const collision = await transaction.leadCustomer.findFirst({
         where: { phone, id: { not: lead.id } },
@@ -382,15 +382,19 @@ export async function executeCustomerWorkflow(
         },
       });
     }
-    if (input.action === "updateReceptionChatStatus" || input.action === "archiveRepliedCustomer") {
+    if (["updateReceptionChatStatus", "archiveRepliedCustomer", "restoreReceptionArchive"].includes(input.action)) {
       await recordAudit(transaction, {
         actorId: liveActor.id,
-        action: input.action === "updateReceptionChatStatus" ? "LEAD_RECEPTION_STATUS_UPDATED" : "LEAD_RECEPTION_ARCHIVED",
+        action: input.action === "updateReceptionChatStatus"
+          ? "LEAD_RECEPTION_STATUS_UPDATED"
+          : input.action === "archiveRepliedCustomer" ? "LEAD_RECEPTION_ARCHIVED" : "LEAD_RECEPTION_ARCHIVE_RESTORED",
         entityType: "LeadCustomer",
         entityId: lead.id,
         summary: input.action === "updateReceptionChatStatus"
           ? { receptionChatStatus: input.receptionChatStatus }
-          : { archiveVisitCount: input.archiveVisitCount, reason: input.reason },
+          : input.action === "archiveRepliedCustomer"
+            ? { archiveVisitCount: input.archiveVisitCount, reason: input.reason }
+            : { reason: input.reason },
       });
     }
 

@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { hashPassword } from "../../src/lib/auth";
-import { GET as loadClaimContext, POST as claimHistoricalCustomer } from "../../src/app/api/historical-claims/route";
-import { GET as listClaims, POST as reviewClaim } from "../../src/app/api/historical-claims/review/route";
+import { GET as loadClaimContext, PATCH as resubmitHistoricalCustomer, POST as claimHistoricalCustomer } from "../../src/app/api/historical-claims/route";
 import { loadCanonicalMetricEvents } from "../../src/lib/analytics/canonical-events";
 import { executeCustomerWorkflow } from "../../src/lib/customer-workflow/service";
 import { db } from "../../src/lib/db";
@@ -46,7 +45,7 @@ function claimRequest(input: Record<string, unknown>) {
   });
 }
 
-describe.sequential("historical customer claim review", () => {
+describe.sequential("independent customer progress records", () => {
   it("returns role-scoped v2 form options and the actor's recent claims", async () => {
     const data = await fixture();
     vi.spyOn(auth, "requireUser").mockResolvedValue(data.groupOperator);
@@ -55,7 +54,7 @@ describe.sequential("historical customer claim review", () => {
     await expect(context.json()).resolves.toMatchObject({
       baselineOn: "2026-08-20",
       actor: { id: data.groupOperator.id },
-      allowedStages: ["JOINED"],
+      allowedStages: ["JOINED", "INTRODUCED"],
       channels: [{ id: data.channelId, name: "历史渠道" }],
       members: {
         reception: [expect.objectContaining({ id: data.reception.id })],
@@ -66,7 +65,7 @@ describe.sequential("historical customer claim review", () => {
     });
   });
 
-  it("enforces stage ownership and keeps a valid claim locked until its own lead approves it", async () => {
+  it("enforces stage ownership and saves customer progress directly without changing daily statistics", async () => {
     const data = await fixture();
     vi.spyOn(auth, "requireUser").mockResolvedValue(data.reception);
     const base = {
@@ -84,8 +83,8 @@ describe.sequential("historical customer claim review", () => {
     expect(created.status).toBe(201);
     const { leadId } = await created.json() as { leadId: string };
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: leadId } })).resolves.toMatchObject({
-      invalid: true,
-      historicalReviewStatus: "PENDING",
+      invalid: false,
+      historicalReviewStatus: "APPROVED",
       historicalBaselineStage: "NOT_REPLIED",
       repliedOn: null,
       joinedOn: null,
@@ -94,22 +93,6 @@ describe.sequential("historical customer claim review", () => {
     });
     await expect(loadCanonicalMetricEvents({ groupIds: [data.groupId] })).resolves.toHaveLength(0);
 
-    vi.mocked(auth.requireUser).mockResolvedValue(data.lead);
-    const pending = await listClaims();
-    expect(pending.status).toBe(200);
-    expect((await pending.json()).claims).toEqual(expect.arrayContaining([expect.objectContaining({ id: leadId, phone })]));
-    const approved = await reviewClaim(new Request("http://localhost/api/historical-claims/review", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ leadId, decision: "APPROVE" }),
-    }));
-    expect(approved.status).toBe(200);
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: leadId } })).resolves.toMatchObject({
-      invalid: false,
-      historicalReviewStatus: "APPROVED",
-      historicalReplyCounted: false,
-      historicalJoinCounted: false,
-      historicalExpertIntroCounted: false,
-      historicalRegistrationCounted: false,
-    });
     await expect(loadCanonicalMetricEvents({ groupIds: [data.groupId] })).resolves.toHaveLength(0);
 
     const device = await db.device.create({ data: { code: `history-device-${leadId}`, groupId: data.groupId, memberId: data.reception.id } });
@@ -121,9 +104,8 @@ describe.sequential("historical customer claim review", () => {
     expect(facts.filter((fact) => fact.kind === "NEW_FANS" || fact.kind === "EFFECTIVE_FANS")).toHaveLength(0);
   });
 
-  it("lets an expert claim only an expert-stage customer and prevents another group's lead from reviewing it", async () => {
+  it("lets an expert record an expert-stage customer directly", async () => {
     const data = await fixture();
-    const other = await fixture();
     vi.spyOn(auth, "requireUser").mockResolvedValue(data.expert);
     const phone = `15${String(Date.now()).slice(-9)}`;
     const created = await claimHistoricalCustomer(claimRequest({
@@ -138,17 +120,6 @@ describe.sequential("historical customer claim review", () => {
     expect(created.status).toBe(201);
     const { leadId } = await created.json() as { leadId: string };
 
-    vi.mocked(auth.requireUser).mockResolvedValue(other.lead);
-    const crossGroup = await reviewClaim(new Request("http://localhost/api/historical-claims/review", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ leadId, decision: "APPROVE" }),
-    }));
-    expect(crossGroup.status).toBe(404);
-
-    vi.mocked(auth.requireUser).mockResolvedValue(data.lead);
-    const approved = await reviewClaim(new Request("http://localhost/api/historical-claims/review", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ leadId, decision: "APPROVE" }),
-    }));
-    expect(approved.status).toBe(200);
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: leadId } })).resolves.toMatchObject({
       invalid: false,
       replyStatus: "REPLIED",
@@ -158,6 +129,41 @@ describe.sequential("historical customer claim review", () => {
       historicalRegistrationCounted: false,
     });
     await expect(loadCanonicalMetricEvents({ groupIds: [data.groupId] })).resolves.toHaveLength(0);
+  });
+
+  it("lets the original employee edit its own progress row without changing daily statistics", async () => {
+    const data = await fixture();
+    vi.spyOn(auth, "requireUser").mockResolvedValue(data.reception);
+    const originalPhone = `13${String(Date.now()).slice(-9)}`;
+    const base = {
+      phone: originalPhone.slice(-6),
+      channelId: data.channelId,
+      baselineStage: "NOT_REPLIED",
+      baselineOn: "2026-08-18",
+      receptionOwnerId: data.reception.id,
+      notes: "第一次填写",
+    };
+    const created = await claimHistoricalCustomer(claimRequest(base));
+    expect(created.status).toBe(201);
+    const { leadId } = await created.json() as { leadId: string };
+
+    const resubmitted = await resubmitHistoricalCustomer(new Request("http://localhost/api/historical-claims", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...base, claimId: leadId, baselineStage: "REPLIED", notes: "按组长意见改为已回复" }),
+    }));
+    expect(resubmitted.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: leadId } })).resolves.toMatchObject({
+      phone: originalPhone.slice(-6),
+      invalid: false,
+      historicalReviewStatus: "APPROVED",
+      historicalReviewedById: null,
+      historicalReviewedAt: null,
+      historicalBaselineStage: "REPLIED",
+      notes: "按组长意见改为已回复",
+      repliedOn: "2026-08-18",
+    });
+    await expect(loadCanonicalMetricEvents({ groupIds: [data.groupId] })).resolves.toHaveLength(0);
+    await expect(db.auditLog.findFirst({ where: { entityId: leadId, action: "CUSTOMER_PROGRESS_ROW_UPDATED" } })).resolves.toBeTruthy();
   });
 
   it("allows an owner who belonged to the group on the historical date even after a later transfer", async () => {

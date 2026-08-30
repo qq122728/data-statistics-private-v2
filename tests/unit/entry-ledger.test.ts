@@ -14,9 +14,10 @@ describe("member entry ledger rules", () => {
   });
 
   it("normalizes a phone before enforcing one opening per number", () => {
-    expect(normalizeCustomerPhone("138 0013-8000")).toBe("13800138000");
-    expect(normalizeCustomerPhone("+86 138 0013 8000")).toBe("+8613800138000");
-    expect(() => normalizeCustomerPhone("123")).toThrow("请输入有效的手机号码");
+    expect(normalizeCustomerPhone("138 0013-8000")).toBe("138000");
+    expect(normalizeCustomerPhone("+86 138 0013 8000")).toBe("138000");
+    expect(normalizeCustomerPhone("381002")).toBe("381002");
+    expect(() => normalizeCustomerPhone("123")).toThrow("客户号码至少需要 6 位数字");
   });
 
   it("chooses the first unused continuation number", () => {

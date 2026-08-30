@@ -27,11 +27,7 @@ function getRows(body: unknown): unknown[] {
 }
 
 function normalizeCustomerOrderIdentifier(value: string): string {
-  try {
-    return normalizeCustomerPhone(value);
-  } catch {
-    return value.trim();
-  }
+  return normalizeCustomerPhone(value);
 }
 
 function customerScope(user: { id: string; role: string; groupId: string | null }): Prisma.CustomerOrderWhereInput {

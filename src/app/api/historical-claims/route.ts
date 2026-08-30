@@ -13,7 +13,7 @@ import { getAssignedRoles, hasAssignedRole } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
 
-const claimStages = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED"] as const;
+const claimStages = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "CONTACTED", "TRACKING", "REGISTERED"] as const;
 type ClaimStage = (typeof claimStages)[number];
 
 const inputSchema = z.object({
@@ -34,20 +34,54 @@ const inputSchema = z.object({
     context.addIssue({ code: "custom", path: ["expertOwnerId"], message: "已推专家客户必须选择专家归属" });
 });
 
-function claimRoleFor(stage: ClaimStage) {
-  if (stage === "NOT_REPLIED" || stage === "REPLIED") return "RECEPTION" as const;
-  if (stage === "JOINED") return "GROUP_OPERATOR" as const;
-  return "EXPERT" as const;
+const resubmitSchema = z.intersection(z.object({
+  claimId: z.string().min(1).max(API_LIMITS.identifierCharacters),
+}), inputSchema);
+
+type FrontlineRole = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
+
+function claimRolesFor(stage: ClaimStage): readonly FrontlineRole[] {
+  if (stage === "NOT_REPLIED" || stage === "REPLIED") return ["RECEPTION"];
+  if (stage === "JOINED") return ["GROUP_OPERATOR"];
+  // “推专家”既是炒群完成的动作，也是专家接手历史客户时的起点；两边都可如实补录。
+  if (stage === "INTRODUCED") return ["GROUP_OPERATOR", "EXPERT"];
+  return ["EXPERT"];
 }
 
-function claimedOwnerId(input: z.infer<typeof inputSchema>) {
-  const role = claimRoleFor(input.baselineStage);
+function claimedOwnerId(input: z.infer<typeof inputSchema>, role: FrontlineRole) {
   if (role === "RECEPTION") return input.receptionOwnerId;
   if (role === "GROUP_OPERATOR") return input.groupOperatorOwnerId;
   return input.expertOwnerId;
 }
 
 const frontlineRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const satisfies readonly Role[];
+
+function directProgressState(stage: ClaimStage, sourceDate: string) {
+  const rank = claimStages.indexOf(stage);
+  return {
+    invalid: false,
+    invalidReason: null,
+    historicalReviewStatus: "APPROVED" as const,
+    historicalReviewedById: null,
+    historicalReviewedAt: null,
+    replyStatus: rank >= 1 ? "REPLIED" as const : "NOT_REPLIED" as const,
+    repliedOn: rank >= 1 ? sourceDate : null,
+    groupStatus: rank >= 2 ? "JOINED" as const : "NOT_JOINED" as const,
+    joinedOn: rank >= 2 ? sourceDate : null,
+    expertIntroducedOn: rank >= 3 ? sourceDate : null,
+    expertContactedOn: rank >= 4 ? sourceDate : null,
+    registeredOn: stage === "REGISTERED" ? sourceDate : null,
+    expertWorkflowStage: stage === "REGISTERED" ? "PENDING_ORDER" as const
+      : stage === "TRACKING" ? "TRACKING" as const
+      : stage === "CONTACTED" ? "MATERIALS" as const
+      : rank >= 3 ? "QUEUED" as const : null,
+    expertStageChangedAt: rank >= 3 ? new Date(`${sourceDate}T12:00:00.000Z`) : null,
+    historicalReplyCounted: false,
+    historicalJoinCounted: false,
+    historicalExpertIntroCounted: false,
+    historicalRegistrationCounted: false,
+  };
+}
 
 function splitRoles(value: string | null | undefined): Role[] {
   return (value ?? "").split(",").map((role) => role.trim()).filter((role): role is Role =>
@@ -121,7 +155,7 @@ async function sessionActor() {
 }
 
 /**
- * v2 一线认领面板所需的真实选项和本人最近提交记录。
+ * v2 客户进度“添加一行”所需的真实选项和本人最近保存记录。
  * 人员候选按历史状态日期读取岗位历史，转岗后仍可还原当时的真实负责人。
  */
 export async function GET(request: Request) {
@@ -130,14 +164,14 @@ export async function GET(request: Request) {
   const actor = session.actor;
   const roles = getAssignedRoles(actor);
   if (!roles.some((role) => ["LEAD", ...frontlineRoles].includes(role as "LEAD" | (typeof frontlineRoles)[number])))
-    return authorizationDenied(actor, "当前岗位不能认领历史客户");
+    return authorizationDenied(actor, "当前岗位不能记录这个阶段的客户");
   if (!actor.groupId) return authorizationDenied(actor, "当前账号未绑定小组");
 
   const settings = await getSystemSettings();
   const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(actor, settings.timezone));
   const requestedOn = new URL(request.url).searchParams.get("baselineOn") || today;
   const baselineOn = isCalendarDate(requestedOn) && requestedOn <= today ? requestedOn : today;
-  const allowedStages = claimStages.filter((stage) => hasAssignedRole(actor, "LEAD") || hasAssignedRole(actor, claimRoleFor(stage)));
+  const allowedStages = claimStages.filter((stage) => hasAssignedRole(actor, "LEAD") || claimRolesFor(stage).some((role) => hasAssignedRole(actor, role)));
 
   const [channels, members, claimAudits] = await Promise.all([
     db.channel.findMany({ where: { groupId: actor.groupId, active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -152,7 +186,11 @@ export async function GET(request: Request) {
     where: { id: { in: claimIds }, batch: { groupId: actor.groupId } },
     select: {
       id: true, phone: true, customerName: true, historicalBaselineStage: true, historicalReviewStatus: true,
-      historicalSourceName: true, invalidReason: true, createdAt: true,
+      historicalSourceName: true, invalidReason: true, notes: true, createdAt: true,
+      ownerId: true, groupOperatorOwnerId: true, expertOwnerId: true,
+      _count: { select: { activities: true } },
+      customerOrder: { select: { id: true } },
+      batch: { select: { channelId: true, sourceDate: true } },
     },
   }) : [];
   const claimById = new Map(claims.map((claim) => [claim.id, claim]));
@@ -168,13 +206,141 @@ export async function GET(request: Request) {
       groupOperator: members.filter((member) => member.roles.includes("GROUP_OPERATOR")),
       expert: members.filter((member) => member.roles.includes("EXPERT")),
     },
-    claims: claimIds.map((id) => claimById.get(id)).filter(Boolean),
+    claims: claimIds.map((id) => claimById.get(id)).filter(Boolean).map((claim) => ({
+      ...claim,
+      canEdit: claim!.historicalReviewStatus !== "APPROVED" || (claim!._count.activities === 0 && !claim!.customerOrder),
+      _count: undefined,
+      customerOrder: undefined,
+    })),
   });
 }
 
 /**
- * 各岗位认领仍需继续处理的历史客户。
- * 待审核记录用 invalid=true 锁住，且不写回复/进群/推专家/注册日期；因此审核前不会进入待办或报表。
+ * 退回的客户进度行由原提交人修改后重新提交。
+ * 编辑员工自己建立的客户进度行，不生成任何统计事件。
+ */
+export async function PATCH(request: Request) {
+  const session = await sessionActor();
+  if (session.error) return session.error;
+  const sessionUser = session.actor;
+  if (!sessionUser.groupId) return authorizationDenied(sessionUser, "当前账号未绑定小组");
+
+  try {
+    const input = resubmitSchema.parse(await request.json());
+    const phone = normalizeCustomerPhone(input.phone);
+    const settings = await getSystemSettings();
+    const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(sessionUser, settings.timezone));
+    const dateError = entryDateError(input.baselineOn, today, "客户状态日期");
+    if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
+
+    const result = await db.$transaction(async (tx) => {
+      const actor = await tx.user.findUnique({
+        where: { id: sessionUser.id },
+        select: { id: true, active: true, groupId: true, role: true, roleAssignments: { select: { role: true } } },
+      });
+      if (!actor?.active || !actor.groupId)
+        return { status: 403 as const, error: "当前账号不能编辑客户进度" };
+
+      const [lead, originalClaim] = await Promise.all([
+        tx.leadCustomer.findUnique({
+          where: { id: input.claimId },
+          select: {
+            id: true, phone: true, historicalReviewStatus: true, historicalBaselineStage: true,
+            activities: { select: { id: true }, take: 1 },
+            customerOrder: { select: { id: true } },
+            batch: { select: { groupId: true, channelId: true, sourceDate: true } },
+          },
+        }),
+        tx.auditLog.findFirst({
+          where: { actorId: actor.id, action: "HISTORICAL_CUSTOMER_CLAIMED", entityType: "LeadCustomer", entityId: input.claimId },
+          select: { id: true },
+        }),
+      ]);
+      if (!lead || lead.batch.groupId !== actor.groupId || !originalClaim)
+        return { status: 404 as const, error: "未找到本人可编辑的客户进度行" };
+      if (!lead.historicalReviewStatus || !["PENDING", "RETURNED", "APPROVED"].includes(lead.historicalReviewStatus))
+        return { status: 409 as const, error: "当前客户进度行不能编辑" };
+      if (lead.historicalReviewStatus === "APPROVED" && (lead.activities.length > 0 || lead.customerOrder))
+        return { status: 409 as const, error: "该客户保存后已经产生后续进度，不能覆盖起始状态；请在客户档案中继续跟进或使用纠错功能" };
+
+      const permittedRoles = claimRolesFor(input.baselineStage);
+      if (!hasAssignedRole(actor, "LEAD")) {
+        const ownedRole = permittedRoles.find((role) => hasAssignedRole(actor, role) && claimedOwnerId(input, role) === actor.id);
+        if (!permittedRoles.some((role) => hasAssignedRole(actor, role)))
+          return { status: 403 as const, error: "当前岗位不能把客户改到这个状态" };
+        if (!ownedRole)
+          return { status: 403 as const, error: "一线岗位只能把客户进度归属给自己" };
+      }
+
+      const duplicate = await tx.leadCustomer.findFirst({
+        where: { phone, id: { not: lead.id } },
+        select: { id: true },
+      });
+      if (duplicate) return { status: 409 as const, error: "该号码已存在，请打开原客户档案继续跟进" };
+
+      const ownerIds = [input.receptionOwnerId, input.groupOperatorOwnerId, input.expertOwnerId]
+        .filter((value): value is string => Boolean(value));
+      const [members, channel] = await Promise.all([
+        loadHistoricalMembers(tx, actor.groupId, input.baselineOn),
+        tx.channel.findFirst({ where: { id: input.channelId, groupId: actor.groupId }, select: { id: true, name: true, channelType: true } }),
+      ]);
+      const memberById = new Map(members.map((member) => [member.id, member]));
+      const expectedRoles = new Map<string, Role>([[input.receptionOwnerId, "RECEPTION"]]);
+      if (input.groupOperatorOwnerId) expectedRoles.set(input.groupOperatorOwnerId, "GROUP_OPERATOR");
+      if (input.expertOwnerId) expectedRoles.set(input.expertOwnerId, "EXPERT");
+      if (ownerIds.some((id) => !memberById.get(id)?.roles.includes(expectedRoles.get(id)!)))
+        return { status: 400 as const, error: "负责人必须是状态日期当天属于本组的对应岗位人员" };
+      if (!channel) return { status: 400 as const, error: "渠道只能选择本组渠道" };
+
+      const batch = await tx.sourceBatch.upsert({
+        where: { groupId_channelId_sourceDate: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn } },
+        update: {},
+        create: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn, channelTypeSnapshot: channel.channelType, isHistoricalRecord: true },
+      });
+      await tx.leadCustomer.update({
+        where: { id: lead.id },
+        data: {
+          phone,
+          batchId: batch.id,
+          ownerId: input.receptionOwnerId,
+          attributionOwnerId: input.receptionOwnerId,
+          groupOperatorOwnerId: input.groupOperatorOwnerId || null,
+          expertOwnerId: input.expertOwnerId || null,
+          customerName: input.customerName || null,
+          notes: input.notes || null,
+          historicalSourceName: channel.name,
+          historicalBaselineStage: input.baselineStage,
+          ...directProgressState(input.baselineStage, input.baselineOn),
+        },
+      });
+      await recordAudit(tx, {
+        actorId: actor.id,
+        action: "CUSTOMER_PROGRESS_ROW_UPDATED",
+        entityType: "LeadCustomer",
+        entityId: lead.id,
+        summary: {
+          before: { stage: lead.historicalBaselineStage, channelId: lead.batch.channelId, stateOn: lead.batch.sourceDate },
+          after: { stage: input.baselineStage, channelId: channel.id, stateOn: input.baselineOn },
+        },
+      });
+      return { status: 200 as const, leadId: lead.id, reviewStatus: "APPROVED" as const };
+    }, { isolationLevel: "Serializable" });
+
+    if (result.status === 403) return authorizationDenied(sessionUser, result.error);
+    if (result.status !== 200) return NextResponse.json({ error: result.error }, { status: result.status });
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof z.ZodError)
+      return NextResponse.json({ error: error.issues[0]?.message ?? "请检查填写内容" }, { status: 400 });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+      return NextResponse.json({ error: "该号码刚刚被其他人使用，请刷新后重试" }, { status: 409 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "重新提交失败" }, { status: 400 });
+  }
+}
+
+/**
+ * 各岗位直接添加仍需继续处理的客户进度行。
+ * 保存后立即进入本人的客户通讯录；它与每日统计账完全无关。
  */
 export async function POST(request: Request) {
   const session = await sessionActor();
@@ -182,7 +348,7 @@ export async function POST(request: Request) {
   const sessionUser = session.actor;
   const roles = getAssignedRoles(sessionUser);
   if (!roles.some((role) => ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"].includes(role)))
-    return authorizationDenied(sessionUser, "当前岗位不能认领历史客户");
+    return authorizationDenied(sessionUser, "当前岗位不能记录这个阶段的客户");
   if (!sessionUser.groupId) return authorizationDenied(sessionUser, "当前账号未绑定小组");
 
   try {
@@ -200,12 +366,13 @@ export async function POST(request: Request) {
       });
       if (!actor?.active || !actor.groupId)
         return { status: 403 as const, error: "当前账号不能认领历史客户" };
-      const requiredRole = claimRoleFor(input.baselineStage);
+      const permittedRoles = claimRolesFor(input.baselineStage);
       if (!hasAssignedRole(actor, "LEAD")) {
-        if (!hasAssignedRole(actor, requiredRole))
-          return { status: 403 as const, error: `当前阶段只能由${requiredRole === "RECEPTION" ? "接粉" : requiredRole === "GROUP_OPERATOR" ? "炒群" : "专家"}岗位认领` };
-        if (claimedOwnerId(input) !== actor.id)
-          return { status: 403 as const, error: "一线岗位只能把历史客户认领给自己" };
+        const ownedRole = permittedRoles.find((role) => hasAssignedRole(actor, role) && claimedOwnerId(input, role) === actor.id);
+        if (!permittedRoles.some((role) => hasAssignedRole(actor, role)))
+          return { status: 403 as const, error: "当前岗位不能填写这个客户状态" };
+        if (!ownedRole)
+          return { status: 403 as const, error: "一线岗位只能把客户进度记录到自己名下" };
       }
 
       const duplicate = await tx.leadCustomer.findUnique({ where: { phone }, select: { batch: { select: { groupId: true } } } });
@@ -243,18 +410,16 @@ export async function POST(request: Request) {
         historicalSourceName: channel.name,
         historicalBaselineStage: input.baselineStage,
         isHistoricalRecord: true,
-        historicalReviewStatus: "PENDING",
-        invalid: true,
-        invalidReason: "历史客户认领待组长审核",
+        ...directProgressState(input.baselineStage, input.baselineOn),
       } });
       await recordAudit(tx, {
         actorId: actor.id,
         action: "HISTORICAL_CUSTOMER_CLAIMED",
         entityType: "LeadCustomer",
         entityId: lead.id,
-        summary: { baselineStage: input.baselineStage, channelId: channel.id, reviewStatus: "PENDING" },
+        summary: { baselineStage: input.baselineStage, channelId: channel.id, reviewStatus: "APPROVED", affectsDailyStats: false },
       });
-      return { status: 201 as const, leadId: lead.id, reviewStatus: "PENDING" as const };
+      return { status: 201 as const, leadId: lead.id, reviewStatus: "APPROVED" as const };
     }, { isolationLevel: "Serializable" });
 
     if (result.status === 403) return authorizationDenied(sessionUser, result.error);
@@ -264,7 +429,7 @@ export async function POST(request: Request) {
     if (error instanceof z.ZodError)
       return NextResponse.json({ error: error.issues[0]?.message ?? "请检查填写内容" }, { status: 400 });
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
-      return NextResponse.json({ error: "该号码刚刚被其他人认领，请打开原客户档案" }, { status: 409 });
-    return NextResponse.json({ error: error instanceof Error ? error.message : "认领失败" }, { status: 400 });
+      return NextResponse.json({ error: "该号码刚刚被其他人保存，请打开原客户档案" }, { status: 409 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "保存客户进度失败" }, { status: 400 });
   }
 }

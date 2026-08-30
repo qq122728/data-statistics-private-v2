@@ -67,6 +67,15 @@ const accounts = [
 
 async function clearOnlyDemoOperationalData(transaction) {
   await transaction.resourceChannelAccess.deleteMany({ where: { userId: DEMO.accounts.resource } });
+  const dailyEntries = await transaction.dailyStatEntry.findMany({ where: { groupId: DEMO.groupId }, select: { id: true } });
+  const dailyEntryIds = dailyEntries.map((entry) => entry.id);
+  if (dailyEntryIds.length) {
+    // Entry 同时指向当前/已审核 revision，先解除指针，再按外键顺序清理。
+    await transaction.dailyStatEntry.updateMany({ where: { id: { in: dailyEntryIds } }, data: { currentRevisionId: null, approvedRevisionId: null } });
+    await transaction.dailyStatRevision.deleteMany({ where: { entryId: { in: dailyEntryIds } } });
+    await transaction.dailyStatEntry.deleteMany({ where: { id: { in: dailyEntryIds } } });
+  }
+  await transaction.channelReviewEntry.deleteMany({ where: { groupId: DEMO.groupId } });
   const batches = await transaction.sourceBatch.findMany({
     where: { groupId: DEMO.groupId },
     select: { id: true },
@@ -221,19 +230,19 @@ async function main() {
 
     const batch = (days) => batchByDate.get(date(days)) ?? batchByDate.get(today);
     const leads = [
-      { id: "demo-customer-01", phone: "19980000001", batchId: batch(0), customerName: "待回复客户", replyStatus: "FOLLOW_UP", followUpCount: 2, lastFollowedUpOn: today, notes: "已两次回访，等待客户回复。" },
-      { id: "demo-customer-02", phone: "19980000002", batchId: batch(1), customerName: "已回复待入群", replyStatus: "REPLIED", repliedOn: today, followUpCount: 1, lastFollowedUpOn: today, lossAmountCents: 120000, notes: "客户已回复，今晚安排入群。" },
-      { id: "demo-customer-03", phone: "19980000003", batchId: batch(1), customerName: "入群第 1 天", replyStatus: "REPLIED", repliedOn: date(1), groupStatus: "JOINED", joinedOn: today, notes: "刚入群，观察互动情况。" },
-      { id: "demo-customer-04", phone: "19980000004", batchId: batch(4), customerName: "入群第 4 天", replyStatus: "REPLIED", repliedOn: date(5), groupStatus: "JOINED", joinedOn: date(3), notes: "已完成群内互动，今天可准备推专家。" },
-      { id: "demo-customer-05", phone: "19980000005", batchId: batch(7), customerName: "待联系专家", replyStatus: "REPLIED", repliedOn: date(8), groupStatus: "JOINED", joinedOn: date(6), expertIntroducedOn: date(1), notes: "已推专家，等待客户主动联系。" },
-      { id: "demo-customer-06", phone: "19980000006", batchId: batch(7), customerName: "专家跟进中", replyStatus: "REPLIED", repliedOn: date(9), groupStatus: "JOINED", joinedOn: date(7), expertIntroducedOn: date(3), expertContactedOn: date(2), expertContactNote: "已联系，客户周末准备注册。", nextPlan: "周一提醒客户完成注册", nextFollowUpOn: date(1), notes: "专家正在跟进注册。" },
-      { id: "demo-customer-07", phone: "19980000007", batchId: batch(10), customerName: "已注册待开单", replyStatus: "REPLIED", repliedOn: date(11), groupStatus: "JOINED", joinedOn: date(9), expertIntroducedOn: date(6), expertContactedOn: date(5), expertContactNote: "客户已联系专家。", registeredOn: date(2), nextPlan: "确认首充时间", nextFollowUpOn: today, notes: "已注册，等待首充。" },
-      { id: "demo-customer-08", phone: "19980000008", batchId: batch(16), customerName: "已开单客户", replyStatus: "REPLIED", repliedOn: date(15), groupStatus: "JOINED", joinedOn: date(13), expertIntroducedOn: date(10), expertContactedOn: date(9), expertContactNote: "已完成开户指导。", registeredOn: date(8), nextPlan: "维护关系并争取续充", nextFollowUpOn: date(2), notes: "已开单，有后续续充空间。" },
-      { id: "demo-customer-09", phone: "19980000009", batchId: batch(10), customerName: "提前退群客户", replyStatus: "REPLIED", repliedOn: date(10), groupStatus: "LEFT", joinedOn: date(8), leftOn: date(4), leftWithOrder: false, notes: "第 5 天退群，未开单，需要复盘。" },
-      { id: "demo-customer-10", phone: "19980000010", batchId: batch(16), customerName: "正常退群已开单", replyStatus: "REPLIED", repliedOn: date(16), groupStatus: "LEFT", joinedOn: date(15), expertIntroducedOn: date(12), expertContactedOn: date(11), registeredOn: date(10), leftOn: today, leftWithOrder: true, notes: "满 15 天后退群，已开单，属于正常完成。" },
-      { id: "demo-customer-11", phone: "19980000011", batchId: batch(0), customerName: "无效粉示例", invalid: true, invalidReason: "号码为空号", replyStatus: "NOT_REPLIED", notes: "无效粉，不进入后续流程。" },
-      { id: "demo-customer-12", phone: "19980000012", batchId: batch(4), customerName: "专家待跟进", replyStatus: "REPLIED", repliedOn: date(4), groupStatus: "JOINED", joinedOn: date(3), expertIntroducedOn: today, notes: "今日刚推专家，尚未联系。" },
-      { id: "demo-customer-13", phone: "19980000013", batchId: batch(4), customerName: "等待多天未回复", replyStatus: "NOT_REPLIED", notes: "演示：来源日期较早、一直没回复的号码，用于验证等待天数提示。" },
+      { id: "demo-customer-01", phone: "000001", batchId: batch(0), customerName: "待回复客户", replyStatus: "FOLLOW_UP", followUpCount: 2, lastFollowedUpOn: today, notes: "已两次回访，等待客户回复。" },
+      { id: "demo-customer-02", phone: "000002", batchId: batch(1), customerName: "已回复待入群", replyStatus: "REPLIED", repliedOn: today, followUpCount: 1, lastFollowedUpOn: today, lossAmountCents: 120000, notes: "客户已回复，今晚安排入群。" },
+      { id: "demo-customer-03", phone: "000003", batchId: batch(1), customerName: "入群第 1 天", replyStatus: "REPLIED", repliedOn: date(1), groupStatus: "JOINED", joinedOn: today, notes: "刚入群，观察互动情况。" },
+      { id: "demo-customer-04", phone: "000004", batchId: batch(4), customerName: "入群第 4 天", replyStatus: "REPLIED", repliedOn: date(5), groupStatus: "JOINED", joinedOn: date(3), notes: "已完成群内互动，今天可准备推专家。" },
+      { id: "demo-customer-05", phone: "000005", batchId: batch(7), customerName: "待联系专家", replyStatus: "REPLIED", repliedOn: date(8), groupStatus: "JOINED", joinedOn: date(6), expertIntroducedOn: date(1), notes: "已推专家，等待客户主动联系。" },
+      { id: "demo-customer-06", phone: "000006", batchId: batch(7), customerName: "专家跟进中", replyStatus: "REPLIED", repliedOn: date(9), groupStatus: "JOINED", joinedOn: date(7), expertIntroducedOn: date(3), expertContactedOn: date(2), expertContactNote: "已联系，客户周末准备注册。", nextPlan: "周一提醒客户完成注册", nextFollowUpOn: date(1), notes: "专家正在跟进注册。" },
+      { id: "demo-customer-07", phone: "000007", batchId: batch(10), customerName: "已注册待开单", replyStatus: "REPLIED", repliedOn: date(11), groupStatus: "JOINED", joinedOn: date(9), expertIntroducedOn: date(6), expertContactedOn: date(5), expertContactNote: "客户已联系专家。", registeredOn: date(2), nextPlan: "确认首充时间", nextFollowUpOn: today, notes: "已注册，等待首充。" },
+      { id: "demo-customer-08", phone: "000008", batchId: batch(16), customerName: "已开单客户", replyStatus: "REPLIED", repliedOn: date(15), groupStatus: "JOINED", joinedOn: date(13), expertIntroducedOn: date(10), expertContactedOn: date(9), expertContactNote: "已完成开户指导。", registeredOn: date(8), nextPlan: "维护关系并争取续充", nextFollowUpOn: date(2), notes: "已开单，有后续续充空间。" },
+      { id: "demo-customer-09", phone: "000009", batchId: batch(10), customerName: "提前退群客户", replyStatus: "REPLIED", repliedOn: date(10), groupStatus: "LEFT", joinedOn: date(8), leftOn: date(4), leftWithOrder: false, notes: "第 5 天退群，未开单，需要复盘。" },
+      { id: "demo-customer-10", phone: "000010", batchId: batch(16), customerName: "正常退群已开单", replyStatus: "REPLIED", repliedOn: date(16), groupStatus: "LEFT", joinedOn: date(15), expertIntroducedOn: date(12), expertContactedOn: date(11), registeredOn: date(10), leftOn: today, leftWithOrder: true, notes: "满 15 天后退群，已开单，属于正常完成。" },
+      { id: "demo-customer-11", phone: "000011", batchId: batch(0), customerName: "无效粉示例", invalid: true, invalidReason: "号码为空号", replyStatus: "NOT_REPLIED", notes: "无效粉，不进入后续流程。" },
+      { id: "demo-customer-12", phone: "000012", batchId: batch(4), customerName: "专家待跟进", replyStatus: "REPLIED", repliedOn: date(4), groupStatus: "JOINED", joinedOn: date(3), expertIntroducedOn: today, notes: "今日刚推专家，尚未联系。" },
+      { id: "demo-customer-13", phone: "000013", batchId: batch(4), customerName: "等待多天未回复", replyStatus: "NOT_REPLIED", notes: "演示：来源日期较早、一直没回复的号码，用于验证等待天数提示。" },
     ];
 
     for (const lead of leads) {
@@ -276,8 +285,8 @@ async function main() {
     await addActivity("demo-customer-12", DEMO.accounts.operator, "EXPERT_INTRODUCED", today, "今日推专家，待联系。");
 
     const orders = [
-      { id: "demo-order-01", leadId: "demo-customer-08", phone: "19980000008", batchId: batch(16), openedOn: date(6), initialDepositCents: 30000 },
-      { id: "demo-order-02", leadId: "demo-customer-10", phone: "19980000010", batchId: batch(16), openedOn: date(9), initialDepositCents: 20000 },
+      { id: "demo-order-01", leadId: "demo-customer-08", phone: "000008", batchId: batch(16), openedOn: date(6), initialDepositCents: 30000 },
+      { id: "demo-order-02", leadId: "demo-customer-10", phone: "000010", batchId: batch(16), openedOn: date(9), initialDepositCents: 20000 },
     ];
     for (const order of orders) {
       await transaction.customerOrder.create({ data: { ...order, enteredById: DEMO.accounts.expert } });

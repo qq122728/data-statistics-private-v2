@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { AuthenticationError, AuthorizationError, requireUser } from "../../../../lib/auth";
 import { buildGroupBusinessPeriods } from "../../../../lib/analytics/group-business-periods";
-import { loadTeamPerformance } from "../../../../lib/analytics/team-performance";
-import type { AnalysisScope, ManagementRole } from "../../../../lib/analytics/types";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../../lib/dates";
 import { db } from "../../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
+import { addBatchTotals, calculateConversionRates, emptyBatchTotals, type BatchTotals } from "../../../../lib/metrics";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
@@ -14,10 +13,37 @@ import { getSystemSettings } from "../../../../lib/settings";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
 
+type ApprovedDailyRevision = {
+  dispatchCount: number; duplicateCount: number; lowAmountCount: number; noWsCount: number; effectiveCount: number;
+  replyCount: number; joinCount: number; operatorReceivedCount: number; normalLeaveCount: number;
+  abnormalLeaveCount: number; currentInGroupCount: number; expertIntroCount: number; expertReceivedCount: number;
+  expertContactedCount: number; registrationCount: number; orderCount: number; cryptoInitialDepositCents: number;
+  bankInitialDepositCents: number; cryptoRechargeCents: number; bankRechargeCents: number; withdrawalCents: number;
+};
+
+function revisionTotals(value: ApprovedDailyRevision): BatchTotals {
+  return {
+    ...emptyBatchTotals(),
+    newFans: value.dispatchCount,
+    duplicateFans: value.duplicateCount,
+    effectiveFans: value.effectiveCount,
+    noNumber: value.noWsCount,
+    replies: value.replyCount,
+    groupJoin: value.joinCount,
+    groupLeave: value.normalLeaveCount + value.abnormalLeaveCount,
+    abnormalGroupLeave: value.abnormalLeaveCount,
+    expertIntro: value.expertIntroCount,
+    registration: value.registrationCount,
+    orders: value.orderCount,
+    rechargeCents: value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents,
+    withdrawalCents: value.withdrawalCents,
+  };
+}
+
 /**
  * 新版管理端共用的真实统计入口。它只负责三件事：
  * 1) 按当前账号的 Duty/组长身份解出允许查看的小组；
- * 2) 复用旧系统已经验证过的 team-performance 口径，不在 v2 前端重新算一套；
+ * 2) 只汇总组长已经审核通过的 DailyStatEntry；客户进度动作不参与统计；
  * 3) 把同一个“今日/近7天/当月”按每个小组自己的当地日期换算。
  *
  * 返回的小组汇总和成员明细来自同一次查询，所以不会再出现“上层有假汇总、点进去没明细”。
@@ -95,99 +121,125 @@ export async function GET(request: Request) {
   }, fallbackToday, "month");
   const periods = buildGroupBusinessPeriods(selectedGroups, now, range);
 
-  const scope: AnalysisScope = {
-    actorId: actor.id,
-    role: actor.role as ManagementRole,
-    groupIds: selectedGroups.map((group) => group.id),
-    groupId: requestedGroupId || undefined,
-    sourceDateFrom: range.from,
-    sourceDateTo: range.to,
-    includeInactive: false,
-    showInsufficient: false,
-    requestedForbiddenGroup: false,
-  };
-  const performance = await loadTeamPerformance(scope, fallbackToday, { groupPeriods: periods });
+  const groupIds = selectedGroups.map((group) => group.id);
+  const minimumFrom = Object.values(periods).map((period) => period.from).sort()[0] ?? range.from;
+  const maximumTo = Object.values(periods).map((period) => period.to).sort().at(-1) ?? range.to;
+  const [dailyEntries, activeUsers] = groupIds.length ? await Promise.all([
+    db.dailyStatEntry.findMany({
+      where: { groupId: { in: groupIds }, approvedRevisionId: { not: null }, businessDate: { gte: minimumFrom, lte: maximumTo } },
+      select: {
+        id: true, groupId: true, businessDate: true, position: true, ownerId: true,
+        owner: { select: { id: true, name: true, active: true } },
+        approvedRevision: true,
+      },
+    }),
+    db.user.findMany({
+      where: {
+        groupId: { in: groupIds }, active: true,
+        OR: [
+          { role: { in: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] } },
+          { roleAssignments: { some: { role: { in: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] } } } },
+        ],
+      },
+      select: { id: true, name: true, active: true, groupId: true },
+    }),
+  ]) : [[], []];
+  const entries = dailyEntries.filter((entry) => {
+    const period = periods[entry.groupId];
+    return Boolean(entry.approvedRevision && period && entry.businessDate >= period.from && entry.businessDate <= period.to);
+  });
 
-  const lowAndNoWsByGroup = new Map<string, { lowAmount: number; noWs: number }>();
-  for (const row of performance.dailyRows) {
-    const current = lowAndNoWsByGroup.get(row.groupId) ?? { lowAmount: 0, noWs: 0 };
-    current.lowAmount += row.lowAmount;
-    current.noWs += row.noWs;
-    lowAndNoWsByGroup.set(row.groupId, current);
+  type Aggregate = { totals: BatchTotals; lowAmount: number; noWs: number; latestSnapshotDate: string; inGroup: number };
+  const freshAggregate = (): Aggregate => ({ totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, latestSnapshotDate: "", inGroup: 0 });
+  const groupAggregates = new Map<string, Aggregate>();
+  const memberAggregates = new Map<string, Aggregate>();
+  for (const entry of entries) {
+    const revision = entry.approvedRevision as ApprovedDailyRevision;
+    const groupAggregate = groupAggregates.get(entry.groupId) ?? freshAggregate();
+    const memberKey = `${entry.groupId}:${entry.ownerId}`;
+    const memberAggregate = memberAggregates.get(memberKey) ?? freshAggregate();
+    for (const aggregate of [groupAggregate, memberAggregate]) {
+      addBatchTotals(aggregate.totals, revisionTotals(revision));
+      aggregate.lowAmount += revision.lowAmountCount;
+      aggregate.noWs += revision.noWsCount;
+      if (entry.position === "GROUP_OPERATOR") {
+        if (entry.businessDate > aggregate.latestSnapshotDate) {
+          aggregate.latestSnapshotDate = entry.businessDate;
+          aggregate.inGroup = revision.currentInGroupCount;
+        } else if (entry.businessDate === aggregate.latestSnapshotDate) {
+          aggregate.inGroup += revision.currentInGroupCount;
+        }
+      }
+    }
+    groupAggregates.set(entry.groupId, groupAggregate);
+    memberAggregates.set(memberKey, memberAggregate);
   }
 
-  const currentGroupCustomers = selectedGroups.length ? await db.leadCustomer.findMany({
-    where: {
-      invalid: false,
-      receptionCategory: { notIn: ["INVALID", "LOW_AMOUNT", "NO_WS"] },
-      joinedOn: { not: null },
-      batch: { groupId: { in: selectedGroups.map((group) => group.id) } },
-    },
-    select: { joinedOn: true, leftOn: true, batch: { select: { groupId: true } } },
-  }) : [];
-
   const metadataByGroup = new Map(selectedGroups.map((group) => [group.id, group]));
-  const groups = performance.groupRows.map((row) => {
-    const metadata = metadataByGroup.get(row.groupId)!;
-    const period = periods[row.groupId];
-    const invalidBreakdown = lowAndNoWsByGroup.get(row.groupId) ?? { lowAmount: 0, noWs: 0 };
-    const abnormalLeave = row.totals.abnormalGroupLeave ?? 0;
-    const currentInGroup = currentGroupCustomers.filter((customer) => customer.batch.groupId === row.groupId
-      && Boolean(customer.joinedOn && customer.joinedOn <= period.today)
-      && (!customer.leftOn || customer.leftOn > period.today)).length;
+  const groups = selectedGroups.map((metadata) => {
+    const period = periods[metadata.id];
+    const aggregate = groupAggregates.get(metadata.id) ?? freshAggregate();
+    const totals = aggregate.totals;
+    const abnormalLeave = totals.abnormalGroupLeave ?? 0;
     return {
-      id: row.groupId,
-      name: row.groupName,
+      id: metadata.id,
+      name: metadata.name,
       department: { id: metadata.department.id, name: metadata.department.name },
       company: metadata.department.company,
       timezone: resolveGroupBusinessTime(metadata).timezone,
       period,
-      activePeople: row.activePeople,
+      activePeople: activeUsers.filter((person) => person.groupId === metadata.id).length,
       totals: {
-        added: row.totals.newFans,
-        collision: row.totals.duplicateFans,
-        lowAmount: invalidBreakdown.lowAmount,
-        noWs: invalidBreakdown.noWs,
-        effective: row.totals.effectiveFans,
-        replied: row.totals.replies,
-        joined: row.totals.groupJoin,
-        leftNormal: Math.max(0, row.totals.groupLeave - abnormalLeave),
+        added: totals.newFans,
+        collision: totals.duplicateFans,
+        lowAmount: aggregate.lowAmount,
+        noWs: aggregate.noWs,
+        effective: totals.effectiveFans,
+        replied: totals.replies,
+        joined: totals.groupJoin,
+        leftNormal: Math.max(0, totals.groupLeave - abnormalLeave),
         leftAbnormal: abnormalLeave,
-        inGroup: currentInGroup,
-        pushed: row.totals.expertIntro,
-        registered: row.totals.registration,
-        ordered: row.totals.orders,
-        depositCents: row.totals.rechargeCents,
-        withdrawalCents: row.totals.withdrawalCents,
-        netCents: row.totals.rechargeCents - row.totals.withdrawalCents,
+        inGroup: aggregate.inGroup,
+        pushed: totals.expertIntro,
+        registered: totals.registration,
+        ordered: totals.orders,
+        depositCents: totals.rechargeCents,
+        withdrawalCents: totals.withdrawalCents,
+        netCents: totals.rechargeCents - totals.withdrawalCents,
       },
-      rates: row.rates,
+      rates: calculateConversionRates(totals),
     };
   });
 
-  const members = performance.memberRows.map((row) => ({
-    id: row.userId,
-    name: row.name,
-    groupId: row.groupId,
-    groupName: row.groupName,
-    active: row.active,
+  const memberPeople = new Map(activeUsers.map((person) => [`${person.groupId}:${person.id}`, person]));
+  for (const entry of entries) memberPeople.set(`${entry.groupId}:${entry.ownerId}`, { ...entry.owner, groupId: entry.groupId });
+  const members = [...memberPeople.entries()].map(([key, person]) => {
+    const aggregate = memberAggregates.get(key) ?? freshAggregate();
+    const totals = aggregate.totals;
+    const metadata = metadataByGroup.get(person.groupId!);
+    return ({
+    id: person.id,
+    name: person.name,
+    groupId: person.groupId!,
+    groupName: metadata?.name ?? "未知小组",
+    active: person.active,
     totals: {
-      added: row.totals.newFans,
-      collision: row.totals.duplicateFans,
-      effective: row.totals.effectiveFans,
-      replied: row.totals.replies,
-      joined: row.totals.groupJoin,
-      left: row.totals.groupLeave,
-      leftAbnormal: row.totals.abnormalGroupLeave ?? 0,
-      pushed: row.totals.expertIntro,
-      registered: row.totals.registration,
-      ordered: row.totals.orders,
-      depositCents: row.totals.rechargeCents,
-      withdrawalCents: row.totals.withdrawalCents,
-      netCents: row.totals.rechargeCents - row.totals.withdrawalCents,
+      added: totals.newFans,
+      collision: totals.duplicateFans,
+      effective: totals.effectiveFans,
+      replied: totals.replies,
+      joined: totals.groupJoin,
+      left: totals.groupLeave,
+      leftAbnormal: totals.abnormalGroupLeave ?? 0,
+      pushed: totals.expertIntro,
+      registered: totals.registration,
+      ordered: totals.orders,
+      depositCents: totals.rechargeCents,
+      withdrawalCents: totals.withdrawalCents,
+      netCents: totals.rechargeCents - totals.withdrawalCents,
     },
-    rates: row.rates,
-  }));
+    rates: calculateConversionRates(totals),
+  }); });
 
   return NextResponse.json({ range: { preset: range.preset, label: range.label }, groups, members }, {
     headers: { "Cache-Control": "private, no-store" },

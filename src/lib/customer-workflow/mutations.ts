@@ -175,6 +175,20 @@ export function buildBasicCustomerMutation(
         activityKind: "RECEPTION_ARCHIVED",
         activityNote: `未进群归档：${input.reason!.trim()}；回访 ${input.archiveVisitCount} 次`,
       };
+    case "restoreReceptionArchive":
+      if (!lead.receptionArchivedAt) return { status: 400, error: "该客户当前没有归档，不能恢复" };
+      if (lead.groupStatus !== "NOT_JOINED") return { status: 400, error: "客户已经进入群流程，无需从接粉归档恢复" };
+      return {
+        update: {
+          receptionArchivedAt: null,
+          receptionArchiveReason: null,
+          receptionArchiveVisitCount: null,
+          receptionChatStatus: "NORMAL_CHAT",
+          receptionStatusChangedAt: new Date(),
+        },
+        activityKind: "RECEPTION_STATUS_UPDATED",
+        activityNote: `从归档恢复继续跟进${input.reason?.trim() ? `：${input.reason.trim()}` : ""}`,
+      };
     case "joinGroup":
       if (!lead.repliedOn) return { status: 400, error: "客户回复后才能确认入群" };
       if (lead.groupStatus === "JOINED") return { status: 400, error: "客户已经在群内" };

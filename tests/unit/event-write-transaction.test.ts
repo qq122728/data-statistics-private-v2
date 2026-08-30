@@ -323,14 +323,14 @@ describe.sequential("member entry write transactions", () => {
     const fixture = await createFixture("LEAD");
     const batch = await db.sourceBatch.create({ data: { groupId: fixture.groupId, channelId: fixture.channelId, sourceDate: "2026-08-12" } });
     const lead = await db.leadCustomer.create({ data: {
-      phone: "TL-DG-FB-Q-233911", batchId: batch.id, ownerId: fixture.userId,
+      phone: "233911", batchId: batch.id, ownerId: fixture.userId,
       groupStatus: "JOINED", joinedOn: "2026-08-12",
       expertIntroducedOn: "2026-08-12", registeredOn: "2026-08-12",
     } });
     const opened = await postCustomerOrders(new Request("http://localhost/api/customer-orders", { method: "POST", body: JSON.stringify({ leadId: lead.id, batchId: batch.id, openedOn: "2026-08-13", phone: "TL-DG-FB-Q-233911", initialDepositCents: 50_000, initialDepositMethod: "BANK" }) }));
     expect(opened.status).toBe(201);
     const order = (await opened.json()).orders[0];
-    expect(order.phone).toBe("TL-DG-FB-Q-233911");
+    expect(order.phone).toBe("233911");
     expect(await db.metricEvent.findMany({ where: { customerOrderId: order.id }, orderBy: { kind: "asc" }, select: { kind: true, quantity: true, amountCents: true, continuationNumber: true } })).toEqual([
       { kind: "ORDER", quantity: 1, amountCents: null, continuationNumber: null },
       { kind: "RECHARGE", quantity: null, amountCents: 50_000, continuationNumber: null },

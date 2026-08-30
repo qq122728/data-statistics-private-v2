@@ -6,6 +6,7 @@ import { GET, POST } from "../../src/app/api/legacy-customers/route";
 import { hashPassword } from "../../src/lib/auth";
 import { loadCanonicalMetricEvents } from "../../src/lib/analytics/canonical-events";
 import { buildBasicCustomerMutation } from "../../src/lib/customer-workflow/mutations";
+import { normalizeCustomerPhone } from "../../src/lib/entry-ledger";
 
 const prefix = "legacy-customer-test-";
 
@@ -73,7 +74,7 @@ describe.sequential("legacy customer entry", () => {
       }),
     }));
     expect(response.status).toBe(201);
-    const saved = await db.leadCustomer.findUniqueOrThrow({ where: { phone }, include: { activities: true } });
+    const saved = await db.leadCustomer.findUniqueOrThrow({ where: { phone: normalizeCustomerPhone(phone) }, include: { activities: true } });
     expect(saved).toMatchObject({
       isHistoricalRecord: true, historicalBaselineStage: "NOT_REPLIED",
       historicalReplyCounted: true, historicalJoinCounted: true,
@@ -104,7 +105,7 @@ describe.sequential("legacy customer entry", () => {
     const channel = await db.channel.create({ data: { id: `${prefix}other-channel-${suffix}`, groupId: otherGroup.id, name: "绝不能泄露的渠道", normalizedName: `other-${suffix}` } });
     const batch = await db.sourceBatch.create({ data: { groupId: otherGroup.id, channelId: channel.id, sourceDate: "2026-08-20" } });
     const phone = `18${suffix.replace(/\D/g, "").padEnd(9, "0").slice(0, 9)}`;
-    await db.leadCustomer.create({ data: { phone, batchId: batch.id, ownerId: otherOwner.id, customerName: "绝不能泄露的客户姓名" } });
+    await db.leadCustomer.create({ data: { phone: normalizeCustomerPhone(phone), batchId: batch.id, ownerId: otherOwner.id, customerName: "绝不能泄露的客户姓名" } });
     vi.spyOn(auth, "requireUser").mockResolvedValue(actor);
 
     const response = await GET(new Request(`http://localhost/api/legacy-customers?phone=${phone}`));

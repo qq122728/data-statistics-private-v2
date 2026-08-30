@@ -76,6 +76,24 @@ beforeAll(async () => {
     { batchId: newYorkBatch.id, enteredById: ids.newYorkReception, occurredOn: "2026-08-31", kind: "NEW_FANS", quantity: 4 },
     { batchId: otherBatch.id, enteredById: ids.otherReception, occurredOn: "2026-09-01", kind: "NEW_FANS", quantity: 9 },
   ] });
+  // 组织汇总的新权威来源：只有审核通过的每日填写会进入报表；上面的 MetricEvent
+  // 继续留给渠道/客户进度接口，借此锁定“两本账互不串数”。
+  for (const item of [
+    { groupId: ids.berlinGroup, ownerId: ids.berlinReception, channelId: id("berlin-channel"), date: "2026-09-01", timezone: "Europe/Berlin", added: 3, effective: 2, replied: 1 },
+    { groupId: ids.newYorkGroup, ownerId: ids.newYorkReception, channelId: id("new-york-channel"), date: "2026-08-31", timezone: "America/New_York", added: 4, effective: 4, replied: 0 },
+    { groupId: ids.otherGroup, ownerId: ids.otherReception, channelId: id("other-channel"), date: "2026-09-01", timezone: "Asia/Singapore", added: 9, effective: 9, replied: 0 },
+  ]) {
+    const entry = await db.dailyStatEntry.create({ data: {
+      identityKey: JSON.stringify([item.ownerId, item.groupId, item.date, "RECEPTION", item.channelId, null, null]),
+      ownerId: item.ownerId, groupId: item.groupId, channelId: item.channelId,
+      businessDate: item.date, timezone: item.timezone, position: "RECEPTION", status: "APPROVED",
+    } });
+    const revision = await db.dailyStatRevision.create({ data: {
+      entryId: entry.id, version: 1, createdById: item.ownerId,
+      dispatchCount: item.added, effectiveCount: item.effective, replyCount: item.replied,
+    } });
+    await db.dailyStatEntry.update({ where: { id: entry.id }, data: { currentRevisionId: revision.id, approvedRevisionId: revision.id } });
+  }
 });
 
 afterAll(async () => {

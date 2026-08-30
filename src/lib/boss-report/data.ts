@@ -2,7 +2,7 @@ import { db } from "../db";
 import { addLocalDays } from "../dates";
 import { assessGroupLeave } from "../group-leave";
 import { loadChannelAnalysis } from "../analytics/channel-analysis";
-import { loadPerformanceLeaderboard } from "../analytics/performance-leaderboard-query";
+import type { PerformanceLeaderboardRow } from "../analytics/performance-leaderboard-query";
 import { loadRoleRankings } from "../analytics/role-rankings";
 import { getSampleState } from "../analytics/metrics";
 import type { AnalysisScope } from "../analytics/types";
@@ -36,6 +36,43 @@ const EMPTY_ANOMALIES: BossReportAnomalies = {
   overdueOrder: 0,
   invalidCustomers: 0,
 };
+
+type BriefGroup = { id: string; name: string; department: { name: string } };
+
+/** 日报累计快照只读审核通过的每日统计；客户进度表不参与日报数字。 */
+async function loadApprovedDailySnapshot(groups: BriefGroup[], to: string): Promise<PerformanceLeaderboardRow[]> {
+  const entries = groups.length ? await db.dailyStatEntry.findMany({
+    where: { groupId: { in: groups.map((group) => group.id) }, businessDate: { gte: ALL_HISTORY_FROM, lte: to }, approvedRevisionId: { not: null } },
+    select: { groupId: true, position: true, approvedRevision: true },
+  }) : [];
+  const rows = new Map<string, PerformanceLeaderboardRow>(groups.map((group) => [group.id, {
+    groupId: group.id, groupName: group.name, departmentId: group.department.name, departmentName: group.department.name,
+    orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: 0,
+    newFans: 0, effectiveFans: 0, replies: 0, groupJoin: 0, expertIntro: 0, expertContacted: 0,
+    registration: 0, noNumber: 0, duplicateFans: 0, matureNewFans: 0, matureOrders: 0,
+    matureOrderRate: null, confirmedPeople: 0, activePeople: 0, risk: "LOW",
+  }]));
+  for (const entry of entries) {
+    const row = rows.get(entry.groupId);
+    const value = entry.approvedRevision;
+    if (!row || !value) continue;
+    if (entry.position === "RECEPTION") {
+      row.newFans = (row.newFans ?? 0) + value.dispatchCount; row.effectiveFans += value.effectiveCount;
+      row.noNumber = (row.noNumber ?? 0) + value.noWsCount; row.duplicateFans = (row.duplicateFans ?? 0) + value.duplicateCount;
+      row.replies = (row.replies ?? 0) + value.replyCount; row.groupJoin = (row.groupJoin ?? 0) + value.joinCount;
+    } else if (entry.position === "GROUP_OPERATOR") {
+      row.expertIntro = (row.expertIntro ?? 0) + value.expertIntroCount;
+    } else {
+      row.expertContacted = (row.expertContacted ?? 0) + value.expertContactedCount; row.registration = (row.registration ?? 0) + value.registrationCount; row.orders += value.orderCount;
+      row.rechargeCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
+      row.withdrawalCents += value.withdrawalCents;
+    }
+    row.netPerformanceCents = row.rechargeCents - row.withdrawalCents;
+    row.matureNewFans = row.newFans ?? 0; row.matureOrders = row.orders;
+    row.matureOrderRate = row.matureNewFans ? row.matureOrders / row.matureNewFans : null;
+  }
+  return [...rows.values()];
+}
 
 function averageTotals(totals: BossReportTotals, days: number): BossReportTotals {
   const divide = (value: number) => Number((value / days).toFixed(2));
@@ -137,30 +174,10 @@ export async function loadDailyBossBrief(reportDate: string, options: { groupIds
     includeInactive: false,
   };
   const [currentRows, previousRows, twoDaysAgoRows, sevenDaysAgoRows, anomalies, roleRankings, channelAnalysis, leaves, activeFrontline, confirmedFrontline] = await Promise.all([
-    loadPerformanceLeaderboard({
-      groupIds,
-      sourceDateFrom: ALL_HISTORY_FROM,
-      sourceDateTo: reportDate,
-      today: reportDate,
-    }),
-    loadPerformanceLeaderboard({
-      groupIds,
-      sourceDateFrom: ALL_HISTORY_FROM,
-      sourceDateTo: previousDate,
-      today: previousDate,
-    }),
-    loadPerformanceLeaderboard({
-      groupIds,
-      sourceDateFrom: ALL_HISTORY_FROM,
-      sourceDateTo: twoDaysAgo,
-      today: twoDaysAgo,
-    }),
-    loadPerformanceLeaderboard({
-      groupIds,
-      sourceDateFrom: ALL_HISTORY_FROM,
-      sourceDateTo: sevenDaysAgo,
-      today: sevenDaysAgo,
-    }),
+    loadApprovedDailySnapshot(groups, reportDate),
+    loadApprovedDailySnapshot(groups, previousDate),
+    loadApprovedDailySnapshot(groups, twoDaysAgo),
+    loadApprovedDailySnapshot(groups, sevenDaysAgo),
     loadAnomalies(groupIds, reportDate),
     loadRoleRankings({ groupIds, sourceDateFrom: analysisFrom, sourceDateTo: reportDate, today: reportDate }),
     loadChannelAnalysis(aiScope, reportDate),

@@ -16,6 +16,9 @@ export const copyPlan = [
   ["userPosition", "UserPosition"],
   ["channel", "Channel"],
   ["resourceChannelAccess", "ResourceChannelAccess"],
+  ["channelReviewEntry", "ChannelReviewEntry"],
+  ["dailyStatEntry", "DailyStatEntry"],
+  ["dailyStatRevision", "DailyStatRevision"],
   ["sourceBatch", "SourceBatch"],
   ["device", "Device"],
   ["leadCustomer", "LeadCustomer"],
@@ -73,6 +76,8 @@ async function readSource(source) {
 async function copyModel(target, model, label, rows) {
   const data = model === "metricEvent"
     ? rows.map((row) => ({ ...row, parentEventId: null }))
+    : model === "dailyStatEntry"
+      ? rows.map((row) => ({ ...row, currentRevisionId: null, approvedRevisionId: null }))
     : rows;
   for (const batch of chunks(data)) {
     if (!batch.length) continue;
@@ -114,6 +119,19 @@ export async function migrateSqliteToPostgres({ source, target }) {
         await transaction.metricEvent.update({
           where: { id: event.id },
           data: { parentEventId: event.parentEventId },
+        });
+      }
+    }
+
+    // DailyStatEntry 与 DailyStatRevision 双向引用。先复制主表和版本表，再恢复当前/已审核版本指针。
+    for (const entry of sourceRowsByModel.get("dailyStatEntry")) {
+      if (entry.currentRevisionId || entry.approvedRevisionId) {
+        await transaction.dailyStatEntry.update({
+          where: { id: entry.id },
+          data: {
+            currentRevisionId: entry.currentRevisionId,
+            approvedRevisionId: entry.approvedRevisionId,
+          },
         });
       }
     }

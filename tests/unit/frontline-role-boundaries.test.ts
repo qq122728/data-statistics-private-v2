@@ -15,6 +15,7 @@ import { GET as getDownstreamProgress } from "../../src/app/api/leads/[leadId]/d
 import { PATCH as voidFinance } from "../../src/app/api/customer-finance/[eventId]/route";
 import { POST as createFinance } from "../../src/app/api/customer-finance/route";
 import { POST as createOrder } from "../../src/app/api/customer-orders/route";
+import { normalizeCustomerPhone } from "../../src/lib/entry-ledger";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "", databaseUrl: "" }));
 
@@ -122,9 +123,9 @@ beforeAll(async () => {
     db.sourceBatch.create({ data: { groupId: ids.groupB, channelId: ids.channelB, sourceDate: "2026-08-14" } }),
   ]);
   const [leadA, leadB, leadC] = await Promise.all([
-    db.leadCustomer.create({ data: { phone: "13800000001", customerName: "甲组已有客户", batchId: batchA.id, ownerId: ids.receptionA } }),
-    db.leadCustomer.create({ data: { phone: "13800000002", customerName: "乙组机密客户", batchId: batchB.id, ownerId: ids.receptionB } }),
-    db.leadCustomer.create({ data: { phone: "13800000003", batchId: batchA.id, ownerId: ids.receptionA, groupStatus: "JOINED", joinedOn: "2026-08-14" } }),
+    db.leadCustomer.create({ data: { phone: normalizeCustomerPhone("13800000001"), customerName: "甲组已有客户", batchId: batchA.id, ownerId: ids.receptionA } }),
+    db.leadCustomer.create({ data: { phone: normalizeCustomerPhone("13800000002"), customerName: "乙组机密客户", batchId: batchB.id, ownerId: ids.receptionB } }),
+    db.leadCustomer.create({ data: { phone: normalizeCustomerPhone("13800000003"), batchId: batchA.id, ownerId: ids.receptionA, groupStatus: "JOINED", joinedOn: "2026-08-14" } }),
   ]);
   ids.leadCustomerA = leadA.id;
   ids.leadCustomerB = leadB.id;
@@ -452,7 +453,7 @@ describe.sequential("frontline role boundaries", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: "没有可导入的有效客户；撞粉、低金额、无 WS 号码请在下方“扣粉登记”手动填写数量",
     });
-    await expect(db.leadCustomer.count({ where: { phone: "13800000002" } })).resolves.toBe(1);
+    await expect(db.leadCustomer.count({ where: { phone: normalizeCustomerPhone("13800000002") } })).resolves.toBe(1);
   });
 
   it("imports a customer row with its profile and a selected reception device", async () => {
@@ -478,7 +479,7 @@ describe.sequential("frontline role boundaries", () => {
     );
 
     expect(response.status).toBe(201);
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { phone } })).resolves.toMatchObject({
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { phone: normalizeCustomerPhone(phone) } })).resolves.toMatchObject({
       ownerId: ids.receptionA,
       deviceId: ids.receptionDevice,
       customerName: "导入客户",
@@ -514,7 +515,7 @@ describe.sequential("frontline role boundaries", () => {
       );
 
       expect(response.status).toBe(201);
-      const lead = await db.leadCustomer.findUniqueOrThrow({ where: { phone } });
+      const lead = await db.leadCustomer.findUniqueOrThrow({ where: { phone: normalizeCustomerPhone(phone) } });
       expect(lead).toMatchObject({
         ownerId: ids.groupOperatorA,
         attributionOwnerId: ids.expertA,
@@ -567,8 +568,8 @@ describe.sequential("frontline role boundaries", () => {
       }),
     );
     expect(response.status).toBe(201);
-    await expect(db.leadCustomer.findUnique({ where: { phone } })).resolves.toMatchObject({ phone });
-    await expect(db.leadException.count({ where: { phone, kind: "DUPLICATE_IN_PASTE" } })).resolves.toBe(0);
+    await expect(db.leadCustomer.findUnique({ where: { phone: normalizeCustomerPhone(phone) } })).resolves.toMatchObject({ phone: normalizeCustomerPhone(phone) });
+    await expect(db.leadException.count({ where: { phone: normalizeCustomerPhone(phone), kind: "DUPLICATE_IN_PASTE" } })).resolves.toBe(0);
   });
 
   it("removes an untouched mistaken entry and reverses its import statistics", async () => {
@@ -587,7 +588,7 @@ describe.sequential("frontline role boundaries", () => {
     );
     expect(imported.status).toBe(201);
     const payload = await imported.json() as { batch: { id: string } };
-    const lead = await db.leadCustomer.findUniqueOrThrow({ where: { phone } });
+    const lead = await db.leadCustomer.findUniqueOrThrow({ where: { phone: normalizeCustomerPhone(phone) } });
 
     expect((await deleteLead(new Request("http://localhost/api/leads/target", { method: "DELETE" }), leadContext(lead.id))).status).toBe(200);
     await expect(db.leadCustomer.findUnique({ where: { id: lead.id } })).resolves.toBeNull();
@@ -630,7 +631,7 @@ describe.sequential("frontline role boundaries", () => {
     );
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: "该号码已归属 其他公司或小组，不能重复录入" });
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: ids.leadCustomerA } })).resolves.toMatchObject({ phone: "13800000001" });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: ids.leadCustomerA } })).resolves.toMatchObject({ phone: normalizeCustomerPhone("13800000001") });
   });
 
   it.each(["groupOperatorA", "expertA"] as const)(
@@ -1084,7 +1085,7 @@ describe.sequential("frontline role boundaries", () => {
     );
     expect(own.status).toBe(200);
     const payload = await own.json();
-    expect(payload.customer.phone).toBe("13800000001");
+    expect(payload.customer.phone).toBe(normalizeCustomerPhone("13800000001"));
     expect(payload.groupProgress).toEqual(expect.arrayContaining([
       expect.objectContaining({ note: "客户已回复问题，明天继续跟进" }),
     ]));

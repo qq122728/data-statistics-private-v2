@@ -929,6 +929,41 @@ describe.sequential("frontline role boundaries", () => {
     });
   });
 
+  it("lets a legacy inferred tracking customer advance and records a compatible tracking start", async () => {
+    const batch = await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.groupA } });
+    const legacy = await db.leadCustomer.create({
+      data: {
+        phone: "699991",
+        customerName: "旧版追踪客户",
+        batchId: batch.id,
+        ownerId: ids.receptionA,
+        groupStatus: "JOINED",
+        joinedOn: "2026-08-12",
+        expertIntroducedOn: "2026-08-13",
+        expertContactedOn: "2026-08-14",
+        expertOwnerId: ids.expertA,
+        expertWorkflowStage: null,
+        expertTrackingStartedAt: null,
+      },
+    });
+
+    vi.restoreAllMocks();
+    await signInAs(ids.expertA);
+    const response = await updateLead(
+      new Request("http://localhost/api/leads/target", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "markPendingRegistration", occurredOn: "2026-08-15" }),
+      }),
+      leadContext(legacy.id),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: legacy.id } })).resolves.toMatchObject({
+      expertWorkflowStage: "PENDING_REGISTRATION",
+      expertTrackingStartedAt: new Date("2026-08-14T12:00:00.000Z"),
+    });
+  });
+
   it("rolls expert correction state back together instead of leaving a stale stage", async () => {
     vi.restoreAllMocks();
     await signInAs(ids.leadA);

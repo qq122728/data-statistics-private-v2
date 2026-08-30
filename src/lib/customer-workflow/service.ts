@@ -9,6 +9,7 @@ import { isCorrectionAction } from "./actions";
 import { getAssignedRoles, hasAssignedRole } from "../role-access";
 import type { CustomerWorkflowInput } from "./input";
 import { buildBasicCustomerMutation } from "./mutations";
+import { resolveExpertWorkflowStage } from "../expert-workflow-stage";
 
 type WorkflowActor = {
   id: string;
@@ -45,6 +46,14 @@ export async function executeCustomerWorkflow(
       include: { batch: { select: { groupId: true } }, customerOrder: { select: { id: true, voidedAt: true } } },
     });
     if (!lead) return { status: 404 as const, error: "客户不存在" };
+
+    // The reporting APIs deliberately infer a stage for customers created before
+    // expertWorkflowStage existed. Mutations must use the same interpretation,
+    // otherwise the page can show "追踪中" while the save endpoint rejects it.
+    const currentExpertStage = resolveExpertWorkflowStage({
+      ...lead,
+      hasActiveOrder: Boolean(lead.customerOrder && !lead.customerOrder.voidedAt),
+    });
 
     const accessFailure = await authorizeCustomerAction(transaction, liveActor, lead, input.action);
     if (accessFailure) return accessFailure;
@@ -154,7 +163,7 @@ export async function executeCustomerWorkflow(
         return { status: 400 as const, error: "请先推专家并分配负责人" };
       if (occurredOn < lead.expertIntroducedOn)
         return { status: 400 as const, error: "开始接待日期不能早于推专家日期" };
-      if (lead.expertWorkflowStage && lead.expertWorkflowStage !== "QUEUED")
+      if (currentExpertStage !== "QUEUED")
         return { status: 400 as const, error: "该客户已开始专家流程，无需重复接待" };
       if (!input.expertDeviceAccountId && !input.expertDeviceAccountNumber)
         return { status: 400 as const, error: "请输入本次接待使用的专家设备号" };
@@ -194,29 +203,35 @@ export async function executeCustomerWorkflow(
     }
 
     if (input.action === "markPendingRegistration") {
-      if (lead.expertWorkflowStage !== "TRACKING")
+      if (currentExpertStage !== "TRACKING")
         return { status: 400 as const, error: "客户需先处于追踪中，才能转为待注册" };
-      const trackingStartedOn = workflowStageDate(lead.expertTrackingStartedAt);
+      const compatibleTrackingStartedAt = lead.expertTrackingStartedAt
+        ?? (lead.expertContactedOn ? workflowStageTime(lead.expertContactedOn) : null);
+      const trackingStartedOn = workflowStageDate(compatibleTrackingStartedAt);
       if (!trackingStartedOn)
         return { status: 400 as const, error: "客户缺少开始追踪日期，请先修正追踪记录" };
       if (occurredOn < trackingStartedOn)
         return { status: 400 as const, error: "转待注册日期不能早于开始追踪日期" };
       update.expertWorkflowStage = "PENDING_REGISTRATION";
       update.expertStageChangedAt = workflowStageTime(occurredOn);
+      if (!lead.expertTrackingStartedAt) update.expertTrackingStartedAt = compatibleTrackingStartedAt;
       activityKind = "PLAN_UPDATED";
       activityNote = "追踪完成，转为待注册";
     }
 
     if (input.action === "register") {
-      if (lead.expertWorkflowStage !== "PENDING_REGISTRATION")
+      if (currentExpertStage !== "PENDING_REGISTRATION")
         return { status: 400 as const, error: "客户需先转为待注册，才能确认注册" };
-      const trackingStartedOn = workflowStageDate(lead.expertTrackingStartedAt);
+      const compatibleTrackingStartedAt = lead.expertTrackingStartedAt
+        ?? (lead.expertContactedOn ? workflowStageTime(lead.expertContactedOn) : null);
+      const trackingStartedOn = workflowStageDate(compatibleTrackingStartedAt);
       if (!trackingStartedOn)
         return { status: 400 as const, error: "客户缺少开始追踪日期，请先修正追踪记录" };
       if (occurredOn < trackingStartedOn)
         return { status: 400 as const, error: "注册日期不能早于开始追踪日期" };
       update.expertWorkflowStage = "PENDING_ORDER";
       update.expertStageChangedAt = workflowStageTime(occurredOn);
+      if (!lead.expertTrackingStartedAt) update.expertTrackingStartedAt = compatibleTrackingStartedAt;
       if (lead.isHistoricalRecord) update.historicalRegistrationCounted = true;
     }
     if (input.action === "undoRegister") {

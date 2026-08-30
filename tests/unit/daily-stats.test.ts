@@ -291,4 +291,38 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       entries: [expect.objectContaining({ ownerId: data.reception.id })],
     });
   });
+
+  it("lets a group lead fill personal expert daily data through the implicit expert role", async () => {
+    const data = await fixture();
+    signInAs(data.lead);
+
+    const context = await GET(new Request("http://localhost/api/daily-stats"));
+    expect(context.status).toBe(200);
+    await expect(context.json()).resolves.toMatchObject({ positions: ["EXPERT"] });
+
+    const created = await POST(request("POST", {
+      businessDate: "2026-08-29",
+      position: "EXPERT",
+      channelId: data.channelId,
+      sourceReceptionId: data.reception.id,
+      sourceGroupOperatorId: data.operator.id,
+      values: {
+        ...emptyValues,
+        expertReceivedCount: 3,
+        expertContactedCount: 2,
+        registrationCount: 1,
+        orderCount: 1,
+        cryptoInitialDepositCents: 114800,
+      },
+    }));
+
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toMatchObject({
+      entry: {
+        ownerId: data.lead.id,
+        position: "EXPERT",
+        currentRevision: { expertReceivedCount: 3, orderCount: 1, cryptoInitialDepositCents: 114800 },
+      },
+    });
+  });
 });

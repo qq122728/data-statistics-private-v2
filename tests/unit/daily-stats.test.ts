@@ -81,7 +81,7 @@ const emptyValues = {
 };
 
 describe.sequential("独立每日数据填写、修改与审核", () => {
-  it("lets the original employee correct a migrated historical row and converts its identity", async () => {
+  it("lets the original employee correct a migrated row from a former position and converts its identity", async () => {
     const data = await fixture();
     const entryId = `${prefix}migrated-entry-${randomUUID()}`;
     const revisionId = `${prefix}migrated-revision-${randomUUID()}`;
@@ -102,7 +102,8 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     } });
     await db.dailyStatEntry.update({ where: { id: entryId }, data: { currentRevisionId: revisionId, approvedRevisionId: revisionId } });
 
-    signInAs(data.reception);
+    await db.user.update({ where: { id: data.reception.id }, data: { role: "GROUP_OPERATOR" } });
+    signInAs({ ...data.reception, role: "GROUP_OPERATOR" });
     const response = await POST(request("POST", {
       entryId,
       businessDate: "2026-08-29",
@@ -119,6 +120,14 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
         currentRevision: { version: 2, replyCount: 6 },
         approvedRevision: { version: 1, replyCount: 5 },
       });
+
+    const unauthorizedNewRow = await POST(request("POST", {
+      businessDate: "2026-08-28",
+      position: "RECEPTION",
+      channelId: data.channelId,
+      values: { ...emptyValues, dispatchCount: 10, replyCount: 2 },
+    }));
+    expect(unauthorizedNewRow.status).toBe(403);
   });
 
   it("lets a resource account confirm every same-type channel it can see, but not another channel type", async () => {

@@ -194,7 +194,21 @@ export async function saveDailyStat(
 ) {
   if (!actor.active || !actor.groupId) throw new DailyStatError("当前账号未分配到可用小组", 403);
   const input = saveDailyStatSchema.parse(rawInput);
-  if (!getAssignedRoles(actor).includes(input.position)) throw new DailyStatError("当前账号没有所选岗位权限", 403);
+  const requestedExisting = input.entryId
+    ? await tx.dailyStatEntry.findUnique({
+        where: { id: input.entryId },
+        include: { revisions: { orderBy: { version: "desc" }, take: 1 } },
+      })
+    : null;
+  const editingOwnHistoricalPosition = Boolean(requestedExisting
+    && requestedExisting.ownerId === actor.id
+    && requestedExisting.groupId === actor.groupId
+    && requestedExisting.businessDate === input.businessDate
+    && requestedExisting.position === input.position
+    && requestedExisting.channelId === input.channelId);
+  if (!getAssignedRoles(actor).includes(input.position) && !editingOwnHistoricalPosition) {
+    throw new DailyStatError("当前账号没有所选岗位权限", 403);
+  }
 
   const group = await tx.teamGroup.findUnique({
     where: { id: actor.groupId },
@@ -242,7 +256,7 @@ export async function saveDailyStat(
     ...sources,
   });
   const existing = input.entryId
-    ? await tx.dailyStatEntry.findUnique({ where: { id: input.entryId }, include: { revisions: { orderBy: { version: "desc" }, take: 1 } } })
+    ? requestedExisting
     : await tx.dailyStatEntry.findUnique({ where: { identityKey }, include: { revisions: { orderBy: { version: "desc" }, take: 1 } } });
   const migratedEntry = Boolean(existing && (
     existing.identityKey.startsWith("legacy-metric-v1:")

@@ -8,8 +8,10 @@ import { authorizationDenied } from "../../../../lib/security-events";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../../lib/dates";
 import { canViewOrgScope } from "../../../../lib/org-permissions";
+import { resolveExpertWorkflowStage, type ExpertWorkflowStage } from "../../../../lib/expert-workflow-stage";
 
 const stages = new Set(["reception", "group", "expert"]);
+const expertStages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
 const PAGE_SIZE = 50;
 
 function stageWhere(stage: string): Prisma.LeadCustomerWhereInput {
@@ -59,10 +61,36 @@ export async function GET(request: Request) {
     invalid: false,
     ...(query ? { OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] } : {}),
   };
-  const where: Prisma.LeadCustomerWhereInput = { AND: [baseWhere, stageWhere(stage)] };
+  const expertStageParam = params.get("expertStage");
+  const expertStage = expertStages.includes(expertStageParam as ExpertWorkflowStage) ? expertStageParam as ExpertWorkflowStage : "all";
+  const expertCandidates = stage === "expert" ? await db.leadCustomer.findMany({
+    where: { AND: [baseWhere, stageWhere("expert")] },
+    select: {
+      id: true, expertWorkflowStage: true, expertIntroducedOn: true, expertContactedOn: true,
+      expertTrackingStartedAt: true, registeredOn: true, noInitialDepositOn: true, expertStalledOn: true,
+      updatedAt: true, customerOrder: { select: { voidedAt: true } },
+    },
+  }) : [];
+  const resolvedExpertCandidates = expertCandidates.map((customer) => ({
+    id: customer.id,
+    updatedAt: customer.updatedAt,
+    stage: resolveExpertWorkflowStage({
+      ...customer,
+      hasActiveOrder: Boolean(customer.customerOrder && !customer.customerOrder.voidedAt),
+    })!,
+  })).sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime() || left.id.localeCompare(right.id));
+  const expertCounts = Object.fromEntries(expertStages.map((value) => [value, resolvedExpertCandidates.filter((customer) => customer.stage === value).length]));
+  const matchedExpertCandidates = expertStage === "all"
+    ? resolvedExpertCandidates
+    : resolvedExpertCandidates.filter((customer) => customer.stage === expertStage);
+  const expertPageIds = matchedExpertCandidates.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((customer) => customer.id);
+  const expertStageById = new Map(resolvedExpertCandidates.map((customer) => [customer.id, customer.stage]));
+  const where: Prisma.LeadCustomerWhereInput = stage === "expert"
+    ? { id: { in: expertPageIds } }
+    : { AND: [baseWhere, stageWhere(stage)] };
   const countStages = ["reception", "group", "expert"] as const;
-  const [total, customers, ...counts] = await Promise.all([
-    db.leadCustomer.count({ where }),
+  const [total, customerRows, ...counts] = await Promise.all([
+    stage === "expert" ? Promise.resolve(matchedExpertCandidates.length) : db.leadCustomer.count({ where }),
     db.leadCustomer.findMany({
       where,
       select: {
@@ -71,7 +99,9 @@ export async function GET(request: Request) {
         replyStatus: true, repliedOn: true, followUpCount: true, lastFollowedUpOn: true,
         groupStatus: true, joinedOn: true, leftOn: true, leftNote: true, leftWithOrder: true,
         expertIntroducedOn: true, expertContactedOn: true, expertContactNote: true,
-        expertWorkflowStage: true, registeredOn: true, nextPlan: true, nextFollowUpOn: true,
+        expertWorkflowStage: true, expertTrackingStartedAt: true, registeredOn: true, nextPlan: true, nextFollowUpOn: true,
+        noInitialDepositOn: true, noInitialDepositReason: true, noInitialDepositNote: true,
+        expertStalledOn: true, expertStalledReason: true, expertStalledNote: true,
         owner: { select: { id: true, name: true } },
         groupOperatorOwner: { select: { id: true, name: true } },
         expertOwner: { select: { id: true, name: true } },
@@ -94,20 +124,25 @@ export async function GET(request: Request) {
         },
       },
       orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
-      skip: (page - 1) * PAGE_SIZE,
+      skip: stage === "expert" ? undefined : (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
     ...countStages.map((value) => db.leadCustomer.count({ where: { AND: [baseWhere, stageWhere(value)] } })),
   ]);
+  const customerById = new Map(customerRows.map((customer) => [customer.id, customer]));
+  const customers = stage === "expert"
+    ? expertPageIds.map((id) => customerById.get(id)).filter((customer): customer is NonNullable<typeof customer> => Boolean(customer))
+    : customerRows;
 
   return NextResponse.json({
-    stage, page, pageSize: PAGE_SIZE, total, today, timezone,
+    stage, expertStage, expertCounts, page, pageSize: PAGE_SIZE, total, today, timezone,
     counts: Object.fromEntries(countStages.map((value, index) => [value, counts[index]])),
     customers: customers.map((customer) => {
       const activeOrder = customer.customerOrder && !customer.customerOrder.voidedAt ? customer.customerOrder : null;
       const continuations = activeOrder?.events.filter((event) => event.kind === "RECHARGE" && event.continuationNumber !== null) ?? [];
       return {
         ...customer,
+        expertWorkflowStage: expertStageById.get(customer.id) ?? customer.expertWorkflowStage,
         order: activeOrder ? {
           id: activeOrder.id,
           openedOn: activeOrder.openedOn,

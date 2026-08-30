@@ -20,6 +20,7 @@ afterEach(async () => {
   await db.dailyStatRevision.deleteMany({ where: { entry: { groupId: { startsWith: prefix } } } });
   await db.dailyStatEntry.deleteMany({ where: { groupId: { startsWith: prefix } } });
   await db.channel.deleteMany({ where: { groupId: { startsWith: prefix } } });
+  await db.userPosition.deleteMany({ where: { userId: { startsWith: prefix } } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.teamGroup.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.department.deleteMany({ where: { id: { startsWith: prefix } } });
@@ -324,5 +325,63 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
         currentRevision: { expertReceivedCount: 3, orderCount: 1, cryptoInitialDepositCents: 114800 },
       },
     });
+  });
+
+  it("lets expert data select any current or historical member in the same group as its sources", async () => {
+    const data = await fixture();
+    const suffix = randomUUID();
+    const historicalMember = await db.user.create({
+      data: {
+        id: `${prefix}historical-${suffix}`,
+        username: `${prefix}historical-${suffix}`,
+        name: "历史跨岗成员",
+        role: "EXPERT",
+        active: false,
+        positionHistory: {
+          create: {
+            groupId: data.groupId,
+            position: "EXPERT",
+            effectiveFrom: "2026-07-01",
+            effectiveTo: "2026-07-31",
+          },
+        },
+      },
+    });
+    signInAs(data.expert);
+
+    const created = await POST(request("POST", {
+      businessDate: "2026-08-29",
+      position: "EXPERT",
+      channelId: data.channelId,
+      // 两个来源故意选择不匹配当前岗位的人，验证专家来源不再按岗位标签过滤。
+      sourceReceptionId: historicalMember.id,
+      sourceGroupOperatorId: data.reception.id,
+      values: { ...emptyValues, expertReceivedCount: 2, expertContactedCount: 1 },
+    }));
+
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toMatchObject({
+      entry: {
+        sourceReceptionId: historicalMember.id,
+        sourceGroupOperatorId: data.reception.id,
+      },
+    });
+
+    const foreignGroupId = `${prefix}foreign-group-${suffix}`;
+    const departmentId = (await db.teamGroup.findUniqueOrThrow({ where: { id: data.groupId } })).departmentId;
+    await db.teamGroup.create({ data: { id: foreignGroupId, name: "其他小组", departmentId, timezone: "UTC" } });
+    const foreignMember = await db.user.create({
+      data: { id: `${prefix}foreign-${suffix}`, username: `${prefix}foreign-${suffix}`, name: "其他组成员", role: "RECEPTION", groupId: foreignGroupId },
+    });
+    const rejected = await POST(request("POST", {
+      businessDate: "2026-08-28",
+      position: "EXPERT",
+      channelId: data.channelId,
+      sourceReceptionId: foreignMember.id,
+      sourceGroupOperatorId: data.reception.id,
+      values: { ...emptyValues, expertReceivedCount: 1 },
+    }));
+    expect(rejected.status).toBe(400);
+    await expect(rejected.json()).resolves.toMatchObject({ error: "来源接粉不属于该小组的现任或历史成员" });
   });
 });

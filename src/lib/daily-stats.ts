@@ -130,12 +130,22 @@ function revisionValues(input: SaveDailyStatInput) {
 
 async function validateSourcePerson(
   tx: Prisma.TransactionClient,
-  input: { userId: string; groupId: string; position: Position; businessDate: string; label: string },
+  input: {
+    userId: string;
+    groupId: string;
+    position: Position;
+    businessDate: string;
+    label: string;
+    allowAnyGroupRole?: boolean;
+  },
 ) {
   const person = await tx.user.findFirst({
     where: {
       id: input.userId,
-      OR: [
+      OR: input.allowAnyGroupRole ? [
+        { groupId: input.groupId },
+        { positionHistory: { some: { groupId: input.groupId } } },
+      ] : [
         {
           groupId: input.groupId,
           OR: [
@@ -170,7 +180,11 @@ async function validateSourcePerson(
     },
     select: { id: true },
   });
-  if (!person) throw new DailyStatError(`${input.label}不属于该小组，或在所选日期没有对应岗位`);
+  if (!person) {
+    throw new DailyStatError(input.allowAnyGroupRole
+      ? `${input.label}不属于该小组的现任或历史成员`
+      : `${input.label}不属于该小组，或在所选日期没有对应岗位`);
+  }
 }
 
 export async function saveDailyStat(
@@ -204,6 +218,7 @@ export async function saveDailyStat(
       position: "RECEPTION",
       businessDate: input.businessDate,
       label: "来源接粉",
+      allowAnyGroupRole: input.position === "EXPERT",
     });
   }
   if (sources.sourceGroupOperatorId) {
@@ -213,6 +228,7 @@ export async function saveDailyStat(
       position: "GROUP_OPERATOR",
       businessDate: input.businessDate,
       label: "来源炒群",
+      allowAnyGroupRole: true,
     });
   }
 

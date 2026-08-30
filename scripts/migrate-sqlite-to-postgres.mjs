@@ -24,6 +24,7 @@ export const copyPlan = [
   ["leadCustomer", "LeadCustomer"],
   ["customerOrder", "CustomerOrder"],
   ["metricEvent", "MetricEvent"],
+  ["customerFinanceEvent", "CustomerFinanceEvent"],
   ["groupOperatorReception", "GroupOperatorReception"],
   ["groupOperatorReceptionHistory", "GroupOperatorReceptionHistory"],
   ["deviceAccount", "DeviceAccount"],

@@ -388,7 +388,7 @@ async function loadLeadManagementSnapshot(user: User, today: string, filters: { 
   const activeOrders = orders.filter((order) => !order.voidedAt && order.leadId);
   const activeOrderIds = activeOrders.map((order) => order.id);
   const [financeTotals, correctedOrders] = activeOrderIds.length ? await Promise.all([
-    db.metricEvent.groupBy({
+    db.customerFinanceEvent.groupBy({
       by: ["customerOrderId", "kind"],
       where: {
         customerOrderId: { in: activeOrderIds },
@@ -400,7 +400,7 @@ async function loadLeadManagementSnapshot(user: User, today: string, filters: { 
       },
       _sum: { amountCents: true },
     }),
-    db.metricEvent.groupBy({
+    db.customerFinanceEvent.groupBy({
       by: ["customerOrderId"],
       where: { customerOrderId: { in: activeOrderIds }, voidedAt: { not: null } },
       _count: { _all: true },

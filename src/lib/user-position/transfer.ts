@@ -1,4 +1,4 @@
-import type { Prisma, Role } from "@prisma/client";
+import type { Duty, Prisma, Role } from "@prisma/client";
 import { recordAudit } from "../audit";
 import { closeGroupOperatorReceptionAssignmentsForMember } from "../group-operator-collaboration";
 
@@ -15,7 +15,11 @@ const abandonedExpertStages = ["STALLED", "DECLINED_DEPOSIT"] as const;
 
 export type TransferUserPositionParams = {
   tx: Prisma.TransactionClient;
-  actor: { id: string; role: Role; departmentId: string | null; managementCountryCode: string | null };
+  actor: {
+    id: string; role: Role; duty: Duty | null; active: boolean; groupId: string | null;
+    departmentId: string | null; companyId: string | null; managementCountryCode: string | null;
+    roleAssignments?: Array<{ role: Role }>;
+  };
   userId: string;
   targetGroupId: string;
   role: TransferableRole;
@@ -25,11 +29,14 @@ export type TransferUserPositionParams = {
   receptionHandoffId: string | null;
   operatorHandoffId: string | null;
   expertHandoffId: string | null;
+  mode?: "preview" | "confirm";
+  expectedCounts?: { reception: number; operator: number; expert: number } | null;
 };
 
 export type TransferUserPositionResult =
   | { denied: true }
   | { error: string; status: 400 | 409 }
+  | { ok: true; preview: true; counts: { reception: number; operator: number; expert: number }; customerCount: number; deviceAccountCount: number }
   | { ok: true; customerCount: number; deviceAccountCount: number };
 
 /**
@@ -49,19 +56,31 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
       where: { id: userId },
       select: {
         id: true, employeeCode: true, name: true, role: true, groupId: true, active: true,
-        group: { select: { departmentId: true, countryCode: true, department: { select: { countryCode: true } } } },
+        group: { select: { departmentId: true, countryCode: true, department: { select: { companyId: true, countryCode: true } } } },
         roleAssignments: { select: { role: true } },
         membershipHistory: { where: { effectiveTo: null }, orderBy: { effectiveFrom: "desc" }, take: 1 },
         positionHistory: { where: { effectiveTo: null }, orderBy: { effectiveFrom: "desc" }, take: 1 },
       },
     }),
-    tx.teamGroup.findFirst({ where: { id: targetGroupId, active: true, department: { active: true } }, select: { id: true, name: true, departmentId: true, countryCode: true, department: { select: { countryCode: true } } } }),
+    tx.teamGroup.findFirst({ where: { id: targetGroupId, active: true, department: { active: true } }, select: { id: true, name: true, departmentId: true, countryCode: true, department: { select: { companyId: true, countryCode: true } } } }),
   ]);
   if (!member || !member.active || !member.groupId) return { error: "只能调动启用中的小组成员", status: 400 };
   if (!targetGroup) return { error: "目标小组不存在或已经停用", status: 400 };
   if (!transferableRoles.includes(member.role as TransferableRole)) return { error: "只能调动组长、接粉、炒群或专家岗位成员", status: 400 };
-  if (actor.role === "COMPANY_MANAGER" && (!actor.departmentId || member.group?.departmentId !== actor.departmentId || targetGroup.departmentId !== actor.departmentId)) {
-    return { denied: true };
+  if (!actor.active) return { denied: true };
+  const sourceCompanyId = member.group?.department.companyId ?? null;
+  const targetCompanyId = targetGroup.department.companyId;
+  if (actor.role !== "ADMIN" && actor.duty !== "HQ_MANAGER") {
+    if (actor.duty === "COMPANY_MANAGER") {
+      if (!actor.companyId || sourceCompanyId !== actor.companyId || targetCompanyId !== actor.companyId) return { denied: true };
+    } else if (actor.duty === "DEPARTMENT_MANAGER") {
+      if (!actor.departmentId || member.group?.departmentId !== actor.departmentId || targetGroup.departmentId !== actor.departmentId) return { denied: true };
+    } else if (actor.role === "LEAD" || actor.duty === "LEAD") {
+      if (!actor.groupId || member.groupId !== actor.groupId || targetGroup.id !== actor.groupId) return { denied: true };
+    } else if (actor.role === "COMPANY_MANAGER" && actor.departmentId) {
+      // 兼容迁移前的老管理员账号；新账号一律使用 Duty + companyId/departmentId。
+      if (member.group?.departmentId !== actor.departmentId || targetGroup.departmentId !== actor.departmentId) return { denied: true };
+    } else return { denied: true };
   }
   if (actor.role === "COMPANY_MANAGER" && actor.managementCountryCode) {
     const memberCountry = member.group?.countryCode || member.group?.department.countryCode;
@@ -120,6 +139,17 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
   ]);
 
   const handoffById = new Map(handoffMembers.map((candidate) => [candidate.id, new Set([candidate.role, ...candidate.roleAssignments.map((item) => item.role)])]));
+  const counts = {
+    reception: shouldHandoffReception ? receptionCount : 0,
+    operator: shouldHandoffOperator ? operatorCount : 0,
+    expert: shouldHandoffExpert ? expertCount : 0,
+  };
+  if (params.mode === "preview") return { ok: true, preview: true, counts, customerCount, deviceAccountCount };
+  if (params.expectedCounts && (
+    params.expectedCounts.reception !== counts.reception
+    || params.expectedCounts.operator !== counts.operator
+    || params.expectedCounts.expert !== counts.expert
+  )) return { error: "在办客户数量已经变化，请重新预览后再确认调动", status: 409 };
   const validHandoff = (id: string | null, expected: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT") => Boolean(id && (handoffById.get(id)?.has(expected) || handoffById.get(id)?.has("LEAD")));
   if (shouldHandoffReception && receptionCount > 0 && !validHandoff(receptionHandoffId, "RECEPTION")) return { error: `还有 ${receptionCount} 位接粉阶段客户，请选择原小组接粉接收人`, status: 400 };
   if (shouldHandoffOperator && operatorCount > 0 && !validHandoff(operatorHandoffId, "GROUP_OPERATOR")) return { error: `还有 ${operatorCount} 位炒群阶段客户，请选择原小组炒群接收人`, status: 400 };

@@ -3,8 +3,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { GET as getOrgReporting } from "../../src/app/api/org/reporting/route";
+import { GET as getOrgChannelReporting } from "../../src/app/api/org/channel-reporting/route";
 import { GET as getLeadChannelReporting } from "../../src/app/api/lead/channel-reporting/route";
 import { GET as getLeadCustomerReporting } from "../../src/app/api/lead/customer-reporting/route";
+import { GET as getResourceReporting } from "../../src/app/api/resource/reporting/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -30,6 +32,7 @@ const ids = {
   berlinDept: id("berlin-dept"), newYorkDept: id("new-york-dept"), otherDept: id("other-dept"),
   berlinGroup: id("berlin-group"), newYorkGroup: id("new-york-group"), otherGroup: id("other-group"),
   berlinReception: id("berlin-reception"), newYorkReception: id("new-york-reception"), otherReception: id("other-reception"),
+  berlinOperatorA: id("berlin-operator-a"), berlinOperatorB: id("berlin-operator-b"),
   lead: id("lead"), departmentManager: id("department-manager"), companyManager: id("company-manager"),
   hqManager: id("hq-manager"), resource: id("resource"),
 };
@@ -53,6 +56,8 @@ beforeAll(async () => {
     { id: ids.berlinReception, username: ids.berlinReception, name: "柏林接粉", role: "RECEPTION", groupId: ids.berlinGroup },
     { id: ids.newYorkReception, username: ids.newYorkReception, name: "纽约接粉", role: "RECEPTION", groupId: ids.newYorkGroup },
     { id: ids.otherReception, username: ids.otherReception, name: "其它接粉", role: "RECEPTION", groupId: ids.otherGroup },
+    { id: ids.berlinOperatorA, username: ids.berlinOperatorA, name: "柏林炒群甲", role: "GROUP_OPERATOR", groupId: ids.berlinGroup },
+    { id: ids.berlinOperatorB, username: ids.berlinOperatorB, name: "柏林炒群乙", role: "GROUP_OPERATOR", groupId: ids.berlinGroup },
     { id: ids.lead, username: ids.lead, name: "柏林组长", role: "LEAD", duty: "LEAD", groupId: ids.berlinGroup },
     { id: ids.departmentManager, username: ids.departmentManager, name: "柏林部门管理员", role: "COMPANY_MANAGER", duty: "DEPARTMENT_MANAGER", departmentId: ids.berlinDept },
     { id: ids.companyManager, username: ids.companyManager, name: "A公司管理员", role: "COMPANY_MANAGER", duty: "COMPANY_MANAGER", companyId: ids.companyA },
@@ -64,6 +69,7 @@ beforeAll(async () => {
     { id: id("new-york-channel"), groupId: ids.newYorkGroup, name: "纽约渠道", normalizedName: "纽约渠道" },
     { id: id("other-channel"), groupId: ids.otherGroup, name: "其它渠道", normalizedName: "其它渠道" },
   ] });
+  await db.resourceChannelAccess.create({ data: { userId: ids.resource, channelId: id("berlin-channel") } });
   const [berlinBatch, newYorkBatch, otherBatch] = await Promise.all([
     db.sourceBatch.create({ data: { groupId: ids.berlinGroup, channelId: id("berlin-channel"), sourceDate: "2026-09-01" } }),
     db.sourceBatch.create({ data: { groupId: ids.newYorkGroup, channelId: id("new-york-channel"), sourceDate: "2026-08-31" } }),
@@ -94,6 +100,26 @@ beforeAll(async () => {
     } });
     await db.dailyStatEntry.update({ where: { id: entry.id }, data: { currentRevisionId: revision.id, approvedRevisionId: revision.id } });
   }
+  // 两条业务线最后填写日期故意错开：8/30 汇总必须延续甲在 8/29 的最后快照，
+  // 不能因为乙在 8/30 又填了一次，就把甲整条线漏掉。
+  for (const item of [
+    { ownerId: ids.berlinOperatorA, sourceReceptionId: ids.berlinReception, date: "2026-08-28", inGroup: 7 },
+    { ownerId: ids.berlinOperatorA, sourceReceptionId: ids.berlinReception, date: "2026-08-29", inGroup: 6 },
+    { ownerId: ids.berlinOperatorB, sourceReceptionId: ids.berlinReception, date: "2026-08-30", inGroup: 11 },
+  ]) {
+    const channelId = id("berlin-channel");
+    const entry = await db.dailyStatEntry.create({ data: {
+      identityKey: JSON.stringify([item.ownerId, ids.berlinGroup, item.date, "GROUP_OPERATOR", channelId, item.sourceReceptionId, null]),
+      ownerId: item.ownerId, groupId: ids.berlinGroup, channelId,
+      sourceReceptionId: item.sourceReceptionId,
+      businessDate: item.date, timezone: "Europe/Berlin", position: "GROUP_OPERATOR", status: "APPROVED",
+    } });
+    const revision = await db.dailyStatRevision.create({ data: {
+      entryId: entry.id, version: 1, createdById: item.ownerId,
+      currentInGroupCount: item.inGroup,
+    } });
+    await db.dailyStatEntry.update({ where: { id: entry.id }, data: { currentRevisionId: revision.id, approvedRevisionId: revision.id } });
+  }
 });
 
 afterAll(async () => {
@@ -106,13 +132,28 @@ afterAll(async () => {
 
 async function signIn(userId: string) {
   vi.restoreAllMocks();
-  const user = await db.user.findUniqueOrThrow({ where: { id: userId }, include: { roleAssignments: { select: { role: true } } } });
+  const user = await db.user.findUniqueOrThrow({
+    where: { id: userId },
+    include: {
+      roleAssignments: { select: { role: true } },
+      resourceChannelAccess: { select: { channelId: true } },
+    },
+  });
   vi.spyOn(auth, "requireUser").mockResolvedValue(user as auth.SessionUser);
 }
 
 const request = (query = "range=today") => new Request(`http://localhost/api/org/reporting?${query}`);
 
 describe.sequential("新版组织范围真实报表 API", () => {
+  it("按每条炒群业务线延续截止日最近快照，区间内没有新快照也不会归零", async () => {
+    await signIn(ids.companyManager);
+    const response = await getOrgReporting(request("range=custom&sourceDateFrom=2026-08-31&sourceDateTo=2026-08-31"));
+    const body = await response.json();
+    expect(body.groups.find((group: { id: string }) => group.id === ids.berlinGroup)).toMatchObject({ totals: { inGroup: 17 } });
+    expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorA)).toMatchObject({ totals: { inGroup: 6 } });
+    expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorB)).toMatchObject({ totals: { inGroup: 11 } });
+  });
+
   it("公司管理员只看到本公司，并按每个小组当地今天取同一口径的汇总与人员", async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     await signIn(ids.companyManager);
@@ -128,7 +169,9 @@ describe.sequential("新版组织范围真实报表 API", () => {
       period: { today: "2026-08-31", from: "2026-08-31", to: "2026-08-31" },
       totals: { added: 4 },
     });
-    expect(new Set(body.members.map((member: { id: string }) => member.id))).toEqual(new Set([ids.berlinReception, ids.newYorkReception]));
+    expect(new Set(body.members.map((member: { id: string }) => member.id))).toEqual(new Set([
+      ids.berlinReception, ids.berlinOperatorA, ids.berlinOperatorB, ids.newYorkReception,
+    ]));
     expect(body.days.find((day: { date: string }) => day.date === "2026-09-01")).toMatchObject({
       groups: expect.arrayContaining([expect.objectContaining({ groupId: ids.berlinGroup, totals: expect.objectContaining({ added: 3, effective: 2 }) })]),
       members: expect.arrayContaining([expect.objectContaining({ id: ids.berlinReception, totals: expect.objectContaining({ added: 3, effective: 2 }) })]),
@@ -157,6 +200,14 @@ describe.sequential("新版组织范围真实报表 API", () => {
 });
 
 describe.sequential("新版组长真实渠道报表 API", () => {
+  it("渠道区间内没有任何新记录时，仍按业务线延续此前最近快照", async () => {
+    await signIn(ids.lead);
+    const response = await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=custom&sourceDateFrom=2026-08-31&sourceDateTo=2026-08-31"));
+    const body = await response.json();
+    expect(body.rows[0]).toMatchObject({ totals: { inGroup: 17 } });
+    expect(body.days).toEqual([]);
+  });
+
   it("组长只能读取自己的渠道，并按本组当地日期计算今日", async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     await signIn(ids.lead);
@@ -170,11 +221,54 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     expect(body.rows[0].members).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: ids.berlinReception, name: expect.any(String), totals: expect.objectContaining({ added: 3, effective: 2, replied: 1 }) }),
     ]));
+    expect(body.days).toEqual([
+      expect.objectContaining({
+        date: "2026-09-01",
+        rows: [expect.objectContaining({ name: "柏林渠道", totals: expect.objectContaining({ added: 3, effective: 2, replied: 1 }) })],
+      }),
+    ]);
   });
 
   it("非组长不能借该接口读取渠道明细", async () => {
     await signIn(ids.departmentManager);
     expect((await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=month"))).status).toBe(403);
+  });
+});
+
+describe.sequential("组织管理员小组渠道报表 API", () => {
+  it("组织渠道汇总延续每条业务线在截止日前的最近快照", async () => {
+    await signIn(ids.departmentManager);
+    const response = await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=custom&sourceDateFrom=2026-08-31&sourceDateTo=2026-08-31&groupId=${ids.berlinGroup}`));
+    expect(await response.json()).toMatchObject({ rows: [expect.objectContaining({ totals: expect.objectContaining({ inGroup: 17 }) })] });
+  });
+
+  it("部门管理员只能读取本部门小组，公司管理员可以读取本公司跨部门小组", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
+    await signIn(ids.departmentManager);
+    const own = await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=today&groupId=${ids.berlinGroup}`));
+    expect(own.status).toBe(200);
+    expect(await own.json()).toMatchObject({
+      group: { id: ids.berlinGroup },
+      rows: [expect.objectContaining({ name: "柏林渠道", totals: expect.objectContaining({ added: 3 }) })],
+      days: [expect.objectContaining({ date: "2026-09-01", rows: [expect.objectContaining({ name: "柏林渠道", totals: expect.objectContaining({ added: 3 }) })] })],
+    });
+    expect((await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=today&groupId=${ids.newYorkGroup}`))).status).toBe(403);
+
+    await signIn(ids.companyManager);
+    expect((await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=today&groupId=${ids.newYorkGroup}`))).status).toBe(200);
+  });
+
+  it("资源部不能借组织管理员接口读取渠道明细", async () => {
+    await signIn(ids.resource);
+    expect((await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=month&groupId=${ids.berlinGroup}`))).status).toBe(403);
+  });
+});
+
+describe.sequential("资源部真实报表快照", () => {
+  it("资源汇总延续每条业务线在截止日前的最近快照", async () => {
+    await signIn(ids.resource);
+    const response = await getResourceReporting(new Request("http://localhost/api/resource/reporting?range=custom&sourceDateFrom=2026-08-31&sourceDateTo=2026-08-31"));
+    expect(await response.json()).toMatchObject({ rows: [expect.objectContaining({ totals: expect.objectContaining({ inGroup: 17 }) })] });
   });
 });
 
@@ -192,10 +286,10 @@ describe.sequential("新版客户进度 API", () => {
       id: id("customer-order"), phone: expertCustomer.phone, batchId: expertCustomer.batchId,
       leadId: expertCustomer.id, enteredById: ids.lead, openedOn: "2026-07-06", initialDepositCents: 10_000,
     } });
-    await db.metricEvent.createMany({ data: [
-      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-06", kind: "RECHARGE", amountCents: 10_000, customerOrderId: order.id, derivedFromLedger: true },
-      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-07", kind: "RECHARGE", amountCents: 2_500, continuationNumber: 1, customerOrderId: order.id, derivedFromLedger: true },
-      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-08", kind: "WITHDRAWAL", amountCents: 500, customerOrderId: order.id, derivedFromLedger: true },
+    await db.customerFinanceEvent.createMany({ data: [
+      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-06", kind: "RECHARGE", amountCents: 10_000, customerOrderId: order.id },
+      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-07", kind: "RECHARGE", amountCents: 2_500, continuationNumber: 1, customerOrderId: order.id },
+      { batchId: expertCustomer.batchId, enteredById: ids.lead, occurredOn: "2026-07-08", kind: "WITHDRAWAL", amountCents: 500, customerOrderId: order.id },
     ] });
     await signIn(ids.lead);
     const reception = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=reception"))).json();

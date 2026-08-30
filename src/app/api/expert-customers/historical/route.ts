@@ -7,7 +7,6 @@ import { normalizeChannelName } from "../../../../lib/channel-names";
 import { db } from "../../../../lib/db";
 import { entryDateError } from "../../../../lib/entry-date-validation";
 import { normalizeCustomerPhone } from "../../../../lib/entry-ledger";
-import { recordMetricEvents } from "../../../../lib/metric-events";
 import { isCalendarDate, localDateYYYYMMDD } from "../../../../lib/dates";
 import { getSystemSettings } from "../../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
@@ -76,7 +75,14 @@ export async function POST(request: Request) {
     return authorizationDenied(sessionUser, "当前账号未绑定小组，不能补录客户");
 
   try {
-    const input = inputSchema.parse(await request.json());
+    const rawInput = await request.json();
+    if (rawInput && typeof rawInput === "object" && (
+      (rawInput as { expertStage?: unknown }).expertStage === "ORDERED"
+      || Boolean((rawInput as { openedOn?: unknown }).openedOn)
+      || Boolean((rawInput as { initialDepositCents?: unknown }).initialDepositCents)
+      || Boolean((rawInput as { initialDepositMethod?: unknown }).initialDepositMethod)
+    )) return NextResponse.json({ error: "历史已开单和历史资金补录入口已关闭；请只记录客户当前进度，统计数字在“每日数据填写”中单独填写" }, { status: 410 });
+    const input = inputSchema.parse(rawInput);
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(sessionUser, settings.timezone);
@@ -171,10 +177,6 @@ export async function POST(request: Request) {
       if (input.expertStage === "ORDERED" && input.openedOn && input.initialDepositCents && input.initialDepositMethod) {
         const order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: input.openedOn, initialDepositCents: input.initialDepositCents, initialDepositMethod: input.initialDepositMethod } });
         orderId = order.id;
-        await recordMetricEvents(tx, [
-          { batchId: batch.id, enteredById: actor.id, occurredOn: input.openedOn, kind: "ORDER", quantity: 1, customerOrderId: order.id, derivedFromLedger: true },
-          { batchId: batch.id, enteredById: actor.id, occurredOn: input.openedOn, kind: "RECHARGE", amountCents: input.initialDepositCents, depositMethod: input.initialDepositMethod, customerOrderId: order.id, derivedFromLedger: true },
-        ]);
       }
       await recordAudit(tx, {
         actorId: actor.id,

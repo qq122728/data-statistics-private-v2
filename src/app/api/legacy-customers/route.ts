@@ -8,7 +8,6 @@ import { db } from "../../../lib/db";
 import { isCalendarDate, localDateYYYYMMDD } from "../../../lib/dates";
 import { entryDateError } from "../../../lib/entry-date-validation";
 import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
-import { recordMetricEvents } from "../../../lib/metric-events";
 import { API_LIMITS } from "../../../lib/request-limits";
 import { getAssignedRoles } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
@@ -74,7 +73,13 @@ export async function POST(request: Request) {
   if (!mayCreate(sessionUser)) return authorizationDenied(sessionUser, "当前岗位不能录入老客户");
   if (!sessionUser.groupId) return authorizationDenied(sessionUser, "当前账号未绑定小组");
   try {
-    const input = inputSchema.parse(await request.json());
+    const rawInput = await request.json();
+    if (rawInput && typeof rawInput === "object" && (
+      (rawInput as { currentEvent?: unknown }).currentEvent === "ORDERED"
+      || Boolean((rawInput as { initialDepositCents?: unknown }).initialDepositCents)
+      || Boolean((rawInput as { initialDepositMethod?: unknown }).initialDepositMethod)
+    )) return NextResponse.json({ error: "历史已开单和历史资金补录入口已关闭；请只记录客户当前进度，统计数字在“每日数据填写”中单独填写" }, { status: 410 });
+    const input = inputSchema.parse(rawInput);
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
     const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(sessionUser, settings.timezone));
@@ -123,10 +128,6 @@ export async function POST(request: Request) {
       let orderId: string | null = null;
       if (input.currentEvent === "ORDERED" && input.initialDepositCents && input.initialDepositMethod) {
         const order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: currentOn, initialDepositCents: input.initialDepositCents, initialDepositMethod: input.initialDepositMethod } }); orderId = order.id;
-        await recordMetricEvents(tx, [
-          { batchId: batch.id, enteredById: actor.id, occurredOn: currentOn, kind: "ORDER", quantity: 1, customerOrderId: order.id, derivedFromLedger: true },
-          { batchId: batch.id, enteredById: actor.id, occurredOn: currentOn, kind: "RECHARGE", amountCents: input.initialDepositCents, depositMethod: input.initialDepositMethod, customerOrderId: order.id, derivedFromLedger: true },
-        ]);
       }
       await recordAudit(tx, { actorId: actor.id, action: "HISTORICAL_CUSTOMER_CREATED", entityType: "LeadCustomer", entityId: lead.id, summary: { channelId: channel.id, baselineStage: input.baselineStage, currentEvent: input.currentEvent, receptionOwnerId: input.receptionOwnerId, groupOperatorOwnerId: input.groupOperatorOwnerId || null, expertOwnerId: input.expertOwnerId || null, orderId } });
       return { status: 201 as const, leadId: lead.id, destination: destinationFor(actor, phone) };

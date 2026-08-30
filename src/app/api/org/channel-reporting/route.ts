@@ -1,45 +1,48 @@
 import { NextResponse } from "next/server";
-import { AuthenticationError, requireUser } from "../../../../lib/auth";
+import { AuthenticationError, AuthorizationError, requireUser } from "../../../../lib/auth";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../../lib/dates";
 import { sumLatestCurrentInGroup } from "../../../../lib/daily-stat-snapshots";
 import { db } from "../../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
 import { calculateConversionRates, emptyBatchTotals } from "../../../../lib/metrics";
-import { hasAssignedRole } from "../../../../lib/role-access";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
-import { authorizationDenied } from "../../../../lib/security-events";
+import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
 
-/** 组长新版工作台的真实渠道汇总及逐日明细。统计只来自已经生效的每日填写。 */
+/** 组织管理员在权限范围内查看某个小组的真实渠道拆分；只读，不提供发送审核。 */
 export async function GET(request: Request) {
   let actor;
   try {
     actor = await requireUser();
   } catch (error) {
-    if (error instanceof AuthenticationError)
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    if (error instanceof AuthorizationError) return authorizationErrorResponse(error, error.message);
     throw error;
   }
-  if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "LEAD"))
-    return authorizationDenied(actor, "只有在职组长可以查看本组渠道数据");
-
   const params = new URL(request.url).searchParams;
-  if (hasOversizedQueryValue(params))
-    return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
+  if (hasOversizedQueryValue(params)) return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
+  const groupId = params.get("groupId") ?? "";
+  if (!groupId) return NextResponse.json({ error: "请选择具体小组" }, { status: 400 });
+  const canReadOrganization = actor.active && (actor.role === "ADMIN" || actor.duty === "HQ_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "DEPARTMENT_MANAGER");
+  if (!canReadOrganization) return authorizationDenied(actor, "该账号不能查看组织渠道数据");
 
   const group = await db.teamGroup.findFirst({
-    where: { id: actor.groupId, active: true },
+    where: { id: groupId, active: true },
     select: {
-      id: true, name: true, countryCode: true, timezone: true,
-      workStartMinutes: true, workEndMinutes: true,
-      department: { select: { countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
+      id: true, name: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true,
+      department: { select: { companyId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
     },
   });
-  if (!group) return authorizationDenied(actor, "当前账号没有可查看的小组");
+  if (!group) return NextResponse.json({ error: "小组不存在" }, { status: 404 });
+  const inScope = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
+    || (actor.duty === "COMPANY_MANAGER" && Boolean(actor.companyId) && actor.companyId === group.department.companyId)
+    || (actor.duty === "DEPARTMENT_MANAGER" && Boolean(actor.departmentId) && actor.departmentId === group.departmentId);
+  if (!inScope) return authorizationDenied(actor, "没有权限查看这个小组的渠道数据");
 
-  const today = localDateYYYYMMDD(new Date(), resolveGroupBusinessTime(group).timezone);
+  const timezone = resolveGroupBusinessTime(group).timezone;
+  const today = localDateYYYYMMDD(new Date(), timezone);
   const rawRange = params.get("range") ?? undefined;
   const range = resolveDateRangeWithDefault({
     range: rawRange && allowedRanges.has(rawRange) ? rawRange : undefined,
@@ -48,7 +51,7 @@ export async function GET(request: Request) {
   }, today, "month");
   const [entries, snapshotEntries] = await Promise.all([
     db.dailyStatEntry.findMany({
-      where: { groupId: group.id, businessDate: { gte: range.from, lte: range.to }, approvedRevisionId: { not: null } },
+      where: { groupId, businessDate: { gte: range.from, lte: range.to }, approvedRevisionId: { not: null } },
       select: {
         groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
         businessDate: true, position: true,
@@ -59,7 +62,7 @@ export async function GET(request: Request) {
     }),
     db.dailyStatEntry.findMany({
       where: {
-        groupId: group.id, position: "GROUP_OPERATOR",
+        groupId, position: "GROUP_OPERATOR",
         businessDate: { lte: range.to }, approvedRevisionId: { not: null },
       },
       select: {
@@ -102,55 +105,39 @@ export async function GET(request: Request) {
     row.totals.orders += value.orderCount;
     row.totals.rechargeCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
     row.totals.withdrawalCents += value.withdrawalCents;
-    row.lowAmount += value.lowAmountCount;
-    row.noWs += value.noWsCount;
+    row.lowAmount += value.lowAmountCount; row.noWs += value.noWsCount;
     if (entry.position === "GROUP_OPERATOR") {
       if (entry.businessDate > row.snapshotDate) { row.snapshotDate = entry.businessDate; row.inGroup = value.currentInGroupCount; }
       else if (entry.businessDate === row.snapshotDate) row.inGroup += value.currentInGroupCount;
     }
   }
   for (const entry of entries) {
-    const value = entry.approvedRevision;
-    if (!value) continue;
-    const row = byChannel.get(entry.channel.id) ?? { channel: entry.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
-    accumulate(row, entry);
-    byChannel.set(entry.channel.id, row);
+    if (!entry.approvedRevision) continue;
+    const channelRow = byChannel.get(entry.channel.id) ?? { channel: entry.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
+    accumulate(channelRow, entry); byChannel.set(entry.channel.id, channelRow);
     const memberKey = `${entry.channel.id}:${entry.owner.id}`;
     const memberRow = byChannelMember.get(memberKey) ?? { channel: entry.channel, owner: entry.owner, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
-    accumulate(memberRow, entry);
-    byChannelMember.set(memberKey, memberRow);
+    accumulate(memberRow, entry); byChannelMember.set(memberKey, memberRow);
     const dayChannelKey = `${entry.businessDate}:${entry.channel.id}`;
     const dayChannelRow = byDayChannel.get(dayChannelKey) ?? { channel: entry.channel, businessDate: entry.businessDate, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
-    accumulate(dayChannelRow, entry);
-    byDayChannel.set(dayChannelKey, dayChannelRow);
+    accumulate(dayChannelRow, entry); byDayChannel.set(dayChannelKey, dayChannelRow);
     const dayMemberKey = `${dayChannelKey}:${entry.owner.id}`;
     const dayMemberRow = byDayChannelMember.get(dayMemberKey) ?? { channel: entry.channel, owner: entry.owner, businessDate: entry.businessDate, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
-    accumulate(dayMemberRow, entry);
-    byDayChannelMember.set(dayMemberKey, dayMemberRow);
+    accumulate(dayMemberRow, entry); byDayChannelMember.set(dayMemberKey, dayMemberRow);
   }
-  function serialize(row: Row) { return {
-    normalizedName: row.channel.normalizedName,
-    name: row.channel.name,
-    totals: {
-      added: row.totals.newFans,
-      collision: row.totals.duplicateFans,
-      lowAmount: row.lowAmount,
-      noWs: row.noWs,
-      effective: row.totals.effectiveFans,
-      replied: row.totals.replies,
-      joined: row.totals.groupJoin,
-      left: row.totals.groupLeave,
-      leftAbnormal: row.totals.abnormalGroupLeave ?? 0,
-      inGroup: row.inGroup,
-      pushed: row.totals.expertIntro,
-      registered: row.totals.registration,
-      ordered: row.totals.orders,
-      depositCents: row.totals.rechargeCents,
-      withdrawalCents: row.totals.withdrawalCents,
-      netCents: row.totals.rechargeCents - row.totals.withdrawalCents,
-    },
-    rates: calculateConversionRates(row.totals),
-  }; }
+  function serialize(row: Row) {
+    return {
+      normalizedName: row.channel.normalizedName, name: row.channel.name,
+      totals: {
+        added: row.totals.newFans, collision: row.totals.duplicateFans, lowAmount: row.lowAmount, noWs: row.noWs,
+        effective: row.totals.effectiveFans, replied: row.totals.replies, joined: row.totals.groupJoin,
+        left: row.totals.groupLeave, leftAbnormal: row.totals.abnormalGroupLeave ?? 0, inGroup: row.inGroup,
+        pushed: row.totals.expertIntro, registered: row.totals.registration, ordered: row.totals.orders,
+        depositCents: row.totals.rechargeCents, withdrawalCents: row.totals.withdrawalCents, netCents: row.totals.rechargeCents - row.totals.withdrawalCents,
+      },
+      rates: calculateConversionRates(row.totals),
+    };
+  }
   const rows = [...byChannel.values()].map((row) => {
     row.inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) => entry.channelId === row.channel.id));
     return {
@@ -173,10 +160,5 @@ export async function GET(request: Request) {
     })).sort((left, right) => left.name.localeCompare(right.name, "zh-CN")),
   }));
 
-  return NextResponse.json({
-    group: { id: group.id, name: group.name, timezone: resolveGroupBusinessTime(group).timezone },
-    range: { preset: range.preset, label: range.label, today, from: range.from, to: range.to },
-    rows,
-    days,
-  }, { headers: { "Cache-Control": "private, no-store" } });
+  return NextResponse.json({ group: { id: group.id, name: group.name, timezone }, range: { preset: range.preset, label: range.label, today, from: range.from, to: range.to }, rows, days }, { headers: { "Cache-Control": "private, no-store" } });
 }

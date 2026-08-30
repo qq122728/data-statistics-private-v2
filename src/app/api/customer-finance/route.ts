@@ -4,8 +4,6 @@ import { ZodError } from "zod";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { canWriteCustomerFinance, financeScopeError, financeWriteRoles } from "../../../lib/customer-finance-access";
-import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
-import { recordMetricEvent } from "../../../lib/metric-events";
 import { parseCustomerFinanceInput, type CustomerFinanceInput } from "../../../lib/validation";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { getSystemSettings } from "../../../lib/settings";
@@ -13,6 +11,7 @@ import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
 import { authorizationDenied } from "../../../lib/security-events";
+import { hasAnyRole } from "../../../lib/role-access";
 
 type FieldErrors = Record<string, string[]>;
 
@@ -29,7 +28,7 @@ export async function POST(request: Request) {
     if (error instanceof AuthenticationError) return NextResponse.json({ error: error.message }, { status: 401 });
     throw error;
   }
-  if (!financeWriteRoles.includes(sessionUser.role as (typeof financeWriteRoles)[number]))
+  if (!hasAnyRole(sessionUser, financeWriteRoles))
     return authorizationDenied(sessionUser, "只有组长和负责客户的专家可以登记资金流水");
 
   try {
@@ -64,8 +63,8 @@ export async function POST(request: Request) {
     if (Object.keys(fields).length) return NextResponse.json({ error: "请检查填写内容", fields }, { status: 400 });
 
     const result = await db.$transaction(async (transaction) => {
-      const actor = await transaction.user.findUnique({ where: { id: sessionUser.id }, select: { id: true, active: true, role: true, groupId: true } });
-      if (!actor?.active || !financeWriteRoles.includes(actor.role as (typeof financeWriteRoles)[number])) return { status: 403 as const, error: "当前账号不能录入资金流水" };
+      const actor = await transaction.user.findUnique({ where: { id: sessionUser.id }, select: { id: true, active: true, role: true, groupId: true, roleAssignments: { select: { role: true } } } });
+      if (!actor?.active || !hasAnyRole(actor, financeWriteRoles)) return { status: 403 as const, error: "当前账号不能录入资金流水" };
       const orders = await transaction.customerOrder.findMany({
         where: { id: { in: validRows.map(({ row }) => row.customerOrderId) } },
         include: {
@@ -101,13 +100,11 @@ export async function POST(request: Request) {
           amountCents: row.amountCents, customerOrderId: order.id,
           depositMethod: row.kind === "RECHARGE" ? row.depositMethod : null,
           continuationNumber: row.kind === "RECHARGE" ? row.continuationNumber : null,
-          derivedFromLedger: true,
         };
         events.push(previous
-          ? await transaction.metricEvent.update({ where: { id: previous.id }, data: { ...data, voidedAt: null, voidReason: null, voidedById: null } })
-          : await recordMetricEvent(transaction, data));
+          ? await transaction.customerFinanceEvent.update({ where: { id: previous.id }, data: { ...data, voidedAt: null, voidReason: null, voidedById: null } })
+          : await transaction.customerFinanceEvent.create({ data }));
       }
-      await touchDailyEntryConfirmations(transaction, actor.id, validRows.map(({ row }) => row.occurredOn));
       return { status: 201 as const, events };
     });
     if (!result.events) return result.status === 403

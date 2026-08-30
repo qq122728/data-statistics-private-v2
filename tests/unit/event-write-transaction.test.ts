@@ -331,9 +331,9 @@ describe.sequential("member entry write transactions", () => {
     expect(opened.status).toBe(201);
     const order = (await opened.json()).orders[0];
     expect(order.phone).toBe("233911");
-    expect(await db.metricEvent.findMany({ where: { customerOrderId: order.id }, orderBy: { kind: "asc" }, select: { kind: true, quantity: true, amountCents: true, continuationNumber: true } })).toEqual([
-      { kind: "ORDER", quantity: 1, amountCents: null, continuationNumber: null },
-      { kind: "RECHARGE", quantity: null, amountCents: 50_000, continuationNumber: null },
+    expect(await db.metricEvent.findMany({ where: { customerOrderId: order.id } })).toEqual([]);
+    expect(await db.customerFinanceEvent.findMany({ where: { customerOrderId: order.id }, select: { kind: true, amountCents: true, continuationNumber: true } })).toEqual([
+      { kind: "RECHARGE", amountCents: 50_000, continuationNumber: null },
     ]);
 
     const finance = await postCustomerFinance(new Request("http://localhost/api/customer-finance", { method: "POST", body: JSON.stringify({ rows: [
@@ -343,6 +343,8 @@ describe.sequential("member entry write transactions", () => {
     expect(finance.status).toBe(201);
     const duplicate = await postCustomerFinance(new Request("http://localhost/api/customer-finance", { method: "POST", body: JSON.stringify({ customerOrderId: order.id, occurredOn: "2026-08-14", kind: "RECHARGE", amountCents: 1, continuationNumber: 1, depositMethod: "BANK" }) }));
     expect(duplicate.status).toBe(400);
+    expect(await db.metricEvent.findMany({ where: { customerOrderId: order.id } })).toEqual([]);
+    expect(await db.customerFinanceEvent.count({ where: { customerOrderId: order.id, voidedAt: null } })).toBe(3);
     expect((await getCustomerOrders()).status).toBe(200);
     expect((await (await getCustomerOrders()).json()).orders.map((item: { id: string }) => item.id)).toContain(order.id);
   });

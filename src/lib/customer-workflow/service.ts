@@ -1,9 +1,7 @@
 import type { LeadActivityKind } from "@prisma/client";
 import { db } from "../db";
 import { recordAudit } from "../audit";
-import { touchDailyEntryConfirmations } from "../daily-confirmations";
 import { normalizeCustomerPhone } from "../entry-ledger";
-import { recordMetricEvents } from "../metric-events";
 import { authorizeCustomerAction, authorizeCustomerDelete, resolveWorkflowActorRole } from "./access";
 import { isCorrectionAction } from "./actions";
 import { getAssignedRoles, hasAssignedRole } from "../role-access";
@@ -300,7 +298,7 @@ export async function executeCustomerWorkflow(
     if (input.action === "voidOrder") {
       const order = lead.customerOrder;
       if (!order || order.voidedAt) return { status: 400 as const, error: "该客户没有有效开单记录" };
-      const laterFinance = await transaction.metricEvent.count({
+      const laterFinance = await transaction.customerFinanceEvent.count({
         where: {
           customerOrderId: order.id,
           voidedAt: null,
@@ -312,7 +310,7 @@ export async function executeCustomerWorkflow(
         where: { id: order.id },
         data: { voidedAt: new Date(), voidReason: input.reason, voidedById: liveActor.id },
       });
-      await transaction.metricEvent.updateMany({
+      await transaction.customerFinanceEvent.updateMany({
         where: { customerOrderId: order.id, voidedAt: null },
         data: { voidedAt: new Date(), voidReason: input.reason, voidedById: liveActor.id },
       });
@@ -328,7 +326,7 @@ export async function executeCustomerWorkflow(
       try {
         phone = normalizeCustomerPhone(input.phone);
       } catch {
-        return { status: 400 as const, error: "客户号码至少需要 6 位数字，系统会自动保留末 6 位" };
+        return { status: 400 as const, error: "客户号码必须包含数字，系统会自动保留末 6 位" };
       }
       const collision = await transaction.leadCustomer.findFirst({
         where: { phone, id: { not: lead.id } },
@@ -436,7 +434,6 @@ export async function executeCustomerWorkflow(
         },
       });
     }
-    await touchDailyEntryConfirmations(transaction, liveActor.id, [occurredOn]);
     return { status: 200 as const, lead: updated };
   });
 }
@@ -457,23 +454,12 @@ export async function deleteCustomerWorkflow(actor: WorkflowActor, leadId: strin
     if (accessFailure) return accessFailure;
     if (lead.customerOrder || lead.repliedOn || lead.followUpCount > 0 || lead.groupStatus !== "NOT_JOINED" || lead.expertIntroducedOn || lead.registeredOn)
       return { status: 400 as const, error: "该客户已有跟进或开单记录，不能删除；请改用编辑号码或标记无效" };
-    // 新号码导入会留下按批次汇总的导入事件。删除尚未跟进的误录时，
-    // 用负数冲正同一批次，避免客户没了、渠道/广告统计还保留一人。
-    const hasImportedMetric = !lead.isHistoricalRecord && !lead.batch.isHistoricalRecord && await transaction.metricEvent.count({
-      where: { batchId: lead.batchId, enteredById: lead.ownerId, kind: "NEW_FANS", derivedFromLedger: true, voidedAt: null },
-    });
-    if (hasImportedMetric) {
-      await recordMetricEvents(transaction, [
-        { batchId: lead.batchId, enteredById: lead.ownerId, occurredOn: lead.batch.sourceDate, kind: "NEW_FANS", quantity: -1, derivedFromLedger: true },
-        { batchId: lead.batchId, enteredById: lead.ownerId, occurredOn: lead.batch.sourceDate, kind: "EFFECTIVE_FANS", quantity: -1, derivedFromLedger: true },
-      ]);
-    }
     await recordAudit(transaction, {
       actorId: liveActor.id,
       action: "LEAD_ENTRY_DELETED",
       entityType: "LeadCustomer",
       entityId: lead.id,
-      summary: { phone: lead.phone, batchId: lead.batchId, ownerId: lead.ownerId, metricCorrection: Boolean(hasImportedMetric) },
+      summary: { phone: lead.phone, batchId: lead.batchId, ownerId: lead.ownerId },
     });
     await transaction.leadCustomer.delete({ where: { id: lead.id } });
     return { status: 200 as const };

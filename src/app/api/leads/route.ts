@@ -4,13 +4,12 @@ import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db, getOrCreateSourceBatch } from "../../../lib/db";
 import { ChannelResolutionError, resolveOrCreateChannel } from "../../../lib/channels";
-import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
-import { recordMetricEvents } from "../../../lib/metric-events";
 import { customerCodePrefixForChannel, parsePhoneImport, splitPhoneTokens } from "../../../lib/phone-import";
 import { isCalendarDate, localDateYYYYMMDD } from "../../../lib/dates";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
+import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
 import { authorizationDenied } from "../../../lib/security-events";
 import { splitCustomerImportRows } from "../../../lib/customer-import-eligibility";
 import { hasAssignedRole } from "../../../lib/role-access";
@@ -86,6 +85,14 @@ export async function POST(request: Request) {
       const invalidPhones: string[] = [];
       const normalizedRows: Array<(typeof importRows)[number] & { normalizedPhone: string }> = [];
       for (const row of importRows) {
+        if (input.rows) {
+          try {
+            normalizedRows.push({ ...row, normalizedPhone: normalizeCustomerPhone(row.phone) });
+          } catch {
+            invalidPhones.push(row.phone);
+          }
+          continue;
+        }
         const parsed = parsePhoneImport(row.phone, customerCodeOptions);
         if (parsed.rawPhones.length !== 1 || parsed.invalidPhones.length || parsed.distinctPhones.length !== 1) {
           invalidPhones.push(row.phone);
@@ -94,7 +101,7 @@ export async function POST(request: Request) {
         normalizedRows.push({ ...row, normalizedPhone: parsed.distinctPhones[0] });
       }
       if (invalidPhones.length) {
-        throw new ChannelResolutionError("客户编号格式不正确，请修改后再导入；扣粉数据请在“扣粉登记”单独填写数量");
+        throw new ChannelResolutionError("客户编号格式不正确，请修改后再导入；统计数字请在“每日数据填写”中单独填写");
       }
       const distinctRows: typeof normalizedRows = [];
       const seenPhones = new Set<string>();
@@ -108,7 +115,7 @@ export async function POST(request: Request) {
         distinctRows.push(row);
       }
       const distinctPhones = distinctRows.map((row) => row.normalizedPhone);
-      if (!distinctPhones.length) throw new ChannelResolutionError("没有可导入的有效六码编号");
+      if (!distinctPhones.length) throw new ChannelResolutionError("没有可导入的有效客户编号");
       const operatorAssignment = await transaction.groupOperatorReception.findUnique({
         where: { receptionistId: user.id },
         select: { groupOperatorId: true },
@@ -128,7 +135,7 @@ export async function POST(request: Request) {
       const candidateRows = distinctRows.filter((row) => !existingPhones.has(row.normalizedPhone));
       const { importable: acceptedRows, lowAmount: lowAmountRows } = splitCustomerImportRows(candidateRows);
       if (!acceptedRows.length) {
-        throw new ChannelResolutionError("没有可导入的有效客户；撞粉、低金额、无 WS 号码请在下方“扣粉登记”手动填写数量");
+        throw new ChannelResolutionError("没有可导入的有效客户；撞粉、低金额、无 WS 号码请在“每日数据填写”中单独填写数量");
       }
       // 归属人可以不同于实际录入人，但必须是同一小组的在职成员，防止业绩串到别的公司或小组。
       const attributionOwnerIds = [...new Set(acceptedRows.map((row) => row.attributionOwnerId ?? user.id))];
@@ -192,17 +199,6 @@ export async function POST(request: Request) {
       const duplicateInPasteCount = duplicateRows.length;
       const collisionCount = existing.length;
       const duplicateCount = duplicateInPasteCount + collisionCount;
-      // 兼容旧报表的明细事件也按“粉的归属”分组；操作日志仍保留实际录入人。
-      const attributionCounts = new Map<string, number>();
-      for (const row of acceptedRows) {
-        const attributionOwnerId = row.attributionOwnerId ?? user.id;
-        attributionCounts.set(attributionOwnerId, (attributionCounts.get(attributionOwnerId) ?? 0) + 1);
-      }
-      await recordMetricEvents(transaction, [...attributionCounts.entries()].flatMap(([enteredById, quantity]) => [
-        { batchId: batch.id, enteredById, occurredOn: input.sourceDate, kind: "NEW_FANS" as const, quantity, derivedFromLedger: true },
-        { batchId: batch.id, enteredById, occurredOn: input.sourceDate, kind: "EFFECTIVE_FANS" as const, quantity, derivedFromLedger: true },
-      ]));
-      await touchDailyEntryConfirmations(transaction, user.id, [input.sourceDate]);
       return {
         batch,
         imported: acceptedRows.length,
@@ -226,7 +222,7 @@ export async function POST(request: Request) {
     // 两位接粉员同时提交同一号码时，数据库的唯一规则会拦住第二次写入。
     // 这里转换成可理解的撞粉提示，避免把正常业务场景显示成系统故障。
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
-      return NextResponse.json({ error: "该号码刚被其他接粉员导入，已作为撞粉处理；请到“扣粉统计”手动登记撞粉数量后提交审核。", code: "PHONE_COLLISION" }, { status: 409 });
+      return NextResponse.json({ error: "该号码刚被其他接粉员导入，已作为撞粉处理；请返回客户进度打开原档案，不能重复录入。", code: "PHONE_COLLISION" }, { status: 409 });
     throw error;
   }
 }

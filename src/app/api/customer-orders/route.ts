@@ -3,11 +3,9 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
-import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
-import { recordMetricEvents } from "../../../lib/metric-events";
 import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
 import { parseCustomerOrderInput, type CustomerOrderInput } from "../../../lib/validation";
-import { customerOrderWriteRoles, hasAnyRole } from "../../../lib/role-access";
+import { customerOrderWriteRoles, getAssignedRoles, hasAnyRole } from "../../../lib/role-access";
 import { canWriteCustomerRevenue } from "../../../lib/permissions";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { getSystemSettings } from "../../../lib/settings";
@@ -30,12 +28,14 @@ function normalizeCustomerOrderIdentifier(value: string): string {
   return normalizeCustomerPhone(value);
 }
 
-function customerScope(user: { id: string; role: string; groupId: string | null }): Prisma.CustomerOrderWhereInput {
+function customerScope(user: { id: string; role: Parameters<typeof getAssignedRoles>[0]["role"]; groupId: string | null; active: boolean; roleAssignments?: Array<{ role: Parameters<typeof getAssignedRoles>[0]["role"] }> }): Prisma.CustomerOrderWhereInput {
   if (user.role === "ADMIN") return {};
-  if (user.role === "LEAD") return { batch: { groupId: user.groupId ?? "__none__" } };
-  if (user.role === "RECEPTION") return { lead: { ownerId: user.id } };
-  if (user.role === "EXPERT") return { lead: { expertOwnerId: user.id } };
-  return { id: "__none__" };
+  const roles = getAssignedRoles(user);
+  if (roles.includes("LEAD")) return { batch: { groupId: user.groupId ?? "__none__" } };
+  const ownScopes: Prisma.CustomerOrderWhereInput[] = [];
+  if (roles.includes("EXPERT")) ownScopes.push({ lead: { expertOwnerId: user.id } });
+  if (roles.includes("RECEPTION")) ownScopes.push({ lead: { ownerId: user.id } });
+  return ownScopes.length ? { OR: ownScopes } : { id: "__none__" };
 }
 
 export async function GET() {
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     if (Object.keys(fields).length) return NextResponse.json({ error: "请检查填写内容", fields }, { status: 400 });
 
     const result = await db.$transaction(async (transaction) => {
-      const actor = await transaction.user.findUnique({ where: { id: sessionUser.id }, select: { id: true, active: true, role: true, groupId: true } });
+      const actor = await transaction.user.findUnique({ where: { id: sessionUser.id }, select: { id: true, active: true, role: true, groupId: true, roleAssignments: { select: { role: true } } } });
       if (!actor || !hasAnyRole(actor, customerOrderWriteRoles)) return { status: 403 as const, error: "当前账号不能录入业务数据" };
       const batches = await transaction.sourceBatch.findMany({
         where: { id: { in: validRows.map(({ row }) => row.batchId) } },
@@ -123,7 +123,7 @@ export async function POST(request: Request) {
         const batch = batchById.get(row.batchId);
         if (!batch) fields[`rows.${index}.batchId`] = ["来源批次不存在"];
         else if (!batch.group.active || !batch.channel.active) fields[`rows.${index}.batchId`] = ["来源批次已停用"];
-        else if (actor.role === "LEAD" && (!actor.groupId || batch.groupId !== actor.groupId)) fields[`rows.${index}.batchId`] = ["只能为自己所在小组的来源批次开单"];
+        else if (hasAnyRole(actor, ["LEAD"]) && (!actor.groupId || batch.groupId !== actor.groupId)) fields[`rows.${index}.batchId`] = ["只能为自己所在小组的来源批次开单"];
         const lead = leadById.get(row.leadId);
         const canOpen = Boolean(lead && batch && canWriteCustomerRevenue(actor, { batch, lead }));
         if (!lead || !canOpen) fields[`rows.${index}.leadId`] = ["只能为自己负责的客户开单"];
@@ -148,13 +148,20 @@ export async function POST(request: Request) {
           where: { id: row.leadId },
           data: { noInitialDepositOn: null, noInitialDepositReason: null, noInitialDepositNote: null, expertWorkflowStage: "ORDERED", expertStageChangedAt: new Date() },
         });
-        await recordMetricEvents(transaction, [
-          { batchId: row.batchId, enteredById: actor.id, occurredOn: row.openedOn, kind: "ORDER", quantity: 1, customerOrderId: order.id, derivedFromLedger: true },
-          { batchId: row.batchId, enteredById: actor.id, occurredOn: row.openedOn, kind: "RECHARGE", amountCents: row.initialDepositCents, depositMethod: row.initialDepositMethod, customerOrderId: order.id, derivedFromLedger: true },
-        ]);
+        // 首充是客户资金事实，不是统计事件。日报数字由员工在 DailyStatEntry 独立填写。
+        await transaction.customerFinanceEvent.create({
+          data: {
+            batchId: row.batchId,
+            customerOrderId: order.id,
+            enteredById: actor.id,
+            occurredOn: row.openedOn,
+            kind: "RECHARGE",
+            amountCents: row.initialDepositCents,
+            depositMethod: row.initialDepositMethod,
+          },
+        });
         orders.push(order);
       }
-      await touchDailyEntryConfirmations(transaction, actor.id, validRows.map(({ row }) => row.openedOn));
       return { status: 201 as const, orders };
     });
     if (!result.orders) return result.status === 403

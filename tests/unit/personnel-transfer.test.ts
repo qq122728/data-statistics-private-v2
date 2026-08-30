@@ -11,6 +11,7 @@ const prefix = "personnel-transfer-";
 async function fixture() {
   const admin = await db.user.findFirstOrThrow({ where: { role: "ADMIN", active: true } });
   vi.spyOn(auth, "requireRole").mockResolvedValue(admin);
+  vi.spyOn(auth, "requireUser").mockResolvedValue(admin);
   const groupA = `${prefix}a-${randomUUID()}`;
   const groupB = `${prefix}b-${randomUUID()}`;
   const userId = `${prefix}user-${randomUUID()}`;
@@ -131,6 +132,7 @@ describe.sequential("人员调组历史", () => {
     const data = await fixture();
     const manager = await db.user.create({ data: { id: `${prefix}company-manager-${randomUUID()}`, username: `${prefix}${randomUUID()}`, name: "公司管理员", role: "COMPANY_MANAGER", departmentId: "default-department" } });
     vi.mocked(auth.requireRole).mockResolvedValue(manager);
+    vi.mocked(auth.requireUser).mockResolvedValue(manager);
 
     const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
       method: "POST",
@@ -149,6 +151,7 @@ describe.sequential("人员调组历史", () => {
     await db.department.create({ data: { id: otherDepartmentId, name: `其他公司-${randomUUID()}` } });
     await db.teamGroup.create({ data: { id: otherGroupId, name: `其他公司小组-${randomUUID()}`, departmentId: otherDepartmentId } });
     vi.mocked(auth.requireRole).mockResolvedValue(manager);
+    vi.mocked(auth.requireUser).mockResolvedValue(manager);
 
     const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
       method: "POST",
@@ -165,6 +168,7 @@ describe.sequential("人员调组历史", () => {
     await db.teamGroup.update({ where: { id: data.groupB }, data: { countryCode: "DE", timezone: "Europe/Berlin" } });
     const manager = await db.user.create({ data: { id: `${prefix}department-manager-${randomUUID()}`, username: `${prefix}${randomUUID()}`, name: "美国市场管理员", role: "COMPANY_MANAGER", departmentId: "default-department", managementScopeName: "美国市场", managementCountryCode: "US" } });
     vi.mocked(auth.requireRole).mockResolvedValue(manager);
+    vi.mocked(auth.requireUser).mockResolvedValue(manager);
 
     const denied = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
       method: "POST",
@@ -178,5 +182,34 @@ describe.sequential("人员调组历史", () => {
     }));
     expect(promoted.status).toBe(200);
     await expect(db.user.findUniqueOrThrow({ where: { id: data.userId }, select: { groupId: true, role: true } })).resolves.toEqual({ groupId: data.groupA, role: "LEAD" });
+  });
+
+  it("组长可办理本组岗位变化，但不能把成员调出本组", async () => {
+    const data = await fixture();
+    const lead = await db.user.create({ data: { id: `${prefix}lead-${randomUUID()}`, username: `${prefix}${randomUUID()}`, name: "A组组长", role: "LEAD", duty: "LEAD", groupId: data.groupA } });
+    vi.mocked(auth.requireRole).mockResolvedValue(lead);
+
+    const denied = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "尝试把本组成员调出" }),
+    }));
+    expect(denied.status).toBe(403);
+
+    const changed = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupA, role: "RECEPTION", secondaryRoles: ["GROUP_OPERATOR"], effectiveOn: "2026-08-16", reason: "本组增加炒群兼任" }),
+    }));
+    expect(changed.status).toBe(200);
+  });
+
+  it("预览只返回三段在办客户数量，不提前修改岗位", async () => {
+    const data = await fixture();
+    const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ mode: "preview", userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "先预览跨组调动" }),
+    }));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ preview: true, counts: { reception: 0, operator: 0, expert: 0 } });
+    await expect(db.user.findUniqueOrThrow({ where: { id: data.userId }, select: { groupId: true, role: true } })).resolves.toEqual({ groupId: data.groupA, role: "RECEPTION" });
   });
 });

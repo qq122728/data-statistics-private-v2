@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { Role } from "@prisma/client";
 import { db } from "../../../../../../lib/db";
 import { canAppointOrTransferLead, type GroupScope } from "../../../../../../lib/org-permissions";
 import { API_LIMITS } from "../../../../../../lib/request-limits";
@@ -77,7 +76,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ gro
 
     return transferUserPosition({
       tx,
-      actor: { id: access.actor.id, role: "ADMIN" as Role, departmentId: null, managementCountryCode: null },
+      actor: access.actor,
       userId,
       targetGroupId,
       role: "LEAD",

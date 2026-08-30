@@ -6,7 +6,6 @@ import { GET as getHistory } from "../../src/app/api/history/route";
 import { POST as importLeads } from "../../src/app/api/leads/route";
 import { POST as addHistoricalGroupCustomer } from "../../src/app/api/group-customers/historical/route";
 import { POST as addHistoricalExpertCustomer } from "../../src/app/api/expert-customers/historical/route";
-import { loadCanonicalMetricEvents } from "../../src/lib/analytics/canonical-events";
 import {
   DELETE as deleteLead,
   PATCH as updateLead,
@@ -144,6 +143,15 @@ afterAll(async () => {
 async function signInAs(id: string) {
   vi.spyOn(auth, "requireUser").mockResolvedValue(
     await db.user.findUniqueOrThrow({ where: { id } }),
+  );
+}
+
+async function signInWithAssignments(id: string) {
+  vi.spyOn(auth, "requireUser").mockResolvedValue(
+    await db.user.findUniqueOrThrow({
+      where: { id },
+      include: { roleAssignments: { select: { role: true } } },
+    }),
   );
 }
 
@@ -342,7 +350,7 @@ describe.sequential("frontline role boundaries", () => {
     await expect(db.auditLog.count()).resolves.toBe(auditCountBefore);
   });
 
-  it("lets an expert import a historical ordered customer with separate reception and group ownership, and blocks duplicates", async () => {
+  it("closes the old historical ordered and finance entry without creating customer facts", async () => {
     vi.restoreAllMocks();
     vi.spyOn(auth, "requireUser").mockResolvedValue(
       await db.user.findUniqueOrThrow({
@@ -375,28 +383,14 @@ describe.sequential("frontline role boundaries", () => {
       }),
     });
 
+    const beforeOrders = await db.customerOrder.count();
+    const beforeMetrics = await db.metricEvent.count();
     const response = await addHistoricalExpertCustomer(request());
-    expect(response.status).toBe(201);
-    const payload = await response.json() as { leadId: string; orderId: string };
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: payload.leadId }, include: { customerOrder: true, batch: true } })).resolves.toMatchObject({
-      ownerId: ids.groupOperatorA,
-      attributionOwnerId: ids.groupOperatorA,
-      groupOperatorOwnerId: ids.receptionA,
-      expertOwnerId: ids.expertB,
-      expertWorkflowStage: "ORDERED",
-      isHistoricalRecord: true,
-      customerOrder: { initialDepositCents: 75_000, openedOn: "2026-08-15" },
-      batch: { isHistoricalRecord: true },
-    });
-    const facts = await loadCanonicalMetricEvents({
-      groupIds: [ids.groupA],
-      sourceDateFrom: "2026-08-01",
-      sourceDateTo: "2026-08-23",
-      occurredOnTo: "2026-08-23",
-    });
-    const historicalFacts = facts.filter((fact) => fact.id.startsWith(`${payload.leadId}:`));
-    expect(historicalFacts.map((fact) => fact.kind).sort()).toEqual(["ORDER", "RECHARGE"]);
-    await expect(addHistoricalExpertCustomer(request())).resolves.toMatchObject({ status: 409 });
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("历史已开单和历史资金补录入口已关闭") });
+    await expect(db.leadCustomer.findUnique({ where: { phone: normalizeCustomerPhone(phone) } })).resolves.toBeNull();
+    await expect(db.customerOrder.count()).resolves.toBe(beforeOrders);
+    await expect(db.metricEvent.count()).resolves.toBe(beforeMetrics);
   });
 
   it("lets a group lead use the same historical-expert entry and assign an in-group expert", async () => {
@@ -451,14 +445,15 @@ describe.sequential("frontline role boundaries", () => {
     );
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toMatchObject({
-      error: "没有可导入的有效客户；撞粉、低金额、无 WS 号码请在下方“扣粉登记”手动填写数量",
+      error: "没有可导入的有效客户；撞粉、低金额、无 WS 号码请在“每日数据填写”中单独填写数量",
     });
     await expect(db.leadCustomer.count({ where: { phone: normalizeCustomerPhone("13800000002") } })).resolves.toBe(1);
   });
 
   it("imports a customer row with its profile and a selected reception device", async () => {
     await signInAs(ids.receptionA);
-    const phone = `139${String(Date.now()).slice(-8)}`;
+    const digits = `139${String(Date.now()).slice(-8)}`;
+    const phone = `${digits.slice(0, 3)} ${digits.slice(3, 7)} ${digits.slice(7)}`;
     const response = await importLeads(
       new Request("http://localhost/api/leads", {
         method: "POST",
@@ -523,10 +518,7 @@ describe.sequential("frontline role boundaries", () => {
       await expect(db.metricEvent.findMany({
         where: { batchId: lead.batchId, kind: { in: ["NEW_FANS", "EFFECTIVE_FANS"] }, voidedAt: null },
         select: { enteredById: true, kind: true },
-      })).resolves.toEqual(expect.arrayContaining([
-        { enteredById: ids.expertA, kind: "NEW_FANS" },
-        { enteredById: ids.expertA, kind: "EFFECTIVE_FANS" },
-      ]));
+      })).resolves.toEqual([]);
     } finally {
       await db.userRoleAssignment.deleteMany({
         where: { userId: ids.groupOperatorA, role: "RECEPTION" },
@@ -572,7 +564,7 @@ describe.sequential("frontline role boundaries", () => {
     await expect(db.leadException.count({ where: { phone: normalizeCustomerPhone(phone), kind: "DUPLICATE_IN_PASTE" } })).resolves.toBe(0);
   });
 
-  it("removes an untouched mistaken entry and reverses its import statistics", async () => {
+  it("removes an untouched mistaken entry without touching independent statistics", async () => {
     await signInAs(ids.receptionA);
     const phone = `136${String(Date.now()).slice(-8)}`;
     const imported = await importLeads(
@@ -596,8 +588,7 @@ describe.sequential("frontline role boundaries", () => {
       where: { batchId: payload.batch.id, enteredById: ids.receptionA, derivedFromLedger: true, kind: { in: ["NEW_FANS", "EFFECTIVE_FANS"] } },
       select: { kind: true, quantity: true },
     });
-    expect(corrections.filter((event) => event.kind === "NEW_FANS").reduce((sum, event) => sum + (event.quantity ?? 0), 0)).toBe(0);
-    expect(corrections.filter((event) => event.kind === "EFFECTIVE_FANS").reduce((sum, event) => sum + (event.quantity ?? 0), 0)).toBe(0);
+    expect(corrections).toEqual([]);
     await expect(db.auditLog.findFirst({ where: { entityId: lead.id, action: "LEAD_ENTRY_DELETED" } })).resolves.toMatchObject({ actorId: ids.receptionA });
   });
 
@@ -711,6 +702,54 @@ describe.sequential("frontline role boundaries", () => {
         )
       ).status,
     ).toBe(403);
+  });
+
+  it("blocks direct API edits by reception after the customer is handed to group follow-up", async () => {
+    const source = await db.leadCustomer.findUniqueOrThrow({
+      where: { id: ids.leadCustomerA },
+      select: { batchId: true },
+    });
+    const handedOff = await db.leadCustomer.create({
+      data: {
+        phone: `91${String(Date.now()).slice(-4)}`,
+        batchId: source.batchId,
+        ownerId: ids.receptionA,
+        groupOperatorOwnerId: ids.groupOperatorA,
+        replyStatus: "REPLIED",
+        repliedOn: "2026-08-14",
+        groupStatus: "JOINED",
+        joinedOn: "2026-08-14",
+        notes: "交棒前备注",
+      },
+    });
+    await signInAs(ids.receptionA);
+    const attempts = [
+      { action: "updatePhone", phone: "12" },
+      { action: "updateProfile", customerName: "越权姓名", deviceCode: "越权设备" },
+      { action: "classifyReception", receptionCategory: "LOW_AMOUNT" },
+      { action: "note", notes: "交棒后越权备注" },
+      { action: "assignDevice", deviceCode: "越权设备" },
+      { action: "voidErroneousEntry", reason: "越权作废" },
+    ];
+    for (const body of attempts) {
+      const response = await updateLead(
+        new Request("http://localhost/api/leads/target", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        leadContext(handedOff.id),
+      );
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({ error: "客户已确认入群并交棒，接粉只能查看后续进度" });
+    }
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: handedOff.id } })).resolves.toMatchObject({
+      phone: handedOff.phone,
+      customerName: null,
+      notes: "交棒前备注",
+      invalid: false,
+      deviceId: null,
+    });
   });
 
   it("rechecks a session account inside the write transaction", async () => {
@@ -927,6 +966,59 @@ describe.sequential("frontline role boundaries", () => {
       expertDeviceAccountId: null,
       expertDeviceAccountNumber: "历史专家号-001",
     });
+  });
+
+  it("lets one reception account with expert permission open an assigned customer's order", async () => {
+    const tripleRoleId = `boundary-triple-role-${suffix}`;
+    const batch = await db.sourceBatch.findFirstOrThrow({ where: { groupId: ids.groupA } });
+    await db.user.create({
+      data: {
+        id: tripleRoleId,
+        username: tripleRoleId,
+        name: "三岗员工",
+        role: "RECEPTION",
+        groupId: ids.groupA,
+        roleAssignments: {
+          create: [{ role: "RECEPTION" }, { role: "GROUP_OPERATOR" }, { role: "EXPERT" }],
+        },
+      },
+    });
+    const customer = await db.leadCustomer.create({
+      data: {
+        phone: `6${String(Date.now()).slice(-5)}`,
+        batchId: batch.id,
+        ownerId: tripleRoleId,
+        groupOperatorOwnerId: tripleRoleId,
+        expertOwnerId: tripleRoleId,
+        groupStatus: "JOINED",
+        joinedOn: "2026-08-14",
+        expertIntroducedOn: "2026-08-14",
+        registeredOn: "2026-08-14",
+      },
+    });
+
+    vi.restoreAllMocks();
+    await signInWithAssignments(tripleRoleId);
+    const response = await createOrder(
+      new Request("http://localhost/api/customer-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          leadId: customer.id,
+          batchId: batch.id,
+          phone: customer.phone,
+          openedOn: "2026-08-30",
+          initialDepositCents: 25_000,
+          initialDepositMethod: "CRYPTO",
+        }),
+      }),
+    );
+
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(201);
+    const order = await db.customerOrder.findUniqueOrThrow({ where: { leadId: customer.id } });
+    await expect(db.customerFinanceEvent.findMany({
+      where: { customerOrderId: order.id },
+      select: { kind: true, amountCents: true },
+    })).resolves.toEqual([{ kind: "RECHARGE", amountCents: 25_000 }]);
   });
 
   it("lets a legacy inferred tracking customer advance and records a compatible tracking start", async () => {
@@ -1149,6 +1241,7 @@ describe.sequential("frontline role boundaries", () => {
     const order = await db.customerOrder.findFirstOrThrow({
       where: { leadId: ids.leadCustomerA, voidedAt: null },
     });
+    const metricCountBefore = await db.metricEvent.count({ where: { customerOrderId: order.id } });
 
     await signInAs(ids.expertA);
     const expertFinance = await createFinance(
@@ -1166,6 +1259,26 @@ describe.sequential("frontline role boundaries", () => {
     );
     expect(expertFinance.status).toBe(201);
     const expertEventId = ((await expertFinance.json()).events as Array<{ id: string }>)[0].id;
+    await expect(db.customerFinanceEvent.findUniqueOrThrow({ where: { id: expertEventId } })).resolves.toMatchObject({
+      customerOrderId: order.id,
+      kind: "RECHARGE",
+      amountCents: 2_000,
+      continuationNumber: 1,
+    });
+    const duplicateContinuation = await createFinance(
+      new Request("http://localhost/api/customer-finance", {
+        method: "POST",
+        body: JSON.stringify({
+          customerOrderId: order.id,
+          occurredOn: "2026-08-15",
+          kind: "RECHARGE",
+          amountCents: 9_999,
+          continuationNumber: 1,
+          depositMethod: "BANK",
+        }),
+      }),
+    );
+    expect(duplicateContinuation.status).toBe(400);
 
     vi.restoreAllMocks();
     await signInAs(ids.leadA);
@@ -1181,6 +1294,8 @@ describe.sequential("frontline role boundaries", () => {
       }),
     );
     expect(leadFinance.status).toBe(201);
+    await expect(db.customerFinanceEvent.count({ where: { customerOrderId: order.id, voidedAt: null } })).resolves.toBeGreaterThanOrEqual(3);
+    await expect(db.metricEvent.count({ where: { customerOrderId: order.id } })).resolves.toBe(metricCountBefore);
 
     vi.restoreAllMocks();
     await signInAs(ids.receptionA);

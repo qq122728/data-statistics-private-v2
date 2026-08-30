@@ -105,7 +105,7 @@ describe.sequential("lead member API", () => {
     for (const member of members) expect(member).not.toHaveProperty("passwordHash");
   });
 
-  it("allows frontline roles but rejects elevated roles and group changes", async () => {
+  it("creates frontline roles but routes every existing-member role change through personnel transfer", async () => {
     const { ownGroupId } = await createFixture();
     const member = await createUser({ role: "RECEPTION", groupId: ownGroupId });
 
@@ -131,8 +131,10 @@ describe.sequential("lead member API", () => {
       method: "PATCH",
       body: JSON.stringify({ id: member.id, role: "EXPERT" }),
     }));
-    expect(updateWithFrontlineRole.status).toBe(200);
-    await expect(updateWithFrontlineRole.json()).resolves.toMatchObject({ role: "EXPERT" });
+    expect(updateWithFrontlineRole.status).toBe(400);
+    await expect(updateWithFrontlineRole.json()).resolves.toEqual({
+      error: "岗位变化必须使用“人员调岗与跨组调动”，不能直接覆盖岗位历史",
+    });
 
     const updateWithElevatedRole = await PATCH(new Request("http://localhost/api/lead/members", {
       method: "PATCH",

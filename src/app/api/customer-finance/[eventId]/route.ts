@@ -24,7 +24,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ev
     const input = correctionSchema.parse(await request.json());
     const { eventId } = await params;
     if (eventId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "流水参数过长" }, { status: 400 });
-    const event = await db.metricEvent.findUnique({
+    const event = await db.customerFinanceEvent.findUnique({
       where: { id: eventId },
       include: {
         customerOrder: {
@@ -39,7 +39,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ev
     if (event.kind === "RECHARGE" && event.continuationNumber === null) return NextResponse.json({ error: "首充请通过“作废开单”纠错" }, { status: 400 });
     if (!canWriteCustomerFinance(user, event.customerOrder)) return authorizationDenied(user, financeScopeError(user.role));
     if (event.voidedAt) return NextResponse.json({ error: "该资金流水已经作废" }, { status: 400 });
-    const updated = await db.metricEvent.update({ where: { id: event.id }, data: { voidedAt: new Date(), voidReason: input.reason, voidedById: user.id } });
+    const updated = await db.customerFinanceEvent.update({ where: { id: event.id }, data: { voidedAt: new Date(), voidReason: input.reason, voidedById: user.id } });
     return NextResponse.json({ event: updated });
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues[0]?.message ?? "请检查填写内容" }, { status: 400 });

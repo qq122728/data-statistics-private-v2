@@ -46,7 +46,7 @@ describe("performance leaderboard aggregate query", () => {
       await db.leadCustomer.create({ data: { id: leadId, phone: `query-rebate-phone-${suffix}`, batchId, ownerId: memberId } });
       await db.customerOrder.create({ data: { id: orderId, phone: `query-rebate-phone-${suffix}`, batchId, enteredById: memberId, openedOn: "2026-08-10", initialDepositCents: 1, leadId } });
       // 兼容事件与订单账本表达的是同一笔首充，必须被排除，不能再加一次。
-      await db.metricEvent.create({ data: { batchId, enteredById: memberId, occurredOn: "2026-08-10", kind: "RECHARGE", amountCents: 1, customerOrderId: orderId, derivedFromLedger: true } });
+      await db.customerFinanceEvent.create({ data: { batchId, enteredById: memberId, occurredOn: "2026-08-10", kind: "RECHARGE", amountCents: 1, customerOrderId: orderId } });
     }
     // 真正的旧版汇总资金可与号码账本共存。
     await db.metricEvent.create({ data: { batchId, enteredById: memberId, occurredOn: "2026-08-10", kind: "RECHARGE", amountCents: 7_998, derivedFromLedger: false } });
@@ -106,10 +106,12 @@ describe("performance leaderboard aggregate query", () => {
     await db.sourceBatch.create({ data: { id: batchId, groupId, channelId, sourceDate: "2026-08-10" } });
     await db.leadCustomer.create({ data: { id: leadId, phone: "query-voided-phone", batchId, ownerId: memberId } });
     await db.customerOrder.create({ data: { id: orderId, phone: "query-voided-phone", batchId, leadId, enteredById: memberId, openedOn: "2026-08-10", initialDepositCents: 80_000, voidedAt } });
-    await db.metricEvent.createMany({ data: [
+    await db.metricEvent.create({ data:
       { batchId, enteredById: memberId, occurredOn: "2026-08-10", kind: "ORDER", quantity: 1, customerOrderId: orderId, derivedFromLedger: true, voidedAt },
-      { batchId, enteredById: memberId, occurredOn: "2026-08-10", kind: "RECHARGE", amountCents: 80_000, customerOrderId: orderId, derivedFromLedger: true, voidedAt },
-      { batchId, enteredById: memberId, occurredOn: "2026-08-11", kind: "WITHDRAWAL", amountCents: 10_000, customerOrderId: orderId, derivedFromLedger: true, voidedAt },
+    });
+    await db.customerFinanceEvent.createMany({ data: [
+      { batchId, enteredById: memberId, occurredOn: "2026-08-10", kind: "RECHARGE", amountCents: 80_000, customerOrderId: orderId, voidedAt },
+      { batchId, enteredById: memberId, occurredOn: "2026-08-11", kind: "WITHDRAWAL", amountCents: 10_000, customerOrderId: orderId, voidedAt },
     ] });
 
     const rows = await queryPerformanceLeaderboard({ groupIds: [groupId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-31" });

@@ -31,15 +31,23 @@ export async function copyGlobalChannelsToGroup(
     },
     orderBy: { createdAt: "asc" },
   });
-  const templates = new Map<string, ChannelTemplate>();
+  const templates: ChannelTemplate[] = [];
+  const seenIds = new Set<string>();
+  const seenNames = new Set<string>();
   for (const channel of existingChannels) {
-    if (!templates.has(channel.normalizedName)) {
-      templates.set(channel.normalizedName, channel);
-    }
+    // Channel ids are shared by the per-group copies. Historical local data
+    // can contain copies whose names drifted before rename propagation was
+    // introduced. Copying one row per name would then repeat the same
+    // (id, groupId) primary key in the new group. Keep the oldest canonical
+    // copy for both identity and normalized name.
+    if (seenIds.has(channel.id) || seenNames.has(channel.normalizedName)) continue;
+    seenIds.add(channel.id);
+    seenNames.add(channel.normalizedName);
+    templates.push(channel);
   }
-  if (!templates.size) return 0;
+  if (!templates.length) return 0;
   const result = await client.channel.createMany({
-    data: [...templates.values()].map((channel) => ({ ...channel, groupId })),
+    data: templates.map((channel) => ({ ...channel, groupId })),
   });
   return result.count;
 }

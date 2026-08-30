@@ -64,10 +64,20 @@ export async function GET(request: Request) {
 
   // 待入群客户在真正交棒前还没有冻结 groupOperatorOwner；把当前配对
   // 单独返回给前端，既能显示将交给谁，也能在“待配对”时明确阻止误点。
-  const pairing = await db.groupOperatorReception.findUnique({
-    where: { receptionistId: actor.id },
-    select: { groupOperator: { select: { id: true, name: true, active: true, groupId: true } } },
-  });
+  const [pairing, receptionDevices] = await Promise.all([
+    db.groupOperatorReception.findUnique({
+      where: { receptionistId: actor.id },
+      select: { groupOperator: { select: { id: true, name: true, active: true, groupId: true } } },
+    }),
+    // 新版“设备账号”是唯一的用户入口。客户流程仍保留旧 Device 外键兼容
+    // 线上历史数据，因此这里只把本人新版账号作为可选项返回；真正选择时
+    // assignDevice 会按号码补齐兼容 Device 记录。
+    db.deviceAccount.findMany({
+      where: { groupId: actor.groupId, ownerId: actor.id },
+      select: { id: true, accountNumber: true, accountType: true, provider: true },
+      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+    }),
+  ]);
   const currentGroupOperator = pairing?.groupOperator.active && pairing.groupOperator.groupId === actor.groupId
     ? { id: pairing.groupOperator.id, name: pairing.groupOperator.name }
     : null;
@@ -123,6 +133,7 @@ export async function GET(request: Request) {
     pageSize: PAGE_SIZE,
     total,
     currentGroupOperator,
+    receptionDevices,
     counts: Object.fromEntries(stages.map((value, index) => [value, counts[index]])),
     customers,
   }, { headers: { "Cache-Control": "private, no-store" } });

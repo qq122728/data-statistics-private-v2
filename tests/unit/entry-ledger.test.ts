@@ -17,7 +17,8 @@ describe("member entry ledger rules", () => {
     expect(normalizeCustomerPhone("138 0013-8000")).toBe("138000");
     expect(normalizeCustomerPhone("+86 138 0013 8000")).toBe("138000");
     expect(normalizeCustomerPhone("381002")).toBe("381002");
-    expect(() => normalizeCustomerPhone("123")).toThrow("客户号码至少需要 6 位数字");
+    expect(normalizeCustomerPhone("123")).toBe("123");
+    expect(() => normalizeCustomerPhone("没有号码")).toThrow("客户号码必须包含数字");
   });
 
   it("chooses the first unused continuation number", () => {

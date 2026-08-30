@@ -3,6 +3,7 @@ import { AuthenticationError, AuthorizationError, requireUser } from "../../../.
 import { buildGroupBusinessPeriods } from "../../../../lib/analytics/group-business-periods";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { sumLatestCurrentInGroup } from "../../../../lib/daily-stat-snapshots";
 import { db } from "../../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
 import { addBatchTotals, calculateConversionRates, emptyBatchTotals, type BatchTotals } from "../../../../lib/metrics";
@@ -43,7 +44,7 @@ function revisionTotals(value: ApprovedDailyRevision): BatchTotals {
 /**
  * 新版管理端共用的真实统计入口。它只负责三件事：
  * 1) 按当前账号的 Duty/组长身份解出允许查看的小组；
- * 2) 只汇总组长已经审核通过的 DailyStatEntry；客户进度动作不参与统计；
+ * 2) 只汇总已经生效的 DailyStatEntry；客户进度动作不参与统计；
  * 3) 把同一个“今日/近7天/当月”按每个小组自己的当地日期换算。
  *
  * 返回的小组汇总和成员明细来自同一次查询，所以不会再出现“上层有假汇总、点进去没明细”。
@@ -124,13 +125,26 @@ export async function GET(request: Request) {
   const groupIds = selectedGroups.map((group) => group.id);
   const minimumFrom = Object.values(periods).map((period) => period.from).sort()[0] ?? range.from;
   const maximumTo = Object.values(periods).map((period) => period.to).sort().at(-1) ?? range.to;
-  const [dailyEntries, activeUsers] = groupIds.length ? await Promise.all([
+  const [dailyEntries, snapshotEntries, activeUsers] = groupIds.length ? await Promise.all([
     db.dailyStatEntry.findMany({
       where: { groupId: { in: groupIds }, approvedRevisionId: { not: null }, businessDate: { gte: minimumFrom, lte: maximumTo } },
       select: {
-        id: true, groupId: true, businessDate: true, position: true, ownerId: true,
+        id: true, groupId: true, channelId: true, sourceReceptionId: true,
+        businessDate: true, position: true, ownerId: true,
         owner: { select: { id: true, name: true, active: true } },
         approvedRevision: true,
+      },
+    }),
+    db.dailyStatEntry.findMany({
+      where: {
+        groupId: { in: groupIds },
+        position: "GROUP_OPERATOR",
+        approvedRevisionId: { not: null },
+        businessDate: { lte: maximumTo },
+      },
+      select: {
+        groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
+        businessDate: true, position: true, approvedRevision: true,
       },
     }),
     db.user.findMany({
@@ -143,7 +157,7 @@ export async function GET(request: Request) {
       },
       select: { id: true, name: true, active: true, groupId: true },
     }),
-  ]) : [[], []];
+  ]) : [[], [], []];
   const entries = dailyEntries.filter((entry) => {
     const period = periods[entry.groupId];
     return Boolean(entry.approvedRevision && period && entry.businessDate >= period.from && entry.businessDate <= period.to);
@@ -184,14 +198,14 @@ export async function GET(request: Request) {
     dailyMemberAggregates.set(dailyMemberKey, dailyMemberAggregate);
   }
 
-  function serializeAggregate(aggregate: Aggregate) {
+  function serializeAggregate(aggregate: Aggregate, inGroup = aggregate.inGroup) {
     const totals = aggregate.totals;
     const abnormalLeave = totals.abnormalGroupLeave ?? 0;
     return {
       totals: {
         added: totals.newFans, collision: totals.duplicateFans, lowAmount: aggregate.lowAmount, noWs: aggregate.noWs,
         effective: totals.effectiveFans, replied: totals.replies, joined: totals.groupJoin,
-        leftNormal: Math.max(0, totals.groupLeave - abnormalLeave), leftAbnormal: abnormalLeave, inGroup: aggregate.inGroup,
+        leftNormal: Math.max(0, totals.groupLeave - abnormalLeave), leftAbnormal: abnormalLeave, inGroup,
         pushed: totals.expertIntro, registered: totals.registration, ordered: totals.orders,
         depositCents: totals.rechargeCents, withdrawalCents: totals.withdrawalCents, netCents: totals.rechargeCents - totals.withdrawalCents,
       },
@@ -203,6 +217,8 @@ export async function GET(request: Request) {
   const groups = selectedGroups.map((metadata) => {
     const period = periods[metadata.id];
     const aggregate = groupAggregates.get(metadata.id) ?? freshAggregate();
+    const inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+      entry.groupId === metadata.id && entry.businessDate <= period.to));
     return {
       id: metadata.id,
       name: metadata.name,
@@ -211,7 +227,7 @@ export async function GET(request: Request) {
       timezone: resolveGroupBusinessTime(metadata).timezone,
       period,
       activePeople: activeUsers.filter((person) => person.groupId === metadata.id).length,
-      ...serializeAggregate(aggregate),
+      ...serializeAggregate(aggregate, inGroup),
     };
   });
 
@@ -220,13 +236,17 @@ export async function GET(request: Request) {
   const members = [...memberPeople.entries()].map(([key, person]) => {
     const aggregate = memberAggregates.get(key) ?? freshAggregate();
     const metadata = metadataByGroup.get(person.groupId!);
+    const period = periods[person.groupId!];
+    const inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+      entry.groupId === person.groupId && entry.ownerId === person.id
+      && Boolean(period) && entry.businessDate <= period.to));
     return ({
     id: person.id,
     name: person.name,
     groupId: person.groupId!,
     groupName: metadata?.name ?? "未知小组",
     active: person.active,
-    ...serializeAggregate(aggregate),
+    ...serializeAggregate(aggregate, inGroup),
   }); });
 
   const days = [...new Set(entries.map((entry) => entry.businessDate))].sort().reverse().map((date) => ({

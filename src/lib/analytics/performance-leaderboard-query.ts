@@ -89,7 +89,7 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
         batch."groupId" AS "groupId",
         orders."initialDepositCents" + COALESCE((
           SELECT SUM(COALESCE(finance_event."amountCents", 0))
-          FROM "MetricEvent" finance_event
+          FROM "CustomerFinanceEvent" finance_event
           WHERE finance_event."customerOrderId" = orders."id"
             AND finance_event."kind" = 'RECHARGE'
             AND finance_event."continuationNumber" IS NOT NULL
@@ -98,7 +98,7 @@ export async function queryPerformanceLeaderboard(input: LeaderboardQueryInput):
         ), 0) AS "rechargeCents",
         COALESCE((
           SELECT SUM(COALESCE(finance_event."amountCents", 0))
-          FROM "MetricEvent" finance_event
+          FROM "CustomerFinanceEvent" finance_event
           WHERE finance_event."customerOrderId" = orders."id"
             AND finance_event."kind" = 'WITHDRAWAL'
             AND finance_event."occurredOn" <= ${input.today}

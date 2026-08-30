@@ -201,56 +201,58 @@ enum ExpertWorkflowStage {
 }
 
 model User {
-  id                        String                   @id
-  employeeCode              String?                  @unique
-  username                  String                   @unique @default("")
-  name                      String
-  passwordHash              String                   @default("")
-  mustChangePassword        Boolean                  @default(false)
-  role                      Role
-  active                    Boolean                  @default(true)
-  groupId                   String?
-  group                     TeamGroup?               @relation(fields: [groupId], references: [id])
-  departmentId              String?
-  department                Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  events                    MetricEvent[]
-  customerOrders            CustomerOrder[]
-  voidedMetricEvents        MetricEvent[]            @relation("MetricEventVoidedBy")
-  voidedCustomerOrders      CustomerOrder[]          @relation("OrderVoidedBy")
-  leads                     LeadCustomer[]
-  expertLeads               LeadCustomer[]           @relation("ExpertOwner")
-  groupOperatorLeads        LeadCustomer[]           @relation("GroupOperatorOwner")
-  groupOperatorAssignments  GroupOperatorReception[] @relation("GroupOperatorAssignments")
-  receptionistAssignments   GroupOperatorReception[] @relation("ReceptionistAssignments")
-  assignedDevices           Device[]                 @relation("DeviceAssignedMember")
-  deviceAccounts            DeviceAccount[]
-  leadActivities            LeadActivity[]
-  exceptionActions          LeadException[]          @relation("ExceptionActor")
-  exceptionOwnership        LeadException[]          @relation("ExceptionOwner")
-  invalidFanReports         InvalidFanReport[]       @relation("InvalidFanReportReporter")
-  reviewedInvalidFanReports InvalidFanReport[]       @relation("InvalidFanReportReviewer")
-  invalidFanReportAudits    InvalidFanReportAudit[]  @relation("InvalidFanReportAuditActor")
-  roleAssignments           UserRoleAssignment[]
-  membershipHistory         UserGroupMembership[]
-  resourceChannelAccess     ResourceChannelAccess[]
-  sessions                  Session[]
-  confirmations             DailyEntryConfirmation[]
-  attendanceRecords         AttendanceRecord[]
-  sentNotifications         Notification[]           @relation("NotificationSender")
-  notificationRecipients    NotificationRecipient[]
-  createdChannels           Channel[]                @relation("ChannelCreatedBy")
-  auditLogs                 AuditLog[]
-  riskDecisions             RiskDecision[]           @relation("RiskDecisionMember")
-  madeRiskDecisions         RiskDecision[]           @relation("RiskDecisionActor")
-  hireDate                  String?
-  recruitmentSource         RecruitmentSource?
-  referrerName              String?
-  stageOverride             EmployeeStageOverride?
-  stageOverrideReason       String?
-  stageOverrideAt           DateTime?
-  lastLoginAt               DateTime?
-  createdAt                 DateTime                 @default(now())
-  updatedAt                 DateTime                 @updatedAt
+  id                          String                   @id
+  employeeCode                String?                  @unique
+  username                    String                   @unique @default("")
+  name                        String
+  passwordHash                String                   @default("")
+  mustChangePassword          Boolean                  @default(false)
+  role                        Role
+  active                      Boolean                  @default(true)
+  groupId                     String?
+  group                       TeamGroup?               @relation(fields: [groupId], references: [id])
+  departmentId                String?
+  department                  Department?              @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  events                      MetricEvent[]
+  customerFinanceEvents       CustomerFinanceEvent[]   @relation("CustomerFinanceEnteredBy")
+  customerOrders              CustomerOrder[]
+  voidedMetricEvents          MetricEvent[]            @relation("MetricEventVoidedBy")
+  voidedCustomerFinanceEvents CustomerFinanceEvent[]   @relation("CustomerFinanceVoidedBy")
+  voidedCustomerOrders        CustomerOrder[]          @relation("OrderVoidedBy")
+  leads                       LeadCustomer[]
+  expertLeads                 LeadCustomer[]           @relation("ExpertOwner")
+  groupOperatorLeads          LeadCustomer[]           @relation("GroupOperatorOwner")
+  groupOperatorAssignments    GroupOperatorReception[] @relation("GroupOperatorAssignments")
+  receptionistAssignments     GroupOperatorReception[] @relation("ReceptionistAssignments")
+  assignedDevices             Device[]                 @relation("DeviceAssignedMember")
+  deviceAccounts              DeviceAccount[]
+  leadActivities              LeadActivity[]
+  exceptionActions            LeadException[]          @relation("ExceptionActor")
+  exceptionOwnership          LeadException[]          @relation("ExceptionOwner")
+  invalidFanReports           InvalidFanReport[]       @relation("InvalidFanReportReporter")
+  reviewedInvalidFanReports   InvalidFanReport[]       @relation("InvalidFanReportReviewer")
+  invalidFanReportAudits      InvalidFanReportAudit[]  @relation("InvalidFanReportAuditActor")
+  roleAssignments             UserRoleAssignment[]
+  membershipHistory           UserGroupMembership[]
+  resourceChannelAccess       ResourceChannelAccess[]
+  sessions                    Session[]
+  confirmations               DailyEntryConfirmation[]
+  attendanceRecords           AttendanceRecord[]
+  sentNotifications           Notification[]           @relation("NotificationSender")
+  notificationRecipients      NotificationRecipient[]
+  createdChannels             Channel[]                @relation("ChannelCreatedBy")
+  auditLogs                   AuditLog[]
+  riskDecisions               RiskDecision[]           @relation("RiskDecisionMember")
+  madeRiskDecisions           RiskDecision[]           @relation("RiskDecisionActor")
+  hireDate                    String?
+  recruitmentSource           RecruitmentSource?
+  referrerName                String?
+  stageOverride               EmployeeStageOverride?
+  stageOverrideReason         String?
+  stageOverrideAt             DateTime?
+  lastLoginAt                 DateTime?
+  createdAt                   DateTime                 @default(now())
+  updatedAt                   DateTime                 @updatedAt
 
   @@index([departmentId])
 }
@@ -390,13 +392,13 @@ model SystemSetting {
 }
 
 model SourceBatch {
-  id                             String             @id @default(cuid())
+  id                             String                 @id @default(cuid())
   groupId                        String
   channelId                      String
   sourceDate                     String
-  fanCostModeSnapshot            FanCostMode        @default(FREE)
+  fanCostModeSnapshot            FanCostMode            @default(FREE)
   effectiveFanPriceCentsSnapshot Int?
-  channelTypeSnapshot            ChannelType        @default(SMS)
+  channelTypeSnapshot            ChannelType            @default(SMS)
   rebateRateBpsSnapshot          Int?
   // 投流批次保存当次广告消耗和服务费率；单粉成本已经冻结在单价快照中。
   advertisingSpendCents          Int?
@@ -404,16 +406,17 @@ model SourceBatch {
   advertisingFanCount            Int?
   advertisingServiceFeeRateBps   Int?
   // 老客户补录使用独立批次：保留业绩和资金，但不参与新粉、有效粉和广告成本。
-  isHistoricalRecord             Boolean            @default(false)
-  group                          TeamGroup          @relation(fields: [groupId], references: [id])
-  channel                        Channel            @relation(fields: [channelId, groupId], references: [id, groupId])
+  isHistoricalRecord             Boolean                @default(false)
+  group                          TeamGroup              @relation(fields: [groupId], references: [id])
+  channel                        Channel                @relation(fields: [channelId, groupId], references: [id, groupId])
   events                         MetricEvent[]
+  customerFinanceEvents          CustomerFinanceEvent[]
   customerOrders                 CustomerOrder[]
   leads                          LeadCustomer[]
   exceptions                     LeadException[]
   invalidFanReports              InvalidFanReport[]
-  createdAt                      DateTime           @default(now())
-  updatedAt                      DateTime           @updatedAt
+  createdAt                      DateTime               @default(now())
+  updatedAt                      DateTime               @updatedAt
 
   @@unique([groupId, channelId, sourceDate])
   @@index([groupId, sourceDate])
@@ -452,27 +455,53 @@ model MetricEvent {
 }
 
 model CustomerOrder {
-  id                   String         @id @default(cuid())
-  phone                String         @unique
+  id                   String                 @id @default(cuid())
+  phone                String                 @unique
   batchId              String
   enteredById          String
   openedOn             String
   initialDepositCents  Int
   initialDepositMethod DepositMethod?
-  leadId               String?        @unique
+  leadId               String?                @unique
   voidedAt             DateTime?
   voidReason           String?
   voidedById           String?
-  batch                SourceBatch    @relation(fields: [batchId], references: [id])
-  enteredBy            User           @relation(fields: [enteredById], references: [id])
-  lead                 LeadCustomer?  @relation(fields: [leadId], references: [id])
-  events               MetricEvent[]
-  voidedBy             User?          @relation("OrderVoidedBy", fields: [voidedById], references: [id])
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  batch                SourceBatch            @relation(fields: [batchId], references: [id])
+  enteredBy            User                   @relation(fields: [enteredById], references: [id])
+  lead                 LeadCustomer?          @relation(fields: [leadId], references: [id])
+  metricEvents         MetricEvent[]
+  events               CustomerFinanceEvent[]
+  voidedBy             User?                  @relation("OrderVoidedBy", fields: [voidedById], references: [id])
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
   @@index([enteredById, openedOn])
   @@index([batchId])
+}
+
+model CustomerFinanceEvent {
+  id                 String         @id @default(cuid())
+  batchId            String
+  customerOrderId    String
+  enteredById        String
+  occurredOn         String
+  kind               MetricKind
+  amountCents        Int
+  depositMethod      DepositMethod?
+  continuationNumber Int?
+  voidedAt           DateTime?
+  voidReason         String?
+  voidedById         String?
+  batch              SourceBatch    @relation(fields: [batchId], references: [id])
+  customerOrder      CustomerOrder  @relation(fields: [customerOrderId], references: [id], onDelete: Cascade)
+  enteredBy          User           @relation("CustomerFinanceEnteredBy", fields: [enteredById], references: [id])
+  voidedBy           User?          @relation("CustomerFinanceVoidedBy", fields: [voidedById], references: [id])
+  createdAt          DateTime       @default(now())
+
+  @@unique([customerOrderId, continuationNumber])
+  @@index([customerOrderId, occurredOn])
+  @@index([enteredById, occurredOn])
+  @@index([batchId, occurredOn])
 }
 
 model LeadCustomer {

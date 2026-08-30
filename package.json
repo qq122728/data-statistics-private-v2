@@ -25,7 +25,7 @@
     "db:postgres:test:up": "docker compose -p data_statistics -f compose.postgres-test.yaml up -d",
     "db:postgres:test:down": "docker compose -p data_statistics -f compose.postgres-test.yaml down",
     "db:postgres:test:prepare": "node scripts/prepare-postgres-migration-test.mjs",
-    "db:postgres:test:check-drift": "node scripts/check-postgres-test-schema-drift.mjs",
+    "db:postgres:test:check-drift": "POSTGRES_TEST_DATABASE_URL=postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55432/data_statistics_test?schema=public POSTGRES_SCHEMA_REFERENCE_DATABASE_URL=postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55433/data_statistics_test?schema=public node scripts/check-postgres-test-schema-drift.mjs",
     "db:postgres:test:copy": "POSTGRES_TEST_DATABASE_URL=postgresql://data_statistics_test:local_test_only_change_me@127.0.0.1:55432/data_statistics_test?schema=public node scripts/migrate-sqlite-to-postgres.mjs",
     "test:db-runtime-privileges:postgres": "bash tests/integration/db-runtime-privileges-postgres.sh",
     "test:api-02:acceptance": "npm run db:generate:sqlite && vitest --run tests/unit/api-request-limits.test.ts tests/unit/api-request-acceptance-tool.test.ts",

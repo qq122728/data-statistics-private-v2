@@ -117,27 +117,18 @@ beforeAll(async () => {
         quantity: 99,
         derivedFromLedger: true,
       },
-      {
-        batchId: ids.batch,
-        enteredById: ids.reception,
-        occurredOn: "2026-08-07",
-        kind: "RECHARGE",
-        amountCents: 20_000,
-        customerOrderId: order.id,
-        continuationNumber: 1,
-        derivedFromLedger: true,
-      },
-      {
-        batchId: ids.batch,
-        enteredById: ids.reception,
-        occurredOn: "2026-08-08",
-        kind: "WITHDRAWAL",
-        amountCents: 10_000,
-        customerOrderId: order.id,
-        derivedFromLedger: true,
-      },
     ],
   });
+  await db.customerFinanceEvent.createMany({ data: [
+    {
+      batchId: ids.batch, enteredById: ids.reception, occurredOn: "2026-08-07",
+      kind: "RECHARGE", amountCents: 20_000, customerOrderId: order.id, continuationNumber: 1,
+    },
+    {
+      batchId: ids.batch, enteredById: ids.reception, occurredOn: "2026-08-08",
+      kind: "WITHDRAWAL", amountCents: 10_000, customerOrderId: order.id,
+    },
+  ] });
 });
 
 afterAll(async () => {

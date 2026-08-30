@@ -1,4 +1,4 @@
-import type { Prisma, Role } from "@prisma/client";
+import type { LeadGroupStatus, Prisma, Role } from "@prisma/client";
 import type { CustomerWorkflowAction } from "./actions";
 import { canUseCustomerWorkflow, roleAllowsCustomerAction } from "./actions";
 import { customerDeleteRoles, getAssignedRoles, hasAssignedRole, roleIsOneOf } from "../role-access";
@@ -15,6 +15,7 @@ type WorkflowLead = {
   ownerId: string;
   expertOwnerId: string | null;
   groupOperatorOwnerId?: string | null;
+  groupStatus: LeadGroupStatus;
   batch: { groupId: string };
 };
 
@@ -37,14 +38,22 @@ export function resolveWorkflowActorRole(
   if (!actor.active) return null;
   if (hasAssignedRole(actor, "LEAD")) return "LEAD";
   const roles = getAssignedRoles(actor);
+  // 多岗位账号必须先按“这个动作属于哪个岗位”选身份。专家动作放在
+  // 接粉归属判断之前，否则同一个人既是原接粉又是当前专家时，会被
+  // 错认成接粉并在客户入群后遭到拦截。
+  if (roles.includes("EXPERT") && lead.expertOwnerId === actor.id && roleAllowsCustomerAction("EXPERT", action))
+    return "EXPERT";
   if (roles.includes("GROUP_OPERATOR") && canActAsGroupOperator(actor, lead) && roleAllowsCustomerAction("GROUP_OPERATOR", action))
+    return "GROUP_OPERATOR";
+  if (roles.includes("RECEPTION") && lead.ownerId === actor.id && roleAllowsCustomerAction("RECEPTION", action))
+    return "RECEPTION";
+  // 以下回退只用于返回更具体的越权说明，不会放行不属于该岗位的动作。
+  if (roles.includes("EXPERT") && lead.expertOwnerId === actor.id)
+    return "EXPERT";
+  if (roles.includes("GROUP_OPERATOR") && canActAsGroupOperator(actor, lead))
     return "GROUP_OPERATOR";
   if (roles.includes("RECEPTION") && lead.ownerId === actor.id)
     return "RECEPTION";
-  if (roles.includes("GROUP_OPERATOR") && canActAsGroupOperator(actor, lead))
-    return "GROUP_OPERATOR";
-  if (roles.includes("EXPERT") && lead.expertOwnerId === actor.id)
-    return "EXPERT";
   return null;
 }
 
@@ -62,6 +71,8 @@ export async function authorizeCustomerAction(
 
   if (effectiveRole === "RECEPTION" && lead.ownerId !== actor.id)
     return { status: 403, error: "只能修改自己的客户" };
+  if (effectiveRole === "RECEPTION" && lead.groupStatus !== "NOT_JOINED")
+    return { status: 403, error: "客户已确认入群并交棒，接粉只能查看后续进度" };
   if (effectiveRole === "RECEPTION" && !roleAllowsCustomerAction(effectiveRole, action))
     return { status: 403, error: "前台接粉只能录入号码、回复回访、确认入群和补充自己的备注" };
 

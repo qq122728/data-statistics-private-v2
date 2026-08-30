@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { sumLatestCurrentInGroup } from "../../../../lib/daily-stat-snapshots";
 import { db } from "../../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
@@ -63,15 +64,27 @@ export async function GET(request: Request) {
     select: {
       groupId: true,
       channelId: true,
+      ownerId: true,
+      sourceReceptionId: true,
       businessDate: true,
       position: true,
       approvedRevision: true,
     },
   }) : [];
+  const snapshotEntries = maximumTo ? await db.dailyStatEntry.findMany({
+    where: {
+      channelId: { in: channels.map((channel) => channel.id) },
+      position: "GROUP_OPERATOR",
+      approvedRevisionId: { not: null },
+      businessDate: { lte: maximumTo },
+    },
+    select: {
+      groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
+      businessDate: true, position: true, approvedRevision: true,
+    },
+  }) : [];
 
-  const rows = channelPeriods.map(({ channel, timezone, today, range }) => {
-    const scoped = entries.filter((entry) => entry.channelId === channel.id && entry.groupId === channel.group.id
-      && entry.businessDate >= range.from && entry.businessDate <= range.to && entry.approvedRevision);
+  function aggregate(scoped: typeof entries, snapshots: typeof snapshotEntries = scoped) {
     const totals = scoped.reduce((sum, entry) => {
       const revision = entry.approvedRevision!;
       sum.added += revision.dispatchCount;
@@ -95,24 +108,40 @@ export async function GET(request: Request) {
       left: 0, abnormalLeft: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0,
       withdrawalCents: 0,
     });
-    const latestOperatorDate = scoped.filter((entry) => entry.position === "GROUP_OPERATOR")
-      .map((entry) => entry.businessDate).sort().at(-1);
-    const inGroup = latestOperatorDate ? scoped
-      .filter((entry) => entry.position === "GROUP_OPERATOR" && entry.businessDate === latestOperatorDate)
-      .reduce((sum, entry) => sum + entry.approvedRevision!.currentInGroupCount, 0) : 0;
+    return { ...totals, inGroup: sumLatestCurrentInGroup(snapshots) };
+  }
+
+  const rows = channelPeriods.map(({ channel, timezone, today, range }) => {
+    const scoped = entries.filter((entry) => entry.channelId === channel.id && entry.groupId === channel.group.id
+      && entry.businessDate >= range.from && entry.businessDate <= range.to && entry.approvedRevision);
+    const snapshots = snapshotEntries.filter((entry) => entry.channelId === channel.id
+      && entry.groupId === channel.group.id && entry.businessDate <= range.to);
     return {
       channel: { id: channel.id, name: channel.name, normalizedName: channel.normalizedName },
       group: { id: channel.group.id, name: channel.group.name, departmentName: channel.group.department.name },
       period: { preset: range.preset, from: range.from, to: range.to, today, timezone },
-      totals: {
-        ...totals,
-        inGroup,
-      },
+      totals: aggregate(scoped, snapshots),
     };
   });
+  const days = [...new Set(entries.map((entry) => entry.businessDate))].sort().reverse().map((date) => ({
+    date,
+    rows: channelPeriods.flatMap(({ channel, timezone, today, range }) => {
+      if (date < range.from || date > range.to) return [];
+      const scoped = entries.filter((entry) => entry.businessDate === date && entry.channelId === channel.id
+        && entry.groupId === channel.group.id && entry.approvedRevision);
+      if (!scoped.length) return [];
+      return [{
+        channel: { id: channel.id, name: channel.name, normalizedName: channel.normalizedName },
+        group: { id: channel.group.id, name: channel.group.name, departmentName: channel.group.department.name },
+        period: { preset: range.preset, from: date, to: date, today, timezone },
+        totals: aggregate(scoped),
+      }];
+    }),
+  })).filter((day) => day.rows.length > 0);
 
   return NextResponse.json({
     rows,
+    days,
     channels: [...new Map(rows.map((row) => [row.channel.id, row.channel])).values()],
     groups: [...new Map(rows.map((row) => [row.group.id, row.group])).values()],
   }, { headers: { "Cache-Control": "private, no-store" } });

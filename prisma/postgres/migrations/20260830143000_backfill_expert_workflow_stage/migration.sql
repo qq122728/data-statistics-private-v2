@@ -1,6 +1,6 @@
 -- Align persisted legacy expert stages with the shared compatibility resolver.
 UPDATE "LeadCustomer"
-SET "expertWorkflowStage" = CASE
+SET "expertWorkflowStage" = (CASE
   WHEN "expertStalledOn" IS NOT NULL THEN 'STALLED'
   WHEN EXISTS (
     SELECT 1 FROM "CustomerOrder"
@@ -13,7 +13,7 @@ SET "expertWorkflowStage" = CASE
   WHEN "expertContactedOn" IS NOT NULL THEN 'TRACKING'
   WHEN "expertIntroducedOn" IS NOT NULL THEN 'QUEUED'
   ELSE NULL
-END
+END)::"ExpertWorkflowStage"
 WHERE "expertWorkflowStage" IS NULL
   AND "expertIntroducedOn" IS NOT NULL;
 

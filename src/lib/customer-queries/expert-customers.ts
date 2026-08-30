@@ -60,7 +60,7 @@ async function loadExpertPerformanceSummary(input: ExpertCustomerQuery, groupId:
       SUM(CASE WHEN orders."id" IS NOT NULL AND orders."voidedAt" IS NULL THEN
         orders."initialDepositCents" + COALESCE((
           SELECT SUM(events."amountCents")
-          FROM "MetricEvent" events
+          FROM "CustomerFinanceEvent" events
           WHERE events."customerOrderId" = orders."id"
             AND events."voidedAt" IS NULL
             AND events."kind" = 'RECHARGE'
@@ -69,19 +69,19 @@ async function loadExpertPerformanceSummary(input: ExpertCustomerQuery, groupId:
       ELSE 0 END) AS "depositCents",
       SUM(CASE WHEN orders."id" IS NOT NULL AND orders."voidedAt" IS NULL THEN
         CASE WHEN orders."initialDepositMethod" = 'CRYPTO' THEN orders."initialDepositCents" ELSE 0 END + COALESCE((
-          SELECT SUM(events."amountCents") FROM "MetricEvent" events
+          SELECT SUM(events."amountCents") FROM "CustomerFinanceEvent" events
           WHERE events."customerOrderId" = orders."id" AND events."voidedAt" IS NULL AND events."kind" = 'RECHARGE'
             AND events."continuationNumber" IS NOT NULL AND events."depositMethod" = 'CRYPTO'
         ), 0) ELSE 0 END) AS "cryptoDepositCents",
       SUM(CASE WHEN orders."id" IS NOT NULL AND orders."voidedAt" IS NULL THEN
         CASE WHEN orders."initialDepositMethod" = 'BANK' THEN orders."initialDepositCents" ELSE 0 END + COALESCE((
-          SELECT SUM(events."amountCents") FROM "MetricEvent" events
+          SELECT SUM(events."amountCents") FROM "CustomerFinanceEvent" events
           WHERE events."customerOrderId" = orders."id" AND events."voidedAt" IS NULL AND events."kind" = 'RECHARGE'
             AND events."continuationNumber" IS NOT NULL AND events."depositMethod" = 'BANK'
         ), 0) ELSE 0 END) AS "bankDepositCents",
       SUM(CASE WHEN orders."id" IS NOT NULL AND orders."voidedAt" IS NULL THEN
         CASE WHEN orders."initialDepositMethod" IS NULL THEN orders."initialDepositCents" ELSE 0 END + COALESCE((
-          SELECT SUM(events."amountCents") FROM "MetricEvent" events
+          SELECT SUM(events."amountCents") FROM "CustomerFinanceEvent" events
           WHERE events."customerOrderId" = orders."id" AND events."voidedAt" IS NULL AND events."kind" = 'RECHARGE'
             AND events."continuationNumber" IS NOT NULL AND events."depositMethod" IS NULL
         ), 0) ELSE 0 END) AS "unclassifiedDepositCents"

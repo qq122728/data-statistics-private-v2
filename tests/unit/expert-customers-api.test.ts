@@ -57,7 +57,7 @@ beforeAll(async () => {
     id: id("order"), phone: "492000000003", batchId: ids.batch, enteredById: ids.expert,
     openedOn: "2026-08-29", initialDepositCents: 114800, initialDepositMethod: "CRYPTO", leadId: ids.ordered,
   } });
-  await db.metricEvent.createMany({ data: [
+  await db.customerFinanceEvent.createMany({ data: [
     { id: id("recharge"), batchId: ids.batch, enteredById: ids.expert, occurredOn: "2026-08-29", kind: "RECHARGE", amountCents: 10000, depositMethod: "CRYPTO", customerOrderId: order.id, continuationNumber: 1 },
     { id: id("withdrawal"), batchId: ids.batch, enteredById: ids.expert, occurredOn: "2026-08-29", kind: "WITHDRAWAL", amountCents: 5000, customerOrderId: order.id },
   ] });

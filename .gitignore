@@ -22,3 +22,5 @@ prisma/dev-before-*.db
 design-qa-assets/
 .superpowers/
 .worktrees/
+.claude/
+test-backups/

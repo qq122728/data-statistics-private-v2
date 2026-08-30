@@ -4,6 +4,7 @@ import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { recordAudit } from "../../../../lib/audit";
 import { DailyStatError, dailyStatEntryInclude, publicDailyStat } from "../../../../lib/daily-stats";
 import { db } from "../../../../lib/db";
+import { expandResourceChannelIdsByType } from "../../../../lib/resource-channel-access";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 
@@ -51,7 +52,16 @@ export async function PATCH(request: Request) {
       });
       if (!actor?.active || !hasAssignedRole(actor, "RESOURCE_MANAGER"))
         throw new DailyStatError("只有在职资源部账号可以审核每日数据", 403);
-      const allowedChannelIds = actor.resourceChannelAccess.map((item) => item.channelId);
+      // 登录读取待核对列表时，资源部权限会按渠道类型扩展到所有小组的同类型渠道。
+      // 确认动作必须在事务内重新执行同一套扩展，不能只使用数据库里作为“类型种子”的原始渠道，
+      // 否则会出现列表看得到、点击确认却返回 404。
+      const channelCatalog = await tx.channel.findMany({
+        select: { id: true, channelType: true },
+      });
+      const allowedChannelIds = expandResourceChannelIdsByType(
+        channelCatalog,
+        actor.resourceChannelAccess.map((item) => item.channelId),
+      );
       const entry = await tx.dailyStatEntry.findFirst({
         where: { id: input.entryId, position: "RECEPTION", channelId: { in: allowedChannelIds } },
         include: dailyStatEntryInclude,

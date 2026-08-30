@@ -21,6 +21,7 @@ export type PermissionUser = {
   departmentId?: string | null;
   managementCountryCode?: string | null;
   active: boolean;
+  roleAssignments?: Array<{ role: Role }>;
   resourceChannelAccess?: Array<{ channelId: string }>;
 };
 
@@ -42,7 +43,7 @@ export async function findLivePermissionUser(
 ): Promise<PermissionUser | null> {
   return client.user.findFirst({
     where: { id: userId, active: true },
-    select: { id: true, role: true, groupId: true, departmentId: true, managementCountryCode: true, active: true },
+    select: { id: true, role: true, groupId: true, departmentId: true, managementCountryCode: true, active: true, roleAssignments: { select: { role: true } } },
   });
 }
 
@@ -87,8 +88,8 @@ export function canWriteCustomerRevenue(
   target: CustomerRevenueWriteTarget,
 ): boolean {
   if (!user.active) return false;
-  if (user.role === "LEAD") return Boolean(user.groupId && target.batch.groupId === user.groupId);
-  if (user.role === "EXPERT") return target.lead?.expertOwnerId === user.id;
+  if (hasAssignedRole(user, "LEAD")) return Boolean(user.groupId && target.batch.groupId === user.groupId);
+  if (hasAssignedRole(user, "EXPERT")) return target.lead?.expertOwnerId === user.id;
   return false;
 }
 

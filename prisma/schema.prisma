@@ -294,8 +294,10 @@ model User {
   managementScopeName         String?
   managementCountryCode       String?
   events                      MetricEvent[]
+  customerFinanceEvents       CustomerFinanceEvent[]          @relation("CustomerFinanceEnteredBy")
   customerOrders              CustomerOrder[]
   voidedMetricEvents          MetricEvent[]                   @relation("MetricEventVoidedBy")
+  voidedCustomerFinanceEvents CustomerFinanceEvent[]          @relation("CustomerFinanceVoidedBy")
   voidedCustomerOrders        CustomerOrder[]                 @relation("OrderVoidedBy")
   leads                       LeadCustomer[]
   attributedLeads             LeadCustomer[]                  @relation("FanAttributionOwner")
@@ -554,29 +556,30 @@ model SystemSetting {
 }
 
 model SourceBatch {
-  id                             String             @id @default(cuid())
+  id                             String                 @id @default(cuid())
   groupId                        String
   channelId                      String
   sourceDate                     String
   // 以下六列仅保留旧版本回滚兼容，新版业务不使用。
-  fanCostModeSnapshot            FanCostMode        @default(FREE)
+  fanCostModeSnapshot            FanCostMode            @default(FREE)
   effectiveFanPriceCentsSnapshot Int?
   rebateRateBpsSnapshot          Int?
   advertisingSpendCents          Int?
   advertisingFanCount            Int?
   advertisingServiceFeeRateBps   Int?
-  channelTypeSnapshot            ChannelType        @default(SMS)
+  channelTypeSnapshot            ChannelType            @default(SMS)
   // 老客户补录使用独立批次：保留业绩和资金，但不参与新粉和有效粉。
-  isHistoricalRecord             Boolean            @default(false)
-  group                          TeamGroup          @relation(fields: [groupId], references: [id])
-  channel                        Channel            @relation(fields: [channelId, groupId], references: [id, groupId])
+  isHistoricalRecord             Boolean                @default(false)
+  group                          TeamGroup              @relation(fields: [groupId], references: [id])
+  channel                        Channel                @relation(fields: [channelId, groupId], references: [id, groupId])
   events                         MetricEvent[]
+  customerFinanceEvents          CustomerFinanceEvent[]
   customerOrders                 CustomerOrder[]
   leads                          LeadCustomer[]
   exceptions                     LeadException[]
   invalidFanReports              InvalidFanReport[]
-  createdAt                      DateTime           @default(now())
-  updatedAt                      DateTime           @updatedAt
+  createdAt                      DateTime               @default(now())
+  updatedAt                      DateTime               @updatedAt
 
   @@unique([groupId, channelId, sourceDate])
   @@index([groupId, sourceDate])
@@ -696,29 +699,57 @@ model DailyStatRevision {
 }
 
 model CustomerOrder {
-  id                   String         @id @default(cuid())
-  phone                String         @unique
+  id                   String                 @id @default(cuid())
+  phone                String                 @unique
   batchId              String
   enteredById          String
   openedOn             String
   initialDepositCents  Int
   initialDepositMethod DepositMethod?
   // 仅保留线上结构兼容；新版不提供“历史已开单”业务入口。
-  isHistoricalBaseline Boolean        @default(false)
-  leadId               String?        @unique
+  isHistoricalBaseline Boolean                @default(false)
+  leadId               String?                @unique
   voidedAt             DateTime?
   voidReason           String?
   voidedById           String?
-  batch                SourceBatch    @relation(fields: [batchId], references: [id])
-  enteredBy            User           @relation(fields: [enteredById], references: [id])
-  lead                 LeadCustomer?  @relation(fields: [leadId], references: [id])
-  events               MetricEvent[]
-  voidedBy             User?          @relation("OrderVoidedBy", fields: [voidedById], references: [id])
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  batch                SourceBatch            @relation(fields: [batchId], references: [id])
+  enteredBy            User                   @relation(fields: [enteredById], references: [id])
+  lead                 LeadCustomer?          @relation(fields: [leadId], references: [id])
+  metricEvents         MetricEvent[]
+  events               CustomerFinanceEvent[]
+  voidedBy             User?                  @relation("OrderVoidedBy", fields: [voidedById], references: [id])
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
   @@index([enteredById, openedOn])
   @@index([batchId])
+}
+
+// 客户资金跟踪的独立明细账。它只服务客户进度，不参与任何统计报表；
+// 每日/区间统计的唯一来源仍是 DailyStatEntry 的正式版本。
+model CustomerFinanceEvent {
+  id                 String         @id @default(cuid())
+  batchId            String
+  customerOrderId    String
+  enteredById        String
+  occurredOn         String
+  kind               MetricKind
+  amountCents        Int
+  depositMethod      DepositMethod?
+  continuationNumber Int?
+  voidedAt           DateTime?
+  voidReason         String?
+  voidedById         String?
+  batch              SourceBatch    @relation(fields: [batchId], references: [id])
+  customerOrder      CustomerOrder  @relation(fields: [customerOrderId], references: [id], onDelete: Cascade)
+  enteredBy          User           @relation("CustomerFinanceEnteredBy", fields: [enteredById], references: [id])
+  voidedBy           User?          @relation("CustomerFinanceVoidedBy", fields: [voidedById], references: [id])
+  createdAt          DateTime       @default(now())
+
+  @@unique([customerOrderId, continuationNumber])
+  @@index([customerOrderId, occurredOn])
+  @@index([enteredById, occurredOn])
+  @@index([batchId, occurredOn])
 }
 
 model LeadCustomer {

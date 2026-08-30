@@ -12,7 +12,7 @@ describe("dashboard query bounds", () => {
 
     expect(page).toContain("loadManagementOverview");
     expect(page).toContain('role: "RECEPTION"');
-    expect(page).toContain('db.metricEvent.groupBy({');
+    expect(page).toContain('db.customerFinanceEvent.groupBy({');
     expect(page).not.toContain('events: { select: { kind: true, amountCents: true, continuationNumber: true, voidedAt: true, occurredOn: true } }');
     expect(queries).toContain("LeadCustomer is the source of truth");
     expect(queries).toContain("derivedFromLedger: false");

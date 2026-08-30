@@ -81,6 +81,43 @@ const emptyValues = {
 };
 
 describe.sequential("独立每日数据填写、修改与审核", () => {
+  it("lets a resource account confirm every same-type channel it can see, but not another channel type", async () => {
+    const data = await fixture();
+    const departmentId = (await db.teamGroup.findUniqueOrThrow({ where: { id: data.groupId } })).departmentId;
+    const secondGroupId = `${prefix}same-type-group-${randomUUID()}`;
+    const adsChannelId = `${prefix}second-ads-${randomUUID()}`;
+    const smsChannelId = `${prefix}unrelated-sms-${randomUUID()}`;
+    await db.teamGroup.create({ data: { id: secondGroupId, name: "同类型第二小组", departmentId, timezone: "UTC" } });
+    const [secondReception, smsReception] = await Promise.all([
+      db.user.create({ data: { id: `${prefix}second-reception-${randomUUID()}`, username: `${prefix}second-reception-${randomUUID()}`, name: "第二接粉", role: "RECEPTION", groupId: secondGroupId } }),
+      db.user.create({ data: { id: `${prefix}sms-reception-${randomUUID()}`, username: `${prefix}sms-reception-${randomUUID()}`, name: "短信接粉", role: "RECEPTION", groupId: secondGroupId } }),
+    ]);
+    await Promise.all([
+      db.channel.create({ data: { id: adsChannelId, groupId: secondGroupId, name: "第二投流", normalizedName: adsChannelId, channelType: "ADS" } }),
+      db.channel.create({ data: { id: smsChannelId, groupId: secondGroupId, name: "短信渠道", normalizedName: smsChannelId, channelType: "SMS" } }),
+    ]);
+
+    signInAs(secondReception);
+    const adsEntry = await POST(request("POST", {
+      businessDate: "2026-08-29", position: "RECEPTION", channelId: adsChannelId,
+      values: { ...emptyValues, dispatchCount: 9, replyCount: 2 },
+    }));
+    signInAs(smsReception);
+    const smsEntry = await POST(request("POST", {
+      businessDate: "2026-08-29", position: "RECEPTION", channelId: smsChannelId,
+      values: { ...emptyValues, dispatchCount: 7, replyCount: 1 },
+    }));
+    const adsEntryId = (await adsEntry.json() as { entry: { id: string } }).entry.id;
+    const smsEntryId = (await smsEntry.json() as { entry: { id: string } }).entry.id;
+
+    // requireUser 在真实登录中会把原始 ADS 种子权限扩成所有 ADS 渠道；这里按同样结果模拟会话。
+    signInAs({ ...data.resource, resourceChannelAccess: [{ channelId: data.channelId }, { channelId: adsChannelId }] });
+    const inbox = await GET_RESOURCE_REVIEW();
+    expect((await inbox.json() as { entries: Array<{ id: string }> }).entries.map((entry) => entry.id)).toContain(adsEntryId);
+    expect((await RESOURCE_REVIEW(request("PATCH", { entryId: adsEntryId, action: "APPROVE" }))).status).toBe(200);
+    expect((await RESOURCE_REVIEW(request("PATCH", { entryId: smsEntryId, action: "APPROVE" }))).status).toBe(404);
+  });
+
   it("computes effective fans, preserves the approved revision during correction, then promotes the new version", async () => {
     const data = await fixture();
     const emptyGroupId = `${prefix}empty-group-${randomUUID()}`;
@@ -106,13 +143,20 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId: createdEntry.id, action: "APPROVE" }))).status).toBe(200);
     const resourceReport = await GET_RESOURCE_REPORTING(new Request("http://localhost/api/resource/reporting?range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     expect(resourceReport.status).toBe(200);
-    const resourceRows = (await resourceReport.json()).rows as Array<{ group: { id: string }; totals: { added: number; effective: number; lowAmount: number; noWs: number; replied: number } }>;
+    const resourceBody = await resourceReport.json();
+    const resourceRows = resourceBody.rows as Array<{ group: { id: string }; totals: { added: number; effective: number; lowAmount: number; noWs: number; replied: number } }>;
     expect(resourceRows.find((row) => row.group.id === data.groupId)?.totals).toMatchObject({
       added: 100, effective: 83, lowAmount: 10, noWs: 5, replied: 30,
     });
     expect(resourceRows.find((row) => row.group.id === emptyGroupId)?.totals).toMatchObject({
       added: 0, effective: 0, lowAmount: 0, noWs: 0, replied: 0,
     });
+    expect(resourceBody.days).toEqual([
+      expect.objectContaining({
+        date: "2026-08-29",
+        rows: [expect.objectContaining({ group: { id: data.groupId, name: expect.any(String), departmentName: expect.any(String) }, totals: expect.objectContaining({ added: 100, effective: 83, replied: 30 }) })],
+      }),
+    ]);
 
     signInAs(data.reception);
     const corrected = await POST(request("POST", {

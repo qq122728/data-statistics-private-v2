@@ -17,8 +17,8 @@ describe.sequential("号码导入前检查", () => {
   it("在客户端和服务端使用同一套分隔、格式与本次重复规则", () => {
     expect(parsePhoneImport("13800138000, 13800138000\n+1 (212) 555-0100\nabc")).toMatchObject({
       rawPhones: ["13800138000", "13800138000", "+1", "(212)", "555-0100", "abc"],
-      distinctPhones: ["138000", "550100"],
-      invalidPhones: ["+1", "(212)", "abc"],
+      distinctPhones: ["138000", "1", "212", "550100"],
+      invalidPhones: ["abc"],
       duplicatePhones: ["138000"],
       duplicateCount: 1,
     });

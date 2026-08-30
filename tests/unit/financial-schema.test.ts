@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -125,15 +125,15 @@ describe("financial member schema", () => {
         quantity: 4,
       },
     });
-    await prisma.metricEvent.createMany({ data: [
-      {
-        batchId: batch.id,
-        enteredById: "financial-schema-actor",
-        occurredOn: "2026-08-03",
-        kind: "GROUP_LEAVE",
-        quantity: 1,
-        parentEventId: join.id,
-      },
+    await prisma.metricEvent.create({ data: {
+      batchId: batch.id,
+      enteredById: "financial-schema-actor",
+      occurredOn: "2026-08-03",
+      kind: "GROUP_LEAVE",
+      quantity: 1,
+      parentEventId: join.id,
+    } });
+    await prisma.customerFinanceEvent.createMany({ data: [
       {
         batchId: batch.id,
         enteredById: "financial-schema-actor",
@@ -166,5 +166,53 @@ describe("financial member schema", () => {
       where: { parentEventId: join.id },
       select: { kind: true, quantity: true },
     })).toEqual({ kind: "GROUP_LEAVE", quantity: 1 });
+  });
+
+  it("backfills old customer finance rows without deleting the rollback ledger", async () => {
+    const [sqliteMigration, postgresMigration] = await Promise.all([
+      readFile("prisma/migrations/20260830230000_decouple_customer_finance_events/migration.sql", "utf8"),
+      readFile("prisma/postgres/migrations/20260830230000_decouple_customer_finance_events/migration.sql", "utf8"),
+    ]);
+    for (const migration of [sqliteMigration, postgresMigration]) {
+      expect(migration).toContain('FROM "MetricEvent"');
+      expect(migration).toContain('"kind" IN (\'RECHARGE\', \'WITHDRAWAL\')');
+      expect(migration).not.toMatch(/DELETE\s+FROM\s+"MetricEvent"/i);
+    }
+    expect(sqliteMigration).toContain("INSERT OR IGNORE");
+    expect(postgresMigration).toContain('ON CONFLICT ("id") DO NOTHING');
+
+    const backfillDatabase = join(databaseDirectory, "finance-backfill.db");
+    await execFile("sqlite3", [backfillDatabase, `
+      CREATE TABLE "SourceBatch" ("id" TEXT PRIMARY KEY);
+      CREATE TABLE "User" ("id" TEXT PRIMARY KEY);
+      CREATE TABLE "CustomerOrder" ("id" TEXT PRIMARY KEY);
+      CREATE TABLE "MetricEvent" (
+        "id" TEXT PRIMARY KEY, "batchId" TEXT NOT NULL, "customerOrderId" TEXT,
+        "enteredById" TEXT NOT NULL, "occurredOn" TEXT NOT NULL, "kind" TEXT NOT NULL,
+        "amountCents" INTEGER, "depositMethod" TEXT, "continuationNumber" INTEGER,
+        "voidedAt" DATETIME, "voidReason" TEXT, "voidedById" TEXT, "createdAt" DATETIME NOT NULL
+      );
+      INSERT INTO "SourceBatch" VALUES ('batch');
+      INSERT INTO "User" VALUES ('actor');
+      INSERT INTO "CustomerOrder" VALUES ('order');
+      INSERT INTO "MetricEvent" VALUES
+        ('recharge', 'batch', 'order', 'actor', '2026-08-02', 'RECHARGE', 2500, 'BANK', 1, NULL, NULL, NULL, '2026-08-02T12:00:00Z'),
+        ('withdrawal', 'batch', 'order', 'actor', '2026-08-03', 'WITHDRAWAL', 500, NULL, NULL, NULL, NULL, NULL, '2026-08-03T12:00:00Z'),
+        ('reply', 'batch', NULL, 'actor', '2026-08-03', 'REPLIES', NULL, NULL, NULL, NULL, NULL, NULL, '2026-08-03T12:00:00Z');
+    `]);
+    await execFile("sqlite3", [backfillDatabase, sqliteMigration.replace(/^--.*\n/gm, "")]);
+    // Replaying only the copy statement is safe: existing ids are ignored and amounts are not doubled.
+    const copyStatement = sqliteMigration.match(/INSERT OR IGNORE[\s\S]*?;\n/)?.[0];
+    expect(copyStatement).toBeTruthy();
+    await execFile("sqlite3", [backfillDatabase, copyStatement!]);
+    const [financeRows, legacyRows] = await Promise.all([
+      execFile("sqlite3", ["-json", backfillDatabase, 'SELECT "id", "kind", "amountCents", "continuationNumber" FROM "CustomerFinanceEvent" ORDER BY "id";']),
+      execFile("sqlite3", ["-json", backfillDatabase, 'SELECT COUNT(*) AS "legacyCount" FROM "MetricEvent";']),
+    ]);
+    expect(JSON.parse(financeRows.stdout)).toEqual([
+      { id: "recharge", kind: "RECHARGE", amountCents: 2500, continuationNumber: 1 },
+      { id: "withdrawal", kind: "WITHDRAWAL", amountCents: 500, continuationNumber: null },
+    ]);
+    expect(JSON.parse(legacyRows.stdout)).toEqual([{ legacyCount: 3 }]);
   });
 });

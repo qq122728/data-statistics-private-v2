@@ -287,6 +287,9 @@ export async function PATCH(request: Request) {
   const includesSecondaryRoles = Object.prototype.hasOwnProperty.call(body, "secondaryRoles");
   if (includesSecondaryRoles && !Array.isArray(body.secondaryRoles))
     return NextResponse.json({ error: "兼任岗位参数不正确" }, { status: 400 });
+  if (requested.role !== undefined || includesSecondaryRoles) {
+    return NextResponse.json({ error: "岗位变化必须使用“人员调岗与跨组调动”，不能直接覆盖岗位历史" }, { status: 400 });
+  }
   if (typeof body.password === "string") {
     if (body.password.length < PASSWORD_MIN_LENGTH || body.password.length > API_LIMITS.loginPasswordCharacters) {
       return NextResponse.json(

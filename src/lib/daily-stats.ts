@@ -94,8 +94,8 @@ function normalizeSources(input: SaveDailyStatInput) {
 function revisionValues(input: SaveDailyStatInput) {
   const all = input.values;
   if (input.position === "RECEPTION") {
-    const effectiveCount = all.dispatchCount - all.lowAmountCount - all.noWsCount;
-    if (effectiveCount < 0) throw new DailyStatError("低金额与无 WhatsApp 数量不能超过总下发粉数量");
+    const effectiveCount = all.dispatchCount - all.duplicateCount - all.lowAmountCount - all.noWsCount;
+    if (effectiveCount < 0) throw new DailyStatError("撞粉、低金额与无 WhatsApp 数量之和不能超过总下发粉数量");
     return {
       dispatchCount: all.dispatchCount,
       duplicateCount: all.duplicateCount,

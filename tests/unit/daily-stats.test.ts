@@ -95,7 +95,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     }));
     expect(created.status).toBe(201);
     const createdEntry = (await created.json() as { entry: { id: string; currentRevision: { effectiveCount: number } } }).entry;
-    expect(createdEntry.currentRevision.effectiveCount).toBe(85);
+    expect(createdEntry.currentRevision.effectiveCount).toBe(83);
 
     const submitted = await PATCH(request("PATCH", { entryId: createdEntry.id, action: "SUBMIT" }));
     expect(submitted.status).toBe(200);
@@ -111,7 +111,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect(resourceReport.status).toBe(200);
     const resourceRows = (await resourceReport.json()).rows as Array<{ group: { id: string }; totals: { added: number; effective: number; lowAmount: number; noWs: number; replied: number } }>;
     expect(resourceRows.find((row) => row.group.id === data.groupId)?.totals).toMatchObject({
-      added: 100, effective: 85, lowAmount: 10, noWs: 5, replied: 30,
+      added: 100, effective: 83, lowAmount: 10, noWs: 5, replied: 30,
     });
     expect(resourceRows.find((row) => row.group.id === emptyGroupId)?.totals).toMatchObject({
       added: 0, effective: 0, lowAmount: 0, noWs: 0, replied: 0,

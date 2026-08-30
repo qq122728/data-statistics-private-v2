@@ -247,11 +247,8 @@ export async function saveDailyStat(
   if (existing && (existing.ownerId !== actor.id || existing.identityKey !== identityKey)) {
     throw new DailyStatError("不能修改其他员工或其他来源线的数据", 403);
   }
-  if (existing && ["PENDING", "CORRECTION_PENDING"].includes(existing.status)) {
-    throw new DailyStatError("这条数据正在等待审核，请先撤回再修改", 409);
-  }
-  if (existing?.status === "APPROVED" && !input.changeReason) {
-    throw new DailyStatError("已审核数据必须填写更正原因", 400);
+  if (existing?.approvedRevisionId && !input.changeReason) {
+    throw new DailyStatError("已确认数据必须填写更正原因", 400);
   }
 
   const values = revisionValues(input);
@@ -278,18 +275,21 @@ export async function saveDailyStat(
       entryId: entry.id,
       version,
       createdById: actor.id,
-      // 首次审核或资源部退回后，员工通常只需要按退回意见改数字。
-      // 把退回原因带进新版本，避免重新提交后页面又误写成“首次填写”。
+      // 兼容旧流程留下的退回原因；新流程发现问题后由资源部线下联系员工直接修改。
       changeReason: input.changeReason || existing?.reviewReason || null,
       ...values,
     },
   });
-  const nextStatus = existing?.approvedRevisionId ? "DRAFT" : existing?.status === "RETURNED" ? "DRAFT" : entry.status;
+  const requiresResourceCheck = input.position === "RECEPTION";
+  const savedAt = new Date();
   return tx.dailyStatEntry.update({
     where: { id: entry.id },
     data: {
       currentRevisionId: revision.id,
-      status: nextStatus,
+      status: requiresResourceCheck ? "RESOURCE_PENDING" : "APPROVED",
+      // 接粉纠错在资源部确认前继续保留上一版正式数字；炒群/专家保存后立即采用最新版。
+      approvedRevisionId: requiresResourceCheck ? existing?.approvedRevisionId ?? null : revision.id,
+      submittedAt: savedAt,
       reviewReason: null,
       reviewedAt: null,
       reviewedById: null,
@@ -315,133 +315,5 @@ export function publicDailyStat(entry: DailyStatWithDetails) {
   return {
     ...entry,
     officialRevision: entry.approvedRevision,
-  };
-}
-
-export async function transitionDailyStat(
-  tx: Prisma.TransactionClient,
-  actor: DailyStatActor,
-  input: { entryId: string; action: "SUBMIT" | "WITHDRAW" },
-) {
-  const entry = await tx.dailyStatEntry.findUnique({ where: { id: input.entryId }, include: dailyStatEntryInclude });
-  if (!entry || entry.ownerId !== actor.id) throw new DailyStatError("每日数据不存在", 404);
-  if (!entry.currentRevisionId) throw new DailyStatError("请先保存数据");
-  if (input.action === "SUBMIT") {
-    if (!["DRAFT", "RETURNED"].includes(entry.status)) throw new DailyStatError("当前状态不能提交", 409);
-    return tx.dailyStatEntry.update({
-      where: { id: entry.id },
-      data: {
-        status: entry.approvedRevisionId ? "CORRECTION_PENDING" : "PENDING",
-        submittedAt: new Date(),
-        reviewReason: null,
-      },
-      include: dailyStatEntryInclude,
-    });
-  }
-  if (!["PENDING", "CORRECTION_PENDING"].includes(entry.status)) throw new DailyStatError("当前状态不能撤回", 409);
-  return tx.dailyStatEntry.update({
-    where: { id: entry.id },
-    data: { status: "DRAFT", submittedAt: null },
-    include: dailyStatEntryInclude,
-  });
-}
-
-export async function reviewDailyStat(
-  tx: Prisma.TransactionClient,
-  reviewer: { id: string; active: boolean; groupId: string | null; role: string; duty?: string | null },
-  input: { entryId: string; action: "RETURN"; reason?: string | null },
-) {
-  if (!reviewer.active || !reviewer.groupId || !(reviewer.role === "LEAD" || reviewer.duty === "LEAD")) {
-    throw new DailyStatError("只有本组组长可以审核每日数据", 403);
-  }
-  const entry = await tx.dailyStatEntry.findUnique({ where: { id: input.entryId }, include: dailyStatEntryInclude });
-  if (!entry || entry.groupId !== reviewer.groupId) throw new DailyStatError("每日数据不存在", 404);
-  if (!["PENDING", "CORRECTION_PENDING"].includes(entry.status)) throw new DailyStatError("这条数据不在待审核状态", 409);
-  if (!input.reason?.trim()) throw new DailyStatError("退回时必须填写原因");
-
-  return tx.dailyStatEntry.update({
-    where: { id: entry.id },
-    data: {
-      status: "RETURNED",
-      reviewedById: reviewer.id,
-      reviewedAt: new Date(),
-      reviewReason: input.reason.trim(),
-    },
-    include: dailyStatEntryInclude,
-  });
-}
-
-export async function forwardDailyStatsToResource(
-  tx: Prisma.TransactionClient,
-  reviewer: { id: string; active: boolean; groupId: string | null; role: string; duty?: string | null },
-  businessDate: string,
-) {
-  if (!reviewer.active || !reviewer.groupId || !(reviewer.role === "LEAD" || reviewer.duty === "LEAD")) {
-    throw new DailyStatError("只有本组组长可以发送每日数据", 403);
-  }
-  const [entries, members] = await Promise.all([
-    tx.dailyStatEntry.findMany({
-      where: { groupId: reviewer.groupId, businessDate },
-      select: { id: true, ownerId: true, position: true, status: true, currentRevisionId: true, channelId: true, channel: { select: { name: true } } },
-    }),
-    tx.user.findMany({
-      where: { groupId: reviewer.groupId, active: true },
-      select: { id: true, name: true, role: true, roleAssignments: { select: { role: true } } },
-    }),
-  ]);
-  const editable = entries.filter((entry) => ["DRAFT", "RETURNED"].includes(entry.status));
-  if (editable.length) throw new DailyStatError(`还有 ${editable.length} 条草稿或退回数据，不能发送资源部`, 409);
-  const submitted = entries.filter((entry) => ["PENDING", "CORRECTION_PENDING"].includes(entry.status) && entry.currentRevisionId);
-  if (!submitted.length) throw new DailyStatError("这一天没有可发送的员工数据", 409);
-
-  const frontline = new Set(["RECEPTION", "GROUP_OPERATOR", "EXPERT"]);
-  // 资源部可能先通过同一天的大部分记录、只退回其中一条。员工修好后再次发送时，
-  // 已在资源部或已终审的岗位也算“当天已填写”，不能误报为整组漏填。
-  const coveredKeys = new Set(entries
-    .filter((entry) => ["PENDING", "CORRECTION_PENDING", "RESOURCE_PENDING", "APPROVED"].includes(entry.status) && entry.currentRevisionId)
-    .map((entry) => `${entry.ownerId}:${entry.position}`));
-  const missing = members.flatMap((member) => [...new Set([member.role, ...member.roleAssignments.map((item) => item.role)])]
-    .filter((role) => frontline.has(role))
-    .filter((role) => !coveredKeys.has(`${member.id}:${role}`))
-    .map((role) => `${member.name}（${role === "RECEPTION" ? "接粉" : role === "GROUP_OPERATOR" ? "炒群" : "专家"}）`));
-  if (missing.length) throw new DailyStatError(`以下岗位还没提交：${missing.join("、")}`, 409);
-
-  const receptionSubmitted = submitted.filter((entry) => entry.position === "RECEPTION");
-  const directlyApproved = submitted.filter((entry) => entry.position !== "RECEPTION");
-  const channelIds = [...new Set(receptionSubmitted.map((entry) => entry.channelId))];
-  const resourceAccess = await tx.resourceChannelAccess.findMany({
-    where: { channelId: { in: channelIds }, user: { active: true, role: "RESOURCE_MANAGER" } },
-    select: { channelId: true },
-  });
-  const coveredChannels = new Set(resourceAccess.map((access) => access.channelId));
-  const uncovered = [...new Map(receptionSubmitted.filter((entry) => !coveredChannels.has(entry.channelId)).map((entry) => [entry.channelId, entry.channel.name])).values()];
-  if (uncovered.length) throw new DailyStatError(`以下渠道没有在职资源部审核账号：${uncovered.join("、")}`, 409);
-
-  const reviewedAt = new Date();
-  const receptionIds = receptionSubmitted.map((entry) => entry.id);
-  const directIds = directlyApproved.map((entry) => entry.id);
-  if (receptionIds.length) {
-    await tx.dailyStatEntry.updateMany({
-      where: { id: { in: receptionIds }, status: { in: ["PENDING", "CORRECTION_PENDING"] } },
-      data: { status: "RESOURCE_PENDING", reviewedById: reviewer.id, reviewedAt, reviewReason: null },
-    });
-  }
-  for (const entry of directlyApproved) {
-    await tx.dailyStatEntry.update({
-      where: { id: entry.id },
-      data: {
-        status: "APPROVED",
-        approvedRevisionId: entry.currentRevisionId,
-        reviewedById: reviewer.id,
-        reviewedAt,
-        reviewReason: null,
-      },
-    });
-  }
-  return {
-    count: receptionIds.length + directIds.length,
-    resourceReviewCount: receptionIds.length,
-    directlyApprovedCount: directIds.length,
-    businessDate,
   };
 }

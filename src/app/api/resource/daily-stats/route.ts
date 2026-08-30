@@ -9,11 +9,7 @@ import { authorizationDenied } from "../../../../lib/security-events";
 
 const reviewSchema = z.object({
   entryId: z.string().trim().min(1),
-  action: z.enum(["APPROVE", "RETURN"]),
-  reason: z.string().trim().max(500).nullable().optional(),
-}).superRefine((value, context) => {
-  if (value.action === "RETURN" && !value.reason)
-    context.addIssue({ code: "custom", path: ["reason"], message: "退回时必须填写原因" });
+  action: z.literal("APPROVE"),
 });
 
 async function resourceActor() {
@@ -65,26 +61,21 @@ export async function PATCH(request: Request) {
       const reviewedAt = new Date();
       const updated = await tx.dailyStatEntry.update({
         where: { id: entry.id },
-        data: input.action === "APPROVE" ? {
+        data: {
           status: "APPROVED",
           approvedRevisionId: entry.currentRevisionId,
           reviewedById: actor.id,
           reviewedAt,
           reviewReason: null,
-        } : {
-          status: "RETURNED",
-          reviewedById: actor.id,
-          reviewedAt,
-          reviewReason: input.reason!.trim(),
         },
         include: dailyStatEntryInclude,
       });
       await recordAudit(tx, {
         actorId: actor.id,
-        action: input.action === "APPROVE" ? "DAILY_STAT_RESOURCE_APPROVED" : "DAILY_STAT_RESOURCE_RETURNED",
+        action: "DAILY_STAT_RESOURCE_APPROVED",
         entityType: "DailyStatEntry",
         entityId: entry.id,
-        summary: { businessDate: entry.businessDate, reason: input.reason || null },
+        summary: { businessDate: entry.businessDate },
       });
       return updated;
     }, { isolationLevel: "Serializable" });

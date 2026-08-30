@@ -7,17 +7,11 @@ import {
   dailyStatEntryInclude,
   publicDailyStat,
   saveDailyStat,
-  transitionDailyStat,
 } from "../../../lib/daily-stats";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { db } from "../../../lib/db";
 import { getAssignedRoles } from "../../../lib/role-access";
 import { authorizationDenied, type SecurityEventActor } from "../../../lib/security-events";
-
-const transitionSchema = z.object({
-  entryId: z.string().trim().min(1),
-  action: z.enum(["SUBMIT", "WITHDRAW"]),
-});
 
 function errorResponse(error: unknown, actor?: SecurityEventActor) {
   if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });
@@ -169,26 +163,6 @@ export async function POST(request: Request) {
       return saveDailyStat(tx, actor, body);
     }, { isolationLevel: "Serializable" });
     return NextResponse.json({ entry: publicDailyStat(entry) }, { status: 201 });
-  } catch (error) {
-    return errorResponse(error, securityActor);
-  }
-}
-
-export async function PATCH(request: Request) {
-  let securityActor: SecurityEventActor | undefined;
-  try {
-    const sessionUser = await requireUser();
-    securityActor = sessionUser;
-    const input = transitionSchema.parse(await request.json());
-    const entry = await db.$transaction(async (tx) => {
-      const actor = await tx.user.findUnique({
-        where: { id: sessionUser.id },
-        select: { id: true, active: true, role: true, groupId: true, roleAssignments: { select: { role: true } } },
-      });
-      if (!actor) throw new DailyStatError("账号不存在", 401);
-      return transitionDailyStat(tx, actor, input);
-    }, { isolationLevel: "Serializable" });
-    return NextResponse.json({ entry: publicDailyStat(entry) });
   } catch (error) {
     return errorResponse(error, securityActor);
   }

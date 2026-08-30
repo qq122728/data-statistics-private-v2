@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
-import { GET, PATCH, POST } from "../../src/app/api/daily-stats/route";
-import { GET as GET_REVIEW, PATCH as PATCH_REVIEW, POST as FORWARD_TO_RESOURCE } from "../../src/app/api/lead/daily-stats/route";
+import { GET, POST } from "../../src/app/api/daily-stats/route";
 import { GET as GET_RESOURCE_REVIEW, PATCH as RESOURCE_REVIEW } from "../../src/app/api/resource/daily-stats/route";
 import { GET as GET_RESOURCE_REPORTING } from "../../src/app/api/resource/reporting/route";
 import { GET as GET_PERSONAL_PERFORMANCE } from "../../src/app/api/personal-performance/route";
@@ -98,15 +97,12 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     const createdEntry = (await created.json() as { entry: { id: string; currentRevision: { effectiveCount: number } } }).entry;
     expect(createdEntry.currentRevision.effectiveCount).toBe(83);
 
-    const submitted = await PATCH(request("PATCH", { entryId: createdEntry.id, action: "SUBMIT" }));
-    expect(submitted.status).toBe(200);
-    await db.user.updateMany({ where: { id: { in: [data.operator.id, data.expert.id] } }, data: { active: false } });
-    signInAs(data.lead);
-    const inbox = await GET_REVIEW(new Request("http://localhost/api/lead/daily-stats"));
-    expect((await inbox.json() as { entries: unknown[] }).entries).toHaveLength(1);
-    expect((await FORWARD_TO_RESOURCE(request("POST", { businessDate: "2026-08-29" }))).status).toBe(200);
     signInAs(data.resource);
-    expect((await GET_RESOURCE_REVIEW()).status).toBe(200);
+    const firstInbox = await GET_RESOURCE_REVIEW();
+    expect(firstInbox.status).toBe(200);
+    expect((await firstInbox.json() as { entries: Array<{ id: string }> }).entries).toEqual([
+      expect.objectContaining({ id: createdEntry.id }),
+    ]);
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId: createdEntry.id, action: "APPROVE" }))).status).toBe(200);
     const resourceReport = await GET_RESOURCE_REPORTING(new Request("http://localhost/api/resource/reporting?range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     expect(resourceReport.status).toBe(200);
@@ -135,16 +131,13 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect(duringCorrection.currentRevision?.replyCount).toBe(31);
     expect(duringCorrection.approvedRevision?.replyCount).toBe(30);
 
-    await PATCH(request("PATCH", { entryId: createdEntry.id, action: "SUBMIT" }));
-    signInAs(data.lead);
-    await FORWARD_TO_RESOURCE(request("POST", { businessDate: "2026-08-29" }));
     signInAs(data.resource);
     await RESOURCE_REVIEW(request("PATCH", { entryId: createdEntry.id, action: "APPROVE" }));
     await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: createdEntry.id }, include: { approvedRevision: true } }))
       .resolves.toMatchObject({ status: "APPROVED", approvedRevision: { replyCount: 31 } });
   });
 
-  it("carries a reviewer return reason into the next revision and marks it as a correction", async () => {
+  it("lets reception privately correct a resource-pending row before resource confirmation", async () => {
     const data = await fixture();
     signInAs(data.reception);
     const created = await POST(request("POST", {
@@ -152,19 +145,21 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       values: { ...emptyValues, dispatchCount: 10, replyCount: 2 },
     }));
     const entryId = (await created.json() as { entry: { id: string } }).entry.id;
-    await PATCH(request("PATCH", { entryId, action: "SUBMIT" }));
-    await db.user.updateMany({ where: { id: { in: [data.operator.id, data.expert.id] } }, data: { active: false } });
-
-    signInAs(data.lead);
-    expect((await PATCH_REVIEW(request("PATCH", { entryId, action: "RETURN", reason: "回复数量需要复核" }))).status).toBe(200);
-
     signInAs(data.reception);
     expect((await POST(request("POST", {
       entryId, businessDate: "2026-08-29", position: "RECEPTION", channelId: data.channelId,
       values: { ...emptyValues, dispatchCount: 10, replyCount: 3 },
     }))).status).toBe(201);
     await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: entryId }, include: { currentRevision: true } }))
-      .resolves.toMatchObject({ currentRevision: { version: 2, changeReason: "回复数量需要复核", replyCount: 3 } });
+      .resolves.toMatchObject({ status: "RESOURCE_PENDING", currentRevision: { version: 2, replyCount: 3 } });
+
+    signInAs(data.resource);
+    const inbox = await GET_RESOURCE_REVIEW();
+    await expect(inbox.json()).resolves.toMatchObject({
+      entries: [expect.objectContaining({ id: entryId, currentRevision: expect.objectContaining({ version: 2, replyCount: 3 }) })],
+    });
+    expect((await RESOURCE_REVIEW(request("PATCH", { entryId, action: "RETURN", reason: "不走系统退回" }))).status).toBe(400);
+    expect((await RESOURCE_REVIEW(request("PATCH", { entryId, action: "APPROVE" }))).status).toBe(200);
   });
 
   it("requires source reception for operator data and both source roles for expert data", async () => {
@@ -206,12 +201,6 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
         currentRevision: { expertReceivedCount: 5, cryptoInitialDepositCents: 114800 },
       });
 
-    for (const [owner, entryId] of [[data.reception, receptionEntryId], [data.operator, operatorEntryId], [data.expert, expertEntryId]] as const) {
-      signInAs(owner);
-      expect((await PATCH(request("PATCH", { entryId, action: "SUBMIT" }))).status).toBe(200);
-    }
-    signInAs(data.lead);
-    expect((await FORWARD_TO_RESOURCE(request("POST", { businessDate: "2026-08-29" }))).status).toBe(200);
     signInAs(data.resource);
     const resourceInbox = await GET_RESOURCE_REVIEW();
     expect(resourceInbox.status).toBe(200);
@@ -254,7 +243,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     });
   });
 
-  it("lets an employee withdraw a pending row before editing", async () => {
+  it("lets reception edit a saved row freely while resource is still checking it", async () => {
     const data = await fixture();
     signInAs(data.reception);
     const created = await POST(request("POST", {
@@ -262,19 +251,13 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       values: { ...emptyValues, dispatchCount: 10, replyCount: 3 },
     }));
     const id = (await created.json() as { entry: { id: string } }).entry.id;
-    await PATCH(request("PATCH", { entryId: id, action: "SUBMIT" }));
-    const blocked = await POST(request("POST", {
-      entryId: id, businessDate: "2026-08-29", position: "RECEPTION", channelId: data.channelId,
-      values: { ...emptyValues, dispatchCount: 10, replyCount: 4 },
-    }));
-    expect(blocked.status).toBe(409);
-    const withdrawn = await PATCH(request("PATCH", { entryId: id, action: "WITHDRAW" }));
-    expect(withdrawn.status).toBe(200);
     const edited = await POST(request("POST", {
       entryId: id, businessDate: "2026-08-29", position: "RECEPTION", channelId: data.channelId,
       values: { ...emptyValues, dispatchCount: 10, replyCount: 4 },
     }));
     expect(edited.status).toBe(201);
+    await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id }, include: { currentRevision: true } }))
+      .resolves.toMatchObject({ status: "RESOURCE_PENDING", currentRevision: { version: 2, replyCount: 4 } });
   });
 
   it("lists the actor's own rows and role-aware form options", async () => {

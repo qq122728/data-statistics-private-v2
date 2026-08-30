@@ -61,6 +61,7 @@ beforeAll(async () => {
     { id: id("other-group"), phone: "491000000007", batchId: ids.otherBatch, ownerId: ids.reception, groupOperatorOwnerId: ids.operator, groupStatus: "JOINED" },
   ] });
   await db.leadActivity.create({ data: { leadId: id("recent-action"), actorId: ids.operator, kind: "EXPERT_INTRODUCED", occurredOn: "2026-08-29" } });
+  await db.leadActivity.create({ data: { leadId: id("fallback"), actorId: ids.operator, kind: "GROUP_PROGRESS_UPDATED", occurredOn: "2026-08-29", note: "客户正在群内了解资料" } });
 });
 
 afterAll(async () => {
@@ -88,6 +89,7 @@ describe.sequential("新版炒群本人客户 API", () => {
     const left = await (await GET(request("stage=left"))).json();
 
     expect(active.customers.map((customer: { phone: string }) => customer.phone)).toEqual(["491000000001"]);
+    expect(active.customers[0].latestGroupProgress).toMatchObject({ note: "客户正在群内了解资料", actor: { id: ids.operator } });
     expect(introduced.counts).toEqual({ active: 1, introduced: 1, left: 1 });
     expect(introduced.expertAssignees).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: ids.expert, name: "本组专家" }),

@@ -142,6 +142,13 @@ export async function GET(request: Request) {
       },
     },
   }) : [];
+  const latestGroupProgressRows = pageIds.length ? await db.leadActivity.findMany({
+    where: { leadId: { in: pageIds }, kind: "GROUP_PROGRESS_UPDATED" },
+    select: { leadId: true, id: true, kind: true, occurredOn: true, note: true, actor: { select: { id: true, name: true } } },
+    orderBy: [{ leadId: "asc" }, { occurredOn: "desc" }, { createdAt: "desc" }],
+    distinct: ["leadId"],
+  }) : [];
+  const latestGroupProgressByLead = new Map(latestGroupProgressRows.map((activity) => [activity.leadId, activity]));
   const byId = new Map(rows.map((row) => [row.id, row]));
   const customers = pageIds.flatMap((id) => {
     const customer = byId.get(id);
@@ -151,6 +158,7 @@ export async function GET(request: Request) {
     const withdrawals = order?.events.filter((event) => event.kind === "WITHDRAWAL") ?? [];
     return [{
       ...customer,
+      latestGroupProgress: latestGroupProgressByLead.get(customer.id) ?? null,
       stage: groupStage(customer),
       isHistoricalRecord: customer.isHistoricalRecord || customer.batch.isHistoricalRecord,
       sourceName: customer.historicalSourceName?.trim() || customer.batch.channel.name,

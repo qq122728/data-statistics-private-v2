@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { loadChannelAnalysis } from "../../../../lib/analytics/channel-analysis";
-import type { AnalysisScope } from "../../../../lib/analytics/types";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../../lib/dates";
@@ -44,7 +42,7 @@ export async function GET(request: Request) {
 
   const requestedRange = params.get("range") ?? "month";
   const preset = ranges.has(requestedRange) ? requestedRange : "month";
-  const rows = await Promise.all(channels.map(async (channel) => {
+  const channelPeriods = channels.map((channel) => {
     const timezone = resolveGroupBusinessTime(channel.group).timezone;
     const today = localDateYYYYMMDD(new Date(), timezone);
     const range = resolveDateRangeWithDefault({
@@ -52,37 +50,66 @@ export async function GET(request: Request) {
       sourceDateFrom: params.get("sourceDateFrom") ?? undefined,
       sourceDateTo: params.get("sourceDateTo") ?? undefined,
     }, today, "month");
-    const scope: AnalysisScope = {
-      actorId: actor.id, role: "RESOURCE_MANAGER", groupIds: [channel.group.id], groupId: channel.group.id,
-      channelIds: [channel.id], sourceDateFrom: range.from, sourceDateTo: range.to,
-      includeInactive: false, showInsufficient: false, requestedForbiddenGroup: false,
-    };
-    const analysis = await loadChannelAnalysis(scope, today);
-    const row = analysis.rows[0];
-    const totals = row?.totals;
+    return { channel, timezone, today, range };
+  });
+  const minimumFrom = channelPeriods.map((item) => item.range.from).sort()[0];
+  const maximumTo = channelPeriods.map((item) => item.range.to).sort().at(-1);
+  const entries = minimumFrom && maximumTo ? await db.dailyStatEntry.findMany({
+    where: {
+      channelId: { in: channels.map((channel) => channel.id) },
+      approvedRevisionId: { not: null },
+      businessDate: { gte: minimumFrom, lte: maximumTo },
+    },
+    select: {
+      groupId: true,
+      channelId: true,
+      businessDate: true,
+      position: true,
+      approvedRevision: true,
+    },
+  }) : [];
+
+  const rows = channelPeriods.map(({ channel, timezone, today, range }) => {
+    const scoped = entries.filter((entry) => entry.channelId === channel.id && entry.groupId === channel.group.id
+      && entry.businessDate >= range.from && entry.businessDate <= range.to && entry.approvedRevision);
+    const totals = scoped.reduce((sum, entry) => {
+      const revision = entry.approvedRevision!;
+      sum.added += revision.dispatchCount;
+      sum.collision += revision.duplicateCount;
+      sum.lowAmount += revision.lowAmountCount;
+      sum.noWs += revision.noWsCount;
+      sum.effective += revision.effectiveCount;
+      sum.replied += revision.replyCount;
+      sum.joined += revision.joinCount;
+      sum.left += revision.normalLeaveCount + revision.abnormalLeaveCount;
+      sum.abnormalLeft += revision.abnormalLeaveCount;
+      sum.pushed += revision.expertIntroCount;
+      sum.registered += revision.registrationCount;
+      sum.ordered += revision.orderCount;
+      sum.depositCents += revision.cryptoInitialDepositCents + revision.bankInitialDepositCents
+        + revision.cryptoRechargeCents + revision.bankRechargeCents;
+      sum.withdrawalCents += revision.withdrawalCents;
+      return sum;
+    }, {
+      added: 0, collision: 0, lowAmount: 0, noWs: 0, effective: 0, replied: 0, joined: 0,
+      left: 0, abnormalLeft: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0,
+      withdrawalCents: 0,
+    });
+    const latestOperatorDate = scoped.filter((entry) => entry.position === "GROUP_OPERATOR")
+      .map((entry) => entry.businessDate).sort().at(-1);
+    const inGroup = latestOperatorDate ? scoped
+      .filter((entry) => entry.position === "GROUP_OPERATOR" && entry.businessDate === latestOperatorDate)
+      .reduce((sum, entry) => sum + entry.approvedRevision!.currentInGroupCount, 0) : 0;
     return {
       channel: { id: channel.id, name: channel.name, normalizedName: channel.normalizedName },
       group: { id: channel.group.id, name: channel.group.name, departmentName: channel.group.department.name },
       period: { preset: range.preset, from: range.from, to: range.to, today, timezone },
       totals: {
-        added: row?.submitted ?? row?.newFans ?? 0,
-        collision: row?.duplicate ?? totals?.duplicateFans ?? 0,
-        lowAmount: row?.lowAmount ?? 0,
-        noWs: row?.noWs ?? totals?.noNumber ?? 0,
-        effective: row?.effective ?? totals?.effectiveFans ?? 0,
-        replied: totals?.replies ?? 0,
-        joined: totals?.groupJoin ?? 0,
-        left: totals?.groupLeave ?? 0,
-        abnormalLeft: totals?.abnormalGroupLeave ?? 0,
-        inGroup: row?.currentInGroup ?? 0,
-        pushed: totals?.expertIntro ?? 0,
-        registered: totals?.registration ?? 0,
-        ordered: totals?.orders ?? 0,
-        depositCents: totals?.rechargeCents ?? 0,
-        withdrawalCents: totals?.withdrawalCents ?? 0,
+        ...totals,
+        inGroup,
       },
     };
-  }));
+  });
 
   return NextResponse.json({
     rows,

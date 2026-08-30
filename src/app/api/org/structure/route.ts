@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "../../../../lib/db";
 import { canViewOrgScope, type OrgPermissionUser } from "../../../../lib/org-permissions";
 import { authorizationDenied } from "../../../../lib/security-events";
-import { requireOrgManagerRequest } from "../_auth";
+import { requireAdminOrOrgManagerRequest } from "../_auth";
 
 type GroupNode = { id: string; name: string; active: boolean; leadId: string | null; leadName: string | null };
 type DepartmentNode = { id: string; name: string; active: boolean; countryCode: string; timezone: string; companyId: string | null; groups: GroupNode[] };
@@ -84,11 +84,11 @@ async function loadCompanyNode(companyId: string): Promise<CompanyNode | null> {
  * 公司管理员/部门管理员各自只能拿到自己那一档，天然不存在"合并"的问题。
  */
 export async function GET() {
-  const access = await requireOrgManagerRequest();
+  const access = await requireAdminOrOrgManagerRequest();
   if ("response" in access) return access.response;
   const actor = access.actor;
 
-  if (actor.duty === "HQ_MANAGER") {
+  if (actor.role === "ADMIN" || actor.duty === "HQ_MANAGER") {
     const [companies, unassignedDepartments] = await Promise.all([
       db.company.findMany({ select: { id: true } }),
       db.department.findMany({

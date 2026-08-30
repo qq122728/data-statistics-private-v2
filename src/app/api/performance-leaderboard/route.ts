@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
 
   const settings = await getSystemSettings();
-  const groupWhere = actor.duty === "HQ_MANAGER"
+  const groupWhere = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
     ? { active: true }
     : actor.duty === "COMPANY_MANAGER"
       ? { active: true, department: { active: true, companyId: actor.companyId ?? "__missing_company__" } }

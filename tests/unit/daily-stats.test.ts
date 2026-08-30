@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { GET, PATCH, POST } from "../../src/app/api/daily-stats/route";
-import { GET as GET_REVIEW, POST as FORWARD_TO_RESOURCE } from "../../src/app/api/lead/daily-stats/route";
+import { GET as GET_REVIEW, PATCH as PATCH_REVIEW, POST as FORWARD_TO_RESOURCE } from "../../src/app/api/lead/daily-stats/route";
 import { GET as GET_RESOURCE_REVIEW, PATCH as RESOURCE_REVIEW } from "../../src/app/api/resource/daily-stats/route";
+import { GET as GET_RESOURCE_REPORTING } from "../../src/app/api/resource/reporting/route";
 import { GET as GET_PERSONAL_PERFORMANCE } from "../../src/app/api/personal-performance/route";
 import { db } from "../../src/lib/db";
 
@@ -82,6 +83,9 @@ const emptyValues = {
 describe.sequential("独立每日数据填写、修改与审核", () => {
   it("computes effective fans, preserves the approved revision during correction, then promotes the new version", async () => {
     const data = await fixture();
+    const emptyGroupId = `${prefix}empty-group-${randomUUID()}`;
+    await db.teamGroup.create({ data: { id: emptyGroupId, name: "同渠道空白小组", departmentId: (await db.teamGroup.findUniqueOrThrow({ where: { id: data.groupId } })).departmentId, timezone: "UTC" } });
+    await db.channel.create({ data: { id: data.channelId, groupId: emptyGroupId, name: "嘉豪", normalizedName: `同渠道空白-${randomUUID()}`, channelType: "ADS" } });
     signInAs(data.reception);
     const created = await POST(request("POST", {
       businessDate: "2026-08-29",
@@ -103,6 +107,15 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     signInAs(data.resource);
     expect((await GET_RESOURCE_REVIEW()).status).toBe(200);
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId: createdEntry.id, action: "APPROVE" }))).status).toBe(200);
+    const resourceReport = await GET_RESOURCE_REPORTING(new Request("http://localhost/api/resource/reporting?range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
+    expect(resourceReport.status).toBe(200);
+    const resourceRows = (await resourceReport.json()).rows as Array<{ group: { id: string }; totals: { added: number; effective: number; lowAmount: number; noWs: number; replied: number } }>;
+    expect(resourceRows.find((row) => row.group.id === data.groupId)?.totals).toMatchObject({
+      added: 100, effective: 85, lowAmount: 10, noWs: 5, replied: 30,
+    });
+    expect(resourceRows.find((row) => row.group.id === emptyGroupId)?.totals).toMatchObject({
+      added: 0, effective: 0, lowAmount: 0, noWs: 0, replied: 0,
+    });
 
     signInAs(data.reception);
     const corrected = await POST(request("POST", {
@@ -128,6 +141,29 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     await RESOURCE_REVIEW(request("PATCH", { entryId: createdEntry.id, action: "APPROVE" }));
     await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: createdEntry.id }, include: { approvedRevision: true } }))
       .resolves.toMatchObject({ status: "APPROVED", approvedRevision: { replyCount: 31 } });
+  });
+
+  it("carries a reviewer return reason into the next revision and marks it as a correction", async () => {
+    const data = await fixture();
+    signInAs(data.reception);
+    const created = await POST(request("POST", {
+      businessDate: "2026-08-29", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, dispatchCount: 10, replyCount: 2 },
+    }));
+    const entryId = (await created.json() as { entry: { id: string } }).entry.id;
+    await PATCH(request("PATCH", { entryId, action: "SUBMIT" }));
+    await db.user.updateMany({ where: { id: { in: [data.operator.id, data.expert.id] } }, data: { active: false } });
+
+    signInAs(data.lead);
+    expect((await PATCH_REVIEW(request("PATCH", { entryId, action: "RETURN", reason: "回复数量需要复核" }))).status).toBe(200);
+
+    signInAs(data.reception);
+    expect((await POST(request("POST", {
+      entryId, businessDate: "2026-08-29", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, dispatchCount: 10, replyCount: 3 },
+    }))).status).toBe(201);
+    await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: entryId }, include: { currentRevision: true } }))
+      .resolves.toMatchObject({ currentRevision: { version: 2, changeReason: "回复数量需要复核", replyCount: 3 } });
   });
 
   it("requires source reception for operator data and both source roles for expert data", async () => {

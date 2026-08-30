@@ -261,7 +261,9 @@ export async function saveDailyStat(
       entryId: entry.id,
       version,
       createdById: actor.id,
-      changeReason: input.changeReason || null,
+      // 首次审核或资源部退回后，员工通常只需要按退回意见改数字。
+      // 把退回原因带进新版本，避免重新提交后页面又误写成“首次填写”。
+      changeReason: input.changeReason || existing?.reviewReason || null,
       ...values,
     },
   });

@@ -65,10 +65,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
 
   const isLead = hasAssignedRole(actor, "LEAD");
-  const canRead = isLead || actor.duty === "DEPARTMENT_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "HQ_MANAGER";
+  const canRead = actor.role === "ADMIN" || isLead || actor.duty === "DEPARTMENT_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "HQ_MANAGER";
   if (!canRead) return authorizationDenied(actor, "该账号不能查看组织业绩");
 
-  const groupWhere = actor.duty === "HQ_MANAGER"
+  const groupWhere = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
     ? { active: true }
     : actor.duty === "COMPANY_MANAGER"
       ? { active: true, department: { active: true, companyId: actor.companyId ?? "__missing_company__" } }

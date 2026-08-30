@@ -16,7 +16,7 @@ const orgManagerDuties = ["DEPARTMENT_MANAGER", "COMPANY_MANAGER", "HQ_MANAGER"]
 export async function requireOrgManagerRequest(): Promise<{ actor: SessionUser } | { response: NextResponse }> {
   try {
     const actor = await requireUser();
-    if (!actor.duty || !orgManagerDuties.includes(actor.duty as (typeof orgManagerDuties)[number])) {
+    if (actor.role !== "ADMIN" && (!actor.duty || !orgManagerDuties.includes(actor.duty as (typeof orgManagerDuties)[number]))) {
       throw new AuthorizationError("只有部门管理员、公司管理员或总公司管理员可以管理组织结构", actor);
     }
     return { actor };

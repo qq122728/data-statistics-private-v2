@@ -261,6 +261,13 @@ describe("org-permissions: 5.2 组织结构可见范围 (canViewOrgScope)", () =
   const companyScope = { level: "company" as const, companyId: "company-a" };
   const otherCompanyScope = { level: "company" as const, companyId: "company-b" };
 
+  it("treats ADMIN as the same global scope as an HQ manager", () => {
+    const admin = user({ role: "ADMIN" });
+    expect(canViewOrgScope(admin, groupScope)).toBe(true);
+    expect(canViewOrgScope(admin, departmentScope)).toBe(true);
+    expect(canViewOrgScope(admin, otherCompanyScope)).toBe(true);
+  });
+
   it("lets HQ manager view every level, including other companies", () => {
     const hq = user({ duty: "HQ_MANAGER" });
     expect(canViewOrgScope(hq, groupScope)).toBe(true);

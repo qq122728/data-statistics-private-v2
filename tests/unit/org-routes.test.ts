@@ -101,6 +101,17 @@ function jsonRequest(url: string, body: unknown) {
 }
 
 describe.sequential("阶段5a组织架构路由：新公司/新部门 (总公司管理员专属)", () => {
+  it("treats the system ADMIN as an HQ manager for the shared organization workbench", async () => {
+    await signInAs(ids.admin);
+    const structure = await getOrgStructure();
+    expect(structure.status).toBe(200);
+    const structureBody = await structure.json();
+    expect(structureBody.companies).toHaveLength(2);
+
+    const response = await createCompany(jsonRequest("http://localhost/api/org/companies", { name: `系统管理员新建公司-${suffix}` }));
+    expect(response.status).toBe(201);
+  });
+
   it("lets the HQ manager create a company", async () => {
     await signInAs(ids.hq);
     const response = await createCompany(jsonRequest("http://localhost/api/org/companies", { name: `新建公司-${suffix}` }));

@@ -34,7 +34,7 @@ export type OrgPermissionUser = {
 
 /** 总公司管理员新建公司（5.6：只有总公司管理员能新建公司）。 */
 export function canCreateCompany(user: OrgPermissionUser): boolean {
-  return user.active && user.duty === "HQ_MANAGER";
+  return user.active && (user.role === "ADMIN" || user.duty === "HQ_MANAGER");
 }
 
 /**
@@ -43,7 +43,7 @@ export function canCreateCompany(user: OrgPermissionUser): boolean {
  * 由路由自己校验，这里不强制要求调用方传公司信息。
  */
 export function canCreateDepartment(user: OrgPermissionUser): boolean {
-  return user.active && user.duty === "HQ_MANAGER";
+  return user.active && (user.role === "ADMIN" || user.duty === "HQ_MANAGER");
 }
 
 export type DepartmentScope = { id: string; companyId: string | null };
@@ -55,6 +55,7 @@ export type DepartmentScope = { id: string; companyId: string | null };
  */
 export function canCreateGroup(user: OrgPermissionUser, department: DepartmentScope): boolean {
   if (!user.active) return false;
+  if (user.role === "ADMIN") return true;
   if (user.duty === "HQ_MANAGER") return true;
   if (user.duty === "COMPANY_MANAGER") return Boolean(user.companyId) && department.companyId === user.companyId;
   if (user.duty === "DEPARTMENT_MANAGER") return Boolean(user.departmentId) && department.id === user.departmentId;
@@ -75,6 +76,7 @@ export type GroupScope = { id: string; departmentId: string; companyId: string |
  */
 export function canAppointOrTransferLead(user: OrgPermissionUser, targetGroup: GroupScope): boolean {
   if (!user.active) return false;
+  if (user.role === "ADMIN") return true;
   if (user.duty === "HQ_MANAGER") return true;
   if (user.duty === "COMPANY_MANAGER") return Boolean(user.companyId) && targetGroup.companyId === user.companyId;
   if (user.duty === "DEPARTMENT_MANAGER") return Boolean(user.departmentId) && targetGroup.departmentId === user.departmentId;
@@ -158,6 +160,8 @@ export type OrgScopeTarget =
  */
 export function canViewOrgScope(user: OrgPermissionUser, scope: OrgScopeTarget): boolean {
   if (!user.active) return false;
+  // ADMIN 的工作台只用这份树选择要开设管理账号的公司/部门，不读取客户数据。
+  if (user.role === "ADMIN") return true;
   if (user.duty === "HQ_MANAGER") return true;
   if (user.duty === "COMPANY_MANAGER") {
     return Boolean(user.companyId) && scope.companyId === user.companyId;

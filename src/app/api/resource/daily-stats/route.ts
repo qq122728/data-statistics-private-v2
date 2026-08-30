@@ -35,7 +35,7 @@ export async function GET() {
   const channelIds = session.actor.resourceChannelAccess?.map((item) => item.channelId) ?? [];
   if (!channelIds.length) return NextResponse.json({ entries: [] });
   const entries = await db.dailyStatEntry.findMany({
-    where: { status: "RESOURCE_PENDING", channelId: { in: channelIds } },
+    where: { status: "RESOURCE_PENDING", position: "RECEPTION", channelId: { in: channelIds } },
     include: dailyStatEntryInclude,
     orderBy: [{ businessDate: "desc" }, { groupId: "asc" }, { position: "asc" }, { submittedAt: "asc" }],
     take: 500,
@@ -57,7 +57,7 @@ export async function PATCH(request: Request) {
         throw new DailyStatError("只有在职资源部账号可以审核每日数据", 403);
       const allowedChannelIds = actor.resourceChannelAccess.map((item) => item.channelId);
       const entry = await tx.dailyStatEntry.findFirst({
-        where: { id: input.entryId, channelId: { in: allowedChannelIds } },
+        where: { id: input.entryId, position: "RECEPTION", channelId: { in: allowedChannelIds } },
         include: dailyStatEntryInclude,
       });
       if (!entry) throw new DailyStatError("未找到当前账号可审核的数据", 404);

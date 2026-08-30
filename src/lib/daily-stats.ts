@@ -389,19 +389,42 @@ export async function forwardDailyStatsToResource(
     .map((role) => `${member.name}（${role === "RECEPTION" ? "接粉" : role === "GROUP_OPERATOR" ? "炒群" : "专家"}）`));
   if (missing.length) throw new DailyStatError(`以下岗位还没提交：${missing.join("、")}`, 409);
 
-  const channelIds = [...new Set(submitted.map((entry) => entry.channelId))];
+  const receptionSubmitted = submitted.filter((entry) => entry.position === "RECEPTION");
+  const directlyApproved = submitted.filter((entry) => entry.position !== "RECEPTION");
+  const channelIds = [...new Set(receptionSubmitted.map((entry) => entry.channelId))];
   const resourceAccess = await tx.resourceChannelAccess.findMany({
     where: { channelId: { in: channelIds }, user: { active: true, role: "RESOURCE_MANAGER" } },
     select: { channelId: true },
   });
   const coveredChannels = new Set(resourceAccess.map((access) => access.channelId));
-  const uncovered = [...new Map(submitted.filter((entry) => !coveredChannels.has(entry.channelId)).map((entry) => [entry.channelId, entry.channel.name])).values()];
+  const uncovered = [...new Map(receptionSubmitted.filter((entry) => !coveredChannels.has(entry.channelId)).map((entry) => [entry.channelId, entry.channel.name])).values()];
   if (uncovered.length) throw new DailyStatError(`以下渠道没有在职资源部审核账号：${uncovered.join("、")}`, 409);
 
-  const ids = submitted.map((entry) => entry.id);
-  await tx.dailyStatEntry.updateMany({
-    where: { id: { in: ids }, status: { in: ["PENDING", "CORRECTION_PENDING"] } },
-    data: { status: "RESOURCE_PENDING", reviewedById: reviewer.id, reviewedAt: new Date(), reviewReason: null },
-  });
-  return { count: ids.length, businessDate };
+  const reviewedAt = new Date();
+  const receptionIds = receptionSubmitted.map((entry) => entry.id);
+  const directIds = directlyApproved.map((entry) => entry.id);
+  if (receptionIds.length) {
+    await tx.dailyStatEntry.updateMany({
+      where: { id: { in: receptionIds }, status: { in: ["PENDING", "CORRECTION_PENDING"] } },
+      data: { status: "RESOURCE_PENDING", reviewedById: reviewer.id, reviewedAt, reviewReason: null },
+    });
+  }
+  for (const entry of directlyApproved) {
+    await tx.dailyStatEntry.update({
+      where: { id: entry.id },
+      data: {
+        status: "APPROVED",
+        approvedRevisionId: entry.currentRevisionId,
+        reviewedById: reviewer.id,
+        reviewedAt,
+        reviewReason: null,
+      },
+    });
+  }
+  return {
+    count: receptionIds.length + directIds.length,
+    resourceReviewCount: receptionIds.length,
+    directlyApprovedCount: directIds.length,
+    businessDate,
+  };
 }

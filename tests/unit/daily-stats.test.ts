@@ -212,9 +212,20 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     signInAs(data.lead);
     expect((await FORWARD_TO_RESOURCE(request("POST", { businessDate: "2026-08-29" }))).status).toBe(200);
     signInAs(data.resource);
-    for (const entryId of [receptionEntryId, operatorEntryId, expertEntryId]) {
-      expect((await RESOURCE_REVIEW(request("PATCH", { entryId, action: "APPROVE" }))).status).toBe(200);
-    }
+    const resourceInbox = await GET_RESOURCE_REVIEW();
+    expect(resourceInbox.status).toBe(200);
+    expect((await resourceInbox.json() as { entries: Array<{ id: string; position: string }> }).entries)
+      .toEqual([expect.objectContaining({ id: receptionEntryId, position: "RECEPTION" })]);
+    expect((await RESOURCE_REVIEW(request("PATCH", { entryId: receptionEntryId, action: "APPROVE" }))).status).toBe(200);
+    expect((await RESOURCE_REVIEW(request("PATCH", { entryId: operatorEntryId, action: "APPROVE" }))).status).toBe(404);
+    await expect(db.dailyStatEntry.findMany({
+      where: { id: { in: [operatorEntryId, expertEntryId] } },
+      select: { position: true, status: true, approvedRevisionId: true },
+      orderBy: { position: "asc" },
+    })).resolves.toEqual([
+      expect.objectContaining({ position: "EXPERT", status: "APPROVED", approvedRevisionId: expect.any(String) }),
+      expect.objectContaining({ position: "GROUP_OPERATOR", status: "APPROVED", approvedRevisionId: expect.any(String) }),
+    ]);
 
     signInAs(data.reception);
     const receptionPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=RECEPTION&range=month"));

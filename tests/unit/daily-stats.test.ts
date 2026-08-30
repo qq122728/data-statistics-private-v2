@@ -293,6 +293,50 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     });
   });
 
+  it("returns the operator's dated reception pairings for professional defaults", async () => {
+    const data = await fixture();
+    await db.groupOperatorReception.create({
+      data: { groupOperatorId: data.operator.id, receptionistId: data.reception.id },
+    });
+    await db.groupOperatorReceptionHistory.create({
+      data: {
+        groupOperatorId: data.operator.id,
+        receptionistId: data.reception.id,
+        effectiveFrom: new Date("2026-08-01T00:00:00.000Z"),
+      },
+    });
+    signInAs(data.operator);
+
+    const response = await GET(new Request("http://localhost/api/daily-stats"));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actorId: data.operator.id,
+      sourceReceptionPairings: [{
+        receptionistId: data.reception.id,
+        effectiveFrom: "2026-08-01",
+        effectiveTo: null,
+      }],
+    });
+  });
+
+  it("lets group-operator data choose self or another same-group member as the actual reception source", async () => {
+    const data = await fixture();
+    signInAs(data.operator);
+
+    const created = await POST(request("POST", {
+      businessDate: "2026-08-29",
+      position: "GROUP_OPERATOR",
+      channelId: data.channelId,
+      sourceReceptionId: data.operator.id,
+      values: { ...emptyValues, operatorReceivedCount: 3, currentInGroupCount: 3 },
+    }));
+
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toMatchObject({
+      entry: { ownerId: data.operator.id, sourceReceptionId: data.operator.id },
+    });
+  });
+
   it("lets a group lead fill personal expert daily data through the implicit expert role", async () => {
     const data = await fixture();
     signInAs(data.lead);

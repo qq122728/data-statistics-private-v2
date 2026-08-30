@@ -218,7 +218,8 @@ export async function saveDailyStat(
       position: "RECEPTION",
       businessDate: input.businessDate,
       label: "来源接粉",
-      allowAnyGroupRole: input.position === "EXPERT",
+      // 炒群/专家都可能由兼岗或历史转岗成员提供上游来源；这里只限制小组，不再锁当前岗位。
+      allowAnyGroupRole: true,
     });
   }
   if (sources.sourceGroupOperatorId) {

@@ -54,7 +54,7 @@ export async function GET(request: Request) {
       orderBy: [{ businessDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
-    const [channels, members, timezone] = await Promise.all([
+    const [channels, members, pairingRows, timezone] = await Promise.all([
       db.channel.findMany({
         where: { groupId: actor.groupId, active: true },
         select: { id: true, name: true, channelType: true },
@@ -81,9 +81,56 @@ export async function GET(request: Request) {
         },
         orderBy: [{ active: "desc" }, { name: "asc" }],
       }),
+      Promise.all([
+        db.groupOperatorReceptionHistory.findMany({
+          where: {
+            groupOperatorId: actor.id,
+            receptionist: {
+              OR: [
+                { groupId: actor.groupId },
+                { positionHistory: { some: { groupId: actor.groupId } } },
+              ],
+            },
+          },
+          select: { receptionistId: true, effectiveFrom: true, effectiveTo: true },
+          orderBy: { effectiveFrom: "asc" },
+        }),
+        db.groupOperatorReception.findMany({
+          where: {
+            groupOperatorId: actor.id,
+            receptionist: {
+              OR: [
+                { groupId: actor.groupId },
+                { positionHistory: { some: { groupId: actor.groupId } } },
+              ],
+            },
+          },
+          select: { receptionistId: true, createdAt: true },
+        }),
+      ]),
       resolveUserBusinessTimezone(actor, "Asia/Shanghai"),
     ]);
+    const [pairingHistory, currentPairings] = pairingRows;
+    const pairingHistoryKeys = new Set(pairingHistory
+      .filter((pairing) => pairing.effectiveTo === null)
+      .map((pairing) => pairing.receptionistId));
+    const sourceReceptionPairings = [
+      ...pairingHistory.map((pairing) => ({
+        receptionistId: pairing.receptionistId,
+        effectiveFrom: localDateYYYYMMDD(pairing.effectiveFrom, timezone),
+        effectiveTo: pairing.effectiveTo ? localDateYYYYMMDD(pairing.effectiveTo, timezone) : null,
+      })),
+      // 兼容只有当前配对、尚未补出历史行的旧数据。
+      ...currentPairings
+        .filter((pairing) => !pairingHistoryKeys.has(pairing.receptionistId))
+        .map((pairing) => ({
+          receptionistId: pairing.receptionistId,
+          effectiveFrom: localDateYYYYMMDD(pairing.createdAt, timezone),
+          effectiveTo: null,
+        })),
+    ];
     return NextResponse.json({
+      actorId: actor.id,
       today: localDateYYYYMMDD(new Date(), timezone),
       timezone,
       positions: getAssignedRoles(actor).filter((role) => ["RECEPTION", "GROUP_OPERATOR", "EXPERT"].includes(role)),
@@ -99,6 +146,7 @@ export async function GET(request: Request) {
           ...member.positionHistory.flatMap((item) => [item.position, ...(item.secondaryPositions?.split(",").filter(Boolean) ?? [])]),
         ])].filter((role) => ["RECEPTION", "GROUP_OPERATOR", "EXPERT"].includes(role)),
       })),
+      sourceReceptionPairings,
       entries: entries.map(publicDailyStat),
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {

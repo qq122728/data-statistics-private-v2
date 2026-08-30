@@ -211,6 +211,12 @@ async function main() {
         active: true,
       },
     });
+    // 同一渠道目录 ID 会在多个小组各有一条副本，业务类型必须保持一致；
+    // 否则资源部登录时会同时读到 ADS 和旧默认 SMS，前端无法判断应进入哪个工作台。
+    await transaction.channel.updateMany({
+      where: { id: DEMO.channelId },
+      data: { channelType: "ADS" },
+    });
     await transaction.resourceChannelAccess.create({
       data: { userId: DEMO.accounts.resource, channelId: DEMO.channelId },
     });

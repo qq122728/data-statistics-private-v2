@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { AuthorizationError, hashPassword } from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
-import { PATCH, POST } from "../../src/app/api/admin/channels/route";
+import { GET, PATCH, POST } from "../../src/app/api/admin/channels/route";
 import { getVisibleAppNavigation } from "../../src/lib/app-navigation";
 
 const prefix = "resource-channel-permission-";
@@ -19,6 +19,73 @@ afterEach(async () => {
 });
 
 describe.sequential("resource department channel permissions", () => {
+  it("lists one global catalog row for headquarters even when the channel has many group copies", async () => {
+    const actorId = `${prefix}catalog-admin-${randomUUID()}`;
+    const actor = await db.user.create({ data: { id: actorId, username: actorId, name: "总公司渠道目录", role: "ADMIN" } });
+    vi.spyOn(auth, "requireRole").mockResolvedValue(actor);
+    const groupIds = [`${prefix}catalog-a-${randomUUID()}`, `${prefix}catalog-b-${randomUUID()}`];
+    await db.teamGroup.createMany({ data: groupIds.map((id, index) => ({ id, name: `目录测试组${index}` })) });
+    const channelId = `${prefix}catalog-channel-${randomUUID()}`;
+    await db.channel.createMany({ data: groupIds.map((groupId) => ({
+      id: channelId,
+      groupId,
+      name: "全局目录投流",
+      normalizedName: `${prefix}catalog-normalized-${channelId}`,
+      channelType: "ADS",
+      createdById: actor.id,
+    })) });
+
+    const response = await GET();
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { channels: Array<{ id: string; groupCount: number; channelType: string }> };
+    expect(payload.channels.filter((channel) => channel.id === channelId)).toEqual([
+      expect.objectContaining({ id: channelId, groupCount: 2, channelType: "ADS" }),
+    ]);
+  });
+
+  it("gives the HQ-manager duty the same protected global channel operation as the system administrator", async () => {
+    const actorId = `${prefix}hq-duty-${randomUUID()}`;
+    const password = "Hq-channel-duty@56790";
+    const actor = await db.user.create({ data: {
+      id: actorId,
+      username: actorId,
+      name: "总公司管理员职务",
+      passwordHash: hashPassword(password),
+      role: "COMPANY_MANAGER",
+      duty: "HQ_MANAGER",
+    } });
+    vi.spyOn(auth, "requireRole").mockResolvedValue(actor);
+    const groupId = `${prefix}hq-duty-group-${randomUUID()}`;
+    await db.teamGroup.create({ data: { id: groupId, name: "总公司职务渠道组" } });
+    const channelName = `${prefix}hq-duty-channel-${randomUUID()}`;
+
+    const response = await POST(new Request("http://localhost/api/admin/channels", {
+      method: "POST",
+      body: JSON.stringify({
+        global: true,
+        name: channelName,
+        channelType: "ADS",
+        highRiskReason: "总公司渠道功能验收",
+        currentPassword: password,
+      }),
+    }));
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({ name: channelName, global: true });
+
+    await db.user.update({ where: { id: actor.id }, data: { duty: null } });
+    const staleSessionAttempt = await POST(new Request("http://localhost/api/admin/channels", {
+      method: "POST",
+      body: JSON.stringify({
+        global: true,
+        name: `${channelName}-stale-session`,
+        channelType: "ADS",
+        highRiskReason: "验证撤销职务后旧会话不能操作",
+        currentPassword: password,
+      }),
+    }));
+    expect(staleSessionAttempt.status).toBe(403);
+  });
+
   it("requires a reason and current password whenever headquarters overrides resource channel management", async () => {
     const id = `${prefix}admin-${randomUUID()}`;
     const password = "Admin-override@56790";

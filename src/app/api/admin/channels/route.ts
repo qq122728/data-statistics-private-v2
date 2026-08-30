@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { recordAudit } from "../../../../lib/audit";
 import { normalizeChannelName } from "../../../../lib/channel-names";
@@ -7,6 +8,7 @@ import { requireChannelManagerRequest } from "../_auth";
 import { authorizeHighRiskOperation, HighRiskAuthorizationError } from "../_high-risk";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { collapseGlobalChannelCopies } from "../../../../lib/global-channels";
 
 type ChannelType = "SMS" | "ADS" | "REBATE";
 type ChannelRequest = {
@@ -31,6 +33,60 @@ const duplicate = (error: unknown) =>
   );
 class InactiveChannelParentError extends Error {}
 
+async function authorizeHeadquartersChannelOperation(
+  client: Prisma.TransactionClient,
+  actorId: string,
+  body: ChannelRequest,
+) {
+  const liveActor = await client.user.findUnique({
+    where: { id: actorId },
+    select: { role: true, duty: true, active: true },
+  });
+  if (!liveActor?.active || (liveActor.role !== "ADMIN" && liveActor.duty !== "HQ_MANAGER")) {
+    throw new HighRiskAuthorizationError("当前账号已不再是总公司管理员", 403);
+  }
+  return authorizeHighRiskOperation(
+    client,
+    actorId,
+    body,
+    ["ADMIN", "COMPANY_MANAGER"],
+    "总公司管理员",
+  );
+}
+
+export async function GET() {
+  const access = await requireChannelManagerRequest();
+  if ("response" in access) return access.response;
+  const isHeadquartersManager = access.actor.role === "ADMIN" || access.actor.duty === "HQ_MANAGER";
+  const isCompanyManager = access.actor.role === "COMPANY_MANAGER" && !isHeadquartersManager;
+  const isResourceManager = access.actor.role === "RESOURCE_MANAGER";
+  const allowedChannelIds = access.actor.resourceChannelAccess?.map((item) => item.channelId) ?? [];
+  const rows = await db.channel.findMany({
+    where: isCompanyManager
+      ? { group: { departmentId: access.actor.departmentId as string } }
+      : isResourceManager
+        ? { id: { in: allowedChannelIds } }
+        : undefined,
+    include: {
+      group: { select: { id: true, name: true, active: true, department: { select: { id: true, name: true } } } },
+      createdBy: { select: { name: true } },
+      _count: { select: { batches: true } },
+    },
+    orderBy: [{ active: "desc" }, { createdAt: "desc" }],
+  });
+  const channels = collapseGlobalChannelCopies(rows).map(({ row, groupCount, batchCount }) => ({
+    id: row.id,
+    name: row.name,
+    active: row.active,
+    channelType: row.channelType,
+    createdAt: row.createdAt.toISOString(),
+    creator: row.createdBy,
+    groupCount,
+    batchCount,
+  }));
+  return NextResponse.json({ channels }, { headers: { "Cache-Control": "private, no-store" } });
+}
+
 function parseChannelType(input: ChannelRequest): { success: true; value: ChannelType } | { success: false; error: string } {
   if (input.channelType === undefined) return { success: true, value: "SMS" };
   if (input.channelType === "SMS" || input.channelType === "ADS" || input.channelType === "REBATE") {
@@ -51,7 +107,8 @@ export async function POST(request: Request) {
   const companyRequest = body.company === true;
   const explicitGlobalRequest = body.global === true;
   const globalRequest = explicitGlobalRequest || (!companyRequest && !Object.prototype.hasOwnProperty.call(body, "groupId"));
-  const isCompanyManager = access.actor.role === "COMPANY_MANAGER";
+  const isHeadquartersManager = access.actor.role === "ADMIN" || access.actor.duty === "HQ_MANAGER";
+  const isCompanyManager = access.actor.role === "COMPANY_MANAGER" && !isHeadquartersManager;
   if (isCompanyManager && (!companyRequest || explicitGlobalRequest || Boolean(groupId))) {
     return authorizationDenied(access.actor, "公司管理员只能管理本公司的渠道");
   }
@@ -120,8 +177,8 @@ export async function POST(request: Request) {
         return { channel: { ...created, company: true, groupCount: groups.length } };
       }
       if (globalRequest) {
-        const highRisk = access.actor.role === "ADMIN"
-          ? await authorizeHighRiskOperation(client, access.actor.id, body)
+        const highRisk = isHeadquartersManager
+          ? await authorizeHeadquartersChannelOperation(client, access.actor.id, body)
           : null;
         const configuredDepartmentId = typeof body.departmentId === "string" ? body.departmentId : null;
         const groups = await client.teamGroup.findMany({ select: { id: true, departmentId: true }, orderBy: { createdAt: "asc" } });
@@ -175,8 +232,8 @@ export async function POST(request: Request) {
         select: { id: true, name: true },
       });
       if (!group) return { error: "只能在启用中的小组创建渠道", status: 400 as const };
-      const highRisk = access.actor.role === "ADMIN"
-        ? await authorizeHighRiskOperation(client, access.actor.id, body)
+      const highRisk = isHeadquartersManager
+        ? await authorizeHeadquartersChannelOperation(client, access.actor.id, body)
         : null;
       const created = await client.channel.create({
         data: {
@@ -243,7 +300,8 @@ export async function PATCH(request: Request) {
   if (typeof body.highRiskReason === "string" && body.highRiskReason.length > API_LIMITS.accountReasonCharacters) return NextResponse.json({ error: "操作原因不能超过 500 个字" }, { status: 400 });
   const globalRequest = body.global === true;
   const companyRequest = body.company === true;
-  const isCompanyManager = access.actor.role === "COMPANY_MANAGER";
+  const isHeadquartersManager = access.actor.role === "ADMIN" || access.actor.duty === "HQ_MANAGER";
+  const isCompanyManager = access.actor.role === "COMPANY_MANAGER" && !isHeadquartersManager;
   if (isCompanyManager && (!companyRequest || globalRequest || typeof body.groupId === "string")) {
     return authorizationDenied(access.actor, "公司管理员只能管理本公司的渠道");
   }
@@ -338,8 +396,8 @@ export async function PATCH(request: Request) {
       ) {
         throw new InactiveChannelParentError();
       }
-      const highRisk = access.actor.role === "ADMIN"
-        ? await authorizeHighRiskOperation(client, access.actor.id, body)
+      const highRisk = isHeadquartersManager
+        ? await authorizeHeadquartersChannelOperation(client, access.actor.id, body)
         : null;
       const impact = highRisk
         ? await Promise.all([
@@ -396,7 +454,7 @@ export async function PATCH(request: Request) {
               leadCustomers: impact[1],
               customerOrders: impact[2],
               metricEvents: impact[3],
-              headquartersOverride: access.actor.role === "ADMIN",
+              headquartersOverride: isHeadquartersManager,
               ...(catalogRequest ? { groups: copies.length } : {}),
               ...(scopedDepartmentId ? { departmentId: scopedDepartmentId } : {}),
             },

@@ -129,6 +129,10 @@ describe.sequential("新版组织范围真实报表 API", () => {
       totals: { added: 4 },
     });
     expect(new Set(body.members.map((member: { id: string }) => member.id))).toEqual(new Set([ids.berlinReception, ids.newYorkReception]));
+    expect(body.days.find((day: { date: string }) => day.date === "2026-09-01")).toMatchObject({
+      groups: expect.arrayContaining([expect.objectContaining({ groupId: ids.berlinGroup, totals: expect.objectContaining({ added: 3, effective: 2 }) })]),
+      members: expect.arrayContaining([expect.objectContaining({ id: ids.berlinReception, totals: expect.objectContaining({ added: 3, effective: 2 }) })]),
+    });
   });
 
   it("部门管理员和组长只能读取自己的范围，伪造其它小组会返回403", async () => {
@@ -163,6 +167,9 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     expect(body.range).toMatchObject({ today: "2026-09-01", from: "2026-09-01", to: "2026-09-01" });
     expect(body.rows).toHaveLength(1);
     expect(body.rows[0]).toMatchObject({ name: "柏林渠道", totals: { added: 3, effective: 2, replied: 1 } });
+    expect(body.rows[0].members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ids.berlinReception, name: expect.any(String), totals: expect.objectContaining({ added: 3, effective: 2, replied: 1 }) }),
+    ]));
   });
 
   it("非组长不能借该接口读取渠道明细", async () => {

@@ -47,14 +47,20 @@ export async function GET(request: Request) {
   }, today, "month");
   const entries = await db.dailyStatEntry.findMany({
     where: { groupId: group.id, businessDate: { gte: range.from, lte: range.to }, approvedRevisionId: { not: null } },
-    select: { businessDate: true, position: true, channel: { select: { id: true, name: true, normalizedName: true } }, approvedRevision: true },
+    select: {
+      businessDate: true,
+      position: true,
+      owner: { select: { id: true, name: true } },
+      channel: { select: { id: true, name: true, normalizedName: true } },
+      approvedRevision: true,
+    },
   });
-  type Row = { channel: (typeof entries)[number]["channel"]; totals: ReturnType<typeof emptyBatchTotals>; lowAmount: number; noWs: number; inGroup: number; snapshotDate: string };
+  type Row = { channel: (typeof entries)[number]["channel"]; owner?: { id: string; name: string }; totals: ReturnType<typeof emptyBatchTotals>; lowAmount: number; noWs: number; inGroup: number; snapshotDate: string };
   const byChannel = new Map<string, Row>();
-  for (const entry of entries) {
+  const byChannelMember = new Map<string, Row>();
+  function accumulate(row: Row, entry: (typeof entries)[number]) {
     const value = entry.approvedRevision;
-    if (!value) continue;
-    const row = byChannel.get(entry.channel.id) ?? { channel: entry.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
+    if (!value) return;
     row.totals.newFans += value.dispatchCount;
     row.totals.duplicateFans += value.duplicateCount;
     row.totals.effectiveFans += value.effectiveCount;
@@ -74,9 +80,19 @@ export async function GET(request: Request) {
       if (entry.businessDate > row.snapshotDate) { row.snapshotDate = entry.businessDate; row.inGroup = value.currentInGroupCount; }
       else if (entry.businessDate === row.snapshotDate) row.inGroup += value.currentInGroupCount;
     }
-    byChannel.set(entry.channel.id, row);
   }
-  const rows = [...byChannel.values()].map((row) => ({
+  for (const entry of entries) {
+    const value = entry.approvedRevision;
+    if (!value) continue;
+    const row = byChannel.get(entry.channel.id) ?? { channel: entry.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
+    accumulate(row, entry);
+    byChannel.set(entry.channel.id, row);
+    const memberKey = `${entry.channel.id}:${entry.owner.id}`;
+    const memberRow = byChannelMember.get(memberKey) ?? { channel: entry.channel, owner: entry.owner, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
+    accumulate(memberRow, entry);
+    byChannelMember.set(memberKey, memberRow);
+  }
+  function serialize(row: Row) { return {
     normalizedName: row.channel.normalizedName,
     name: row.channel.name,
     totals: {
@@ -98,6 +114,14 @@ export async function GET(request: Request) {
       netCents: row.totals.rechargeCents - row.totals.withdrawalCents,
     },
     rates: calculateConversionRates(row.totals),
+  }; }
+  const rows = [...byChannel.values()].map((row) => ({
+    ...serialize(row),
+    members: [...byChannelMember.values()].filter((member) => member.channel.id === row.channel.id).map((member) => ({
+      ...serialize(member),
+      id: member.owner!.id,
+      name: member.owner!.name,
+    })).sort((left, right) => left.name.localeCompare(right.name, "zh-CN")),
   })).sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 
   return NextResponse.json({

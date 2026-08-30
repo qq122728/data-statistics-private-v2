@@ -153,34 +153,56 @@ export async function GET(request: Request) {
   const freshAggregate = (): Aggregate => ({ totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, latestSnapshotDate: "", inGroup: 0 });
   const groupAggregates = new Map<string, Aggregate>();
   const memberAggregates = new Map<string, Aggregate>();
+  const dailyGroupAggregates = new Map<string, Aggregate>();
+  const dailyMemberAggregates = new Map<string, Aggregate>();
+  function applyRevision(aggregate: Aggregate, entry: (typeof entries)[number], revision: ApprovedDailyRevision) {
+    addBatchTotals(aggregate.totals, revisionTotals(revision));
+    aggregate.lowAmount += revision.lowAmountCount;
+    aggregate.noWs += revision.noWsCount;
+    if (entry.position === "GROUP_OPERATOR") {
+      if (entry.businessDate > aggregate.latestSnapshotDate) {
+        aggregate.latestSnapshotDate = entry.businessDate;
+        aggregate.inGroup = revision.currentInGroupCount;
+      } else if (entry.businessDate === aggregate.latestSnapshotDate) {
+        aggregate.inGroup += revision.currentInGroupCount;
+      }
+    }
+  }
   for (const entry of entries) {
     const revision = entry.approvedRevision as ApprovedDailyRevision;
     const groupAggregate = groupAggregates.get(entry.groupId) ?? freshAggregate();
     const memberKey = `${entry.groupId}:${entry.ownerId}`;
     const memberAggregate = memberAggregates.get(memberKey) ?? freshAggregate();
-    for (const aggregate of [groupAggregate, memberAggregate]) {
-      addBatchTotals(aggregate.totals, revisionTotals(revision));
-      aggregate.lowAmount += revision.lowAmountCount;
-      aggregate.noWs += revision.noWsCount;
-      if (entry.position === "GROUP_OPERATOR") {
-        if (entry.businessDate > aggregate.latestSnapshotDate) {
-          aggregate.latestSnapshotDate = entry.businessDate;
-          aggregate.inGroup = revision.currentInGroupCount;
-        } else if (entry.businessDate === aggregate.latestSnapshotDate) {
-          aggregate.inGroup += revision.currentInGroupCount;
-        }
-      }
-    }
+    const dailyGroupKey = `${entry.businessDate}:${entry.groupId}`;
+    const dailyMemberKey = `${entry.businessDate}:${memberKey}`;
+    const dailyGroupAggregate = dailyGroupAggregates.get(dailyGroupKey) ?? freshAggregate();
+    const dailyMemberAggregate = dailyMemberAggregates.get(dailyMemberKey) ?? freshAggregate();
+    for (const aggregate of [groupAggregate, memberAggregate, dailyGroupAggregate, dailyMemberAggregate]) applyRevision(aggregate, entry, revision);
     groupAggregates.set(entry.groupId, groupAggregate);
     memberAggregates.set(memberKey, memberAggregate);
+    dailyGroupAggregates.set(dailyGroupKey, dailyGroupAggregate);
+    dailyMemberAggregates.set(dailyMemberKey, dailyMemberAggregate);
+  }
+
+  function serializeAggregate(aggregate: Aggregate) {
+    const totals = aggregate.totals;
+    const abnormalLeave = totals.abnormalGroupLeave ?? 0;
+    return {
+      totals: {
+        added: totals.newFans, collision: totals.duplicateFans, lowAmount: aggregate.lowAmount, noWs: aggregate.noWs,
+        effective: totals.effectiveFans, replied: totals.replies, joined: totals.groupJoin,
+        leftNormal: Math.max(0, totals.groupLeave - abnormalLeave), leftAbnormal: abnormalLeave, inGroup: aggregate.inGroup,
+        pushed: totals.expertIntro, registered: totals.registration, ordered: totals.orders,
+        depositCents: totals.rechargeCents, withdrawalCents: totals.withdrawalCents, netCents: totals.rechargeCents - totals.withdrawalCents,
+      },
+      rates: calculateConversionRates(totals),
+    };
   }
 
   const metadataByGroup = new Map(selectedGroups.map((group) => [group.id, group]));
   const groups = selectedGroups.map((metadata) => {
     const period = periods[metadata.id];
     const aggregate = groupAggregates.get(metadata.id) ?? freshAggregate();
-    const totals = aggregate.totals;
-    const abnormalLeave = totals.abnormalGroupLeave ?? 0;
     return {
       id: metadata.id,
       name: metadata.name,
@@ -189,25 +211,7 @@ export async function GET(request: Request) {
       timezone: resolveGroupBusinessTime(metadata).timezone,
       period,
       activePeople: activeUsers.filter((person) => person.groupId === metadata.id).length,
-      totals: {
-        added: totals.newFans,
-        collision: totals.duplicateFans,
-        lowAmount: aggregate.lowAmount,
-        noWs: aggregate.noWs,
-        effective: totals.effectiveFans,
-        replied: totals.replies,
-        joined: totals.groupJoin,
-        leftNormal: Math.max(0, totals.groupLeave - abnormalLeave),
-        leftAbnormal: abnormalLeave,
-        inGroup: aggregate.inGroup,
-        pushed: totals.expertIntro,
-        registered: totals.registration,
-        ordered: totals.orders,
-        depositCents: totals.rechargeCents,
-        withdrawalCents: totals.withdrawalCents,
-        netCents: totals.rechargeCents - totals.withdrawalCents,
-      },
-      rates: calculateConversionRates(totals),
+      ...serializeAggregate(aggregate),
     };
   });
 
@@ -215,7 +219,6 @@ export async function GET(request: Request) {
   for (const entry of entries) memberPeople.set(`${entry.groupId}:${entry.ownerId}`, { ...entry.owner, groupId: entry.groupId });
   const members = [...memberPeople.entries()].map(([key, person]) => {
     const aggregate = memberAggregates.get(key) ?? freshAggregate();
-    const totals = aggregate.totals;
     const metadata = metadataByGroup.get(person.groupId!);
     return ({
     id: person.id,
@@ -223,25 +226,21 @@ export async function GET(request: Request) {
     groupId: person.groupId!,
     groupName: metadata?.name ?? "未知小组",
     active: person.active,
-    totals: {
-      added: totals.newFans,
-      collision: totals.duplicateFans,
-      effective: totals.effectiveFans,
-      replied: totals.replies,
-      joined: totals.groupJoin,
-      left: totals.groupLeave,
-      leftAbnormal: totals.abnormalGroupLeave ?? 0,
-      pushed: totals.expertIntro,
-      registered: totals.registration,
-      ordered: totals.orders,
-      depositCents: totals.rechargeCents,
-      withdrawalCents: totals.withdrawalCents,
-      netCents: totals.rechargeCents - totals.withdrawalCents,
-    },
-    rates: calculateConversionRates(totals),
+    ...serializeAggregate(aggregate),
   }); });
 
-  return NextResponse.json({ range: { preset: range.preset, label: range.label }, groups, members }, {
+  const days = [...new Set(entries.map((entry) => entry.businessDate))].sort().reverse().map((date) => ({
+    date,
+    groups: selectedGroups.map((group) => ({ groupId: group.id, ...serializeAggregate(dailyGroupAggregates.get(`${date}:${group.id}`) ?? freshAggregate()) })),
+    members: [...memberPeople.entries()].map(([key, person]) => ({
+      id: person.id,
+      name: person.name,
+      groupId: person.groupId!,
+      ...serializeAggregate(dailyMemberAggregates.get(`${date}:${key}`) ?? freshAggregate()),
+    })),
+  }));
+
+  return NextResponse.json({ range: { preset: range.preset, label: range.label }, groups, members, days }, {
     headers: { "Cache-Control": "private, no-store" },
   });
 }

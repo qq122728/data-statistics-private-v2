@@ -206,6 +206,7 @@ async function main() {
         groupId: DEMO.groupId,
         name: "演示投流渠道",
         normalizedName: "演示投流渠道",
+        channelType: "ADS",
         createdById: DEMO.accounts.resource,
         active: true,
       },

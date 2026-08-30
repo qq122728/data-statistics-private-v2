@@ -37,7 +37,7 @@ describe("auth me route", () => {
     const response = await GET();
     expect(response.status).toBe(200);
     const payload = await response.json();
-    expect(payload.user).toMatchObject({ id: "me-1", username: "lead", name: "本地组长", role: "LEAD", roles: ["LEAD"] });
+    expect(payload.user).toMatchObject({ id: "me-1", username: "lead", name: "本地组长", role: "LEAD", roles: ["LEAD", "EXPERT"] });
     expect(JSON.stringify(payload)).not.toContain("must-not-leak");
   });
 

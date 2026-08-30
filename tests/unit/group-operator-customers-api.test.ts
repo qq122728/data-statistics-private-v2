@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { GET } from "../../src/app/api/group-operator/customers/route";
+import { GET as getExpertCustomers } from "../../src/app/api/expert/customers/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -91,6 +92,7 @@ describe.sequential("新版炒群本人客户 API", () => {
     expect(active.customers.map((customer: { phone: string }) => customer.phone)).toEqual(["491000000001"]);
     expect(active.customers[0].latestGroupProgress).toMatchObject({ note: "客户正在群内了解资料", actor: { id: ids.operator } });
     expect(introduced.counts).toEqual({ active: 1, introduced: 1, left: 1 });
+    expect(introduced.defaultExpertId).toBe(ids.lead);
     expect(introduced.expertAssignees).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: ids.expert, name: "本组专家" }),
       expect.objectContaining({ id: ids.lead, name: "本组组长" }),
@@ -103,5 +105,26 @@ describe.sequential("新版炒群本人客户 API", () => {
   it("非炒群账号不能借本人接口查看客户", async () => {
     await signIn(ids.lead);
     expect((await GET(request())).status).toBe(403);
+  });
+
+  it("组长默认能进入专家工作台并处理归给自己的专家客户", async () => {
+    await db.leadCustomer.update({
+      where: { id: id("recent-action") },
+      data: { expertOwnerId: ids.lead },
+    });
+    try {
+      await signIn(ids.lead);
+      const response = await getExpertCustomers(new Request("http://localhost/api/expert/customers"));
+      expect(response.status).toBe(200);
+      const payload = await response.json();
+      expect(payload.customers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ phone: "491000000002", expertOwner: expect.objectContaining({ id: ids.lead }) }),
+      ]));
+    } finally {
+      await db.leadCustomer.update({
+        where: { id: id("recent-action") },
+        data: { expertOwnerId: ids.expert },
+      });
+    }
   });
 });

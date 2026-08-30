@@ -25,10 +25,13 @@ export function hasAnyRole(user: RoleAccessUser, roles: readonly Role[]): boolea
 
 /**
  * 返回账号当前能使用的岗位。role 是历史兼容的主岗位，roleAssignments 只放额外岗位；
- * 因此会在这里去重，避免菜单和权限出现两次同一岗位。
+ * 组长按业务规则默认兼任本组专家，不需要再额外创建一条专家授权。
+ * 最后统一去重，避免菜单和权限出现两次同一岗位。
  */
 export function getAssignedRoles(user: RoleAccessUser): Role[] {
-  return [...new Set([user.role, ...(user.roleAssignments?.map((assignment) => assignment.role) ?? [])])];
+  const roles = new Set([user.role, ...(user.roleAssignments?.map((assignment) => assignment.role) ?? [])]);
+  if (roles.has("LEAD")) roles.add("EXPERT");
+  return [...roles];
 }
 
 export function hasAssignedRole(user: RoleAccessUser, role: Role): boolean {

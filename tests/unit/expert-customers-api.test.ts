@@ -95,8 +95,10 @@ describe.sequential("新版专家本人客户 API", () => {
     expect(JSON.stringify([all, ordered])).not.toMatch(/49200000000[4-7]/);
   });
 
-  it("组长不能借专家本人接口读取号码", async () => {
+  it("组长默认能进入专家工作台，但仍只读取明确归给自己的客户", async () => {
     await signIn(ids.lead);
-    expect((await GET(request())).status).toBe(403);
+    const response = await GET(request());
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ customers: [], total: 0 });
   });
 });

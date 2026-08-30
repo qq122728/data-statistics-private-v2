@@ -21,4 +21,11 @@ describe("兼任岗位访问", () => {
       roleAssignments: [{ role: "GROUP_OPERATOR" as const }],
     }, "GROUP_OPERATOR")).toBe(false);
   });
+
+  it("组长默认同时拥有专家岗位权限", () => {
+    const lead = { role: "LEAD" as const, active: true, roleAssignments: [] };
+
+    expect(getAssignedRoles(lead)).toEqual(["LEAD", "EXPERT"]);
+    expect(hasAssignedRole(lead, "EXPERT")).toBe(true);
+  });
 });

@@ -59,7 +59,10 @@ describe.sequential("independent customer progress records", () => {
       members: {
         reception: [expect.objectContaining({ id: data.reception.id })],
         groupOperator: [expect.objectContaining({ id: data.groupOperator.id })],
-        expert: [expect.objectContaining({ id: data.expert.id })],
+        expert: expect.arrayContaining([
+          expect.objectContaining({ id: data.lead.id }),
+          expect.objectContaining({ id: data.expert.id }),
+        ]),
       },
       claims: [],
     });

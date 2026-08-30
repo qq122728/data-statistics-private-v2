@@ -176,7 +176,11 @@ export async function GET(request: Request) {
     }];
   });
 
-  return NextResponse.json({ stage, page, pageSize: PAGE_SIZE, total: matched.length, counts, expertAssignees, customers }, {
+  return NextResponse.json({
+    stage, page, pageSize: PAGE_SIZE, total: matched.length, counts,
+    defaultExpertId: expertAssignees.find((member) => member.role === "LEAD")?.id ?? null,
+    expertAssignees, customers,
+  }, {
     headers: { "Cache-Control": "private, no-store" },
   });
 }

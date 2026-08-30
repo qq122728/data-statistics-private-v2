@@ -117,6 +117,8 @@ function rolesForHistoricalMember(member: HistoricalMember, groupId: string, bas
     roles.add(row.role);
     splitRoles(row.secondaryRoles).forEach((role) => roles.add(role));
   });
+  // 组长在任期间默认兼任专家，历史客户也能还原到当时的组长专家名下。
+  if (roles.has("LEAD")) roles.add("EXPERT");
   return [...roles].filter((role) => frontlineRoles.includes(role as (typeof frontlineRoles)[number]));
 }
 

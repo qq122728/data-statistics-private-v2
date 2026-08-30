@@ -8,11 +8,15 @@ import { requirePersonnelTransferRequest } from "../../_auth";
 import { getSystemSettings } from "../../../../../lib/settings";
 import { resolveGroupBusinessDate } from "../../../../../lib/business-time";
 import type { Prisma } from "@prisma/client";
+import { managedDepartmentIds } from "../../../../../lib/managed-department-scope";
 
-function scopeGroupWhere(actor: { role: string; duty: string | null; groupId: string | null; departmentId: string | null; companyId: string | null }): Prisma.TeamGroupWhereInput | null {
+function scopeGroupWhere(actor: { role: string; duty: string | null; groupId: string | null; departmentId: string | null; companyId: string | null; managedDepartments?: Array<{ departmentId: string }> }): Prisma.TeamGroupWhereInput | null {
   if (actor.role === "ADMIN" || actor.duty === "HQ_MANAGER") return {};
   if (actor.duty === "COMPANY_MANAGER" && actor.companyId) return { department: { companyId: actor.companyId } };
-  if (actor.duty === "DEPARTMENT_MANAGER" && actor.departmentId) return { departmentId: actor.departmentId };
+  if (actor.duty === "DEPARTMENT_MANAGER") {
+    const departmentIds = managedDepartmentIds(actor);
+    return departmentIds.length ? { departmentId: { in: departmentIds } } : null;
+  }
   if ((actor.role === "LEAD" || actor.duty === "LEAD") && actor.groupId) return { id: actor.groupId };
   if (actor.role === "COMPANY_MANAGER" && actor.departmentId) return { departmentId: actor.departmentId };
   return null;
@@ -71,7 +75,7 @@ export async function POST(request: Request) {
     // 权限必须在同一事务内重新读取，避免管理员刚被停用/调岗后仍拿旧 session 越权。
     const liveActor = await tx.user.findUnique({
       where: { id: access.actor.id },
-      include: { roleAssignments: { select: { role: true } } },
+      include: { roleAssignments: { select: { role: true } }, managedDepartments: { select: { departmentId: true } } },
     });
     if (!liveActor) return { denied: true as const };
     const targetBusinessDate = await resolveGroupBusinessDate(targetGroupId, settings.timezone, now, tx);

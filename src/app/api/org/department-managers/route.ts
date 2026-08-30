@@ -60,6 +60,7 @@ export async function POST(request: Request) {
           role: "COMPANY_MANAGER",
           duty: "DEPARTMENT_MANAGER",
           departmentId: department.id,
+          managedDepartments: { create: { departmentId: department.id } },
         },
         select: { id: true, username: true, name: true, role: true, duty: true, departmentId: true, active: true, mustChangePassword: true },
       });

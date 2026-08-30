@@ -1,5 +1,6 @@
 import type { Duty, Role } from "@prisma/client";
 import { hasAssignedRole } from "./role-access";
+import { canManageDepartment } from "./managed-department-scope";
 
 /**
  * 阶段5a新增的权限网关（需求文档第五章）。只服务阶段5新增的组织架构/组织权限路由，
@@ -25,6 +26,7 @@ export type OrgPermissionUser = {
   groupId: string | null;
   departmentId: string | null;
   companyId: string | null;
+  managedDepartments?: Array<{ departmentId: string }>;
   roleAssignments?: Array<{ role: Role }>;
 };
 
@@ -58,7 +60,7 @@ export function canCreateGroup(user: OrgPermissionUser, department: DepartmentSc
   if (user.role === "ADMIN") return true;
   if (user.duty === "HQ_MANAGER") return true;
   if (user.duty === "COMPANY_MANAGER") return Boolean(user.companyId) && department.companyId === user.companyId;
-  if (user.duty === "DEPARTMENT_MANAGER") return Boolean(user.departmentId) && department.id === user.departmentId;
+  if (user.duty === "DEPARTMENT_MANAGER") return canManageDepartment(user, department.id);
   return false;
 }
 
@@ -79,7 +81,7 @@ export function canAppointOrTransferLead(user: OrgPermissionUser, targetGroup: G
   if (user.role === "ADMIN") return true;
   if (user.duty === "HQ_MANAGER") return true;
   if (user.duty === "COMPANY_MANAGER") return Boolean(user.companyId) && targetGroup.companyId === user.companyId;
-  if (user.duty === "DEPARTMENT_MANAGER") return Boolean(user.departmentId) && targetGroup.departmentId === user.departmentId;
+  if (user.duty === "DEPARTMENT_MANAGER") return canManageDepartment(user, targetGroup.departmentId);
   return false;
 }
 
@@ -168,7 +170,7 @@ export function canViewOrgScope(user: OrgPermissionUser, scope: OrgScopeTarget):
   }
   if (user.duty === "DEPARTMENT_MANAGER") {
     if (scope.level === "company") return false;
-    return Boolean(user.departmentId) && scope.departmentId === user.departmentId;
+    return canManageDepartment(user, scope.departmentId);
   }
   if (hasAssignedRole(user, "LEAD")) {
     if (scope.level !== "group") return false;

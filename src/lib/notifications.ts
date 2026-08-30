@@ -1,6 +1,7 @@
 import type { Role, User } from "@prisma/client";
 import { db } from "./db";
 import { notificationWriteRoles } from "./permissions";
+import { managedDepartmentIds } from "./managed-department-scope";
 
 export const notificationSenderRoles = notificationWriteRoles;
 export const notificationTargetRoles = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
@@ -8,7 +9,13 @@ export type NotificationSenderRole = (typeof notificationSenderRoles)[number];
 export type NotificationTargetRole = (typeof notificationTargetRoles)[number];
 export type NotificationTargetType = "ALL" | "GROUP" | "ROLE" | "USERS";
 
-type Actor = Pick<User, "id" | "role" | "groupId" | "active"> & { departmentId?: string | null; managementCountryCode?: string | null };
+type Actor = Pick<User, "id" | "role" | "groupId" | "active"> & {
+  duty?: User["duty"];
+  departmentId?: string | null;
+  companyId?: string | null;
+  managementCountryCode?: string | null;
+  managedDepartments?: Array<{ departmentId: string }>;
+};
 
 export function canSendNotifications(role: Role): role is NotificationSenderRole {
   return notificationSenderRoles.includes(role as NotificationSenderRole);
@@ -20,11 +27,16 @@ export async function notificationScope(actor: Actor, client: NotificationScopeC
   if (!actor.active) return { groups: [], users: [], departments: [] };
   const allGroups = await client.teamGroup.findMany({
     where: { active: true },
-    select: { id: true, name: true, departmentId: true, countryCode: true, department: { select: { id: true, name: true, countryCode: true } } },
+    select: { id: true, name: true, departmentId: true, countryCode: true, department: { select: { id: true, name: true, countryCode: true, companyId: true } } },
     orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
   });
-  const groups = actor.role === "ADMIN"
+  const departmentIds = managedDepartmentIds(actor);
+  const groups = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
     ? allGroups
+    : actor.duty === "COMPANY_MANAGER" && actor.companyId
+      ? allGroups.filter((group) => group.department.companyId === actor.companyId)
+      : actor.duty === "DEPARTMENT_MANAGER"
+        ? allGroups.filter((group) => departmentIds.includes(group.departmentId))
     : actor.role === "COMPANY_MANAGER" && actor.departmentId
       ? allGroups.filter((group) => group.departmentId === actor.departmentId && (!actor.managementCountryCode || (group.countryCode || group.department.countryCode) === actor.managementCountryCode))
       : actor.role === "LEAD" && actor.groupId
@@ -33,7 +45,7 @@ export async function notificationScope(actor: Actor, client: NotificationScopeC
   const groupIds = groups.map((group) => group.id);
   const users = groupIds.length
     ? await client.user.findMany({
-      where: { active: true, OR: [{ groupId: { in: groupIds } }, ...(actor.role === "ADMIN" || (actor.role === "COMPANY_MANAGER" && !actor.managementCountryCode) ? [{ departmentId: actor.role === "COMPANY_MANAGER" ? actor.departmentId : { not: null } }] : [])] },
+      where: { active: true, OR: [{ groupId: { in: groupIds } }, { departmentId: { in: [...new Set(groups.map((group) => group.departmentId))] } }] },
       select: { id: true, name: true, role: true, groupId: true, departmentId: true },
       orderBy: [{ groupId: "asc" }, { role: "asc" }, { name: "asc" }],
     })
@@ -46,7 +58,7 @@ export async function notificationScope(actor: Actor, client: NotificationScopeC
   return {
     groups,
     users,
-    departments: actor.role === "ADMIN"
+    departments: actor.role === "ADMIN" || actor.duty === "HQ_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "DEPARTMENT_MANAGER"
       ? [...new Map(groups.map((group) => [group.department.id, group.department])).values()]
       : [],
   };

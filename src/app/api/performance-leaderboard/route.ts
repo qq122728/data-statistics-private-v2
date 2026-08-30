@@ -8,6 +8,7 @@ import { resolveDateRangeWithDefault } from "../../../lib/lead-date-range";
 import { hasOversizedQueryValue } from "../../../lib/request-limits";
 import { getSystemSettings } from "../../../lib/settings";
 import { authorizationDenied } from "../../../lib/security-events";
+import { managedDepartmentIds } from "../../../lib/managed-department-scope";
 
 export async function GET(request: Request) {
   let actor;
@@ -31,7 +32,7 @@ export async function GET(request: Request) {
     : actor.duty === "COMPANY_MANAGER"
       ? { active: true, department: { active: true, companyId: actor.companyId ?? "__missing_company__" } }
       : actor.duty === "DEPARTMENT_MANAGER"
-        ? { active: true, departmentId: actor.departmentId ?? "__missing_department__", department: { active: true } }
+        ? { active: true, departmentId: { in: managedDepartmentIds(actor) }, department: { active: true } }
         : actor.role === "COMPANY_MANAGER"
           ? {
               active: true,

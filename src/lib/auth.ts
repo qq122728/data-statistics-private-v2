@@ -12,6 +12,7 @@ const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 export type SessionUser = User & {
   roleAssignments?: Array<{ role: Role }>;
   resourceChannelAccess?: Array<{ channelId: string }>;
+  managedDepartments?: Array<{ departmentId: string }>;
 };
 
 export class AuthenticationError extends Error {
@@ -79,7 +80,7 @@ export async function getSessionUser(sessionId?: string): Promise<SessionUser | 
 
   const session = await db.session.findUnique({
     where: { id: sessionId },
-    include: { user: { include: { roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } } } }, },
+    include: { user: { include: { roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, managedDepartments: { select: { departmentId: true } } } }, },
   });
 
   if (!session || session.expiresAt <= new Date() || !session.user.active) {

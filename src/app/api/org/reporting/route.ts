@@ -11,6 +11,7 @@ import { hasAssignedRole } from "../../../../lib/role-access";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
 import { getSystemSettings } from "../../../../lib/settings";
+import { managedDepartmentIds } from "../../../../lib/managed-department-scope";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
 
@@ -74,7 +75,7 @@ export async function GET(request: Request) {
     : actor.duty === "COMPANY_MANAGER"
       ? { active: true, department: { active: true, companyId: actor.companyId ?? "__missing_company__" } }
       : actor.duty === "DEPARTMENT_MANAGER"
-        ? { active: true, departmentId: actor.departmentId ?? "__missing_department__", department: { active: true } }
+        ? { active: true, departmentId: { in: managedDepartmentIds(actor) }, department: { active: true } }
         : { active: true, id: actor.groupId ?? "__missing_group__" };
 
   const accessibleGroups = await db.teamGroup.findMany({

@@ -3,6 +3,7 @@ import { db } from "../../../../lib/db";
 import { canViewOrgScope, type OrgPermissionUser } from "../../../../lib/org-permissions";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { requireAdminOrOrgManagerRequest } from "../_auth";
+import { managedDepartmentIds } from "../../../../lib/managed-department-scope";
 
 type GroupNode = { id: string; name: string; active: boolean; leadId: string | null; leadName: string | null };
 type DepartmentNode = { id: string; name: string; active: boolean; countryCode: string; timezone: string; companyId: string | null; groups: GroupNode[] };
@@ -123,10 +124,21 @@ export async function GET() {
   }
 
   if (actor.duty === "DEPARTMENT_MANAGER") {
-    if (!actor.departmentId) return NextResponse.json({ department: null });
-    const department = await loadDepartmentNode(actor.departmentId);
-    if (!department) return NextResponse.json({ department: null });
-    return NextResponse.json({ department: { ...department, groups: filterGroupsInScope(actor, department, department.groups) } });
+    const departmentIds = managedDepartmentIds(actor);
+    if (!departmentIds.length) return NextResponse.json({ companies: [], unassignedDepartments: [] });
+    const departments = (await Promise.all(departmentIds.map(loadDepartmentNode)))
+      .filter((department): department is DepartmentNode => department !== null)
+      .map((department) => ({ ...department, groups: filterGroupsInScope(actor, department, department.groups) }));
+    const companyIds = [...new Set(departments.map((department) => department.companyId).filter((id): id is string => Boolean(id)))];
+    const companyNames = new Map((await db.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true, active: true } }))
+      .map((company) => [company.id, company]));
+    const companies = companyIds.map((companyId) => ({
+      id: companyId,
+      name: companyNames.get(companyId)?.name ?? "所属公司",
+      active: companyNames.get(companyId)?.active ?? true,
+      departments: departments.filter((department) => department.companyId === companyId),
+    }));
+    return NextResponse.json({ companies, unassignedDepartments: departments.filter((department) => !department.companyId) });
   }
 
   return authorizationDenied(actor, "没有权限查看组织结构");

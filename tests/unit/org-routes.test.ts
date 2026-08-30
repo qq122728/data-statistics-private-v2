@@ -289,10 +289,11 @@ describe.sequential("阶段5a组织架构路由：只读组织结构树 (5.2/5.5
     await signInAs(ids.deptA1Manager);
     const response = await getOrgStructure();
     const body = await response.json();
-    expect(body.department.id).toBe(ids.deptA1);
-    const groupIds = body.department.groups.map((group: { id: string }) => group.id);
+    const departments = body.companies.flatMap((company: { departments: Array<{ id: string; groups: Array<{ id: string }> }> }) => company.departments);
+    expect(departments.map((department: { id: string }) => department.id)).toEqual([ids.deptA1]);
+    const groupIds = departments.flatMap((department: { groups: Array<{ id: string }> }) => department.groups.map((group) => group.id));
     expect(groupIds).toContain(ids.groupA1);
-    expect(groupIds).not.toContain(ids.deptA2);
+    expect(departments.map((department: { id: string }) => department.id)).not.toContain(ids.deptA2);
   });
 
   it("blocks a plain lead with no management duty from reading the org structure endpoint", async () => {

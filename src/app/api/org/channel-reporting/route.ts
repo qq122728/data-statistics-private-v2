@@ -8,6 +8,7 @@ import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
 import { calculateConversionRates, emptyBatchTotals } from "../../../../lib/metrics";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
+import { canManageDepartment } from "../../../../lib/managed-department-scope";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
 
@@ -38,7 +39,7 @@ export async function GET(request: Request) {
   if (!group) return NextResponse.json({ error: "小组不存在" }, { status: 404 });
   const inScope = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
     || (actor.duty === "COMPANY_MANAGER" && Boolean(actor.companyId) && actor.companyId === group.department.companyId)
-    || (actor.duty === "DEPARTMENT_MANAGER" && Boolean(actor.departmentId) && actor.departmentId === group.departmentId);
+    || (actor.duty === "DEPARTMENT_MANAGER" && canManageDepartment(actor, group.departmentId));
   if (!inScope) return authorizationDenied(actor, "没有权限查看这个小组的渠道数据");
 
   const timezone = resolveGroupBusinessTime(group).timezone;

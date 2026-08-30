@@ -98,6 +98,17 @@ describe("org-permissions: 5.6 组织结构操作权限", () => {
       expect(canCreateGroup(manager, departmentInCompanyB)).toBe(false);
     });
 
+    it("allows a multi-department manager in every explicitly assigned department", () => {
+      const manager = user({
+        duty: "DEPARTMENT_MANAGER",
+        departmentId: "department-a",
+        managedDepartments: [{ departmentId: "department-a" }, { departmentId: "department-b" }],
+      });
+      expect(canCreateGroup(manager, departmentInCompanyA)).toBe(true);
+      expect(canCreateGroup(manager, departmentInCompanyB)).toBe(true);
+      expect(canCreateGroup(manager, { id: "department-c", companyId: "company-a" })).toBe(false);
+    });
+
     it("blocks a plain lead or frontline member from creating groups", () => {
       expect(canCreateGroup(user({ duty: "LEAD", groupId: "group-a" }), departmentInCompanyA)).toBe(false);
       expect(canCreateGroup(user({ duty: null }), departmentInCompanyA)).toBe(false);
@@ -131,6 +142,12 @@ describe("org-permissions: 5.6 组织结构操作权限", () => {
     it("blocks a department manager from appointing a lead outside their department", () => {
       const manager = user({ duty: "DEPARTMENT_MANAGER", departmentId: "department-a" });
       expect(canAppointOrTransferLead(manager, groupInDepartmentB)).toBe(false);
+    });
+
+    it("allows lead operations in each explicitly assigned department", () => {
+      const manager = user({ duty: "DEPARTMENT_MANAGER", managedDepartments: [{ departmentId: "department-a" }, { departmentId: "department-b" }] });
+      expect(canAppointOrTransferLead(manager, groupInDepartmentA)).toBe(true);
+      expect(canAppointOrTransferLead(manager, groupInDepartmentB)).toBe(true);
     });
 
     it("blocks an inactive manager regardless of duty", () => {

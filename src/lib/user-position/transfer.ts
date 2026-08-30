@@ -1,6 +1,7 @@
 import type { Duty, Prisma, Role } from "@prisma/client";
 import { recordAudit } from "../audit";
 import { closeGroupOperatorReceptionAssignmentsForMember } from "../group-operator-collaboration";
+import { canManageDepartment } from "../managed-department-scope";
 
 export const transferableRoles = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
 export type TransferableRole = (typeof transferableRoles)[number];
@@ -19,6 +20,7 @@ export type TransferUserPositionParams = {
     id: string; role: Role; duty: Duty | null; active: boolean; groupId: string | null;
     departmentId: string | null; companyId: string | null; managementCountryCode: string | null;
     roleAssignments?: Array<{ role: Role }>;
+    managedDepartments?: Array<{ departmentId: string }>;
   };
   userId: string;
   targetGroupId: string;
@@ -74,7 +76,7 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
     if (actor.duty === "COMPANY_MANAGER") {
       if (!actor.companyId || sourceCompanyId !== actor.companyId || targetCompanyId !== actor.companyId) return { denied: true };
     } else if (actor.duty === "DEPARTMENT_MANAGER") {
-      if (!actor.departmentId || member.group?.departmentId !== actor.departmentId || targetGroup.departmentId !== actor.departmentId) return { denied: true };
+      if (!member.group?.departmentId || !canManageDepartment(actor, member.group.departmentId) || !canManageDepartment(actor, targetGroup.departmentId)) return { denied: true };
     } else if (actor.role === "LEAD" || actor.duty === "LEAD") {
       if (!actor.groupId || member.groupId !== actor.groupId || targetGroup.id !== actor.groupId) return { denied: true };
     } else if (actor.role === "COMPANY_MANAGER" && actor.departmentId) {

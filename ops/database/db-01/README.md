@@ -33,8 +33,8 @@ WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'S')
 GROUP BY n.nspname, c.relkind, pg_get_userbyid(c.relowner);
 ```
 
-当前 `main` 的预期迁移数是 23，最新迁移是
-`20260826233000_add_department_manager_scope`，角色继承查询预期为空。数量不一致、
+当前 `main` 的预期迁移数是 39，最新迁移是
+`20260830022000_backfill_legacy_account_structure`，角色继承查询预期为空。数量不一致、
 存在未解释的角色继承，或当前 owner 不是预期旧账号时，停止并由 DBA
 查明原因，不能硬跑脚本。
 
@@ -71,16 +71,16 @@ SQL 执行方式：
 
 ```bash
 sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname data_statistics --file ops/database/db-01/02-stage-cutover.sql
-sudo -u postgres EXPECTED_MIGRATION_COUNT=24 ops/database/db-01/verify-db-privileges.sh data_statistics --phase stage
+sudo -u postgres EXPECTED_MIGRATION_COUNT=39 ops/database/db-01/verify-db-privileges.sh data_statistics --phase stage
 sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname data_statistics --file ops/database/db-01/03-finalize-cutover.sql
-sudo -u postgres EXPECTED_MIGRATION_COUNT=24 ops/database/db-01/verify-db-privileges.sh data_statistics --phase final
+sudo -u postgres EXPECTED_MIGRATION_COUNT=39 ops/database/db-01/verify-db-privileges.sh data_statistics --phase final
 ```
 
 验证脚本会创建一个随机唯一名的探针表并马上删除，只能在维护窗口运行。它在创建前检查名称冲突，并记录本次对象的 PostgreSQL OID 和 owner；清理前加锁并再次匹配，不会删除同名旧表或后来替换的表。`--phase stage` 验证旧账号过渡期读写，`--phase final` 验证旧账号已不可登录且完全无权。它还验证正常增删改查成功，以及建表、改表、清空表、删表以 SQLSTATE `42501` 被权限系统拒绝；不会读取或输出业务数据。
 
 ## 3. 导出受保护的生产迁移证据
 
-完成第 20 个迁移且 `--phase final` 通过后，安装与本次发布完全一致的
+完成第 39 个迁移且 `--phase final` 通过后，安装与本次发布完全一致的
 导出器和 manifest。安装目标必须由 root 拥有，不得由 `postgres` 或网站账号修改：
 
 ```bash
@@ -110,7 +110,7 @@ sudo /usr/local/sbin/data-statistics-export-migration-ledger \
 `data_statistics` 数据库。它只在以下条件全部满足时原子写入
 `/etc/data-statistics/dr-production-migration-ledger.json`：
 
-- 数据库恰好有 manifest 中的 20 个迁移，全部已完成且未回滚；
+- 数据库恰好有 manifest 中的 39 个迁移，全部已完成且未回滚；
 - 除 `20260818150000_postgres_baseline` 已知末尾换行差异外，所有 checksum
   与仓库 manifest 精确相同；
 - 输出目录由 root 拥有且不可被组/其他用户写入。

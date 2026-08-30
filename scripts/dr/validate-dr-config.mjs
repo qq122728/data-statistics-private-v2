@@ -134,8 +134,8 @@ const migrationEntries = (await readdir("prisma/postgres/migrations", { withFile
   .map((entry) => entry.name)
   .sort();
 if (!migrationEntries.length) throw new Error("no PostgreSQL migrations found");
-if (migrationEntries.length !== 24 || migrationEntries.at(-1) !== "20260826233000_add_department_manager_scope") {
-  throw new Error("DR-01 must be based on the approved 24-migration release containing department manager scope");
+if (migrationEntries.length !== 39 || migrationEntries.at(-1) !== "20260830022000_backfill_legacy_account_structure") {
+  throw new Error("DR-01 must be based on the approved 39-migration release containing the legacy account-structure backfill");
 }
 requireMatch(restoreEnvExample, new RegExp(`^DR_EXPECTED_MIGRATION_COUNT=${migrationEntries.length}$`, "m"), "restore migration count does not match repository");
 requireMatch(restoreEnvExample, new RegExp(`^DR_EXPECTED_LATEST_MIGRATION=${migrationEntries.at(-1)}$`, "m"), "restore latest migration does not match repository");
@@ -194,14 +194,14 @@ function approvedPlaceholderOrReference(value) {
     || /^(?:secret|vault|sm|aws-secretsmanager):\/\/[A-Za-z0-9._/@:+-]+$/.test(value);
 }
 
-function approvedCiPostgresUrl(raw) {
+function approvedLocalTestPostgresUrl(raw) {
   try {
     const parsed = new URL(raw);
     const approvedQueries = new Set([
       "?schema=public",
       "?schema=public&options=-c%20lock_timeout%3D10000%20-c%20statement_timeout%3D600000",
     ]);
-    return parsed.protocol === "postgresql:"
+    const migrationReplay = parsed.protocol === "postgresql:"
       && parsed.hostname === "127.0.0.1"
       && parsed.port === "5432"
       && parsed.username === "migration_replay"
@@ -209,6 +209,15 @@ function approvedCiPostgresUrl(raw) {
       && parsed.pathname === "/migration_replay"
       && parsed.hash === ""
       && approvedQueries.has(parsed.search);
+    const isolatedSchemaTest = parsed.protocol === "postgresql:"
+      && parsed.hostname === "127.0.0.1"
+      && ["55432", "55433"].includes(parsed.port)
+      && parsed.username === "data_statistics_test"
+      && parsed.password === "local_test_only_change_me"
+      && parsed.pathname === "/data_statistics_test"
+      && parsed.hash === ""
+      && parsed.search === "?schema=public";
+    return migrationReplay || isolatedSchemaTest;
   } catch {
     return false;
   }
@@ -216,7 +225,7 @@ function approvedCiPostgresUrl(raw) {
 
 function assertNoCommittedSecrets(value) {
   for (const match of value.matchAll(/postgres(?:ql)?:\/\/[^\s'"<>]+/gi)) {
-    if (match[0].includes(":") && match[0].includes("@") && !approvedCiPostgresUrl(match[0])) {
+    if (match[0].includes(":") && match[0].includes("@") && !approvedLocalTestPostgresUrl(match[0])) {
       throw new Error("connection string with credentials detected");
     }
   }

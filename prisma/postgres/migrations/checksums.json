@@ -27,14 +27,19 @@
     "20260826230000_add_resource_channel_access/migration.sql": "9a3aae3e0e2e73c7d09f9702f86e8decf4f517804c98becc39254211b592a403",
     "20260826233000_add_department_manager_scope/migration.sql": "1de2e4d6c81fcd37691bd0d7aa19844c9d829a5eb4d42f3e265e06ef6507917f",
     "20260827010000_add_abnormal_group_leave_metric/migration.sql": "d455e182ae011208a43cfb11c33fde3e8ec31f14ddbd9a45a471c00a3df17ecc",
+    "20260827170000_add_historical_attendance_and_half_day/migration.sql": "6f8791ec9e3887c7ebebf3043fc08e92737edb6ef4be3274305d657b7e302904",
+    "20260827193000_add_historical_order_baseline/migration.sql": "f58a81210428433f56af08dfec143d6df9c8db54b49b699ffdbdda121a7b2e39",
     "20260828133105_add_company_position_duty_historical_review/migration.sql": "aef6ba7a45d58836678bea2c5233693dc5d3c3950f00c715864c0ed4822bda6b",
     "20260828140651_add_acting_position_and_secondary_positions/migration.sql": "c43a91e3680fa4869ae78b3514c56085ce70b15d64cd2145659e169a911d87aa",
+    "20260828145000_archive_legacy_channel_cost_fields/migration.sql": "4ec456bcdc5a491be6685b1d716841a02e2fc4fa67bd34a078051bfc03dabfe1",
     "20260828150000_remove_channel_cost_pricing_fields/migration.sql": "ea0577b8f48e01da8640b7579c328924dbf121fc581c2386e901474c9ae59ca8",
+    "20260828151000_restore_legacy_channel_cost_compatibility/migration.sql": "2a3082d005df88c5b1ed6b15ab12713643e255a21515aab4aa8334b3f8612ec0",
     "20260829030000_add_user_company_id/migration.sql": "63878b7af9aeea68ce39d8a672eef628bf9acf3e65fbb18b2a495e46e9c1d04b",
     "20260829050000_add_group_operator_pairing_history/migration.sql": "1ef232e0725d1a298c58df7e71232ad1dddba5fa116f49a3e1119bae468fe96b",
     "20260829080000_align_postgres_indexes_with_schema/migration.sql": "8068d0b9bce28be2932b628482cd6db5f45f8937ee3c29e8e739b4e3bb91fd2c",
     "20260829135159_add_channel_review_entry/migration.sql": "181d2e1a845bc3aad2e358c55eab13ed20e647dfef1845c1757b5c8230ff0d7f",
     "20260829190000_add_independent_daily_stats/migration.sql": "162e7ce895b561379d913c11ad2efbc0cd7bcabacacdcfd4e191a60048d71df8",
-    "20260830010000_add_daily_stat_resource_review/migration.sql": "8e5d6e28ebae59ecc294ce94fd71540731a5794e27d17da8913bcaae3e2a1497"
+    "20260830010000_add_daily_stat_resource_review/migration.sql": "8e5d6e28ebae59ecc294ce94fd71540731a5794e27d17da8913bcaae3e2a1497",
+    "20260830022000_backfill_legacy_account_structure/migration.sql": "2078221572c30d6d1dc1f43a4fcb85f74ca7909848979c8bcaab91a056c64310"
   }
 }

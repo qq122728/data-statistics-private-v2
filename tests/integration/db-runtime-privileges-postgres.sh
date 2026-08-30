@@ -7,7 +7,7 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 container_name="db01-postgres-${$}-${RANDOM}"
-expected_migrations="${EXPECTED_MIGRATION_COUNT:-24}"
+expected_migrations="${EXPECTED_MIGRATION_COUNT:-39}"
 
 cleanup() {
   docker rm --force "$container_name" >/dev/null 2>&1 || true

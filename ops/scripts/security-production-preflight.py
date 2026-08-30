@@ -15,8 +15,8 @@ from typing import Callable
 
 
 EXPECTED_NEXT_VERSION = "16.3.3"
-EXPECTED_MIGRATION_COUNT = 24
-EXPECTED_LATEST_MIGRATION = "20260826233000_add_department_manager_scope"
+EXPECTED_MIGRATION_COUNT = 39
+EXPECTED_LATEST_MIGRATION = "20260830022000_backfill_legacy_account_structure"
 EXPECTED_RUNTIME_USER = "data-statistics-runtime"
 EXPECTED_RELEASE_SHA = re.compile(r"^[0-9a-f]{40}$")
 

@@ -63,6 +63,18 @@ function normalizedRows(rows) {
     .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 }
 
+function differingFields(sourceRows, targetRows) {
+  const targetById = new Map(targetRows.map((row) => [row.id, normalizeValue(row)]));
+  for (const sourceRow of sourceRows.map(normalizeValue)) {
+    const targetRow = targetById.get(sourceRow.id);
+    if (!targetRow) return { id: sourceRow.id, fields: ["missing-target-row"] };
+    const fields = [...new Set([...Object.keys(sourceRow), ...Object.keys(targetRow)])]
+      .filter((field) => JSON.stringify(sourceRow[field]) !== JSON.stringify(targetRow[field]));
+    if (fields.length) return { id: sourceRow.id, fields };
+  }
+  return { id: "unknown", fields: ["row-order-or-extra-row"] };
+}
+
 async function readSource(source) {
   const rowsByModel = new Map();
   for (const [model, label] of copyPlan) {
@@ -96,7 +108,8 @@ async function verifyCopiedModels(target, sourceRowsByModel) {
       throw new Error(`${label} 校验失败：SQLite 有 ${sourceRows.length} 行，PostgreSQL 有 ${targetRows.length} 行`);
     }
     if (JSON.stringify(normalizedRows(targetRows)) !== JSON.stringify(normalizedRows(sourceRows))) {
-      throw new Error(`${label} 校验失败：字段或关联字段与 SQLite 源数据不一致`);
+      const difference = differingFields(sourceRows, targetRows);
+      throw new Error(`${label} 校验失败：记录 ${difference.id} 的字段 ${difference.fields.join(", ")} 与 SQLite 源数据不一致`);
     }
     console.log(`${label} verified: ${targetRows.length}`);
   }
@@ -131,6 +144,9 @@ export async function migrateSqliteToPostgres({ source, target }) {
           data: {
             currentRevisionId: entry.currentRevisionId,
             approvedRevisionId: entry.approvedRevisionId,
+            // Restoring the circular pointers is part of the copy, not a business edit.
+            // Keep the source timestamp instead of letting Prisma's @updatedAt rewrite it.
+            updatedAt: entry.updatedAt,
           },
         });
       }

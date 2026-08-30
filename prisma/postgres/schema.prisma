@@ -101,6 +101,12 @@ enum ReceptionChatStatus {
   READY_TO_JOIN
 }
 
+// 仅用于旧版本回滚兼容；新版业务不得读取或展示渠道定价。
+enum FanCostMode {
+  FREE
+  PAID
+}
+
 // 渠道业务类型。FREE 仅保留给历史数据兼容，新建渠道不再使用“免费粉”。
 enum ChannelType {
   SMS
@@ -188,6 +194,19 @@ enum AttendanceLeaveType {
   PERSONAL
   SICK
   OTHER
+}
+
+// 仅为线上旧结构和旧版本回滚保留；新版不提供考勤功能。
+enum AttendanceLeaveDuration {
+  FULL_DAY
+  HALF_DAY
+}
+
+// 仅为线上旧结构和旧版本回滚保留；新版不提供历史考勤功能。
+enum AttendanceHistoricalMark {
+  PRESENT
+  LEAVE
+  HALF_DAY_LEAVE
 }
 
 enum NotificationType {
@@ -434,20 +453,24 @@ model TeamGroup {
 }
 
 model Channel {
-  id                   String
-  name                 String
-  normalizedName       String
-  active               Boolean              @default(true)
-  groupId              String
-  group                TeamGroup            @relation(fields: [groupId], references: [id])
-  createdById          String?
-  createdBy            User?                @relation("ChannelCreatedBy", fields: [createdById], references: [id])
-  channelType          ChannelType          @default(SMS)
-  batches              SourceBatch[]
-  channelReviewEntries ChannelReviewEntry[]
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  dailyStatEntries     DailyStatEntry[]
+  id                     String
+  name                   String
+  normalizedName         String
+  active                 Boolean              @default(true)
+  groupId                String
+  group                  TeamGroup            @relation(fields: [groupId], references: [id])
+  createdById            String?
+  createdBy              User?                @relation("ChannelCreatedBy", fields: [createdById], references: [id])
+  // 以下三列仅保留旧版本回滚兼容，新版业务不使用。
+  fanCostMode            FanCostMode          @default(FREE)
+  effectiveFanPriceCents Int?
+  rebateRateBps          Int?
+  channelType            ChannelType          @default(SMS)
+  batches                SourceBatch[]
+  channelReviewEntries   ChannelReviewEntry[]
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  dailyStatEntries       DailyStatEntry[]
 
   @@id([id, groupId])
   @@unique([groupId, normalizedName])
@@ -520,21 +543,28 @@ model SystemSetting {
 }
 
 model SourceBatch {
-  id                  String             @id @default(cuid())
-  groupId             String
-  channelId           String
-  sourceDate          String
-  channelTypeSnapshot ChannelType        @default(SMS)
-  isHistoricalRecord  Boolean            @default(false)
-  group               TeamGroup          @relation(fields: [groupId], references: [id])
-  channel             Channel            @relation(fields: [channelId, groupId], references: [id, groupId])
-  events              MetricEvent[]
-  customerOrders      CustomerOrder[]
-  leads               LeadCustomer[]
-  exceptions          LeadException[]
-  invalidFanReports   InvalidFanReport[]
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  id                             String             @id @default(cuid())
+  groupId                        String
+  channelId                      String
+  sourceDate                     String
+  // 以下六列仅保留旧版本回滚兼容，新版业务不使用。
+  fanCostModeSnapshot            FanCostMode        @default(FREE)
+  effectiveFanPriceCentsSnapshot Int?
+  rebateRateBpsSnapshot          Int?
+  advertisingSpendCents          Int?
+  advertisingFanCount            Int?
+  advertisingServiceFeeRateBps   Int?
+  channelTypeSnapshot            ChannelType        @default(SMS)
+  isHistoricalRecord             Boolean            @default(false)
+  group                          TeamGroup          @relation(fields: [groupId], references: [id])
+  channel                        Channel            @relation(fields: [channelId, groupId], references: [id, groupId])
+  events                         MetricEvent[]
+  customerOrders                 CustomerOrder[]
+  leads                          LeadCustomer[]
+  exceptions                     LeadException[]
+  invalidFanReports              InvalidFanReport[]
+  createdAt                      DateTime           @default(now())
+  updatedAt                      DateTime           @updatedAt
 
   @@unique([groupId, channelId, sourceDate])
   @@index([groupId, sourceDate])
@@ -661,6 +691,8 @@ model CustomerOrder {
   openedOn             String
   initialDepositCents  Int
   initialDepositMethod DepositMethod?
+  // 仅保留线上结构兼容；新版不提供“历史已开单”业务入口。
+  isHistoricalBaseline Boolean        @default(false)
   leadId               String?        @unique
   voidedAt             DateTime?
   voidReason           String?
@@ -950,7 +982,7 @@ model DailyEntryConfirmation {
 }
 
 model AttendanceRecord {
-  id                    String                 @id @default(cuid())
+  id                    String                    @id @default(cuid())
   userId                String
   groupId               String
   businessDate          String
@@ -962,12 +994,16 @@ model AttendanceRecord {
   clockInStatus         AttendanceClockStatus?
   clockOutStatus        AttendanceClockStatus?
   leaveType             AttendanceLeaveType?
+  leaveDuration         AttendanceLeaveDuration?
   leaveReason           String?
   leaveAt               DateTime?
-  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group                 TeamGroup              @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
+  isHistoricalRecord    Boolean                   @default(false)
+  historicalMark        AttendanceHistoricalMark?
+  historicalSourceName  String?
+  user                  User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group                 TeamGroup                 @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
 
   @@unique([userId, businessDate])
   @@index([groupId, businessDate])

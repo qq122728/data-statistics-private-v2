@@ -3,7 +3,7 @@ set -euo pipefail
 
 database_name="data_statistics"
 phase=""
-expected_migrations="${EXPECTED_MIGRATION_COUNT:-24}"
+expected_migrations="${EXPECTED_MIGRATION_COUNT:-39}"
 
 while (($# > 0)); do
   case "$1" in

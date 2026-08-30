@@ -14,7 +14,7 @@ from typing import Callable
 
 
 DATABASE_NAME = "data_statistics"
-EXPECTED_MIGRATION_COUNT = 24
+EXPECTED_MIGRATION_COUNT = 39
 BASELINE_MIGRATION = "20260818150000_postgres_baseline"
 BASELINE_EXCEPTION_REASON = "trailing-newline-only"
 PSQL = Path("/usr/bin/psql")

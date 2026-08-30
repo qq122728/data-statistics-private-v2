@@ -1,0 +1,28 @@
+[Unit]
+Description=Data Statistics V2 Frontline
+After=network-online.target data-statistics-v2-backend.service
+Wants=network-online.target
+Requires=data-statistics-v2-backend.service
+
+[Service]
+Type=simple
+User=data-statistics
+Group=data-statistics
+WorkingDirectory=/opt/data-statistics-v2/current/frontline
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=BACKEND_ORIGIN=http://127.0.0.1:3003
+ExecStart=/usr/local/bin/npm run start -- -H 127.0.0.1 -p 3000
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/data-statistics-v2
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

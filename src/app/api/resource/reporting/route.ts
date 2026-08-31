@@ -34,7 +34,7 @@ export async function GET(request: Request) {
       id: true, name: true, normalizedName: true,
       group: {
         select: {
-          id: true, name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true,
+          id: true, name: true, groupType: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true,
           department: { select: { id: true, name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, company: { select: { id: true, name: true } } } },
         },
       },
@@ -97,6 +97,10 @@ export async function GET(request: Request) {
       sum.lowAmount += revision.lowAmountCount;
       sum.noWs += revision.noWsCount;
       sum.manualInvalid += revision.manualInvalidCount;
+      sum.lawyerRealCase += revision.lawyerRealCaseCount;
+      sum.lawyerAdded += revision.lawyerAddedCount;
+      sum.lawyerExpertAdded += revision.lawyerExpertAddedCount;
+      sum.customerServicePush += revision.customerServicePushCount;
       sum.effective += revision.effectiveCount;
       sum.replied += revision.replyCount;
       sum.joined += revision.joinCount;
@@ -107,13 +111,15 @@ export async function GET(request: Request) {
       sum.ordered += revision.orderCount;
       sum.initialDepositCents += revision.cryptoInitialDepositCents + revision.bankInitialDepositCents;
       sum.rechargeCents += revision.cryptoRechargeCents + revision.bankRechargeCents;
+      sum.cryptoDepositCents += revision.cryptoInitialDepositCents + revision.cryptoRechargeCents;
+      sum.bankDepositCents += revision.bankInitialDepositCents + revision.bankRechargeCents;
       sum.depositCents += revision.cryptoInitialDepositCents + revision.bankInitialDepositCents + revision.cryptoRechargeCents + revision.bankRechargeCents;
       sum.withdrawalCents += revision.withdrawalCents;
       return sum;
     }, {
-      added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, effective: 0, replied: 0, joined: 0,
+      added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, lawyerRealCase: 0, lawyerAdded: 0, lawyerExpertAdded: 0, customerServicePush: 0, effective: 0, replied: 0, joined: 0,
       left: 0, abnormalLeft: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0,
-      initialDepositCents: 0, rechargeCents: 0, withdrawalCents: 0,
+      initialDepositCents: 0, rechargeCents: 0, cryptoDepositCents: 0, bankDepositCents: 0, withdrawalCents: 0,
     });
     return { ...totals, inGroup: sumLatestCurrentInGroup(snapshots) };
   }
@@ -125,7 +131,7 @@ export async function GET(request: Request) {
       && entry.groupId === channel.group.id && entry.businessDate <= range.to);
     return {
       channel: { id: channel.id, name: channel.name, normalizedName: channel.normalizedName },
-      group: { id: channel.group.id, name: channel.group.name, departmentId: channel.group.department.id, departmentName: channel.group.department.name, companyId: channel.group.department.company?.id ?? null, companyName: channel.group.department.company?.name ?? "未归属公司" },
+      group: { id: channel.group.id, name: channel.group.name, groupType: channel.group.groupType, departmentId: channel.group.department.id, departmentName: channel.group.department.name, companyId: channel.group.department.company?.id ?? null, companyName: channel.group.department.company?.name ?? "未归属公司" },
       period: { preset: range.preset, from: range.from, to: range.to, today, timezone },
       totals: aggregate(scoped, snapshots),
     };
@@ -139,7 +145,7 @@ export async function GET(request: Request) {
       if (!scoped.length) return [];
       return [{
         channel: { id: channel.id, name: channel.name, normalizedName: channel.normalizedName },
-        group: { id: channel.group.id, name: channel.group.name, departmentName: channel.group.department.name },
+        group: { id: channel.group.id, name: channel.group.name, groupType: channel.group.groupType, departmentName: channel.group.department.name },
         period: { preset: range.preset, from: date, to: date, today, timezone },
         totals: aggregate(scoped),
       }];

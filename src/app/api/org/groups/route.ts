@@ -14,6 +14,7 @@ type GroupRequest = {
   id?: unknown;
   departmentId?: unknown;
   name?: unknown;
+  groupType?: unknown;
   leadAccount?: {
     name?: unknown;
     username?: unknown;
@@ -38,8 +39,12 @@ export async function POST(request: Request) {
   const body = (await request.json()) as GroupRequest;
   const departmentId = typeof body.departmentId === "string" ? body.departmentId : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
+  const groupType: "HACKER" | "LAWYER" | null = body.groupType === undefined
+    ? "HACKER"
+    : body.groupType === "HACKER" || body.groupType === "LAWYER" ? body.groupType : null;
   if (!departmentId || departmentId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "请选择启用中的部门" }, { status: 400 });
   if (!name || name.length > API_LIMITS.accountDisplayNameCharacters) return NextResponse.json({ error: "小组名称必须在 1 到 100 个字之间" }, { status: 400 });
+  if (!groupType) return NextResponse.json({ error: "请选择黑客组或律师组" }, { status: 400 });
   if (body.leadAccount !== undefined && body.leadAccount !== null)
     return NextResponse.json({ error: "请先创建小组；小组创建成功后，再单独创建或任命组长账号" }, { status: 400 });
 
@@ -51,7 +56,7 @@ export async function POST(request: Request) {
 
       const timezone = isSupportedBusinessTimezone(department.timezone) ? department.timezone : "Asia/Shanghai";
       const created = await client.teamGroup.create({
-        data: { id: randomUUID(), name, departmentId, timezone, countryCode: businessTimezoneOption(timezone).countryCode },
+        data: { id: randomUUID(), name, groupType, departmentId, timezone, countryCode: businessTimezoneOption(timezone).countryCode },
       });
       const copiedChannels = await copyGlobalChannelsToGroup(client, created.id);
       await recordAudit(client, {
@@ -59,7 +64,7 @@ export async function POST(request: Request) {
         action: "GROUP_CREATED",
         entityType: "TeamGroup",
         entityId: created.id,
-        summary: { changedFields: ["name", "departmentId", "timezone"], copiedGlobalChannels: copiedChannels },
+        summary: { changedFields: ["name", "groupType", "departmentId", "timezone"], groupType, copiedGlobalChannels: copiedChannels },
       });
       return { group: created, copiedChannels };
     }, { isolationLevel: "Serializable" });

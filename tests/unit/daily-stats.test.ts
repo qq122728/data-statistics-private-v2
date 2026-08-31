@@ -25,13 +25,13 @@ afterEach(async () => {
   await db.department.deleteMany({ where: { id: { startsWith: prefix } } });
 });
 
-async function fixture() {
+async function fixture(groupType: "HACKER" | "LAWYER" = "HACKER") {
   const suffix = randomUUID();
   const departmentId = `${prefix}department-${suffix}`;
   const groupId = `${prefix}group-${suffix}`;
   const channelId = `${prefix}channel-${suffix}`;
   await db.department.create({ data: { id: departmentId, name: `${prefix}部门-${suffix}`, timezone: "UTC" } });
-  await db.teamGroup.create({ data: { id: groupId, name: `${prefix}小组-${suffix}`, departmentId, timezone: "UTC" } });
+  await db.teamGroup.create({ data: { id: groupId, name: `${prefix}小组-${suffix}`, groupType, departmentId, timezone: "UTC" } });
   const [lead, reception, operator, expert, resource] = await Promise.all([
     db.user.create({ data: { id: `${prefix}lead-${suffix}`, username: `${prefix}lead-${suffix}`, name: "组长", role: "LEAD", duty: "LEAD", groupId } }),
     db.user.create({ data: { id: `${prefix}reception-${suffix}`, username: `${prefix}reception-${suffix}`, name: "东来", role: "RECEPTION", groupId } }),
@@ -81,6 +81,42 @@ const emptyValues = {
 };
 
 describe.sequential("独立每日数据填写、修改与审核", () => {
+  it("律师组保存独立指标，并按接粉数校验回复和添加数", async () => {
+    const data = await fixture("LAWYER");
+    signInAs(data.reception);
+    const created = await POST(request("POST", {
+      businessDate: "2026-08-29", position: "RECEPTION", channelId: data.channelId,
+      values: {
+        ...emptyValues,
+        dispatchCount: 10,
+        replyCount: 6,
+        lowAmountCount: 2,
+        lawyerRealCaseCount: 4,
+        lawyerAddedCount: 5,
+        lawyerExpertAddedCount: 3,
+        customerServicePushCount: 7,
+        registrationCount: 2,
+        orderCount: 1,
+        cryptoInitialDepositCents: 12_000,
+        bankInitialDepositCents: 8_000,
+        withdrawalCents: 1_000,
+      },
+    }));
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toMatchObject({ entry: { currentRevision: {
+      dispatchCount: 10, replyCount: 6, lowAmountCount: 2, lawyerRealCaseCount: 4,
+      lawyerAddedCount: 5, lawyerExpertAddedCount: 3, customerServicePushCount: 7,
+      registrationCount: 2, orderCount: 1,
+    } } });
+
+    const invalid = await POST(request("POST", {
+      businessDate: "2026-08-28", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, dispatchCount: 10, lawyerAddedCount: 11 },
+    }));
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({ error: "添加律师数量不能超过接粉数量" });
+  });
+
   it("lets the original employee correct a migrated row from a former position and converts its identity", async () => {
     const data = await fixture();
     const entryId = `${prefix}migrated-entry-${randomUUID()}`;
@@ -202,7 +238,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect(resourceBody.days).toEqual([
       expect.objectContaining({
         date: "2026-08-29",
-        rows: [expect.objectContaining({ group: { id: data.groupId, name: expect.any(String), departmentName: expect.any(String) }, totals: expect.objectContaining({ added: 100, effective: 83, replied: 30 }) })],
+        rows: [expect.objectContaining({ group: expect.objectContaining({ id: data.groupId, name: expect.any(String), departmentName: expect.any(String), groupType: "HACKER" }), totals: expect.objectContaining({ added: 100, effective: 83, replied: 30 }) })],
       }),
     ]);
 

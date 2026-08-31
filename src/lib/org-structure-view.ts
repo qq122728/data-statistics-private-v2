@@ -1,4 +1,4 @@
-export type OrgGroup = { id: string; name: string; active: boolean; leadId: string | null; leadName: string | null };
+export type OrgGroup = { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; leadId: string | null; leadName: string | null };
 export type OrgDepartment = { id: string; name: string; active: boolean; countryCode: string; timezone: string; companyId: string | null; groups: OrgGroup[] };
 export type OrgCompany = { id: string; name: string; active: boolean; departments: OrgDepartment[] };
 

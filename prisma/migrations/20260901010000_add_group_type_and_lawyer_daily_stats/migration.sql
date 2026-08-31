@@ -1,0 +1,5 @@
+ALTER TABLE "TeamGroup" ADD COLUMN "groupType" TEXT NOT NULL DEFAULT 'HACKER';
+ALTER TABLE "DailyStatRevision" ADD COLUMN "lawyerRealCaseCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "DailyStatRevision" ADD COLUMN "lawyerAddedCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "DailyStatRevision" ADD COLUMN "lawyerExpertAddedCount" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "DailyStatRevision" ADD COLUMN "customerServicePushCount" INTEGER NOT NULL DEFAULT 0;

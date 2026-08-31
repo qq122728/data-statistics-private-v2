@@ -38,6 +38,8 @@ export async function GET(request: Request) {
     securityActor = actor;
     if (!isFrontlineGroupMember(actor)) return authorizationDenied(actor, "只有在职组员可以查看和填写自己的数据");
     const groupId = actor.groupId!;
+    const group = await db.teamGroup.findUnique({ where: { id: groupId }, select: { groupType: true } });
+    if (!group) return authorizationDenied(actor, "当前账号没有可用小组");
     const url = new URL(request.url);
     const from = url.searchParams.get("from")?.trim();
     const to = url.searchParams.get("to")?.trim();
@@ -127,7 +129,8 @@ export async function GET(request: Request) {
         })),
     ];
     const numberFields = [
-      "dispatchCount", "duplicateCount", "lowAmountCount", "noWsCount", "manualInvalidCount", "effectiveCount",
+      "dispatchCount", "duplicateCount", "lowAmountCount", "noWsCount", "manualInvalidCount",
+      "lawyerRealCaseCount", "lawyerAddedCount", "lawyerExpertAddedCount", "customerServicePushCount", "effectiveCount",
       "replyCount", "joinCount", "operatorReceivedCount", "normalLeaveCount", "abnormalLeaveCount", "currentInGroupCount",
       "expertIntroCount", "expertReceivedCount", "expertContactedCount", "registrationCount", "orderCount",
       "cryptoInitialDepositCents", "bankInitialDepositCents", "cryptoRechargeCents", "bankRechargeCents", "withdrawalCents",
@@ -236,6 +239,7 @@ export async function GET(request: Request) {
     }).sort((left, right) => right.businessDate.localeCompare(left.businessDate) || left.channel.name.localeCompare(right.channel.name, "zh-CN"));
     return NextResponse.json({
       actorId: actor.id,
+      groupType: group.groupType,
       today: localDateYYYYMMDD(new Date(), timezone),
       timezone,
       // 旧前端仍需要这三个存储分类；对所有组员都返回，不再绑定账号岗位。

@@ -14,16 +14,17 @@ type View = "dashboard" | "summary" | "customers" | "companies" | "groups" | "ad
 type SummaryMode = "company" | "department" | "group" | "member" | "channel" | "day";
 type Metrics = {
   added: number; collision: number; lowAmount: number; noWs: number; manualInvalid?: number;
+  lawyerRealCase?: number; lawyerAdded?: number; lawyerExpertAdded?: number; customerServicePush?: number;
   effective: number; replied: number; joined: number; leftNormal: number; leftAbnormal: number;
   inGroup: number; pushed: number; registered: number; ordered: number;
-  initialDepositCents?: number; rechargeCents?: number; withdrawalCents: number; netCents: number;
+  initialDepositCents?: number; rechargeCents?: number; withdrawalCents: number; netCents: number; cryptoDepositCents?: number; bankDepositCents?: number;
 };
-type ReportGroup = { id: string; name: string; department: { id: string; name: string }; company: { id: string; name: string } | null; activePeople: number; totals: Metrics };
-type ReportMember = { id: string; name: string; groupId: string; groupName: string; totals: Metrics };
-type ReportChannel = { id: string; name: string; groupCount: number; totals: Metrics };
-type ReportDay = { date: string; groups: Array<{ groupId: string; totals: Metrics }> };
+type ReportGroup = { id: string; name: string; groupType: "HACKER" | "LAWYER"; department: { id: string; name: string }; company: { id: string; name: string } | null; activePeople: number; totals: Metrics };
+type ReportMember = { id: string; name: string; groupId: string; groupName: string; groupType: "HACKER" | "LAWYER"; totals: Metrics };
+type ReportChannel = { id: string; name: string; groupType: "HACKER" | "LAWYER"; groupCount: number; totals: Metrics };
+type ReportDay = { date: string; groups: Array<{ groupId: string; groupType: "HACKER" | "LAWYER"; totals: Metrics }> };
 type Report = { range: { label: string }; groups: ReportGroup[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
-type GroupNode = { id: string; name: string; active: boolean; leadId: string | null; leadName: string | null };
+type GroupNode = { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; leadId: string | null; leadName: string | null };
 type DepartmentNode = { id: string; name: string; active: boolean; timezone: string; countryCode: string; companyId: string | null; groups: GroupNode[] };
 type CompanyNode = { id: string; name: string; active: boolean; departments: DepartmentNode[] };
 type Structure = { companies?: CompanyNode[]; unassignedDepartments?: DepartmentNode[] };
@@ -42,7 +43,7 @@ function metricRates(value: Metrics) {
     ordered: rate(value.ordered, value.registered),
   };
 }
-const emptyMetrics = (): Metrics => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, effective: 0, replied: 0, joined: 0, leftNormal: 0, leftAbnormal: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, initialDepositCents: 0, rechargeCents: 0, withdrawalCents: 0, netCents: 0 });
+const emptyMetrics = (): Metrics => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, lawyerRealCase: 0, lawyerAdded: 0, lawyerExpertAdded: 0, customerServicePush: 0, effective: 0, replied: 0, joined: 0, leftNormal: 0, leftAbnormal: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, initialDepositCents: 0, rechargeCents: 0, withdrawalCents: 0, netCents: 0, cryptoDepositCents: 0, bankDepositCents: 0 });
 function sumMetrics(values: Metrics[]): Metrics {
   const output = emptyMetrics() as unknown as Record<string, number>;
   for (const value of values) for (const [key, amount] of Object.entries(value)) output[key] = (output[key] ?? 0) + (Number(amount) || 0);
@@ -63,6 +64,7 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
   const [loading, setLoading] = useState(true); const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [mode, setMode] = useState<SummaryMode>("company");
+  const [groupTypeFilter, setGroupTypeFilter] = useState<"HACKER" | "LAWYER">("HACKER");
   const [companyId, setCompanyId] = useState(""); const [departmentId, setDepartmentId] = useState(""); const [groupId, setGroupId] = useState("");
   const [channelReport, setChannelReport] = useState<ReportChannel[] | null>(null);
 
@@ -85,9 +87,9 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
   const companies = structure.companies ?? [];
   const departments = useMemo(() => companies.flatMap((company) => company.departments), [companies]);
   const selectedDepartments = useMemo(() => companyId ? companies.find((company) => company.id === companyId)?.departments ?? [] : departments, [companies, companyId, departments]);
-  const selectedGroups = useMemo(() => departmentId ? departments.find((department) => department.id === departmentId)?.groups ?? [] : selectedDepartments.flatMap((department) => department.groups), [departmentId, departments, selectedDepartments]);
+  const selectedGroups = useMemo(() => (departmentId ? departments.find((department) => department.id === departmentId)?.groups ?? [] : selectedDepartments.flatMap((department) => department.groups)).filter((group) => group.groupType === groupTypeFilter), [departmentId, departments, groupTypeFilter, selectedDepartments]);
   const allowedGroupIds = useMemo(() => new Set(selectedGroups.filter((group) => !groupId || group.id === groupId).map((group) => group.id)), [groupId, selectedGroups]);
-  const visibleGroups = useMemo(() => (report?.groups ?? []).filter((group) => allowedGroupIds.has(group.id)), [allowedGroupIds, report]);
+  const visibleGroups = useMemo(() => (report?.groups ?? []).filter((group) => group.groupType === groupTypeFilter && allowedGroupIds.has(group.id)), [allowedGroupIds, groupTypeFilter, report]);
 
   useEffect(() => {
     setDepartmentId((current) => selectedDepartments.some((department) => department.id === current) ? current : "");
@@ -97,7 +99,7 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
   useEffect(() => {
     if (mode !== "channel" || !report) { setChannelReport(null); return; }
     const ids = visibleGroups.map((group) => group.id);
-    if (ids.length === report.groups.length) { setChannelReport(report.channels); return; }
+    if (ids.length === report.groups.filter((group) => group.groupType === groupTypeFilter).length) { setChannelReport(report.channels.filter((channel) => channel.groupType === groupTypeFilter)); return; }
     let cancelled = false;
     const params = new URLSearchParams({ range });
     if (range === "custom" && from && to) { params.set("sourceDateFrom", from); params.set("sourceDateTo", to); }
@@ -112,28 +114,28 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
         setChannelReport([...merged.values()].sort((a, b) => a.name.localeCompare(b.name, "zh-CN")));
       }).catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "渠道汇总读取失败"); });
     return () => { cancelled = true; };
-  }, [from, mode, range, report, to, visibleGroups]);
+  }, [from, groupTypeFilter, mode, range, report, to, visibleGroups]);
 
   const summaryRows = useMemo<TableRow[]>(() => {
     if (!report) return [];
     if (mode === "company") return companies.filter((company) => !companyId || company.id === companyId).map((company) => {
-      const rows = report.groups.filter((group) => group.company?.id === company.id && allowedGroupIds.has(group.id));
+      const rows = report.groups.filter((group) => group.groupType === groupTypeFilter && group.company?.id === company.id && allowedGroupIds.has(group.id));
       return { id: company.id, name: company.name, people: rows.reduce((sum, row) => sum + row.activePeople, 0), totals: sumMetrics(rows.map((row) => row.totals)) };
     });
     if (mode === "department") return selectedDepartments.filter((department) => !departmentId || department.id === departmentId).map((department) => {
-      const rows = report.groups.filter((group) => group.department.id === department.id && allowedGroupIds.has(group.id));
+      const rows = report.groups.filter((group) => group.groupType === groupTypeFilter && group.department.id === department.id && allowedGroupIds.has(group.id));
       return { id: department.id, name: department.name, sub: companies.find((company) => company.id === department.companyId)?.name, people: rows.reduce((sum, row) => sum + row.activePeople, 0), totals: sumMetrics(rows.map((row) => row.totals)) };
     });
     if (mode === "group") return visibleGroups.map((group) => ({ id: group.id, name: group.name, sub: `${group.company?.name ?? "未归属公司"} · ${group.department.name}`, people: group.activePeople, totals: group.totals }));
-    if (mode === "member") return report.members.filter((member) => allowedGroupIds.has(member.groupId)).map((member) => ({ id: `${member.groupId}-${member.id}`, name: member.name, sub: member.groupName, totals: member.totals }));
-    if (mode === "channel") return (channelReport ?? []).map((channel) => ({ id: channel.id, name: channel.name, sub: `覆盖 ${channel.groupCount} 个小组`, totals: channel.totals }));
-    return report.days.map((day) => ({ id: day.date, name: day.date, totals: sumMetrics(day.groups.filter((row) => allowedGroupIds.has(row.groupId)).map((row) => row.totals)) }));
-  }, [allowedGroupIds, channelReport, companies, companyId, departmentId, mode, report, selectedDepartments, visibleGroups]);
+    if (mode === "member") return report.members.filter((member) => member.groupType === groupTypeFilter && allowedGroupIds.has(member.groupId)).map((member) => ({ id: `${member.groupId}-${member.id}`, name: member.name, sub: member.groupName, totals: member.totals }));
+    if (mode === "channel") return (channelReport ?? []).filter((channel) => channel.groupType === groupTypeFilter).map((channel) => ({ id: channel.id, name: channel.name, sub: `覆盖 ${channel.groupCount} 个小组`, totals: channel.totals }));
+    return report.days.map((day) => ({ id: day.date, name: day.date, totals: sumMetrics(day.groups.filter((row) => row.groupType === groupTypeFilter && allowedGroupIds.has(row.groupId)).map((row) => row.totals)) }));
+  }, [allowedGroupIds, channelReport, companies, companyId, departmentId, groupTypeFilter, mode, report, selectedDepartments, visibleGroups]);
 
   const dashboardCompanies = useMemo(() => companies.map((company) => {
-    const rows = (report?.groups ?? []).filter((group) => group.company?.id === company.id);
+    const rows = (report?.groups ?? []).filter((group) => group.groupType === groupTypeFilter && group.company?.id === company.id);
     return { company, groups: rows.length, departments: company.departments.length, people: rows.reduce((sum, group) => sum + group.activePeople, 0), totals: sumMetrics(rows.map((group) => group.totals)) };
-  }), [companies, report]);
+  }), [companies, groupTypeFilter, report]);
   const title: Record<View, string> = { dashboard: "总公司工作台", summary: "数据汇总", customers: "客户进度", companies: "公司与部门", groups: "小组管理", admins: "管理员账号", transfer: "人员调动", devices: "设备账号", channels: "渠道与单价", notices: "通知中心" };
 
   return <WorkspaceShell mark="总" workspaceLabel="总公司管理员" title={title[view]} subtitle="总公司权限 · 所有写操作仍由后端再次核验范围" userName={user.name} userLabel="总公司管理员" onLogout={onLogout} scope={{ label: "管理范围", value: `全部公司 · ${companies.length} 家` }} navigation={<>
@@ -146,9 +148,10 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
       </>}>
         {notice ? <div className={styles.success}>{notice}</div> : null}{error ? <div className={styles.error}>{error}</div> : null}
         {(view === "dashboard" || view === "summary") ? <ReportToolbar range={range} from={from} to={to} setRange={setRange} setFrom={setFrom} setTo={setTo} onRefresh={() => void load()} /> : null}
+        {(view === "dashboard" || view === "summary") ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setGroupId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setGroupId(""); }}>律师组数据</button></div> : null}
         {loading ? <section className={styles.empty}>正在读取全部公司数据…</section> : null}
-        {!loading && view === "dashboard" ? <Dashboard rows={dashboardCompanies} /> : null}
-        {!loading && view === "summary" ? <><ScopeFilters companies={companies} companyId={companyId} departmentId={departmentId} groupId={groupId} setCompanyId={setCompanyId} setDepartmentId={setDepartmentId} setGroupId={setGroupId} /><div className={styles.tabs}>{(["company", "department", "group", "member", "channel", "day"] as SummaryMode[]).map((value) => <button key={value} data-active={mode === value} onClick={() => setMode(value)}>{{ company: "按公司", department: "按部门", group: "按小组", member: "按归属个人", channel: "按渠道", day: "按日期" }[value]}</button>)}</div><MetricTable title={`${report?.range.label ?? "当前区间"} · ${titleForMode(mode)}`} rows={summaryRows} /></> : null}
+        {!loading && view === "dashboard" ? <Dashboard groupType={groupTypeFilter} rows={dashboardCompanies} /> : null}
+        {!loading && view === "summary" ? <><ScopeFilters groupType={groupTypeFilter} companies={companies} companyId={companyId} departmentId={departmentId} groupId={groupId} setCompanyId={setCompanyId} setDepartmentId={setDepartmentId} setGroupId={setGroupId} /><div className={styles.tabs}>{(["company", "department", "group", "member", "channel", "day"] as SummaryMode[]).map((value) => <button key={value} data-active={mode === value} onClick={() => setMode(value)}>{{ company: "按公司", department: "按部门", group: "按小组", member: "按归属个人", channel: "按渠道", day: "按日期" }[value]}</button>)}</div><AdaptiveMetricTable groupType={groupTypeFilter} title={`${report?.range.label ?? "当前区间"} · ${titleForMode(mode)}`} rows={summaryRows} /></> : null}
         {!loading && view === "customers" ? <HeadquartersCustomers companies={companies} /> : null}
         {!loading && view === "companies" ? <CompaniesDepartments companies={companies} reload={load} notify={setNotice} /> : null}
         {!loading && view === "groups" ? <GroupManagement companies={companies} reload={load} notify={setNotice} /> : null}
@@ -170,16 +173,30 @@ function ReportToolbar({ range, from, to, setRange, setFrom, setTo, onRefresh }:
   return <section className={styles.toolbar}><div><strong>真实生效数据</strong><span>所有层级均来自同一组织报表账</span></div><label>统计周期<select value={range} onChange={(event) => setRange(event.target.value)}><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="month">本月</option><option value="lastMonth">上月</option><option value="custom">自定义</option></select></label>{range === "custom" ? <><label>开始<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label>结束<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label></> : null}<button onClick={onRefresh}>刷新</button></section>;
 }
 
-function ScopeFilters({ companies, companyId, departmentId, groupId, setCompanyId, setDepartmentId, setGroupId }: { companies: CompanyNode[]; companyId: string; departmentId: string; groupId: string; setCompanyId: (value: string) => void; setDepartmentId: (value: string) => void; setGroupId: (value: string) => void }) {
+function ScopeFilters({ groupType, companies, companyId, departmentId, groupId, setCompanyId, setDepartmentId, setGroupId }: { groupType: "HACKER" | "LAWYER"; companies: CompanyNode[]; companyId: string; departmentId: string; groupId: string; setCompanyId: (value: string) => void; setDepartmentId: (value: string) => void; setGroupId: (value: string) => void }) {
   const departments = companyId ? companies.find((company) => company.id === companyId)?.departments ?? [] : companies.flatMap((company) => company.departments);
-  const groups = departmentId ? departments.find((department) => department.id === departmentId)?.groups ?? [] : departments.flatMap((department) => department.groups);
-  return <section className={styles.filters}><label>公司<select value={companyId} onChange={(event) => setCompanyId(event.target.value)}><option value="">全部公司</option>{companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}</select></label><label>部门<select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}><option value="">全部部门</option>{departments.map((department) => <option value={department.id} key={department.id}>{department.name}</option>)}</select></label><label>小组<select value={groupId} onChange={(event) => setGroupId(event.target.value)}><option value="">全部小组</option>{groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label></section>;
+  const groups = (departmentId ? departments.find((department) => department.id === departmentId)?.groups ?? [] : departments.flatMap((department) => department.groups)).filter((group) => group.groupType === groupType);
+  return <section className={styles.filters}><label>公司<select value={companyId} onChange={(event) => setCompanyId(event.target.value)}><option value="">全部公司</option>{companies.map((company) => <option value={company.id} key={company.id}>{company.name}</option>)}</select></label><label>部门<select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}><option value="">全部部门</option>{departments.map((department) => <option value={department.id} key={department.id}>{department.name}</option>)}</select></label><label>小组<select value={groupId} onChange={(event) => setGroupId(event.target.value)}><option value="">全部{groupType === "LAWYER" ? "律师组" : "黑客组"}</option>{groups.map((group) => <option value={group.id} key={group.id}>{group.name}</option>)}</select></label></section>;
 }
 
-function Dashboard({ rows }: { rows: Array<{ company: CompanyNode; groups: number; departments: number; people: number; totals: Metrics }> }) {
+function Dashboard({ groupType, rows }: { groupType: "HACKER" | "LAWYER"; rows: Array<{ company: CompanyNode; groups: number; departments: number; people: number; totals: Metrics }> }) {
   const totals = sumMetrics(rows.map((row) => row.totals));
+  if (groupType === "LAWYER") {
+    return <><section className={styles.kpis}>{[["公司", rows.length], ["接粉", totals.added], ["真实案件", totals.lawyerRealCase ?? 0], ["添加律师", totals.lawyerAdded ?? 0], ["总开单", totals.ordered]].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><LawyerMetricTable title="各公司律师组经营概况" rows={rows.map((row) => ({ id: row.company.id, name: row.company.name, sub: `${row.departments} 个部门 · ${row.groups} 个律师组`, people: row.people, totals: row.totals }))} /></>;
+  }
   const totalRates = metricRates(totals);
   return <><section className={styles.kpis}>{[["公司", rows.length], ["有效数据", totals.effective], ["进群", totals.joined], ["开单", totals.ordered], ["净业绩", money(totals.netCents)]].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><section className={styles.card}><div className={styles.cardHead}><div><h2>各公司经营概况</h2><p>公司之间并排列出，不把不同时区的今日口径混为一谈</p></div></div><div className={styles.tableWrap}><table><thead><tr><th>公司</th><th>部门</th><th>小组</th><th>在岗人数</th><th>有效数据</th><th>回复率</th><th>进群率</th><th>异常退群率</th><th>注册率</th><th>开单率</th><th>开单</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{rows.map((row) => { const rates = metricRates(row.totals); return <tr key={row.company.id}><td><strong>{row.company.name}</strong></td><td>{row.departments}</td><td>{row.groups}</td><td>{row.people}</td><td>{row.totals.effective}</td><td>{rates.reply}</td><td>{rates.joined}</td><td>{rates.abnormalLeave}</td><td>{rates.registered}</td><td>{rates.ordered}</td><td>{row.totals.ordered}</td><td>{money(row.totals.initialDepositCents)}</td><td>{money(row.totals.rechargeCents)}</td><td>{money(row.totals.withdrawalCents)}</td><td><strong>{money(row.totals.netCents)}</strong></td></tr>; })}<tr className={styles.total}><td><strong>合计</strong></td><td>{rows.reduce((sum, row) => sum + row.departments, 0)}</td><td>{rows.reduce((sum, row) => sum + row.groups, 0)}</td><td>{rows.reduce((sum, row) => sum + row.people, 0)}</td><td>{totals.effective}</td><td>{totalRates.reply}</td><td>{totalRates.joined}</td><td>{totalRates.abnormalLeave}</td><td>{totalRates.registered}</td><td>{totalRates.ordered}</td><td>{totals.ordered}</td><td>{money(totals.initialDepositCents)}</td><td>{money(totals.rechargeCents)}</td><td>{money(totals.withdrawalCents)}</td><td><strong>{money(totals.netCents)}</strong></td></tr></tbody></table></div></section></>;
+}
+
+function AdaptiveMetricTable({ groupType, title, rows }: { groupType: "HACKER" | "LAWYER"; title: string; rows: TableRow[] }) {
+  return groupType === "LAWYER" ? <LawyerMetricTable title={title} rows={rows} /> : <MetricTable title={title} rows={rows} />;
+}
+
+function LawyerMetricTable({ title, rows }: { title: string; rows: TableRow[] }) {
+  const totals = sumMetrics(rows.map((row) => row.totals));
+  const people = rows.some((row) => row.people != null) ? rows.reduce((sum, row) => sum + (row.people ?? 0), 0) : undefined;
+  const cells = (value: Metrics, rowPeople?: number) => <><td>{rowPeople ?? "—"}</td><td>{value.added ?? 0}</td><td>{value.replied ?? 0}</td><td>{Math.max(0, (value.added ?? 0) - (value.replied ?? 0))}</td><td>{value.lowAmount ?? 0}</td><td>{value.lawyerRealCase ?? 0}</td><td>{rate(value.replied ?? 0, value.added ?? 0)}</td><td>{value.lawyerAdded ?? 0}</td><td>{value.lawyerExpertAdded ?? 0}</td><td>{rate(value.lawyerAdded ?? 0, value.added ?? 0)}</td><td>{rate(value.lawyerExpertAdded ?? 0, value.added ?? 0)}</td><td>{value.customerServicePush ?? 0}</td><td>{value.registered ?? 0}</td><td>{value.ordered ?? 0}</td><td>{money(value.cryptoDepositCents)}</td><td>{money(value.bankDepositCents)}</td><td>{money(value.withdrawalCents)}</td></>;
+  return <section className={styles.card}><div className={styles.cardHead}><div><h2>{title}</h2><p>律师组按接粉归属统计；未回复和三个比例由系统自动计算</p></div><strong>{rows.length} 行</strong></div><div className={styles.metricTable}><table><thead><tr><th>名称</th><th>人数</th><th>接粉</th><th>回复</th><th>未回复</th><th>接粉小金额</th><th>接粉真实案件</th><th>回复率</th><th>添加律师</th><th>添加专家</th><th>添加律师率</th><th>添加专家率</th><th>总推客服数量</th><th>总注册数量</th><th>总开单数量</th><th>加密货币充值金额</th><th>银行卡充值金额</th><th>出金金额</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><strong>{row.name}</strong>{row.sub ? <small>{row.sub}</small> : null}</td>{cells(row.totals, row.people)}</tr>)}<tr className={styles.total}><td><strong>合计</strong><small>当前显示 {rows.length} 行</small></td>{cells(totals, people)}</tr></tbody></table></div></section>;
 }
 
 function MetricTable({ title, rows }: { title: string; rows: TableRow[] }) {
@@ -207,11 +224,11 @@ function CompaniesDepartments({ companies, reload, notify }: { companies: Compan
 function GroupManagement({ companies, reload, notify }: { companies: CompanyNode[]; reload: () => Promise<void>; notify: (value: string) => void }) {
   const departments = useMemo(() => companies.flatMap((company) => company.departments.map((department) => ({ ...department, companyName: company.name }))), [companies]);
   const groupsWithoutLead = useMemo(() => departments.flatMap((department) => department.groups.filter((group) => !group.leadId).map((group) => ({ ...group, departmentName: department.name, companyName: department.companyName }))), [departments]);
-  const [departmentId, setDepartmentId] = useState(departments[0]?.id ?? ""); const [name, setName] = useState(""); const [leadGroupId, setLeadGroupId] = useState(groupsWithoutLead[0]?.id ?? ""); const [leadPassword, setLeadPassword] = useState(temporaryPassword); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const [departmentId, setDepartmentId] = useState(departments[0]?.id ?? ""); const [name, setName] = useState(""); const [groupType, setGroupType] = useState<"HACKER" | "LAWYER">("HACKER"); const [leadGroupId, setLeadGroupId] = useState(groupsWithoutLead[0]?.id ?? ""); const [leadPassword, setLeadPassword] = useState(temporaryPassword); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   useEffect(() => { if (!groupsWithoutLead.some((group) => group.id === leadGroupId)) setLeadGroupId(groupsWithoutLead[0]?.id ?? ""); }, [companies, groupsWithoutLead, leadGroupId]);
-  async function create(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { await requestJson("/api/org/groups", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ departmentId, name, leadAccount: null }) }); setName(""); notify("小组已创建，可到管理员账号/组长管理继续配置负责人"); await reload(); } catch (caught) { setError(caught instanceof Error ? caught.message : "小组创建失败"); } finally { setBusy(false); } }
+  async function create(event: FormEvent) { event.preventDefault(); setBusy(true); setError(""); try { await requestJson("/api/org/groups", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ departmentId, name, groupType, leadAccount: null }) }); setName(""); notify("小组已创建，可到管理员账号/组长管理继续配置负责人"); await reload(); } catch (caught) { setError(caught instanceof Error ? caught.message : "小组创建失败"); } finally { setBusy(false); } }
   async function createLead(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); setBusy(true); setError(""); try { await requestJson("/api/org/group-leads", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ groupId: leadGroupId, name: String(data.get("leadName") ?? ""), username: String(data.get("username") ?? ""), password: leadPassword, effectiveOn: String(data.get("effectiveOn") ?? "") }) }); setLeadPassword(temporaryPassword()); form.reset(); notify("组长账号已创建，请立即保存临时密码"); await reload(); } catch (caught) { setError(caught instanceof Error ? caught.message : "组长账号创建失败"); } finally { setBusy(false); } }
-  return <><form className={styles.inlineCreate} onSubmit={create}><strong>第 1 步 · 创建小组</strong><label>所属部门<select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>{departments.map((department) => <option value={department.id} key={department.id}>{department.companyName} · {department.name}</option>)}</select></label><label>小组名称<input value={name} onChange={(event) => setName(event.target.value)} required /></label><button disabled={busy || !departmentId}>＋ 创建小组</button></form><form className={styles.inlineCreate} onSubmit={createLead}><strong>第 2 步 · 给已有小组创建组长账号</strong><label>无组长小组<select value={leadGroupId} onChange={(event) => setLeadGroupId(event.target.value)} required><option value="">请选择</option>{groupsWithoutLead.map((group) => <option key={group.id} value={group.id}>{group.companyName} · {group.departmentName} · {group.name}</option>)}</select></label><label>组长姓名<input name="leadName" required /></label><label>登录账号<input name="username" required /></label><label>生效日期<input name="effectiveOn" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label><label>临时密码<div className={styles.password}><input readOnly value={leadPassword} /><button type="button" onClick={() => setLeadPassword(temporaryPassword())}>换一个</button></div></label><button disabled={busy || !leadGroupId}>创建组长账号</button></form>{error ? <div className={styles.error}>{error}</div> : null}<section className={styles.card}><div className={styles.tableWrap}><table><thead><tr><th>公司</th><th>部门</th><th>小组</th><th>组长</th><th>状态</th></tr></thead><tbody>{departments.flatMap((department) => department.groups.map((group) => <tr key={group.id}><td>{department.companyName}</td><td>{department.name}</td><td><strong>{group.name}</strong></td><td>{group.leadName ?? "待任命"}</td><td>{group.active ? "启用" : "停用"}</td></tr>))}</tbody></table></div></section></>;
+  return <><form className={styles.inlineCreate} onSubmit={create}><strong>第 1 步 · 创建小组</strong><label>所属部门<select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>{departments.map((department) => <option value={department.id} key={department.id}>{department.companyName} · {department.name}</option>)}</select></label><label>小组名称<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label>小组类型<select value={groupType} onChange={(event) => setGroupType(event.target.value as "HACKER" | "LAWYER")}><option value="HACKER">黑客组</option><option value="LAWYER">律师组</option></select></label><button disabled={busy || !departmentId}>＋ 创建小组</button></form><form className={styles.inlineCreate} onSubmit={createLead}><strong>第 2 步 · 给已有小组创建组长账号</strong><label>无组长小组<select value={leadGroupId} onChange={(event) => setLeadGroupId(event.target.value)} required><option value="">请选择</option>{groupsWithoutLead.map((group) => <option key={group.id} value={group.id}>{group.companyName} · {group.departmentName} · {group.name}</option>)}</select></label><label>组长姓名<input name="leadName" required /></label><label>登录账号<input name="username" required /></label><label>生效日期<input name="effectiveOn" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label><label>临时密码<div className={styles.password}><input readOnly value={leadPassword} /><button type="button" onClick={() => setLeadPassword(temporaryPassword())}>换一个</button></div></label><button disabled={busy || !leadGroupId}>创建组长账号</button></form>{error ? <div className={styles.error}>{error}</div> : null}<section className={styles.card}><div className={styles.tableWrap}><table><thead><tr><th>公司</th><th>部门</th><th>小组</th><th>类型</th><th>组长</th><th>状态</th></tr></thead><tbody>{departments.flatMap((department) => department.groups.map((group) => <tr key={group.id}><td>{department.companyName}</td><td>{department.name}</td><td><strong>{group.name}</strong></td><td>{group.groupType === "LAWYER" ? "律师组" : "黑客组"}</td><td>{group.leadName ?? "待任命"}</td><td>{group.active ? "启用" : "停用"}</td></tr>))}</tbody></table></div></section></>;
 }
 
 function ManagerAccounts({ companies, notify }: { companies: CompanyNode[]; notify: (value: string) => void }) {

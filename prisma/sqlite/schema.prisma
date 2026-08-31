@@ -20,6 +20,11 @@ enum Role {
   EXPERT
 }
 
+enum GroupType {
+  HACKER
+  LAWYER
+}
+
 model Department {
   id               String      @id
   name             String      @unique
@@ -304,6 +309,7 @@ model ResourceChannelAccess {
 model TeamGroup {
   id                          String                @id
   name                        String
+  groupType                   GroupType             @default(HACKER)
   active                      Boolean               @default(true)
   departmentId                String                @default("default-department")
   department                  Department            @relation(fields: [departmentId], references: [id])

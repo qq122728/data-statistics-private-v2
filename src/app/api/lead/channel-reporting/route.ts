@@ -33,7 +33,7 @@ export async function GET(request: Request) {
   const group = await db.teamGroup.findFirst({
     where: { id: actor.groupId, active: true },
     select: {
-      id: true, name: true, countryCode: true, timezone: true,
+      id: true, name: true, groupType: true, countryCode: true, timezone: true,
       workStartMinutes: true, workEndMinutes: true,
       department: { select: { countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
     },
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
       },
     }),
   ]);
-  type Row = { channel: (typeof entries)[number]["channel"]; owner?: { id: string; name: string }; businessDate?: string; totals: ReturnType<typeof emptyBatchTotals>; lowAmount: number; noWs: number; manualInvalid: number; initialDepositCents: number; rechargeCents: number; inGroup: number; snapshotDate: string };
+  type Row = { channel: (typeof entries)[number]["channel"]; owner?: { id: string; name: string }; businessDate?: string; totals: ReturnType<typeof emptyBatchTotals>; lowAmount: number; noWs: number; manualInvalid: number; initialDepositCents: number; rechargeCents: number; inGroup: number; snapshotDate: string; lawyerRealCase?: number; lawyerAdded?: number; lawyerExpertAdded?: number; customerServicePush?: number; cryptoDepositCents?: number; bankDepositCents?: number };
   const byChannel = new Map<string, Row>();
   const byChannelMember = new Map<string, Row>();
   const byMember = new Map<string, Row>();
@@ -116,6 +116,12 @@ export async function GET(request: Request) {
     row.lowAmount += value.lowAmountCount;
     row.noWs += value.noWsCount;
     row.manualInvalid += value.manualInvalidCount;
+    row.lawyerRealCase = (row.lawyerRealCase ?? 0) + value.lawyerRealCaseCount;
+    row.lawyerAdded = (row.lawyerAdded ?? 0) + value.lawyerAddedCount;
+    row.lawyerExpertAdded = (row.lawyerExpertAdded ?? 0) + value.lawyerExpertAddedCount;
+    row.customerServicePush = (row.customerServicePush ?? 0) + value.customerServicePushCount;
+    row.cryptoDepositCents = (row.cryptoDepositCents ?? 0) + value.cryptoInitialDepositCents + value.cryptoRechargeCents;
+    row.bankDepositCents = (row.bankDepositCents ?? 0) + value.bankInitialDepositCents + value.bankRechargeCents;
     row.initialDepositCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents;
     row.rechargeCents += value.cryptoRechargeCents + value.bankRechargeCents;
     if (entry.position === "RECEPTION" || entry.position === "GROUP_OPERATOR") {
@@ -155,6 +161,10 @@ export async function GET(request: Request) {
       lowAmount: row.lowAmount,
       noWs: row.noWs,
       manualInvalid: row.manualInvalid,
+      lawyerRealCase: row.lawyerRealCase ?? 0,
+      lawyerAdded: row.lawyerAdded ?? 0,
+      lawyerExpertAdded: row.lawyerExpertAdded ?? 0,
+      customerServicePush: row.customerServicePush ?? 0,
       effective: row.totals.effectiveFans,
       replied: row.totals.replies,
       joined: row.totals.groupJoin,
@@ -169,6 +179,8 @@ export async function GET(request: Request) {
       rechargeCents: row.rechargeCents,
       withdrawalCents: row.totals.withdrawalCents,
       netCents: row.totals.rechargeCents - row.totals.withdrawalCents,
+      cryptoDepositCents: row.cryptoDepositCents ?? 0,
+      bankDepositCents: row.bankDepositCents ?? 0,
     },
     rates: calculateConversionRates(row.totals),
     derivedRates: {
@@ -180,6 +192,9 @@ export async function GET(request: Request) {
       abnormalLeaveRate: row.totals.groupJoin - Math.max(0, row.totals.groupLeave - (row.totals.abnormalGroupLeave ?? 0)) > 0
         ? (row.totals.abnormalGroupLeave ?? 0) / (row.totals.groupJoin - Math.max(0, row.totals.groupLeave - (row.totals.abnormalGroupLeave ?? 0)))
         : null,
+      lawyerReplyRate: row.totals.newFans ? row.totals.replies / row.totals.newFans : null,
+      lawyerAddedRate: row.totals.newFans ? (row.lawyerAdded ?? 0) / row.totals.newFans : null,
+      lawyerExpertAddedRate: row.totals.newFans ? (row.lawyerExpertAdded ?? 0) / row.totals.newFans : null,
     },
   }; }
   const rows = [...byChannel.values()].map((row) => {
@@ -246,7 +261,7 @@ export async function GET(request: Request) {
   if (groupOrderRate > 0) for (const member of members.filter((row) => row.totals.effective >= 10 && (row.derivedRates.orderRate ?? 0) + 0.02 < groupOrderRate).slice(0, 3)) analysis.push({ tone: "warn", title: `${member.name} 低于小组平均开单率`, detail: `个人开单率 ${((member.derivedRates.orderRate ?? 0) * 100).toFixed(1)}%，小组平均 ${((groupOrderRate) * 100).toFixed(1)}%；可展开个人渠道明细定位差距。` });
 
   return NextResponse.json({
-    group: { id: group.id, name: group.name, timezone: resolveGroupBusinessTime(group).timezone },
+    group: { id: group.id, name: group.name, groupType: group.groupType, timezone: resolveGroupBusinessTime(group).timezone },
     range: { preset: range.preset, label: range.label, today, from: range.from, to: range.to },
     summary,
     rows,

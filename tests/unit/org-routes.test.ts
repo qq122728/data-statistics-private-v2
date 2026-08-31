@@ -157,10 +157,13 @@ describe.sequential("阶段5a组织架构路由：新公司/新部门 (总公司
 });
 
 describe.sequential("阶段5a组织架构路由：新建小组 (部门管理员及以上，按层级限定范围)", () => {
-  it("lets a department manager create a group in their own department", async () => {
+  it("lets a department manager create a lawyer group in their own department", async () => {
     await signInAs(ids.deptA1Manager);
-    const response = await createGroup(jsonRequest("http://localhost/api/org/groups", { departmentId: ids.deptA1, name: `A1新组-${suffix}` }));
+    const name = `A1律师组-${suffix}`;
+    const response = await createGroup(jsonRequest("http://localhost/api/org/groups", { departmentId: ids.deptA1, name, groupType: "LAWYER" }));
     expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({ group: { name, groupType: "LAWYER" } });
+    await expect(db.teamGroup.findFirstOrThrow({ where: { departmentId: ids.deptA1, name }, select: { groupType: true } })).resolves.toEqual({ groupType: "LAWYER" });
   });
 
   it("forces group creation and lead-account creation to be two separate steps", async () => {

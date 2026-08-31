@@ -14,12 +14,13 @@ type View = "dashboard" | "daily" | "summary" | "channels" | "usage" | "accounts
 type SummaryMode = "channel" | "department" | "group" | "day";
 type Totals = {
   added: number; collision: number; lowAmount: number; noWs: number; manualInvalid: number; effective: number;
+  lawyerRealCase: number; lawyerAdded: number; lawyerExpertAdded: number; customerServicePush: number;
   replied: number; joined: number; left: number; abnormalLeft: number; inGroup: number;
-  pushed: number; registered: number; ordered: number; initialDepositCents: number; rechargeCents: number; depositCents: number; withdrawalCents: number;
+  pushed: number; registered: number; ordered: number; initialDepositCents: number; rechargeCents: number; depositCents: number; cryptoDepositCents: number; bankDepositCents: number; withdrawalCents: number;
 };
 type ReportRow = {
   channel: { id: string; name: string; normalizedName: string };
-  group: { id: string; name: string; departmentId?: string; departmentName: string; companyId?: string | null; companyName?: string };
+  group: { id: string; name: string; groupType: "HACKER" | "LAWYER"; departmentId?: string; departmentName: string; companyId?: string | null; companyName?: string };
   period: { preset: string; from: string; to: string; today: string; timezone: string };
   totals: Totals;
 };
@@ -27,12 +28,12 @@ type Reporting = {
   rows: ReportRow[];
   days: Array<{ date: string; rows: ReportRow[] }>;
   channels: Array<{ id: string; name: string; normalizedName: string }>;
-  groups: Array<{ id: string; name: string; departmentId: string; departmentName: string; companyId: string | null; companyName: string }>;
+  groups: Array<{ id: string; name: string; groupType: "HACKER" | "LAWYER"; departmentId: string; departmentName: string; companyId: string | null; companyName: string }>;
   members: Array<{ id: string; name: string; role: string; groupId: string | null }>;
   memberRows: Array<{ date: string; channelId: string; groupId: string; member: { id: string; name: string; role: string }; totals: Totals }>;
 };
 type Channel = { id: string; name: string; active: boolean; channelType: "SMS" | "ADS" | "REBATE"; createdAt: string; creator?: { name: string } | null; groupCount: number; batchCount: number };
-const emptyTotals = (): Totals => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, effective: 0, replied: 0, joined: 0, left: 0, abnormalLeft: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, initialDepositCents: 0, rechargeCents: 0, depositCents: 0, withdrawalCents: 0 });
+const emptyTotals = (): Totals => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, lawyerRealCase: 0, lawyerAdded: 0, lawyerExpertAdded: 0, customerServicePush: 0, effective: 0, replied: 0, joined: 0, left: 0, abnormalLeft: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, initialDepositCents: 0, rechargeCents: 0, depositCents: 0, cryptoDepositCents: 0, bankDepositCents: 0, withdrawalCents: 0 });
 const sumTotals = (rows: Array<{ totals: Totals }>) => rows.reduce((sum, row) => {
   for (const key of Object.keys(sum) as Array<keyof Totals>) sum[key] += Number(row.totals[key] ?? 0);
   return sum;
@@ -68,6 +69,7 @@ export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceP
   const [memberId, setMemberId] = useState("");
   const [day, setDay] = useState("");
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("channel");
+  const [groupTypeFilter, setGroupTypeFilter] = useState<"HACKER" | "LAWYER">("HACKER");
   const [report, setReport] = useState<Reporting | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [unread, setUnread] = useState(0);
@@ -94,16 +96,17 @@ export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceP
   }, [from, range, to]);
   useEffect(() => { void load(); }, [load]);
 
-  const companies = useMemo(() => [...new Set((report?.groups ?? []).map((group) => group.companyName))].sort(), [report]);
-  const departments = useMemo(() => [...new Set((report?.groups ?? []).filter((group) => !company || group.companyName === company).map((group) => group.departmentName))].sort(), [company, report]);
-  const filterGroups = useMemo(() => (report?.groups ?? []).filter((group) => (!company || group.companyName === company) && (!department || group.departmentName === department)), [company, department, report]);
+  const typedGroups = useMemo(() => (report?.groups ?? []).filter((group) => group.groupType === groupTypeFilter), [groupTypeFilter, report]);
+  const companies = useMemo(() => [...new Set(typedGroups.map((group) => group.companyName))].sort(), [typedGroups]);
+  const departments = useMemo(() => [...new Set(typedGroups.filter((group) => !company || group.companyName === company).map((group) => group.departmentName))].sort(), [company, typedGroups]);
+  const filterGroups = useMemo(() => typedGroups.filter((group) => (!company || group.companyName === company) && (!department || group.departmentName === department)), [company, department, typedGroups]);
   const filterMembers = useMemo(() => (report?.members ?? []).filter((member) => !groupId || member.groupId === groupId), [groupId, report]);
   const visibleBaseRows = useMemo(() => (report?.rows ?? []).filter((row) =>
-    (!channelId || row.channel.id === channelId) && (!company || row.group.companyName === company) && (!department || row.group.departmentName === department) && (!groupId || row.group.id === groupId)
-  ), [channelId, company, department, groupId, report]);
+    row.group.groupType === groupTypeFilter && (!channelId || row.channel.id === channelId) && (!company || row.group.companyName === company) && (!department || row.group.departmentName === department) && (!groupId || row.group.id === groupId)
+  ), [channelId, company, department, groupId, groupTypeFilter, report]);
   const visibleDailyRows = useMemo(() => (report?.days ?? []).flatMap((item) => item.rows.map((row) => ({ ...row, group: { ...(report?.groups.find((group) => group.id === row.group.id) ?? row.group), ...row.group }, displayDate: item.date }))).filter((row) =>
-    (!day || row.displayDate === day) && (!channelId || row.channel.id === channelId) && (!company || row.group.companyName === company) && (!department || row.group.departmentName === department) && (!groupId || row.group.id === groupId)
-  ), [channelId, company, day, department, groupId, report]);
+    row.group.groupType === groupTypeFilter && (!day || row.displayDate === day) && (!channelId || row.channel.id === channelId) && (!company || row.group.companyName === company) && (!department || row.group.departmentName === department) && (!groupId || row.group.id === groupId)
+  ), [channelId, company, day, department, groupId, groupTypeFilter, report]);
   const totals = useMemo(() => sumTotals(visibleBaseRows), [visibleBaseRows]);
   const groupedRows = useMemo(() => {
     const buckets = new Map<string, { label: string; sub?: string; totals: Totals }>();
@@ -158,16 +161,17 @@ export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceP
       <NavGroup label="分析报告"><NavButton active={view === "comparison"} onClick={() => setView("comparison")} icon="analysis">渠道表现对比</NavButton><NavButton active={view === "anomalies"} onClick={() => setView("anomalies")} icon="warning">异常数据提醒</NavButton></NavGroup>
       <NavButton active={view === "notifications"} onClick={() => setView("notifications")} icon="notifications">通知中心{unread ? <b>{unread}</b> : null}</NavButton>
       </>}>
+        {showFilters ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>律师组数据</button></div> : null}
         {showFilters ? <Filters report={report} range={range} from={from} to={to} channelId={channelId} company={company} department={department} groupId={groupId} memberId={memberId} day={view === "daily" ? day : undefined} companies={companies} departments={departments} groups={filterGroups} members={filterMembers} setRange={setRange} setFrom={setFrom} setTo={setTo} setChannelId={setChannelId} setCompany={(value) => { setCompany(value); setDepartment(""); setGroupId(""); setMemberId(""); }} setDepartment={(value) => { setDepartment(value); setGroupId(""); setMemberId(""); }} setGroupId={(value) => { setGroupId(value); setMemberId(""); }} setMemberId={setMemberId} setDay={setDay} onRefresh={() => void load()} /> : null}
         {loading ? <StateCard>正在读取已授权渠道数据…</StateCard> : null}
         {error ? <div className={styles.error}>{error}</div> : null}{notice ? <div className={styles.success}>{notice}</div> : null}
-        {!loading && view === "dashboard" ? <Dashboard totals={totals} rows={visibleBaseRows} /> : null}
-        {!loading && view === "daily" ? <>{groupId ? <MemberMatrix report={report} day={day} channelId={channelId} groupId={groupId} memberId={memberId} /> : <><StateCard>请按“日期 → 渠道 → 公司 → 部门 → 小组”定位，选定小组后会展开员工共享表。</StateCard><DataTable title="每日渠道数据" rows={visibleDailyRows.map((row) => ({ label: row.displayDate, sub: `${row.group.companyName} / ${row.group.departmentName} / ${row.group.name} / ${row.channel.name}`, totals: row.totals }))} /></>}</> : null}
-        {!loading && view === "summary" ? <><div className={styles.tabs}>{([ ["channel", "按渠道"], ["department", "按公司/部门"], ["group", "按小组"], ["day", "按日期"] ] as const).map(([key, label]) => <button key={key} data-active={summaryMode === key} onClick={() => setSummaryMode(key)}>{label}</button>)}</div><DataTable title="渠道数据汇总" rows={groupedRows} /></> : null}
+        {!loading && view === "dashboard" ? <Dashboard groupType={groupTypeFilter} totals={totals} rows={visibleBaseRows} /> : null}
+        {!loading && view === "daily" ? <>{groupId ? <MemberMatrix report={report} day={day} channelId={channelId} groupId={groupId} memberId={memberId} /> : <><StateCard>请按“日期 → 渠道 → 公司 → 部门 → 小组”定位，选定小组后会展开员工共享表。</StateCard><DataTable groupType={groupTypeFilter} title="每日渠道数据" rows={visibleDailyRows.map((row) => ({ label: row.displayDate, sub: `${row.group.companyName} / ${row.group.departmentName} / ${row.group.name} / ${row.channel.name}`, totals: row.totals }))} /></>}</> : null}
+        {!loading && view === "summary" ? <><div className={styles.tabs}>{([ ["channel", "按渠道"], ["department", "按公司/部门"], ["group", "按小组"], ["day", "按日期"] ] as const).map(([key, label]) => <button key={key} data-active={summaryMode === key} onClick={() => setSummaryMode(key)}>{label}</button>)}</div><DataTable groupType={groupTypeFilter} title="渠道数据汇总" rows={groupedRows} /></> : null}
         {!loading && view === "channels" ? <ChannelCatalog channels={activeChannels} authorizedChannelType={authorizedChannelType} search={channelSearch} setSearch={setChannelSearch} createOpen={createChannel} setCreateOpen={setCreateChannel} savingId={savingId} onSave={saveChannel} onToggle={(channel) => void toggleChannel(channel)} /> : null}
         {!loading && view === "usage" ? <UsageTable rows={visibleBaseRows} channels={channels} /> : null}
         {!loading && view === "accounts" ? <ReadOnlyAccount user={user} channels={channels} /> : null}
-        {!loading && view === "comparison" ? <><SmartAnalysis rows={visibleBaseRows} /><DataTable title="渠道表现对比" rows={groupByChannel(visibleBaseRows)} /></> : null}
+        {!loading && view === "comparison" ? <><SmartAnalysis rows={visibleBaseRows} /><DataTable groupType={groupTypeFilter} title="渠道表现对比" rows={groupByChannel(visibleBaseRows)} /></> : null}
         {!loading && view === "anomalies" ? <Anomalies rows={visibleBaseRows} /> : null}
         {!loading && view === "notifications" ? <UnifiedNotificationCenter onUnreadChange={setUnread} /> : null}
   </WorkspaceShell>;
@@ -190,12 +194,17 @@ function Filters(props: { report: Reporting | null; range: string; from: string;
   </section>;
 }
 
-function Dashboard({ totals, rows }: { totals: Totals; rows: ReportRow[] }) {
-  return <><section className={styles.kpis}>{[["添加数据", totals.added], ["有效数据", totals.effective], ["有效率", rate(totals.effective, totals.added)], ["进群", totals.joined], ["开单", totals.ordered], ["净业绩", money(totals.depositCents - totals.withdrawalCents)]].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><SmartAnalysis rows={rows} /><DataTable title="当前筛选范围汇总" rows={groupByChannel(rows)} /></>;
+function Dashboard({ groupType, totals, rows }: { groupType: "HACKER" | "LAWYER"; totals: Totals; rows: ReportRow[] }) {
+  const cards = groupType === "LAWYER" ? [["接粉", totals.added], ["回复", totals.replied], ["真实案件", totals.lawyerRealCase], ["添加律师", totals.lawyerAdded], ["总注册", totals.registered], ["总开单", totals.ordered]] : [["添加数据", totals.added], ["有效数据", totals.effective], ["有效率", rate(totals.effective, totals.added)], ["进群", totals.joined], ["开单", totals.ordered], ["净业绩", money(totals.depositCents - totals.withdrawalCents)]];
+  return <><section className={styles.kpis}>{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><SmartAnalysis rows={rows} /><DataTable groupType={groupType} title="当前筛选范围汇总" rows={groupByChannel(rows)} /></>;
 }
 
-function DataTable({ title, rows }: { title: string; rows: Array<{ label: string; sub?: string; totals: Totals }> }) {
+function DataTable({ groupType, title, rows }: { groupType: "HACKER" | "LAWYER"; title: string; rows: Array<{ label: string; sub?: string; totals: Totals }> }) {
   const totals = sumTotals(rows);
+  if (groupType === "LAWYER") {
+    const cells = (value: Totals) => <><td>{value.added}</td><td>{value.replied}</td><td>{Math.max(0, value.added - value.replied)}</td><td>{value.lowAmount}</td><td>{value.lawyerRealCase}</td><td>{rate(value.replied, value.added)}</td><td>{value.lawyerAdded}</td><td>{value.lawyerExpertAdded}</td><td>{rate(value.lawyerAdded, value.added)}</td><td>{rate(value.lawyerExpertAdded, value.added)}</td><td>{value.customerServicePush}</td><td>{value.registered}</td><td>{value.ordered}</td><td>{money(value.cryptoDepositCents)}</td><td>{money(value.bankDepositCents)}</td><td>{money(value.withdrawalCents)}</td></>;
+    return <section className={`fresh-sheet-card ${styles.card}`}><header className={`fresh-sheet-title ${styles.cardTitle}`}><div><h2>{title} · 律师组</h2><p>底部合计只计算当前筛选行；未回复和比例由系统计算</p></div><div><span>共</span><strong>{rows.length} 行</strong></div></header><div className={styles.tableWrap}><table className={styles.dataTable}><thead><tr><th>名称</th><th>接粉</th><th>回复</th><th>未回复</th><th>接粉小金额</th><th>接粉真实案件</th><th>回复率</th><th>添加律师</th><th>添加专家</th><th>添加律师率</th><th>添加专家率</th><th>总推客服</th><th>总注册</th><th>总开单</th><th>加密货币充值</th><th>银行卡充值</th><th>出金</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.label}-${row.sub ?? ""}-${index}`}><td><strong>{row.label}</strong>{row.sub ? <small>{row.sub}</small> : null}</td>{cells(row.totals)}</tr>)}<tr className={styles.total}><td><strong>合计</strong><small>当前显示 {rows.length} 行</small></td>{cells(totals)}</tr></tbody></table></div></section>;
+  }
   const cells = (value: Totals) => {
     const normalLeft = value.left - value.abnormalLeft;
     return <><td>{value.added}</td><td>{value.collision}</td><td>{value.lowAmount}</td><td>{value.noWs}</td><td>{value.manualInvalid}</td><td><strong>{value.effective}</strong></td><td>{value.replied}</td><td>{value.joined}</td><td>{normalLeft}</td><td>{value.abnormalLeft}</td><td>{value.inGroup}</td><td>{value.pushed}</td><td>{value.registered}</td><td>{value.ordered}</td><td>{rate(value.replied, value.effective)}</td><td>{rate(value.joined, value.effective)}</td><td>{rate(value.abnormalLeft, value.joined - normalLeft)}</td><td>{rate(value.registered, value.pushed)}</td><td>{rate(value.ordered, value.registered)}</td><td>{money(value.initialDepositCents)}</td><td>{money(value.rechargeCents)}</td><td>{money(value.withdrawalCents)}</td><td><strong>{money(value.depositCents - value.withdrawalCents)}</strong></td></>;
@@ -211,6 +220,7 @@ function MemberMatrix({ report, day, channelId, groupId, memberId }: { report: R
   const byMember = new Map(allMembers.map((member) => [member.id, sumMemberTotals(rows.filter((row) => row.member.id === member.id))]));
   const filteredTotals = memberId ? byMember.get(memberId) ?? emptyTotals() : groupTotals;
   const group = report?.groups.find((item) => item.id === groupId);
+  const lawyerGroup = group?.groupType === "LAWYER";
   const value = (metric: string, totals: Totals) => {
     const normalLeft = totals.left - totals.abnormalLeft;
     const values: Record<string, string | number> = {
@@ -219,10 +229,13 @@ function MemberMatrix({ report, day, channelId, groupId, memberId }: { report: R
       "推专家": totals.pushed, "注册": totals.registered, "开单": totals.ordered, "回复率": rate(totals.replied, totals.effective), "进群率": rate(totals.joined, totals.effective),
       "异常退群率": rate(totals.abnormalLeft, totals.joined - normalLeft), "注册率": rate(totals.registered, totals.pushed), "开单率": rate(totals.ordered, totals.registered),
       "首充": money(totals.initialDepositCents), "续充": money(totals.rechargeCents), "出金": money(totals.withdrawalCents), "净业绩": money(totals.depositCents - totals.withdrawalCents),
+      "接粉": totals.added, "未回复": Math.max(0, totals.added - totals.replied), "接粉小金额": totals.lowAmount, "接粉真实案件": totals.lawyerRealCase,
+      "添加律师": totals.lawyerAdded, "添加专家": totals.lawyerExpertAdded, "添加律师率": rate(totals.lawyerAdded, totals.added), "添加专家率": rate(totals.lawyerExpertAdded, totals.added),
+      "总推客服数量": totals.customerServicePush, "总注册数量": totals.registered, "总开单数量": totals.ordered, "加密货币充值金额": money(totals.cryptoDepositCents), "银行卡充值金额": money(totals.bankDepositCents), "出金金额": money(totals.withdrawalCents),
     };
     return values[metric];
   };
-  const metrics = ["添加数据", "撞粉", "低金额", "无 WS 号码", "人工无效", "有效数据", "回复", "进群", "正常退群", "异常退群", "当前在群", "推专家", "注册", "开单", "回复率", "进群率", "异常退群率", "注册率", "开单率", "首充", "续充", "出金", "净业绩"];
+  const metrics = lawyerGroup ? ["接粉", "回复", "未回复", "接粉小金额", "接粉真实案件", "回复率", "添加律师", "添加专家", "添加律师率", "添加专家率", "总推客服数量", "总注册数量", "总开单数量", "加密货币充值金额", "银行卡充值金额", "出金金额"] : ["添加数据", "撞粉", "低金额", "无 WS 号码", "人工无效", "有效数据", "回复", "进群", "正常退群", "异常退群", "当前在群", "推专家", "注册", "开单", "回复率", "进群率", "异常退群率", "注册率", "开单率", "首充", "续充", "出金", "净业绩"];
   return <section className={`fresh-sheet-card ${styles.card}`}><header className={`fresh-sheet-title ${styles.cardTitle}`}><div><h2>{group?.name ?? "小组"} · 员工归属汇总表</h2><p>{day || "当前周期"} · {channelId ? report?.channels.find((item) => item.id === channelId)?.name : "全部授权渠道"} · 每名组员一列，后续数据归最初来源组员</p></div><div><span>当前列</span><strong>{members.length} 名归属成员</strong></div></header><div className={styles.tableWrap}><table className={standard.matrix}><thead><tr><th>数据指标</th><th>小组合计</th>{members.map((member) => <th key={member.id}>{member.name}<small>{member.role}</small></th>)}<th>当前筛选汇总</th></tr></thead><tbody>{metrics.map((metric) => <tr key={metric}><td><strong>{metric}</strong></td><td className={standard.groupTotal}>{value(metric, groupTotals)}</td>{members.map((member) => <td key={member.id}>{value(metric, byMember.get(member.id) ?? emptyTotals())}</td>)}<td className={standard.currentTotal}>{value(metric, filteredTotals)}</td></tr>)}</tbody></table></div></section>;
 }
 

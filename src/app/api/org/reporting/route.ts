@@ -19,6 +19,7 @@ const allowedRanges = new Set(["all", "today", "yesterday", "7d", "30d", "month"
 type ApprovedDailyRevision = {
   dispatchCount: number; duplicateCount: number; lowAmountCount: number; noWsCount: number; effectiveCount: number;
   manualInvalidCount: number;
+  lawyerRealCaseCount: number; lawyerAddedCount: number; lawyerExpertAddedCount: number; customerServicePushCount: number;
   replyCount: number; joinCount: number; operatorReceivedCount: number; normalLeaveCount: number;
   abnormalLeaveCount: number; currentInGroupCount: number; expertIntroCount: number; expertReceivedCount: number;
   expertContactedCount: number; registrationCount: number; orderCount: number; cryptoInitialDepositCents: number;
@@ -85,6 +86,7 @@ export async function GET(request: Request) {
     select: {
       id: true,
       name: true,
+      groupType: true,
       active: true,
       countryCode: true,
       timezone: true,
@@ -169,9 +171,10 @@ export async function GET(request: Request) {
     return Boolean(entry.approvedRevision && period && entry.businessDate >= period.from && entry.businessDate <= period.to);
   });
 
-  type Aggregate = { totals: BatchTotals; lowAmount: number; noWs: number; manualInvalid: number; initialDepositCents: number; rechargeOnlyCents: number; latestSnapshotDate: string; inGroup: number };
-  const freshAggregate = (): Aggregate => ({ totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, manualInvalid: 0, initialDepositCents: 0, rechargeOnlyCents: 0, latestSnapshotDate: "", inGroup: 0 });
+  type Aggregate = { totals: BatchTotals; lowAmount: number; noWs: number; manualInvalid: number; lawyerRealCase: number; lawyerAdded: number; lawyerExpertAdded: number; customerServicePush: number; initialDepositCents: number; rechargeOnlyCents: number; cryptoDepositCents: number; bankDepositCents: number; latestSnapshotDate: string; inGroup: number };
+  const freshAggregate = (): Aggregate => ({ totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, manualInvalid: 0, lawyerRealCase: 0, lawyerAdded: 0, lawyerExpertAdded: 0, customerServicePush: 0, initialDepositCents: 0, rechargeOnlyCents: 0, cryptoDepositCents: 0, bankDepositCents: 0, latestSnapshotDate: "", inGroup: 0 });
   const groupAggregates = new Map<string, Aggregate>();
+  const groupTypeById = new Map(selectedGroups.map((group) => [group.id, group.groupType]));
   const memberAggregates = new Map<string, Aggregate>();
   const dailyGroupAggregates = new Map<string, Aggregate>();
   const dailyMemberAggregates = new Map<string, Aggregate>();
@@ -181,8 +184,14 @@ export async function GET(request: Request) {
     aggregate.lowAmount += revision.lowAmountCount;
     aggregate.noWs += revision.noWsCount;
     aggregate.manualInvalid += revision.manualInvalidCount ?? 0;
+    aggregate.lawyerRealCase += revision.lawyerRealCaseCount ?? 0;
+    aggregate.lawyerAdded += revision.lawyerAddedCount ?? 0;
+    aggregate.lawyerExpertAdded += revision.lawyerExpertAddedCount ?? 0;
+    aggregate.customerServicePush += revision.customerServicePushCount ?? 0;
     aggregate.initialDepositCents += revision.cryptoInitialDepositCents + revision.bankInitialDepositCents;
     aggregate.rechargeOnlyCents += revision.cryptoRechargeCents + revision.bankRechargeCents;
+    aggregate.cryptoDepositCents += revision.cryptoInitialDepositCents + revision.cryptoRechargeCents;
+    aggregate.bankDepositCents += revision.bankInitialDepositCents + revision.bankRechargeCents;
     if (entry.position === "GROUP_OPERATOR") {
       if (entry.businessDate > aggregate.latestSnapshotDate) {
         aggregate.latestSnapshotDate = entry.businessDate;
@@ -203,7 +212,9 @@ export async function GET(request: Request) {
     const dailyGroupAggregate = dailyGroupAggregates.get(dailyGroupKey) ?? freshAggregate();
     const dailyMemberAggregate = dailyMemberAggregates.get(dailyMemberKey) ?? freshAggregate();
     for (const aggregate of [groupAggregate, memberAggregate, dailyGroupAggregate, dailyMemberAggregate]) applyRevision(aggregate, entry, revision);
-    const channelKey = entry.channel.normalizedName || entry.channel.name;
+    const normalizedChannelName = entry.channel.normalizedName || entry.channel.name;
+    const channelGroupType = groupTypeById.get(entry.groupId) ?? "HACKER";
+    const channelKey = `${channelGroupType}:${normalizedChannelName}`;
     const channelRow = channelAggregates.get(channelKey) ?? { name: entry.channel.name, aggregate: freshAggregate(), groupIds: new Set<string>() };
     applyRevision(channelRow.aggregate, entry, revision);
     channelRow.groupIds.add(entry.groupId);
@@ -220,17 +231,22 @@ export async function GET(request: Request) {
     return {
       totals: {
         added: totals.newFans, collision: totals.duplicateFans, lowAmount: aggregate.lowAmount, noWs: aggregate.noWs, manualInvalid: aggregate.manualInvalid,
+        lawyerRealCase: aggregate.lawyerRealCase, lawyerAdded: aggregate.lawyerAdded, lawyerExpertAdded: aggregate.lawyerExpertAdded, customerServicePush: aggregate.customerServicePush,
         effective: totals.effectiveFans, replied: totals.replies, joined: totals.groupJoin,
         leftNormal: Math.max(0, totals.groupLeave - abnormalLeave), leftAbnormal: abnormalLeave, inGroup,
         pushed: totals.expertIntro, registered: totals.registration, ordered: totals.orders,
         initialDepositCents: aggregate.initialDepositCents, rechargeCents: aggregate.rechargeOnlyCents,
         depositCents: totals.rechargeCents, withdrawalCents: totals.withdrawalCents, netCents: totals.rechargeCents - totals.withdrawalCents,
+        cryptoDepositCents: aggregate.cryptoDepositCents, bankDepositCents: aggregate.bankDepositCents,
       },
       rates: {
         ...calculateConversionRates(totals),
         abnormalLeaveRate: Math.max(0, totals.groupJoin - (totals.groupLeave - abnormalLeave)) > 0
           ? abnormalLeave / Math.max(1, totals.groupJoin - (totals.groupLeave - abnormalLeave))
           : null,
+        lawyerReplyRate: totals.newFans ? totals.replies / totals.newFans : null,
+        lawyerAddedRate: totals.newFans ? aggregate.lawyerAdded / totals.newFans : null,
+        lawyerExpertAddedRate: totals.newFans ? aggregate.lawyerExpertAdded / totals.newFans : null,
       },
     };
   }
@@ -244,6 +260,7 @@ export async function GET(request: Request) {
     return {
       id: metadata.id,
       name: metadata.name,
+      groupType: metadata.groupType,
       department: { id: metadata.department.id, name: metadata.department.name },
       company: metadata.department.company,
       timezone: resolveGroupBusinessTime(metadata).timezone,
@@ -270,13 +287,14 @@ export async function GET(request: Request) {
     name: person.name,
     groupId: person.groupId!,
     groupName: metadata?.name ?? "未知小组",
+    groupType: metadata?.groupType ?? "HACKER",
     active: person.active,
     ...serializeAggregate(aggregate, inGroup),
   }); });
 
   const days = [...new Set(entries.map((entry) => entry.businessDate))].sort().reverse().map((date) => ({
     date,
-    groups: selectedGroups.map((group) => ({ groupId: group.id, ...serializeAggregate(dailyGroupAggregates.get(`${date}:${group.id}`) ?? freshAggregate()) })),
+    groups: selectedGroups.map((group) => ({ groupId: group.id, groupType: group.groupType, ...serializeAggregate(dailyGroupAggregates.get(`${date}:${group.id}`) ?? freshAggregate()) })),
     members: [...memberPeople.entries()].map(([key, person]) => ({
       id: person.id,
       name: person.name,
@@ -285,14 +303,17 @@ export async function GET(request: Request) {
     })),
   }));
 
-  const channels = [...channelAggregates.entries()].map(([normalizedName, row]) => {
+  const channels = [...channelAggregates.entries()].map(([typedKey, row]) => {
+    const [groupType, ...nameParts] = typedKey.split(":");
+    const normalizedName = nameParts.join(":");
     const inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) => {
       const metadata = metadataByGroup.get(entry.groupId);
       const period = metadata ? periods[metadata.id] : null;
-      return (entry.channel.normalizedName || entry.channel.name) === normalizedName
+      return groupTypeById.get(entry.groupId) === groupType
+        && (entry.channel.normalizedName || entry.channel.name) === normalizedName
         && Boolean(period) && entry.businessDate <= period!.to;
     }));
-    return { id: normalizedName, name: row.name, groupCount: row.groupIds.size, ...serializeAggregate(row.aggregate, inGroup) };
+    return { id: typedKey, name: row.name, groupType, groupCount: row.groupIds.size, ...serializeAggregate(row.aggregate, inGroup) };
   }).sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 
   return NextResponse.json({ range: { preset: range.preset, label: range.label }, groups, members, channels, days }, {

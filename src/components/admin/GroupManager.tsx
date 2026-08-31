@@ -57,9 +57,10 @@ export function GroupManager({
       const name = String(form.get("name") ?? "");
       const departmentId = String(form.get("departmentId") ?? "");
       const timezone = String(form.get("timezone") ?? "");
+      const groupType = String(form.get("groupType") ?? "HACKER");
       await requestAdminMutation(
         "/api/admin/groups",
-        group ? { id: group.id, name, departmentId, timezone } : { name, departmentId, timezone },
+        group ? { id: group.id, name, departmentId, timezone } : { name, groupType, departmentId, timezone },
         group ? "PATCH" : "POST",
       );
       setNotice(
@@ -271,6 +272,14 @@ export function GroupManager({
                       {error.message}
                     </span>
                   )}
+                </label>
+                <label className="block text-sm font-medium">
+                  小组类型
+                  <select name="groupType" defaultValue={group?.groupType ?? "HACKER"} disabled={Boolean(group)} className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 disabled:bg-slate-100">
+                    <option value="HACKER">黑客组（现有统计表）</option>
+                    <option value="LAWYER">律师组（律师统计表）</option>
+                  </select>
+                  <span className="mt-1 block text-xs font-normal text-slate-500">{group ? "小组创建后类型不能直接修改，避免历史统计口径混乱" : "类型决定组员使用的每日统计指标"}</span>
                 </label>
               </form>
               {group && (

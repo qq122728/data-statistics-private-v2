@@ -12,6 +12,10 @@ export const dailyStatValuesSchema = z.object({
   lowAmountCount: nonNegativeInt,
   noWsCount: nonNegativeInt,
   manualInvalidCount: nonNegativeInt,
+  lawyerRealCaseCount: nonNegativeInt,
+  lawyerAddedCount: nonNegativeInt,
+  lawyerExpertAddedCount: nonNegativeInt,
+  customerServicePushCount: nonNegativeInt,
   replyCount: nonNegativeInt,
   joinCount: nonNegativeInt,
   operatorReceivedCount: nonNegativeInt,
@@ -97,8 +101,35 @@ function normalizeSources(input: SaveDailyStatInput, actorId: string) {
   };
 }
 
-function revisionValues(input: SaveDailyStatInput) {
+function revisionValues(input: SaveDailyStatInput, groupType: "HACKER" | "LAWYER") {
   const all = input.values;
+  if (input.position === "RECEPTION" && groupType === "LAWYER") {
+    if (all.replyCount > all.dispatchCount) throw new DailyStatError("回复数量不能超过接粉数量");
+    for (const [label, value] of [
+      ["接粉小金额", all.lowAmountCount],
+      ["接粉真实案件", all.lawyerRealCaseCount],
+      ["添加律师", all.lawyerAddedCount],
+      ["添加专家", all.lawyerExpertAddedCount],
+    ] as const) {
+      if (value > all.dispatchCount) throw new DailyStatError(`${label}数量不能超过接粉数量`);
+    }
+    return {
+      dispatchCount: all.dispatchCount,
+      replyCount: all.replyCount,
+      lowAmountCount: all.lowAmountCount,
+      lawyerRealCaseCount: all.lawyerRealCaseCount,
+      lawyerAddedCount: all.lawyerAddedCount,
+      lawyerExpertAddedCount: all.lawyerExpertAddedCount,
+      customerServicePushCount: all.customerServicePushCount,
+      registrationCount: all.registrationCount,
+      orderCount: all.orderCount,
+      cryptoInitialDepositCents: all.cryptoInitialDepositCents,
+      bankInitialDepositCents: all.bankInitialDepositCents,
+      cryptoRechargeCents: all.cryptoRechargeCents,
+      bankRechargeCents: all.bankRechargeCents,
+      withdrawalCents: all.withdrawalCents,
+    };
+  }
   if (input.position === "RECEPTION") {
     const effectiveCount = all.dispatchCount - all.duplicateCount - all.lowAmountCount - all.noWsCount - all.manualInvalidCount;
     if (effectiveCount < 0) throw new DailyStatError("撞粉、低金额、无 WhatsApp 与人工无效数量之和不能超过总下发粉数量");
@@ -237,7 +268,7 @@ export async function saveDailyStat(
 
   const group = await tx.teamGroup.findUnique({
     where: { id: actor.groupId },
-    select: { id: true, active: true, department: { select: { timezone: true } } },
+    select: { id: true, active: true, groupType: true, department: { select: { timezone: true } } },
   });
   if (!group?.active) throw new DailyStatError("当前小组不可用", 403);
   const timezone = group.department?.timezone || "Asia/Shanghai";
@@ -321,7 +352,7 @@ export async function saveDailyStat(
     throw new DailyStatError("已确认数据必须填写更正原因", 400);
   }
 
-  const values = revisionValues(input);
+  const values = revisionValues(input, group.groupType);
   let entry: DailyStatEntry;
   if (!existing) {
     entry = await tx.dailyStatEntry.create({
@@ -371,7 +402,7 @@ export async function saveDailyStat(
 
 export const dailyStatEntryInclude = {
   owner: { select: { id: true, name: true, active: true } },
-  group: { select: { id: true, name: true } },
+  group: { select: { id: true, name: true, groupType: true } },
   channel: { select: { id: true, name: true } },
   sourceReception: { select: { id: true, name: true, active: true } },
   sourceGroupOperator: { select: { id: true, name: true, active: true } },

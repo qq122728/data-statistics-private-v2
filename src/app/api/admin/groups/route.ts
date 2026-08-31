@@ -10,7 +10,7 @@ import { businessTimezoneOption, isSupportedBusinessTimezone } from "../../../..
 import { copyGlobalChannelsToGroup } from "../../../../lib/global-channels";
 import { API_LIMITS } from "../../../../lib/request-limits";
 
-type GroupRequest = { id?: unknown; name?: unknown; departmentId?: unknown; active?: unknown; timezone?: unknown; highRiskReason?: unknown; currentPassword?: unknown };
+type GroupRequest = { id?: unknown; name?: unknown; groupType?: unknown; departmentId?: unknown; active?: unknown; timezone?: unknown; highRiskReason?: unknown; currentPassword?: unknown };
 
 function requestedTimezone(value: unknown): string | null | undefined | "INVALID" {
   if (value === undefined) return undefined;
@@ -23,18 +23,22 @@ export async function POST(request: Request) {
   const body = (await request.json()) as GroupRequest;
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const departmentId = typeof body.departmentId === "string" ? body.departmentId : "";
+  const groupType: "HACKER" | "LAWYER" | null = body.groupType === undefined
+    ? "HACKER"
+    : body.groupType === "HACKER" || body.groupType === "LAWYER" ? body.groupType : null;
   const timezone = requestedTimezone(body.timezone);
   if (!name || name.length > API_LIMITS.accountDisplayNameCharacters) return NextResponse.json({ error: "小组名称必须在 1 到 100 个字之间" }, { status: 400 });
   if (!departmentId || departmentId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "请选择启用中的下属公司" }, { status: 400 });
+  if (!groupType) return NextResponse.json({ error: "请选择黑客组或律师组" }, { status: 400 });
   if (timezone === "INVALID") return NextResponse.json({ error: "请选择支持的国家/时区" }, { status: 400 });
   try {
     const result = await db.$transaction(async (client) => {
       if (!await client.department.findFirst({ where: { id: departmentId, active: true }, select: { id: true } })) {
         return { error: "请选择启用中的下属公司", status: 400 as const };
       }
-      const created = await client.teamGroup.create({ data: { id: randomUUID(), name, departmentId, timezone: timezone ?? null, countryCode: timezone ? businessTimezoneOption(timezone).countryCode : null } });
+      const created = await client.teamGroup.create({ data: { id: randomUUID(), name, groupType, departmentId, timezone: timezone ?? null, countryCode: timezone ? businessTimezoneOption(timezone).countryCode : null } });
       const copiedChannels = await copyGlobalChannelsToGroup(client, created.id);
-      await recordAudit(client, { actorId: access.actor.id, action: "GROUP_CREATED", entityType: "TeamGroup", entityId: created.id, summary: { changedFields: ["name", "departmentId", "timezone"], copiedGlobalChannels: copiedChannels } });
+      await recordAudit(client, { actorId: access.actor.id, action: "GROUP_CREATED", entityType: "TeamGroup", entityId: created.id, summary: { changedFields: ["name", "groupType", "departmentId", "timezone"], groupType, copiedGlobalChannels: copiedChannels } });
       return { group: created };
     }, { isolationLevel: "Serializable" });
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });

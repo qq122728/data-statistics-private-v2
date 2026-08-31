@@ -5,21 +5,22 @@ import { authorizationDenied } from "../../../../lib/security-events";
 import { requireAdminOrOrgManagerRequest } from "../_auth";
 import { managedDepartmentIds } from "../../../../lib/managed-department-scope";
 
-type GroupNode = { id: string; name: string; active: boolean; leadId: string | null; leadName: string | null };
+type GroupNode = { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; leadId: string | null; leadName: string | null };
 type DepartmentNode = { id: string; name: string; active: boolean; countryCode: string; timezone: string; workStartMinutes: number; workEndMinutes: number; companyId: string | null; groups: GroupNode[] };
 type CompanyNode = { id: string; name: string; active: boolean; departments: DepartmentNode[] };
 
 const groupSelect = {
   id: true,
   name: true,
+  groupType: true,
   active: true,
   departmentId: true,
   members: { where: { role: "LEAD" as const, active: true }, select: { id: true, name: true }, take: 1 },
 };
 
-function toGroupNode(group: { id: string; name: string; active: boolean; members: Array<{ id: string; name: string }> }): GroupNode {
+function toGroupNode(group: { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; members: Array<{ id: string; name: string }> }): GroupNode {
   const lead = group.members[0] ?? null;
-  return { id: group.id, name: group.name, active: group.active, leadId: lead?.id ?? null, leadName: lead?.name ?? null };
+  return { id: group.id, name: group.name, groupType: group.groupType, active: group.active, leadId: lead?.id ?? null, leadName: lead?.name ?? null };
 }
 
 /**

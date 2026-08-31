@@ -9,6 +9,10 @@ type Values = {
   lowAmountCount: number;
   noWsCount: number;
   manualInvalidCount: number;
+  lawyerRealCaseCount: number;
+  lawyerAddedCount: number;
+  lawyerExpertAddedCount: number;
+  customerServicePushCount: number;
   effectiveCount: number;
   replyCount: number;
   joinCount: number;
@@ -40,6 +44,7 @@ type Entry = {
 
 type Context = {
   actorId: string;
+  groupType: "HACKER" | "LAWYER";
   today: string;
   channels: Array<{ id: string; name: string; channelType: string }>;
   entries: Entry[];
@@ -61,6 +66,10 @@ const EMPTY_VALUES: Values = {
   lowAmountCount: 0,
   noWsCount: 0,
   manualInvalidCount: 0,
+  lawyerRealCaseCount: 0,
+  lawyerAddedCount: 0,
+  lawyerExpertAddedCount: 0,
+  customerServicePushCount: 0,
   effectiveCount: 0,
   replyCount: 0,
   joinCount: 0,
@@ -131,6 +140,14 @@ function netPerformance(values: Values) {
   return firstDeposit(values) + recharge(values) - values.withdrawalCents;
 }
 
+function cryptoDeposits(values: Values) {
+  return values.cryptoInitialDepositCents + values.cryptoRechargeCents;
+}
+
+function bankDeposits(values: Values) {
+  return values.bankInitialDepositCents + values.bankRechargeCents;
+}
+
 const DAILY_METRICS: Metric[] = [
   numberMetric("dispatchCount", "添加数据"),
   numberMetric("duplicateCount", "撞粉", "bad"),
@@ -152,6 +169,25 @@ const DAILY_METRICS: Metric[] = [
   numberMetric("orderCount", "开单"),
   { key: "orderRate", label: "开单率", kind: "rate", read: (values) => rate(values.orderCount, values.registrationCount) },
   { key: "netPerformance", label: "净业绩", kind: "computedMoney", tone: "ok", read: netPerformance },
+];
+
+const LAWYER_DAILY_METRICS: Metric[] = [
+  numberMetric("dispatchCount", "接粉"),
+  numberMetric("replyCount", "回复"),
+  { key: "unrepliedCount", label: "未回复", kind: "computed", read: (values) => Math.max(0, values.dispatchCount - values.replyCount) },
+  numberMetric("lowAmountCount", "接粉小金额", "bad"),
+  numberMetric("lawyerRealCaseCount", "接粉真实案件", "ok"),
+  { key: "lawyerReplyRate", label: "回复率", kind: "rate", read: (values) => rate(values.replyCount, values.dispatchCount) },
+  numberMetric("lawyerAddedCount", "添加律师"),
+  numberMetric("lawyerExpertAddedCount", "添加专家"),
+  { key: "lawyerAddedRate", label: "添加律师率", kind: "rate", read: (values) => rate(values.lawyerAddedCount, values.dispatchCount) },
+  { key: "lawyerExpertAddedRate", label: "添加专家率", kind: "rate", read: (values) => rate(values.lawyerExpertAddedCount, values.dispatchCount) },
+  numberMetric("customerServicePushCount", "总推客服数量"),
+  numberMetric("registrationCount", "总注册数量"),
+  numberMetric("orderCount", "总开单数量"),
+  moneyMetric("cryptoDeposits", "加密货币充值金额", cryptoDeposits, (values, value) => ({ ...values, cryptoInitialDepositCents: value, cryptoRechargeCents: 0 }), "ok"),
+  moneyMetric("bankDeposits", "银行卡充值金额", bankDeposits, (values, value) => ({ ...values, bankInitialDepositCents: value, bankRechargeCents: 0 }), "ok"),
+  moneyMetric("lawyerWithdrawal", "出金金额", (values) => values.withdrawalCents, (values, value) => ({ ...values, withdrawalCents: value }), "bad"),
 ];
 
 const FINANCE_METRICS: Metric[] = [
@@ -218,7 +254,8 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     editVersionRef.current = {};
   }, [context, date]);
 
-  const metrics = mode === "finance" ? FINANCE_METRICS : DAILY_METRICS;
+  const lawyerGroup = context?.groupType === "LAWYER";
+  const metrics = mode === "finance" ? FINANCE_METRICS : lawyerGroup ? LAWYER_DAILY_METRICS : DAILY_METRICS;
   const isHistorical = Boolean(context && date < context.today);
 
   function update(channelId: string, metric: Metric, rawValue: number) {
@@ -297,7 +334,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
   return <section className="unified-member-sheet">
     <div className="card unified-sheet-toolbar">
       <div>
-        <strong>{mode === "finance" ? "我的财务填写" : "我的渠道数据"}</strong>
+        <strong>{mode === "finance" ? "我的财务填写" : lawyerGroup ? "我的律师组渠道数据" : "我的渠道数据"}</strong>
         <span>{mode === "finance" ? "按渠道填写首充、续充和出金" : "每个渠道单独填写；比例与绿色数据由系统计算"}</span>
       </div>
       <label><span>统计日期</span><input className="field" type="date" max={context.today} value={date} onChange={(event) => setDate(event.target.value)} /></label>
@@ -336,7 +373,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
       </div>
       <footer>
         <span>切换到没有填写过的日期时，所有数字从 0 开始</span>
-        <span>{mode === "finance" ? "净业绩＝首充＋续充－出金" : "有效数据＝添加数据－撞粉－低金额－无 WS－人工无效"}</span>
+        <span>{mode === "finance" ? "净业绩＝首充＋续充－出金" : lawyerGroup ? "未回复＝接粉－回复；添加率＝添加数量÷接粉" : "有效数据＝添加数据－撞粉－低金额－无 WS－人工无效"}</span>
       </footer>
     </div>
   </section>;

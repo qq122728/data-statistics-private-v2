@@ -24,6 +24,11 @@ enum Role {
   EXPERT
 }
 
+enum GroupType {
+  HACKER
+  LAWYER
+}
+
 // 总公司层，暂不单独建表：总公司管理员就是"没有 company 限定"的超级权限（需求文档1.1）。
 model Company {
   id          String       @id @default(cuid())
@@ -436,6 +441,7 @@ model ResourceChannelAccess {
 model TeamGroup {
   id                          String                @id
   name                        String
+  groupType                   GroupType             @default(HACKER)
   active                      Boolean               @default(true)
   departmentId                String                @default("default-department")
   department                  Department            @relation(fields: [departmentId], references: [id])
@@ -470,7 +476,7 @@ model TeamGroup {
 }
 
 model GroupLeadChangePlan {
-  id                       String   @id @default(cuid())
+  id                       String  @id @default(cuid())
   groupId                  String
   formerLeadId             String
   newLeadId                String
@@ -484,13 +490,13 @@ model GroupLeadChangePlan {
   newOperatorHandoffId     String?
   newExpertHandoffId       String?
   reason                   String
-  status                   String   @default("PENDING")
+  status                   String  @default("PENDING")
   createdById              String
   appliedAt                String?
   cancelledAt              String?
   failureReason            String?
-  createdAt                String   @default("")
-  updatedAt                String   @default("")
+  createdAt                String  @default("")
+  updatedAt                String  @default("")
 
   @@index([groupId, status])
   @@index([status, effectiveOn])
@@ -701,7 +707,11 @@ model DailyStatRevision {
   duplicateCount            Int             @default(0)
   lowAmountCount            Int             @default(0)
   noWsCount                 Int             @default(0)
-  manualInvalidCount       Int             @default(0)
+  manualInvalidCount        Int             @default(0)
+  lawyerRealCaseCount       Int             @default(0)
+  lawyerAddedCount          Int             @default(0)
+  lawyerExpertAddedCount    Int             @default(0)
+  customerServicePushCount  Int             @default(0)
   effectiveCount            Int             @default(0)
   replyCount                Int             @default(0)
   joinCount                 Int             @default(0)
@@ -849,7 +859,7 @@ model LeadCustomer {
   historicalReviewedById        String?
   historicalReviewedAt          DateTime?
   batch                         SourceBatch             @relation(fields: [batchId], references: [id])
-  currentGroup                  TeamGroup?               @relation("CurrentCustomerGroup", fields: [currentGroupId], references: [id])
+  currentGroup                  TeamGroup?              @relation("CurrentCustomerGroup", fields: [currentGroupId], references: [id])
   owner                         User                    @relation(fields: [ownerId], references: [id])
   attributionOwner              User?                   @relation("FanAttributionOwner", fields: [attributionOwnerId], references: [id])
   device                        Device?                 @relation(fields: [deviceId], references: [id])

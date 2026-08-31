@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../../shared/shared-daily.css";
 
 /* ============================================================
    设计令牌
@@ -506,4 +507,131 @@ kbd {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ============================================================
+   共享客户表原型
+   一张明细表贯穿接粉、炒群、专家，并从明细自动汇总每日数据。
+   ============================================================ */
+.shared-sheet { display: flex; flex-direction: column; gap: 12px; }
+.shared-sheet__intro { padding: 18px 20px; display: flex; justify-content: space-between; align-items: flex-end; gap: 22px; }
+.shared-sheet__intro h2 { margin: 4px 0 2px; font-size: 20px; letter-spacing: -.02em; }
+.shared-sheet__intro p { margin: 0; color: var(--ink-2); font-size: 13px; }
+.shared-sheet__eyebrow { color: var(--ok); font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+.shared-sheet__live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+.shared-sheet__stats { display: flex; align-items: stretch; gap: 0; flex-shrink: 0; }
+.shared-sheet__stats div { min-width: 86px; padding: 2px 15px; border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+.shared-sheet__stats span { color: var(--ink-3); font-size: 11px; }
+.shared-sheet__stats strong { font-size: 18px; line-height: 1.35; }
+.shared-sheet__tabs { display: flex; gap: 6px; padding-left: 3px; }
+.shared-sheet__tabs button { border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2); padding: 9px 14px; border-radius: 9px; font-weight: 650; cursor: pointer; }
+.shared-sheet__tabs button[data-active="true"] { color: var(--accent); border-color: #9eb4ef; background: var(--accent-soft); }
+.shared-sheet__tabs span { margin-left: 6px; font-size: 11px; padding: 2px 6px; background: rgba(255,255,255,.75); border-radius: 999px; }
+.shared-sheet__entry { padding: 14px 16px; border-color: #9eb4ef; background: #f7f9ff; }
+.shared-sheet__entry-row { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr) auto auto; align-items: center; gap: 10px; }
+.shared-sheet__entry p, .shared-sheet__paste p { margin: 2px 0 0; color: var(--ink-3); font-size: 12px; }
+.shared-sheet__paste { display: grid; grid-template-columns: minmax(220px, .7fr) minmax(360px, 1.5fr) auto; gap: 12px; align-items: center; }
+.shared-sheet__paste textarea { height: auto; padding: 9px 11px; resize: vertical; line-height: 1.5; }
+.shared-sheet__paste > div:last-child { display: flex; gap: 8px; }
+.shared-sheet__toolbar { padding: 10px 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.shared-sheet__filters { display: flex; gap: 4px; padding: 3px; background: var(--surface-sunken); border-radius: 8px; }
+.shared-sheet__filter { border: 0; background: transparent; color: var(--ink-2); padding: 5px 10px; border-radius: 6px; font-size: 12.5px; cursor: pointer; }
+.shared-sheet__filter[data-active="true"] { background: var(--surface); color: var(--accent); font-weight: 700; box-shadow: 0 1px 3px rgba(20,30,50,.08); }
+.shared-sheet__search { min-width: 230px; flex: 1; max-width: 380px; display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-3); background: var(--surface); }
+.shared-sheet__search input { border: 0; outline: 0; width: 100%; background: transparent; font-size: 13px; }
+.shared-sheet__actions { margin-left: auto; display: flex; gap: 7px; }
+.shared-sheet__role-lock { margin-left: auto; color: var(--ink-3); font-size: 12px; display: flex; align-items: center; gap: 5px; }
+.shared-sheet__layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 12px; align-items: start; }
+.shared-sheet__table-card { min-width: 0; overflow: hidden; }
+.shared-sheet__scroll { overflow: auto; max-height: calc(100vh - 360px); min-height: 360px; }
+.shared-sheet__table { width: 100%; min-width: 1470px; border-spacing: 0; border-collapse: separate; font-size: 12.5px; }
+.shared-sheet__table th, .shared-sheet__table td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px; height: 44px; vertical-align: middle; white-space: nowrap; }
+.shared-sheet__table th { position: sticky; top: 31px; z-index: 4; background: #f7f8fa; color: var(--ink-2); font-size: 11.5px; text-align: left; }
+.shared-sheet__table .shared-sheet__group-head th { top: 0; height: 31px; text-align: center; background: #eef1f6; color: var(--ink-2); border-bottom-color: var(--line-strong); }
+.shared-sheet__table .shared-sheet__group-head th[data-owned="true"] { background: #dfe8ff; color: var(--accent); }
+.shared-sheet__table tr[data-selected="true"] td { background: #f3f6ff; }
+.shared-sheet__table tbody tr:hover td { background: #f8faff; }
+.shared-sheet__table th:first-child, .shared-sheet__table td:first-child { position: sticky; left: 0; z-index: 3; background: #f7f8fa; width: 38px; text-align: center; color: var(--ink-3); }
+.shared-sheet__table th:nth-child(2), .shared-sheet__table td:nth-child(2) { position: sticky; left: 38px; z-index: 3; background: var(--surface); min-width: 158px; box-shadow: 1px 0 var(--line); }
+.shared-sheet__table thead th:nth-child(2) { background: #f7f8fa; z-index: 5; }
+.shared-sheet__table input, .shared-sheet__table select { width: 100%; min-width: 92px; height: 30px; border: 1px solid transparent; border-radius: 6px; padding: 0 6px; background: transparent; outline: none; font-size: 12px; }
+.shared-sheet__table input:not(:disabled):hover, .shared-sheet__table select:not(:disabled):hover { border-color: #9eb4ef; background: var(--surface); }
+.shared-sheet__table input:not(:disabled):focus, .shared-sheet__table select:not(:disabled):focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft); }
+.shared-sheet__table input:disabled, .shared-sheet__table select:disabled { color: var(--ink-2); opacity: 1; cursor: default; -webkit-text-fill-color: var(--ink-2); }
+.shared-sheet__table td[data-owned="true"] { background: #fbfcff; box-shadow: inset 0 -1px #dbe5ff; }
+.shared-sheet__table select[data-tone="ok"] { color: var(--ok); font-weight: 700; }
+.shared-sheet__table select[data-tone="warn"] { color: var(--warn); font-weight: 700; }
+.shared-sheet__table select[data-tone="bad"] { color: var(--bad); font-weight: 700; }
+.shared-sheet__phone { display: flex; align-items: center; gap: 7px; }
+.shared-sheet__stage { display: inline-flex; padding: 2px 6px; border-radius: 999px; font-size: 10px; font-weight: 700; background: var(--surface-sunken); color: var(--ink-2); }
+.shared-sheet__stage[data-stage="接粉"] { background: #edf2ff; color: var(--accent); }
+.shared-sheet__stage[data-stage="炒群"] { background: var(--warn-soft); color: var(--warn); }
+.shared-sheet__stage[data-stage="专家"] { background: var(--ok-soft); color: var(--ok); }
+.shared-sheet__check { display: flex; align-items: center; gap: 5px; min-width: 76px; }
+.shared-sheet__check input { width: 14px; min-width: 14px; accent-color: var(--accent); }
+.shared-sheet__money { display: flex; align-items: center; color: var(--ink-3); }
+.shared-sheet__money input { min-width: 70px; }
+.shared-sheet__updated { color: var(--ink-3); font-size: 11px; }
+.shared-sheet__updated svg { vertical-align: -2px; margin-right: 4px; }
+.shared-sheet__footer { height: 38px; padding: 0 12px; display: flex; align-items: center; justify-content: space-between; color: var(--ink-3); font-size: 11.5px; }
+.shared-sheet__footer span:last-child { display: flex; align-items: center; gap: 6px; }
+.shared-sheet__footer i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.shared-sheet__detail { padding: 15px; position: sticky; top: 74px; display: flex; flex-direction: column; gap: 14px; }
+.shared-sheet__detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.shared-sheet__detail-head > div { display: flex; flex-direction: column; }
+.shared-sheet__detail-head span { color: var(--ink-3); font-size: 11px; }
+.shared-sheet__detail-head strong { font-size: 14px; }
+.shared-sheet__detail label > span { display: block; margin-bottom: 5px; color: var(--ink-2); font-size: 12px; font-weight: 650; }
+.shared-sheet__detail textarea { width: 100%; height: auto; padding: 8px 9px; resize: vertical; line-height: 1.45; }
+.shared-sheet__detail input { width: 100%; }
+.shared-sheet__timeline { padding: 10px; border-radius: 8px; background: var(--surface-sunken); display: flex; flex-direction: column; gap: 7px; font-size: 11.5px; color: var(--ink-3); }
+.shared-sheet__timeline > div { display: flex; align-items: center; gap: 7px; }
+.shared-sheet__timeline i { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.shared-sheet__timeline div[data-done="true"] { color: var(--ink-2); }
+.shared-sheet__timeline div[data-done="true"] i { background: var(--ok); }
+.shared-sheet__empty { text-align: center !important; padding: 44px !important; color: var(--ink-3); }
+.shared-sheet__toast { position: fixed; right: 24px; bottom: 24px; z-index: 80; display: flex; align-items: center; gap: 8px; padding: 11px 15px; color: var(--ok); background: var(--ok-soft); border: 1px solid var(--ok-line); border-radius: 10px; box-shadow: 0 10px 30px rgba(20,30,50,.12); font-weight: 650; font-size: 13px; }
+
+.shared-daily { display: flex; flex-direction: column; gap: 12px; }
+.shared-daily__toolbar { padding: 14px 16px; display: flex; align-items: center; gap: 18px; }
+.shared-daily__toolbar > div { flex: 1; }
+.shared-daily__toolbar p, .shared-daily__head p, .shared-daily__correction p { margin: 2px 0 0; color: var(--ink-3); font-size: 12px; }
+.shared-daily__toolbar label { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 12px; font-weight: 650; }
+.shared-daily__cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.shared-daily__cards > div { padding: 14px 16px; display: flex; flex-direction: column; }
+.shared-daily__cards span { color: var(--ink-2); font-size: 12px; }
+.shared-daily__cards strong { font-size: 24px; margin: 2px 0; }
+.shared-daily__cards small { color: var(--ink-3); font-size: 10.5px; }
+.shared-daily__table-card { overflow: hidden; }
+.shared-daily__head { padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+.shared-daily__head h3 { margin: 0; font-size: 16px; }
+.shared-daily__correction { padding: 12px 16px; display: grid; grid-template-columns: minmax(220px,.8fr) minmax(360px,1.5fr) auto; gap: 12px; align-items: center; background: var(--warn-soft); border-bottom: 1px solid var(--warn-line); }
+.shared-daily__correction textarea { height: auto; padding: 8px 10px; line-height: 1.4; resize: vertical; }
+.shared-daily__scroll { overflow: auto; }
+.shared-daily__scroll table { width: 100%; min-width: 1050px; border-collapse: collapse; }
+.shared-daily__scroll th, .shared-daily__scroll td { padding: 11px 13px; text-align: center; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.shared-daily__scroll th { color: var(--ink-2); background: var(--surface-sunken); font-size: 12px; }
+.shared-daily__scroll td:first-child, .shared-daily__scroll th:first-child { text-align: left; position: sticky; left: 0; background: var(--surface); }
+.shared-daily__scroll tbody tr:not(.shared-daily__total) { cursor: pointer; }
+.shared-daily__scroll tbody tr:not(.shared-daily__total):hover td { background: #f5f8ff; }
+.shared-daily__scroll td small { display: block; color: var(--accent); font-size: 10px; }
+.shared-daily__total td { background: #eef2f8 !important; font-weight: 750; }
+.shared-daily__important { color: var(--ok); font-weight: 750; }
+.shared-daily__rule { display: flex; align-items: center; gap: 8px; padding: 11px 14px; color: var(--ink-2); background: #f8f9fb; font-size: 11.5px; }
+
+@media (max-width: 1180px) {
+  .shared-sheet__intro { align-items: flex-start; flex-direction: column; }
+  .shared-sheet__stats { width: 100%; overflow: auto; }
+  .shared-sheet__stats div:first-child { border-left: 0; padding-left: 0; }
+  .shared-sheet__layout { grid-template-columns: 1fr; }
+  .shared-sheet__detail { position: static; display: grid; grid-template-columns: 1fr 1fr; }
+  .shared-daily__cards { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .shared-sheet__entry-row, .shared-sheet__paste, .shared-daily__correction { grid-template-columns: 1fr; }
+  .shared-sheet__actions { width: 100%; margin-left: 0; }
+  .shared-sheet__detail { grid-template-columns: 1fr; }
+  .shared-daily__toolbar { align-items: flex-start; flex-direction: column; }
+  .shared-daily__cards { grid-template-columns: repeat(2, 1fr); }
 }

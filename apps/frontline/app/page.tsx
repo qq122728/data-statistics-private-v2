@@ -2,28 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { DailyDataWorkbench } from "@/components/DailyDataWorkbench";
 import { DeviceAccounts } from "@/components/DeviceAccounts";
-import { ExpertWorkbench } from "@/components/ExpertWorkbench";
-import { GroupOperatorWorkbench } from "@/components/GroupOperatorWorkbench";
-import { IconAlert, IconCheck, IconInbox, IconRoute, IconUpload } from "@/components/Icons";
+import { IconAlert, IconCheck } from "@/components/Icons";
 import { Leaderboard } from "@/components/Leaderboard";
 import { MyPerformance } from "@/components/MyPerformance";
 import { RealNotificationCenter } from "@/components/RealNotificationCenter";
-import { RealReceptionFollowUp } from "@/components/RealReceptionFollowUp";
-import { RealReceptionProgress } from "@/components/RealReceptionProgress";
-import { TabImport } from "@/components/TabImport";
+import { SharedCustomerSheet } from "@/components/SharedCustomerSheet";
+import { SharedDailyDataSheet } from "@/components/SharedDailyDataSheet";
 import { requestJson, workspaceOrigin, type BackendUser } from "@/lib/backend";
 import { resolveFrontlineEntry, WORK_ROLES, type WorkRole } from "@/lib/frontline-entry";
 
-type TabId = "followUp" | "import" | "downstream";
 type View = "customerProgress" | "dailyData" | "notice" | "device" | "mine" | "rank";
 
-const TABS: Array<{ id: TabId; label: string; Icon: typeof IconInbox }> = [
-  { id: "import", label: "号码导入", Icon: IconUpload },
-  { id: "followUp", label: "客户回复管理", Icon: IconInbox },
-  { id: "downstream", label: "客户进度", Icon: IconRoute },
-];
 const WORK_ROLE_LABEL: Record<WorkRole, string> = { RECEPTION: "接粉", GROUP_OPERATOR: "炒群", EXPERT: "专家" };
 const PAGE_META: Record<View, string> = {
   customerProgress: "客户进度工作台", dailyData: "每日数据填写",
@@ -35,8 +25,6 @@ export default function Page() {
   const [authReady, setAuthReady] = useState(false);
   const [view, setView] = useState<View>("customerProgress");
   const [workRole, setWorkRole] = useState<WorkRole>("RECEPTION");
-  const [tab, setTab] = useState<TabId>("followUp");
-  const [replyCount, setReplyCount] = useState(0);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "warn" } | null>(null);
 
   useEffect(() => {
@@ -108,32 +96,9 @@ export default function Page() {
             </div>
           </section>
 
-          {workRole === "RECEPTION" ? (
-            <>
-              <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid var(--line)" }}>
-                {TABS.map(({ id, label, Icon }) => {
-                  const active = tab === id;
-                  const badge = id === "followUp" && replyCount > 0 ? replyCount : null;
-                  return (
-                    <button key={id} onClick={() => setTab(id)} style={{
-                      display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px", marginBottom: -1,
-                      border: "none", borderBottom: `2.5px solid ${active ? "var(--accent)" : "transparent"}`,
-                      background: "transparent", color: active ? "var(--accent)" : "var(--ink-2)",
-                      fontSize: 14.5, fontWeight: 600, cursor: "pointer",
-                    }}>
-                      <Icon size={18} />{label}
-                      {badge ? <span className="badge" data-tone="bad">{badge}</span> : null}
-                    </button>
-                  );
-                })}
-              </div>
-              {tab === "followUp" ? <RealReceptionFollowUp onReplyCountChange={setReplyCount} /> : null}
-              {tab === "import" ? <TabImport onToast={showToast} /> : null}
-              {tab === "downstream" ? <RealReceptionProgress /> : null}
-            </>
-          ) : workRole === "GROUP_OPERATOR" ? <GroupOperatorWorkbench /> : <ExpertWorkbench />}
+          <SharedCustomerSheet role={workRole} />
         </>
-      ) : view === "dailyData" ? <DailyDataWorkbench />
+      ) : view === "dailyData" ? <SharedDailyDataSheet currentName={sessionUser.name} initialPosition={workRole} availablePositions={availableWorkRoles} />
         : view === "notice" ? <RealNotificationCenter />
           : view === "device" ? <DeviceAccounts />
             : view === "mine" ? <MyPerformance role={workRole} />

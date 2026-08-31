@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AppShell, type Role } from "@/components/AppShell";
 import { ConfirmDialog, type Confirm } from "@/components/ConfirmDialog";
-import { DailyDataWorkbench } from "@/components/DailyDataWorkbench";
+import { SharedDailyDataSheet } from "../../frontline/components/SharedDailyDataSheet";
 import { IconAlert, IconCheck } from "@/components/Icons";
 import { Leaderboard } from "@/components/Leaderboard";
 import { ManagementCustomerProgress } from "@/components/ManagementCustomerProgress";
@@ -284,7 +284,7 @@ export default function Page() {
       onToast={showToast}
     >
       {view === "followup" ? <RealCustomerProgress members={members} readOnly expertActorId={sessionUser.id} />
-        : view === "expert-daily" ? <DailyDataWorkbench />
+        : view === "expert-daily" ? <SharedDailyDataSheet currentName={sessionUser.name} initialPosition="EXPERT" availablePositions={["RECEPTION", "GROUP_OPERATOR", "EXPERT"]} editablePositions={["EXPERT"]} leadView />
         : view === "summary" ? <RealOrganizationReporting permissionLabel="本组管理" actorGroupMode />
           : view === "channel" ? <RealChannelReporting />
             : view === "members" ? <>

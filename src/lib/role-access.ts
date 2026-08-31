@@ -9,11 +9,14 @@ export type RoleAccessUser = {
 // 财务是只读管理角色：可看公司、小组和成员汇总，但不会取得客户流程写入权限。
 export const managementRoles = ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER", "FINANCE", "LEAD"] as const satisfies readonly Role[];
 export const customerWorkflowRoles = ["RECEPTION", "LEAD", "GROUP_OPERATOR", "EXPERT"] as const satisfies readonly Role[];
+// 新前线账号只有“组员”一种使用模型。下面的旧 Role 值只用于兼容历史数据、
+// 操作日志和旧页面，不再决定组员能不能填每日数据或资金。
+export const frontlineMemberRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT", "LEAD"] as const satisfies readonly Role[];
 // 管理层可以查看明细，但写入权限仍由页面和 API 单独判断，避免只读账号误改一线记录。
 export const groupCustomerPageRoles = ["ADMIN", "COMPANY_MANAGER", "LEAD", "GROUP_OPERATOR"] as const satisfies readonly Role[];
 export const expertCustomerPageRoles = ["ADMIN", "COMPANY_MANAGER", "LEAD", "EXPERT"] as const satisfies readonly Role[];
 export const customerDeleteRoles = ["RECEPTION", "LEAD"] as const satisfies readonly Role[];
-export const customerOrderWriteRoles = ["LEAD", "EXPERT"] as const satisfies readonly Role[];
+export const customerOrderWriteRoles = frontlineMemberRoles;
 
 export function roleIsOneOf(role: Role, roles: readonly Role[]): boolean {
   return roles.includes(role);
@@ -40,4 +43,8 @@ export function hasAssignedRole(user: RoleAccessUser, role: Role): boolean {
 
 export function hasManagementAccess(user: RoleAccessUser): boolean {
   return hasAnyRole(user, managementRoles);
+}
+
+export function isFrontlineGroupMember(user: RoleAccessUser & { groupId: string | null }): boolean {
+  return Boolean(user.groupId) && hasAnyRole(user, frontlineMemberRoles);
 }

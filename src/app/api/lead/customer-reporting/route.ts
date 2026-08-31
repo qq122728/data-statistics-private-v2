@@ -9,6 +9,7 @@ import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { localDateYYYYMMDD } from "../../../../lib/dates";
 import { canViewOrgScope } from "../../../../lib/org-permissions";
 import { resolveExpertWorkflowStage, type ExpertWorkflowStage } from "../../../../lib/expert-workflow-stage";
+import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
 
 const stages = new Set(["reception", "group", "expert"]);
 const expertStages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
@@ -53,18 +54,22 @@ export async function GET(request: Request) {
   const pageValue = Number(params.get("page") ?? "1");
   const page = Number.isSafeInteger(pageValue) && pageValue > 0 ? pageValue : 1;
   const query = (params.get("q") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
+  const channel = (params.get("channel") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
   const timezone = resolveGroupBusinessTime(group).timezone;
   const today = localDateYYYYMMDD(new Date(), timezone);
   const baseWhere: Prisma.LeadCustomerWhereInput = {
-    batch: { groupId: group.id },
+    AND: [customerCurrentGroupWhere(group.id)],
     ...(isReceptionSelf ? { ownerId: actor.id } : {}),
     invalid: false,
     ...(query ? { OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] } : {}),
   };
+  const filteredBaseWhere: Prisma.LeadCustomerWhereInput = channel
+    ? { AND: [baseWhere, { batch: { channel: { name: channel } } }] }
+    : baseWhere;
   const expertStageParam = params.get("expertStage");
   const expertStage = expertStages.includes(expertStageParam as ExpertWorkflowStage) ? expertStageParam as ExpertWorkflowStage : "all";
   const expertCandidates = stage === "expert" ? await db.leadCustomer.findMany({
-    where: { AND: [baseWhere, stageWhere("expert")] },
+    where: { AND: [filteredBaseWhere, stageWhere("expert")] },
     select: {
       id: true, expertWorkflowStage: true, expertIntroducedOn: true, expertContactedOn: true,
       expertTrackingStartedAt: true, registeredOn: true, noInitialDepositOn: true, expertStalledOn: true,
@@ -87,9 +92,14 @@ export async function GET(request: Request) {
   const expertStageById = new Map(resolvedExpertCandidates.map((customer) => [customer.id, customer.stage]));
   const where: Prisma.LeadCustomerWhereInput = stage === "expert"
     ? { id: { in: expertPageIds } }
-    : { AND: [baseWhere, stageWhere(stage)] };
+    : { AND: [filteredBaseWhere, stageWhere(stage)] };
+  const summaryWhere: Prisma.LeadCustomerWhereInput = stage === "expert"
+    ? { id: { in: matchedExpertCandidates.map((customer) => customer.id) } }
+    : where;
+  const unfilteredStageWhere: Prisma.LeadCustomerWhereInput = { AND: [baseWhere, stageWhere(stage)] };
+  const activeOrderWhere: Prisma.CustomerOrderWhereInput = { voidedAt: null, lead: summaryWhere };
   const countStages = ["reception", "group", "expert"] as const;
-  const [total, customerRows, ...counts] = await Promise.all([
+  const [total, customerRows, channelRows, orderCount, initialDeposit, recharge, withdrawal, ...counts] = await Promise.all([
     stage === "expert" ? Promise.resolve(matchedExpertCandidates.length) : db.leadCustomer.count({ where }),
     db.leadCustomer.findMany({
       where,
@@ -103,6 +113,7 @@ export async function GET(request: Request) {
         noInitialDepositOn: true, noInitialDepositReason: true, noInitialDepositNote: true,
         expertStalledOn: true, expertStalledReason: true, expertStalledNote: true,
         owner: { select: { id: true, name: true } },
+        device: { select: { id: true, code: true } },
         groupOperatorOwner: { select: { id: true, name: true } },
         expertOwner: { select: { id: true, name: true } },
         batch: { select: { id: true, sourceDate: true, channel: { select: { name: true } }, group: { select: { name: true } } } },
@@ -127,7 +138,22 @@ export async function GET(request: Request) {
       skip: stage === "expert" ? undefined : (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
-    ...countStages.map((value) => db.leadCustomer.count({ where: { AND: [baseWhere, stageWhere(value)] } })),
+    db.leadCustomer.findMany({
+      where: unfilteredStageWhere,
+      select: { batch: { select: { channel: { select: { name: true } } } } },
+      distinct: ["batchId"],
+    }),
+    db.customerOrder.count({ where: activeOrderWhere }),
+    db.customerOrder.aggregate({ where: activeOrderWhere, _sum: { initialDepositCents: true } }),
+    db.customerFinanceEvent.aggregate({
+      where: { voidedAt: null, kind: "RECHARGE", continuationNumber: { not: null }, customerOrder: activeOrderWhere },
+      _sum: { amountCents: true },
+    }),
+    db.customerFinanceEvent.aggregate({
+      where: { voidedAt: null, kind: "WITHDRAWAL", customerOrder: activeOrderWhere },
+      _sum: { amountCents: true },
+    }),
+    ...countStages.map((value) => db.leadCustomer.count({ where: { AND: [filteredBaseWhere, stageWhere(value)] } })),
   ]);
   const customerById = new Map(customerRows.map((customer) => [customer.id, customer]));
   const customers = stage === "expert"
@@ -136,6 +162,14 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     stage, expertStage, expertCounts, page, pageSize: PAGE_SIZE, total, today, timezone,
+    channels: [...new Set(channelRows.map((row) => row.batch.channel.name))].sort((left, right) => left.localeCompare(right, "zh-CN")),
+    summary: {
+      customerCount: total,
+      orderCount,
+      initialDepositCents: initialDeposit._sum.initialDepositCents ?? 0,
+      rechargeCents: recharge._sum.amountCents ?? 0,
+      withdrawalCents: withdrawal._sum.amountCents ?? 0,
+    },
     counts: Object.fromEntries(countStages.map((value, index) => [value, counts[index]])),
     customers: customers.map((customer) => {
       const activeOrder = customer.customerOrder && !customer.customerOrder.voidedAt ? customer.customerOrder : null;

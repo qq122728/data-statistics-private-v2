@@ -3,7 +3,6 @@ import type { Role, User } from "@prisma/client";
 import { cookies } from "next/headers";
 import { db } from "./db";
 import { hasAssignedRole } from "./role-access";
-import { expandResourceChannelIdsByType } from "./resource-channel-access";
 
 export const SESSION_COOKIE = "data-statistics-session";
 export const PASSWORD_MIN_LENGTH = 12;
@@ -88,17 +87,6 @@ export async function getSessionUser(sessionId?: string): Promise<SessionUser | 
       await db.session.delete({ where: { id: session.id } });
     }
     return null;
-  }
-
-  if (session.user.role === "RESOURCE_MANAGER" && session.user.resourceChannelAccess.length) {
-    const channelCatalog = await db.channel.findMany({
-      select: { id: true, channelType: true },
-    });
-    const expandedChannelIds = expandResourceChannelIdsByType(
-      channelCatalog,
-      session.user.resourceChannelAccess.map((access) => access.channelId),
-    );
-    session.user.resourceChannelAccess = expandedChannelIds.map((channelId) => ({ channelId }));
   }
 
   return session.user;

@@ -1,0 +1,246 @@
+/*
+ * 全账号 UI 收口层。
+ * 只修正视觉、响应式和可访问反馈，不改变任何业务数据或接口。
+ */
+.fresh-app {
+  width: 100%;
+  min-width: 0;
+}
+
+.fresh-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  z-index: 35;
+}
+
+.fresh-main,
+.fresh-content {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+.fresh-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  min-height: 58px;
+  height: auto;
+  box-shadow: 0 1px 0 rgba(24, 39, 75, 0.02);
+}
+
+.fresh-sidebar nav button,
+.fresh-user button,
+.fresh-primary,
+.fresh-segment button {
+  transition: background-color 0.14s, border-color 0.14s, color 0.14s, box-shadow 0.14s;
+}
+
+.fresh-sidebar nav button:focus-visible,
+.fresh-user button:focus-visible,
+.fresh-primary:focus-visible,
+.fresh-segment button:focus-visible {
+  outline: 3px solid rgba(26, 115, 232, 0.24);
+  outline-offset: 2px;
+}
+
+.fresh-sidebar nav button[data-active="true"] {
+  box-shadow: inset 3px 0 0 #1a73e8;
+}
+
+.fresh-user button:hover {
+  color: #1769d2;
+  background: #f3f6fb;
+  border-radius: 6px;
+}
+
+.fresh-primary:hover:not(:disabled) {
+  background: #155fbe;
+  border-color: #155fbe;
+}
+
+.fresh-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fresh-sheet-card,
+.fresh-toolbar,
+.fresh-channelbar,
+.team-panel,
+.team-management__topline {
+  box-shadow: 0 1px 2px rgba(25, 38, 65, 0.035);
+}
+
+.fresh-sheet-card table thead th,
+.department-table-wrap table thead th,
+.team-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.fresh-sheet-card table tbody tr:hover td,
+.department-table-wrap table tbody tr:hover td,
+.team-table tbody tr:hover td {
+  background: #f8faff;
+}
+
+.department-table-wrap,
+.team-table-wrap {
+  scrollbar-gutter: stable;
+}
+
+.department-table-wrap table,
+.team-table {
+  font-variant-numeric: tabular-nums;
+}
+
+.fresh-sheet-title h2,
+.team-panel > header h2 {
+  line-height: 1.35;
+}
+
+.fresh-save-state,
+[role="status"] {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 900px) {
+  .fresh-app {
+    grid-template-columns: 104px minmax(0, 1fr) !important;
+  }
+
+  .fresh-app > .fresh-sidebar {
+    padding: 0 7px 14px !important;
+  }
+
+  .fresh-brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .fresh-brand div,
+  .fresh-sidebar-note {
+    display: none;
+  }
+
+  .fresh-sidebar nav {
+    gap: 4px;
+    padding-top: 10px;
+  }
+
+  .fresh-sidebar nav button {
+    min-height: 48px;
+    padding: 5px 3px;
+    justify-content: center;
+    flex-direction: column;
+    gap: 2px;
+    text-align: center;
+  }
+
+  .fresh-sidebar nav button i {
+    width: auto;
+    font-size: 17px;
+    line-height: 1;
+  }
+
+  .fresh-sidebar nav button span {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 92px;
+    font-size: 10px;
+    line-height: 1.25;
+    white-space: normal;
+  }
+
+  .fresh-app > .fresh-main > .fresh-header {
+    min-height: 58px !important;
+    height: auto !important;
+    padding: 8px 12px !important;
+    gap: 12px;
+  }
+
+  .fresh-header h1 {
+    font-size: 16px;
+  }
+
+  .fresh-header p {
+    font-size: 10.5px;
+    line-height: 1.4;
+  }
+
+  .fresh-app > .fresh-main > .fresh-content {
+    padding: 10px !important;
+  }
+
+  .fresh-user {
+    flex-shrink: 0;
+  }
+
+  .fresh-user div {
+    display: none;
+  }
+
+  .fresh-user > span {
+    width: 30px;
+    height: 30px;
+  }
+
+  .fresh-toolbar {
+    align-items: flex-end;
+  }
+}
+
+@media (max-width: 560px) {
+  .fresh-app {
+    grid-template-columns: 88px minmax(0, 1fr) !important;
+  }
+
+  .fresh-sidebar nav button span {
+    max-width: 76px;
+    font-size: 9.5px;
+  }
+
+  .fresh-header > div:first-child p {
+    display: none;
+  }
+
+  .fresh-app > .fresh-main > .fresh-content {
+    padding: 8px !important;
+  }
+
+  .fresh-toolbar,
+  .fresh-channelbar {
+    border-radius: 7px;
+  }
+
+  .fresh-sheet-title {
+    min-height: 52px;
+    padding: 9px 11px;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .fresh-sheet-title > div:last-child {
+    position: static;
+    min-width: max-content;
+  }
+
+  .fresh-sheet-title p {
+    line-height: 1.45;
+  }
+
+  .fresh-search {
+    min-width: 100%;
+    width: 100%;
+  }
+
+  .fresh-save-state {
+    white-space: normal;
+  }
+}

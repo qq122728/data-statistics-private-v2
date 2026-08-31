@@ -5,6 +5,7 @@ import { getSystemSettings } from "./settings";
 import { recordAudit } from "./audit";
 import { closeGroupOperatorReceptionAssignmentsForMember } from "./group-operator-collaboration";
 import { transferUserPosition, type TransferableRole } from "./user-position/transfer";
+import { customerCurrentGroupWhere } from "./customer-current-group";
 
 const frontlineRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
 export type FormerLeadDisposition = "DISABLE" | (typeof frontlineRoles)[number];
@@ -18,9 +19,9 @@ function previousDate(value: string) {
 
 async function activeCounts(tx: Prisma.TransactionClient, userId: string, groupId: string): Promise<Counts> {
   const [reception, operator, expert] = await Promise.all([
-    tx.leadCustomer.count({ where: { batch: { groupId }, ownerId: userId, joinedOn: null, receptionArchivedAt: null } }),
-    tx.leadCustomer.count({ where: { batch: { groupId }, groupOperatorOwnerId: userId, expertIntroducedOn: null, leftOn: null } }),
-    tx.leadCustomer.count({ where: { batch: { groupId }, expertOwnerId: userId, customerOrder: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: ["STALLED", "DECLINED_DEPOSIT"] } }] } }),
+    tx.leadCustomer.count({ where: { AND: [customerCurrentGroupWhere(groupId)], ownerId: userId, joinedOn: null, receptionArchivedAt: null } }),
+    tx.leadCustomer.count({ where: { AND: [customerCurrentGroupWhere(groupId)], groupOperatorOwnerId: userId, expertIntroducedOn: null, leftOn: null } }),
+    tx.leadCustomer.count({ where: { AND: [customerCurrentGroupWhere(groupId)], expertOwnerId: userId, customerOrder: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: ["STALLED", "DECLINED_DEPOSIT"] } }] } }),
   ]);
   return { reception, operator, expert };
 }
@@ -38,9 +39,9 @@ async function disableFormerLead(tx: Prisma.TransactionClient, plan: Awaited<Ret
     tx.user.update({ where: { id: plan.formerLeadId }, data: { active: false } }),
     tx.session.deleteMany({ where: { userId: plan.formerLeadId } }),
     tx.device.updateMany({ where: { groupId: plan.groupId, memberId: plan.formerLeadId }, data: { memberId: null } }),
-    tx.leadCustomer.updateMany({ where: { batch: { groupId: plan.groupId }, ownerId: plan.formerLeadId, joinedOn: null, receptionArchivedAt: null }, data: { ownerId: successorId } }),
-    tx.leadCustomer.updateMany({ where: { batch: { groupId: plan.groupId }, groupOperatorOwnerId: plan.formerLeadId, expertIntroducedOn: null, leftOn: null }, data: { groupOperatorOwnerId: successorId } }),
-    tx.leadCustomer.updateMany({ where: { batch: { groupId: plan.groupId }, expertOwnerId: plan.formerLeadId, customerOrder: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: ["STALLED", "DECLINED_DEPOSIT"] } }] }, data: { expertOwnerId: successorId } }),
+    tx.leadCustomer.updateMany({ where: { AND: [customerCurrentGroupWhere(plan.groupId)], ownerId: plan.formerLeadId, joinedOn: null, receptionArchivedAt: null }, data: { ownerId: successorId } }),
+    tx.leadCustomer.updateMany({ where: { AND: [customerCurrentGroupWhere(plan.groupId)], groupOperatorOwnerId: plan.formerLeadId, expertIntroducedOn: null, leftOn: null }, data: { groupOperatorOwnerId: successorId } }),
+    tx.leadCustomer.updateMany({ where: { AND: [customerCurrentGroupWhere(plan.groupId)], expertOwnerId: plan.formerLeadId, customerOrder: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: ["STALLED", "DECLINED_DEPOSIT"] } }] }, data: { expertOwnerId: successorId } }),
   ]);
 }
 

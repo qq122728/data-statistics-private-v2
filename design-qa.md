@@ -1,107 +1,56 @@
-# 接粉工作台四页视觉复查
+# Design QA
 
-## 对照对象
+## Comparison target
 
-- 号码导入效果图：`/Users/aaaa/.codex/generated_images/01a01453-8037-7012-a752-5c9b201289d9/exec-f1e7cd90-c312-480d-95da-425e2c576527.png`
-- 客户回复管理效果图：`/Users/aaaa/.codex/generated_images/01a01453-8037-7012-a752-5c9b201289d9/exec-b742d5d3-d0fc-4fcb-9756-749b8a470be2.png`
-- 客户进度效果图：`/Users/aaaa/.codex/generated_images/01a01453-8037-7012-a752-5c9b201289d9/exec-470f0371-be88-40c2-812f-faccee7fe3d0.png`
-- 扣粉统计效果图：`/Users/aaaa/.codex/generated_images/01a01453-8037-7012-a752-5c9b201289d9/exec-80e076e6-79de-4071-a819-06fa97b9e772.png`
-- 实现：本地 `http://127.0.0.1:3100/entry?workspace=intake`，接粉账号桌面状态。
-- 视口：1270 × 720 CSS px，密度 1；浏览器内截图在本次本地复查会话中直接捕获（该浏览器运行时不输出可复用的文件路径）。
+- Source visual truth (pre-fix total-company narrow state): `/Users/aaaa/Desktop/数据统计/artifacts/ui-readonly-audit/05-headquarters.png`
+- Rendered implementation (post-fix total-company narrow state): `/Users/aaaa/Desktop/数据统计/artifacts/ui-fix-qa/fixed-headquarters.png`
+- Combined comparison input, source on the left and implementation on the right: `/Users/aaaa/Desktop/数据统计/artifacts/ui-fix-qa/headquarters-before-after.jpg`
+- Additional source visual truth (pre-fix resource narrow state): `/Users/aaaa/Desktop/数据统计/artifacts/ui-readonly-audit/06-resource-ads.png`
+- Additional implementation evidence: `/Users/aaaa/Desktop/数据统计/artifacts/ui-fix-qa/fixed-resource-ads.png`
+- Additional combined comparison: `/Users/aaaa/Desktop/数据统计/artifacts/ui-fix-qa/resource-before-after.jpg`
+- Browser CSS viewport: 478 × 625, device density 1.
+- Source pixels: 478 × 625. Browser screenshot output: 468 × 612. Combined comparisons normalize both halves to 478 × 625 solely to align the same viewport/state.
+- State: authenticated total-company manager and ADS resource manager on their default workbench views.
 
-## 复查范围
+## Full-view comparison evidence
 
-- 号码导入：选择来源、粉的归属、Excel 文件/粘贴、可编辑预览、最近导入批次。
-- 客户回复管理：五行客户资料、接粉设备号、回访、确认已回复、误录。
-- 客户进度：炒群/专家交接、最新进度、资金与业绩、每日记录抽屉。
-- 扣粉统计：无 WS、小金额、撞粉数字登记、组长审核提示、登记记录。
+Both before/after pairs were opened together as one comparison image. The corrected management shell preserves the existing white-and-blue visual language, card density, typography and control sizing. The total-company sidebar now exposes every navigation label and icon instead of leaving empty icon-only rows. The resource workspace keeps the same layout while replacing “净入金” with the product-wide “净业绩” wording.
 
-## 本轮 2026-08-23 落地结果
+## Focused-region comparison evidence
 
-- 接粉角色在 `/entry` 页面切换为 76px 图标侧栏；其他岗位、其他页面仍保持原来的完整侧栏，避免这次视觉改造影响管理端。
-- 四个工作页统一为“顶部导航紧凑、表格是主角”的空间规则：号码导入把来源、导入方式、可编辑预览放进首屏；客户回复把横向空间优先给客户资料；客户进度保持五块业务信息同时可读；扣粉统计保持三类数字的大卡片录入。
-- 客户回复管理的“详情 / 误录 / 设备号 / 回访 / 确认已回复”已实测处于同一行，按钮和来源列不会再相互遮挡。
+No extra crop was needed because the 478-pixel-wide comparison makes the complete persistent navigation, top header, first toolbar, KPI cards and resource terminology readable in one view. These were the exact regions affected by the repair.
 
-## 对比结果
+## Required fidelity surfaces
 
-### 已修复的 P1
+- Fonts and typography: existing system Chinese sans-serif stack, weights and compact hierarchy are unchanged. Narrow navigation labels remain readable without clipping.
+- Spacing and layout rhythm: the narrow sidebar is widened only enough to hold icon-plus-text navigation; header title, avatar and “退出” remain on one row.
+- Colors and visual tokens: existing blue active state, white cards, cool-gray canvas and border tokens are preserved.
+- Image quality and assets: this data application has no raster content. Navigation uses the existing Phosphor icon set; no placeholder glyphs or handmade icons were introduced.
+- Copy and content: resource wording is consistently “净业绩”. The removed “待确认每日数据” and “待渠道对账” panels no longer imply an approval workflow that the product does not use.
 
-- [P1] 客户进度原本是超宽的 16 列表格。
-  - 证据：原页面必须横向滚动才能看全，且一条客户记录很难横向核对。
-  - 修复：改为五列「客户 / 交接与负责人 / 最新进度 / 资金与业绩 / 操作」；未减少业务数据，完整资料、每日记录和资金明细仍在“查看资料 / 每日记录”抽屉中。
-  - 修复后证据：1270 × 720 本地浏览器复查时，五个主列、净业绩和操作入口同时可见。
+## Findings and comparison history
 
-### 视觉一致性检查
+- Earlier P1: total-company nested navigation was blank at narrow width because its labels were hidden and the nested buttons had no icons.
+  - Fix: added icons to all six nested total-company entries and retained compact navigation text at narrow breakpoints.
+  - Post-fix evidence: `headquarters-before-after.jpg` shows every entry visible and distinguishable.
+- Earlier P2: all management sidebars became icon-only at narrow width, unlike the member/lead shell.
+  - Fix: shared management navigation now stacks the existing icon above a short visible label at 900px and below.
+  - Post-fix evidence: total-company, department, company, ADS resource and SMS resource accounts were each logged in at the narrow viewport; persistent navigation and “退出” were visible.
+- Earlier P2: the resource workbench used both “净入金” and “净业绩” and exposed approval/reconciliation panels the user had removed from the workflow.
+  - Fix: standardized the resource UI on “净业绩” and removed the approval/reconciliation fetches, cards, tables and action handlers from the resource frontend.
+  - Post-fix evidence: `resource-before-after.jpg` shows the corrected KPI label. Browser text checks confirmed neither approval label remains on the workbench or daily-channel page.
+- No remaining actionable P0, P1 or P2 findings in the repaired states.
 
-- 字体与层级：沿用项目的中文系统字体、深蓝标题、12–14px 工作表正文与 11px 辅助说明；客户姓名、状态、净业绩保留更高权重。
-- 间距与布局：顶部筛选保持紧凑；号码导入保留两步结构；客户回复采用姓名、邮箱、金额、平台、客户情况五行纵向资料，并把操作压缩为单行；扣粉三类数字横向分组；客户进度避免将全部字段挤在一行。
-- 颜色与状态：主操作使用纯蓝色；待联系用琥珀色；已确认/开单逻辑保留绿色语义；无 WS、小金额、撞粉使用蓝/琥珀/紫三种固定区分。已移除本次区域中的渐变背景，避免视觉疲劳。
-- 图像与图标：没有新增位图资产；使用项目已有的 Phosphor 图标，不存在失真、裁切或占位图问题。
-- 文案与业务逻辑：保留“粉的归属”“确认已回复”“接粉设备号”“无 WS / 小金额 / 撞粉”“提交给组长审核”“查看资料 / 每日记录”等真实字段与动作；未创建新状态或改变权限、审核、导入、回访逻辑。
+## Interaction and runtime verification
 
-## 主流程检查
+- Logged in and inspected: `demo_hq`, `demo_department`, `demo_company`, `demo_resource_ads`, and `demo_resource_sms`.
+- Tested total-company navigation visibility, top-bar logout visibility, resource workbench content, daily-channel navigation, and ADS/SMS channel isolation.
+- Fresh browser reload produced only React DevTools and HMR connection info; no new runtime error.
+- Frontline TypeScript, 28 frontend tests and the production build passed.
+- Root TypeScript and the complete root suite passed: 1,123 tests passed, 4 skipped.
 
-- 号码导入仍可选择渠道、粉的归属、上传 Excel、粘贴、增删预览行并确认导入。
-- 客户回复仍可直接补资料、选择设备号、回访、确认已回复、标记误录。
-- 客户进度仍可打开明细抽屉，查看炒群每日进度、专家每日备注和资金明细。
-- 扣粉统计仍只登记数字，提交后等待组长审核。
+## Follow-up polish
 
-## 剩余抛光
-
-- [P3] 在小于约 1100px 的工作区宽度下，客户进度表保留横向滚动，避免压缩金额和操作文字；常用桌面宽度下五个主要区域可同时阅读。
-
-## 验证
-
-- `npx tsc --noEmit`：通过。
-- `npm run test -- tests/unit/entry-layout.test.ts tests/unit/reception-contact-device-ui.test.ts tests/unit/phone-import-check.test.ts`：14 项通过。
-- 本地浏览器已逐页复查：号码导入、客户回复管理、客户进度、扣粉统计。
-- `git diff --check`：通过。
-
-上一轮结果：passed
-
----
-
-## 2026-08-23 客户资料五行与窄屏复查
-
-### 对照证据
-
-- 视觉来源：`/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-b7478998-afa7-4d7a-b582-cc729f0efbf8.png`
-- 实现截图：`/Users/aaaa/Desktop/数据统计/.codex-artifacts/reception-profile-five-lines/01-desktop-five-lines.png`
-- 完整并排对照：`/Users/aaaa/Desktop/数据统计/.codex-artifacts/reception-profile-five-lines/07-reference-vs-implementation.png`
-- 客户资料聚焦对照：`/Users/aaaa/Desktop/数据统计/.codex-artifacts/reception-profile-five-lines/08-profile-region-comparison.png`
-- 窄屏证据：`/Users/aaaa/Desktop/数据统计/.codex-artifacts/reception-profile-five-lines/05-tablet-768-final.png`、`/Users/aaaa/Desktop/数据统计/.codex-artifacts/reception-profile-five-lines/06-mobile-390-top.png`
-- 桌面视口：1280 × 720 CSS px，密度 1；来源为 1278 × 720 px，实现为 1280 × 720 px。两图高度与密度一致，仅保留 2px 来源宽度差，不做会改变文字比例的缩放。
-- 状态：接粉账号 → 客户回复管理 → 待回复；资料为空，按钮可用。
-
-### 完整视图比较
-
-- 页面侧栏、顶部导航、筛选、状态、操作和来源列保持原设计位置与视觉语言。
-- 唯一有意改变的主区域是“客户资料”：原来的 2+3 卡片改为姓名、邮箱、金额、平台、客户情况五行纵向列表。
-- 五行布局增加单条客户记录高度，但标签和值更容易从上到下核对；操作列仍保持一行，没有被资料区挤压。
-
-### 聚焦区域比较
-
-- 字体与层级：继续使用项目系统字体；标签为 10px 灰蓝色，值为 12px，姓名保持较高字重。
-- 间距与节奏：每行 27px，使用轻分隔线；五个字段顺序与用户指定完全一致。
-- 颜色与令牌：沿用现有深蓝正文、灰蓝标签和浅蓝悬停色，没有新增不一致的颜色。
-- 图像与图标：本区域不包含图像；操作区继续使用项目已有 Phosphor 图标。
-- 文案：明确显示“姓名：/ 邮箱：/ 金额：/ 平台：/ 客户情况：”，空值统一显示“未填”。
-
-### 比较历史
-
-- [P2，已修复] 768px 和 390px 下，通用导航曾展开为大块顶部菜单，手机顶部标题发生裁切。
-  - 修复：接粉 `/entry` 在 900px 以下继续使用 64px 图标侧栏，在 520px 以下使用 56px；手机顶栏只保留三个图标操作。
-  - 修复后证据：768px 与 390px 页面宽度均无整页横向溢出，侧栏固定完整，顶部不再裁切。
-- [P2，已修复] 手机宽度下“第 2 步 / 联系与回复”曾被说明文字挤成逐字换行。
-  - 修复：手机端标题与说明改为上下排列，平板端标题禁止被压缩。
-  - 修复后证据：`06-mobile-390-top.png` 中标题保持单行，说明文字自然换行。
-
-### 交互与运行检查
-
-- 点击“姓名：未填”会切换为对应输入框；按 Escape 可恢复显示状态。
-- 设备号、回访和确认已回复按钮仍在原位置。
-- 浏览器控制台无 error 或 warning。
-- `npx vitest run tests/unit/entry-layout.test.ts tests/unit/reception-contact-device-ui.test.ts tests/unit/phone-import-check.test.ts`：14 项通过。
-- `git diff --check`：通过。
+- P3: on extremely narrow browser panes, large report tables still require horizontal scrolling. This matches the spreadsheet-style product direction and does not block use.
 
 final result: passed

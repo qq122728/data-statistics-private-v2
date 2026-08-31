@@ -58,8 +58,8 @@ const NAV_DEPT_MANAGER: NavSection[] = [
   {
     group: "日常工作",
     items: [
-      { id: "team-overview", label: "团队汇总", Icon: IconChart },
-      { id: "team-detail", label: "组内明细", Icon: IconSearch },
+      { id: "team-overview", label: "部门工作台", Icon: IconChart },
+      { id: "team-detail", label: "数据汇总", Icon: IconSearch },
       { id: "management-customer-progress", label: "客户进度", Icon: IconRoute },
       { id: "dept-notice", label: "通知中心", Icon: IconBell },
     ],
@@ -67,7 +67,7 @@ const NAV_DEPT_MANAGER: NavSection[] = [
   {
     group: "组织管理",
     items: [
-      { id: "group-leadership", label: "组长与人事", Icon: IconUsers },
+      { id: "group-leadership", label: "小组与人员管理", Icon: IconUsers },
       { id: "dept-leaderboard", label: "精英榜", Icon: IconTrophy },
     ],
   },

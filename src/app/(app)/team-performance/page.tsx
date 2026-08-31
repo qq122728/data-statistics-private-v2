@@ -31,7 +31,7 @@ export default async function TeamPerformancePage({ searchParams }: { searchPara
   const [raw, settings, allGroups, departments] = await Promise.all([
     searchParams,
     getSystemSettings(),
-    db.teamGroup.findMany({ select: { id: true, name: true, active: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, department: { select: { name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } } }, orderBy: [{ department: { name: "asc" } }, { name: "asc" }] }),
+    db.teamGroup.findMany({ select: { id: true, name: true, active: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, department: { select: { name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, companyId: true } } }, orderBy: [{ department: { name: "asc" } }, { name: "asc" }] }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
   const now = new Date();

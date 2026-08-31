@@ -15,13 +15,23 @@ type Actor = Pick<User, "id" | "role" | "groupId" | "active"> & {
   companyId?: string | null;
   managementCountryCode?: string | null;
   managedDepartments?: Array<{ departmentId: string }>;
+  resourceChannelAccess?: Array<{ channelId: string }>;
+  roleAssignments?: Array<{ role: Role }>;
 };
 
-export function canSendNotifications(role: Role): role is NotificationSenderRole {
-  return notificationSenderRoles.includes(role as NotificationSenderRole);
+export function canSendNotifications(actor: Actor): boolean {
+  return Boolean(actor.active && (
+    actor.role === "ADMIN"
+    || actor.role === "RESOURCE_MANAGER"
+    || actor.duty === "HQ_MANAGER"
+    || actor.duty === "COMPANY_MANAGER"
+    || actor.duty === "DEPARTMENT_MANAGER"
+    || actor.role === "LEAD"
+    || actor.roleAssignments?.some((assignment) => assignment.role === "LEAD")
+  ));
 }
 
-type NotificationScopeClient = Pick<typeof db, "teamGroup" | "user">;
+type NotificationScopeClient = Pick<typeof db, "teamGroup" | "user" | "channel">;
 
 export async function notificationScope(actor: Actor, client: NotificationScopeClient = db) {
   if (!actor.active) return { groups: [], users: [], departments: [] };
@@ -31,8 +41,23 @@ export async function notificationScope(actor: Actor, client: NotificationScopeC
     orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
   });
   const departmentIds = managedDepartmentIds(actor);
+  const assignedResourceChannels = actor.role === "RESOURCE_MANAGER"
+    ? await client.channel.findMany({
+        where: {
+          id: { in: actor.resourceChannelAccess?.map((access) => access.channelId) ?? [] },
+          active: true,
+          group: { active: true },
+        },
+        select: { groupId: true },
+      })
+    : [];
+  // 资源账号只能通知其明确授权 channelId 实际覆盖的小组。不能因为渠道类型相同，
+  // 就把另一个投流/短信渠道的小组也纳入范围。
+  const resourceGroupIds = new Set(assignedResourceChannels.map((channel) => channel.groupId));
   const groups = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
     ? allGroups
+    : actor.role === "RESOURCE_MANAGER"
+      ? allGroups.filter((group) => resourceGroupIds.has(group.id))
     : actor.duty === "COMPANY_MANAGER" && actor.companyId
       ? allGroups.filter((group) => group.department.companyId === actor.companyId)
       : actor.duty === "DEPARTMENT_MANAGER"
@@ -43,18 +68,25 @@ export async function notificationScope(actor: Actor, client: NotificationScopeC
         ? allGroups.filter((group) => group.id === actor.groupId)
         : [];
   const groupIds = groups.map((group) => group.id);
-  const users = groupIds.length
+  const scopedDepartmentIds = [...new Set(groups.map((group) => group.departmentId))];
+  const globalScope = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER";
+  const users = globalScope
     ? await client.user.findMany({
-      where: { active: true, OR: [{ groupId: { in: groupIds } }, { departmentId: { in: [...new Set(groups.map((group) => group.departmentId))] } }] },
-      select: { id: true, name: true, role: true, groupId: true, departmentId: true },
+      where: { active: true },
+      select: { id: true, name: true, role: true, groupId: true, departmentId: true, roleAssignments: { select: { role: true } } },
       orderBy: [{ groupId: "asc" }, { role: "asc" }, { name: "asc" }],
     })
-    : [];
-  const allowedUserIds = new Set(users.map((user) => user.id));
-  if (actor.role === "ADMIN") {
-    const admins = await client.user.findMany({ where: { active: true, role: { in: ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER"] } }, select: { id: true, name: true, role: true, groupId: true, departmentId: true } });
-    for (const user of admins) if (!allowedUserIds.has(user.id)) users.push(user);
-  }
+    : groupIds.length
+      ? await client.user.findMany({
+        where: actor.duty === "COMPANY_MANAGER" && actor.companyId
+          ? { active: true, OR: [{ groupId: { in: groupIds } }, { departmentId: { in: scopedDepartmentIds } }, { companyId: actor.companyId }] }
+          : actor.duty === "DEPARTMENT_MANAGER" || (actor.role === "COMPANY_MANAGER" && actor.departmentId)
+            ? { active: true, OR: [{ groupId: { in: groupIds } }, { departmentId: { in: scopedDepartmentIds } }] }
+            : { active: true, groupId: { in: groupIds } },
+        select: { id: true, name: true, role: true, groupId: true, departmentId: true, roleAssignments: { select: { role: true } } },
+        orderBy: [{ groupId: "asc" }, { role: "asc" }, { name: "asc" }],
+      })
+      : [];
   return {
     groups,
     users,

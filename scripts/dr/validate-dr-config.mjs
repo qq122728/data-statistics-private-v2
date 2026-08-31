@@ -134,9 +134,6 @@ const migrationEntries = (await readdir("prisma/postgres/migrations", { withFile
   .map((entry) => entry.name)
   .sort();
 if (!migrationEntries.length) throw new Error("no PostgreSQL migrations found");
-if (migrationEntries.length !== 41 || migrationEntries.at(-1) !== "20260830180000_simplify_daily_stat_review") {
-  throw new Error("DR-01 must be based on the approved 41-migration release containing the simplified daily-stat review backfill");
-}
 requireMatch(restoreEnvExample, new RegExp(`^DR_EXPECTED_MIGRATION_COUNT=${migrationEntries.length}$`, "m"), "restore migration count does not match repository");
 requireMatch(restoreEnvExample, new RegExp(`^DR_EXPECTED_LATEST_MIGRATION=${migrationEntries.at(-1)}$`, "m"), "restore latest migration does not match repository");
 

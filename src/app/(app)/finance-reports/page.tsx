@@ -27,7 +27,7 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
     searchParams,
     getSystemSettings(),
     db.teamGroup.findMany({
-      select: { id: true, name: true, departmentId: true, countryCode: true, department: { select: { countryCode: true } } }, orderBy: { name: "asc" },
+      select: { id: true, name: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } }, orderBy: { name: "asc" },
     }),
     ["ADMIN", "FINANCE"].includes(user.role)
       ? db.user.findMany({

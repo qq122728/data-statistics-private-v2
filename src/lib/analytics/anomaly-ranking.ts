@@ -5,7 +5,7 @@ import { getMaturity, getSampleState, hasFunnelAnomaly } from "./metrics";
 import { isWithinMaturityWindow } from "./maturity-window";
 import type { AnalysisScope } from "./types";
 
-export type AnomalyMetricKey = "replyRate" | "groupRate" | "expertRate" | "registrationRate" | "orderRate";
+export type AnomalyMetricKey = "replyRate" | "groupRate" | "leaveRate" | "registrationRate" | "orderRate";
 
 export type AnomalyMetricComparison = {
   value: number | null;
@@ -61,18 +61,18 @@ type MemberChannelAggregate = {
   rankable: boolean;
 };
 
-const metricKeys: AnomalyMetricKey[] = ["replyRate", "groupRate", "expertRate", "registrationRate", "orderRate"];
+const metricKeys: AnomalyMetricKey[] = ["replyRate", "groupRate", "leaveRate", "registrationRate", "orderRate"];
 
 function fraction(totals: BatchTotals, key: AnomalyMetricKey): { numerator: number; denominator: number } {
   if (key === "replyRate") return { numerator: totals.replies, denominator: totals.effectiveFans };
-  if (key === "groupRate") return { numerator: totals.groupJoin, denominator: totals.replies };
-  if (key === "expertRate") return { numerator: totals.expertIntro, denominator: totals.groupJoin };
+  if (key === "groupRate") return { numerator: totals.groupJoin, denominator: totals.effectiveFans };
+  if (key === "leaveRate") return { numerator: totals.abnormalGroupLeave ?? 0, denominator: totals.groupJoin - totals.groupLeave };
   if (key === "registrationRate") return { numerator: totals.registration, denominator: totals.expertIntro };
   return { numerator: totals.orders, denominator: totals.registration };
 }
 
 function divide({ numerator, denominator }: { numerator: number; denominator: number }): number | null {
-  return denominator === 0 ? null : numerator / denominator;
+  return denominator <= 0 ? null : numerator / denominator;
 }
 
 function addTotals(rows: MemberChannelAggregate[], key: AnomalyMetricKey): number | null {
@@ -80,7 +80,7 @@ function addTotals(rows: MemberChannelAggregate[], key: AnomalyMetricKey): numbe
   let denominator = 0;
   for (const row of rows) {
     const part = fraction(row.totals, key);
-    if (part.denominator === 0) continue;
+    if (part.denominator <= 0) continue;
     numerator += part.numerator;
     denominator += part.denominator;
   }
@@ -102,7 +102,8 @@ function buildRows(aggregates: MemberChannelAggregate[], showInsufficient: boole
       const average = addTotals(rankablePeers, key);
       if (!row.rankable) return [key, { value, average, gap: null, status: "INSUFFICIENT" } satisfies AnomalyMetricComparison];
       if (value === null || average === null) return [key, { value, average, gap: null, status: "UNAVAILABLE" } satisfies AnomalyMetricComparison];
-      const gap = value - average;
+      // 转化率越高越好；异常退群率相反，越低越好。统一把负 gap 表示成“比同渠道平均更差”。
+      const gap = key === "leaveRate" ? average - value : value - average;
       return [key, { value, average, gap, status: gap < 0 ? "LOW" : "OK" } satisfies AnomalyMetricComparison];
     })) as Record<AnomalyMetricKey, AnomalyMetricComparison>;
     const lowGaps = metricKeys.map((key) => metrics[key]).filter((metric) => metric.status === "LOW" && metric.gap !== null).map((metric) => metric.gap!);

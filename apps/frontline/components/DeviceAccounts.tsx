@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { requestJson } from "@/lib/backend";
 import { IconPlus } from "./Icons";
 
-type AccountType = "NORMAL_WS" | "BUSINESS_WS" | "RCS";
+type AccountType = "NORMAL_WS" | "BUSINESS_WS" | "RCS" | "SIG";
 type Account = {
   id: string; accountType: AccountType; provider: string; accountNumber: string; renewalDate: string | null;
   purpose: string | null; situation: string | null; phoneCode: string | null; followUp: string | null;
@@ -12,7 +12,7 @@ type Account = {
 };
 type Draft = { accountType: AccountType; provider: string; accountNumber: string; renewalDate: string; purpose: string; situation: string; phoneCode: string; followUp: string };
 const EMPTY: Draft = { accountType: "NORMAL_WS", provider: "", accountNumber: "", renewalDate: "", purpose: "", situation: "", phoneCode: "", followUp: "" };
-const TYPE_LABEL: Record<AccountType, string> = { NORMAL_WS: "普通 WS", BUSINESS_WS: "商业 WS", RCS: "RCS" };
+const TYPE_LABEL: Record<AccountType, string> = { NORMAL_WS: "普通 WS", BUSINESS_WS: "商业 WS", RCS: "RCS", SIG: "SIG" };
 
 export function DeviceAccounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -76,7 +76,7 @@ export function DeviceAccounts() {
     </form>
     {error ? <div className="card" role="alert" style={{ padding: 14, color: "var(--bad)", borderColor: "var(--bad-line)" }}>{error}</div> : null}
     {success ? <div className="card" role="status" style={{ padding: 14, color: "var(--ok)", borderColor: "var(--ok-line)" }}>{success}</div> : null}
-    <div className="card" style={{ overflow: "hidden" }}><div className="table-scroll"><table className="grid-table"><thead><tr><th>账号</th><th>归属</th><th>号商</th><th>用途 / 情况</th><th>续费日期</th><th>手机编号</th><th>跟进备注</th><th>操作</th></tr></thead><tbody>
+    <div className="card" style={{ overflow: "hidden", minWidth: 0 }}><div className="table-scroll"><table className="grid-table" style={{ minWidth: 980 }}><thead><tr><th>账号</th><th>归属</th><th>号商</th><th>用途 / 情况</th><th>续费日期</th><th>手机编号</th><th>跟进备注</th><th>操作</th></tr></thead><tbody>
       {loading && !accounts.length ? <tr><td colSpan={8} style={{ textAlign: "center", padding: 30 }}>正在读取真实设备账号…</td></tr> : null}
       {!loading && !accounts.length ? <tr><td colSpan={8} style={{ textAlign: "center", padding: 30, color: "var(--ink-3)" }}>还没有设备账号。</td></tr> : null}
       {accounts.map((account) => <tr key={account.id}><td><strong>{account.accountNumber}</strong><div className="muted">{TYPE_LABEL[account.accountType]}</div></td><td>{account.owner.name}</td><td>{account.provider}</td><td>{account.purpose || "—"}<div className="muted">{account.situation || "未填写情况"}</div></td><td>{account.renewalDate || "—"}</td><td>{account.phoneCode || "—"}</td><td>{account.followUp || "—"}</td><td><div style={{ display: "flex", gap: 7 }}><button className="btn" data-size="sm" onClick={() => edit(account)}>编辑</button><button className="btn" data-size="sm" disabled={busy} onClick={() => void remove(account)}>删除</button></div></td></tr>)}

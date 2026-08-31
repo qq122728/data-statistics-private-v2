@@ -11,7 +11,7 @@ const nullableText = (max: number) =>
   z.string().trim().max(max).nullable().optional();
 
 const accountFields = z.object({
-  accountType: z.enum(["NORMAL_WS", "BUSINESS_WS", "RCS"]),
+  accountType: z.enum(["NORMAL_WS", "BUSINESS_WS", "RCS", "SIG"]),
   provider: z.string().trim().min(1, "请输入号商").max(80),
   accountNumber: z.string().trim().min(1, "请输入号码").max(80),
   renewalDate: z

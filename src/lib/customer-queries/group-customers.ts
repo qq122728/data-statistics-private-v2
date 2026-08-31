@@ -4,6 +4,7 @@ import { isPostgresDatabase } from "../database-provider";
 import { assessGroupLeave } from "../group-leave";
 import { resolveAccessibleReceptionistIds } from "../group-operator-collaboration";
 import type { GroupCustomerRecord } from "./types";
+import { customerCurrentGroupsWhere } from "../customer-current-group";
 
 type GroupCustomerQuery = {
   groupIds: string[];
@@ -257,10 +258,11 @@ export async function loadGroupCustomerWorkspace(input: GroupCustomerQuery) {
 
   const baseWhere: Prisma.LeadCustomerWhereInput = {
     // “全部”不附加日期条件；其他范围按接粉/来源日期读取，历史补录同样可回查。
-    batch: { groupId: { in: groupIds }, ...(input.sourceDate ? { sourceDate: input.sourceDate } : {}) },
+    batch: { ...(input.sourceDate ? { sourceDate: input.sourceDate } : {}) },
     groupStatus: { in: ["JOINED", "LEFT"] },
     invalid: false,
     AND: [
+      customerCurrentGroupsWhere(groupIds),
       ...(input.isGroupOperator ? [{
         OR: [
           { groupOperatorOwnerId: input.userId },

@@ -18,9 +18,9 @@ type ChannelRequest = {
   global?: unknown;
   /** 公司管理员使用此范围；后端从登录账号读取公司，绝不信任前端传来的公司 ID。 */
   company?: unknown;
+  companyId?: unknown;
   active?: unknown;
   channelType?: unknown;
-  departmentId?: unknown;
   highRiskReason?: unknown;
   currentPassword?: unknown;
 };
@@ -58,12 +58,13 @@ export async function GET() {
   const access = await requireChannelManagerRequest();
   if ("response" in access) return access.response;
   const isHeadquartersManager = access.actor.role === "ADMIN" || access.actor.duty === "HQ_MANAGER";
-  const isCompanyManager = access.actor.role === "COMPANY_MANAGER" && !isHeadquartersManager;
+  const isCompanyManager = access.actor.duty === "COMPANY_MANAGER" && !isHeadquartersManager;
   const isResourceManager = access.actor.role === "RESOURCE_MANAGER";
+  if (!isHeadquartersManager && !isCompanyManager && !isResourceManager) return authorizationDenied(access.actor, "当前账号没有公司级渠道管理权限");
   const allowedChannelIds = access.actor.resourceChannelAccess?.map((item) => item.channelId) ?? [];
   const rows = await db.channel.findMany({
     where: isCompanyManager
-      ? { group: { departmentId: access.actor.departmentId as string } }
+      ? { group: { department: { companyId: access.actor.companyId as string } } }
       : isResourceManager
         ? { id: { in: allowedChannelIds } }
         : undefined,
@@ -101,22 +102,27 @@ export async function POST(request: Request) {
   const body = (await request.json()) as ChannelRequest;
   if (typeof body.currentPassword === "string" && body.currentPassword.length > API_LIMITS.loginPasswordCharacters) return NextResponse.json({ error: "当前账号密码长度超过限制" }, { status: 400 });
   if (typeof body.highRiskReason === "string" && body.highRiskReason.length > API_LIMITS.accountReasonCharacters) return NextResponse.json({ error: "操作原因不能超过 500 个字" }, { status: 400 });
-  if (typeof body.departmentId === "string" && body.departmentId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "下属公司参数过长" }, { status: 400 });
+  if (typeof body.companyId === "string" && body.companyId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "公司参数过长" }, { status: 400 });
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const groupId = typeof body.groupId === "string" ? body.groupId : "";
   const companyRequest = body.company === true;
   const explicitGlobalRequest = body.global === true;
   const globalRequest = explicitGlobalRequest || (!companyRequest && !Object.prototype.hasOwnProperty.call(body, "groupId"));
   const isHeadquartersManager = access.actor.role === "ADMIN" || access.actor.duty === "HQ_MANAGER";
-  const isCompanyManager = access.actor.role === "COMPANY_MANAGER" && !isHeadquartersManager;
+  const isCompanyManager = access.actor.duty === "COMPANY_MANAGER" && !isHeadquartersManager;
+  const isResourceManager = access.actor.role === "RESOURCE_MANAGER";
+  if (!isHeadquartersManager && !isCompanyManager && !isResourceManager) return authorizationDenied(access.actor, "当前账号没有公司级渠道管理权限");
   if (isCompanyManager && (!companyRequest || explicitGlobalRequest || Boolean(groupId))) {
     return authorizationDenied(access.actor, "公司管理员只能管理本公司的渠道");
   }
   if (companyRequest && !isCompanyManager) {
     return authorizationDenied(access.actor, "公司范围渠道只能由公司管理员操作");
   }
-  if (companyRequest && !access.actor.departmentId) {
+  if (companyRequest && !access.actor.companyId) {
     return authorizationDenied(access.actor, "当前公司管理员未绑定公司，不能管理渠道");
+  }
+  if (companyRequest && typeof body.companyId === "string" && body.companyId !== access.actor.companyId) {
+    return authorizationDenied(access.actor, "不能操作其他公司的渠道");
   }
   if (!name || (!globalRequest && !companyRequest && !groupId))
     return NextResponse.json(
@@ -138,15 +144,15 @@ export async function POST(request: Request) {
   try {
     const result = await db.$transaction(async (client) => {
       if (companyRequest) {
-        const departmentId = access.actor.departmentId as string;
+        const companyId = access.actor.companyId as string;
         const groups = await client.teamGroup.findMany({
-          where: { departmentId, active: true, department: { active: true } },
+          where: { active: true, department: { active: true, companyId } },
           select: { id: true },
           orderBy: { createdAt: "asc" },
         });
         if (!groups.length) return { error: "本公司没有启用中的小组，暂时不能创建渠道", status: 400 as const };
         const normalizedName = normalizeChannelName(name);
-        if (await client.channel.findFirst({ where: { normalizedName, group: { departmentId } }, select: { id: true } })) {
+        if (await client.channel.findFirst({ where: { normalizedName, group: { department: { companyId } } }, select: { id: true } })) {
           return { error: "本公司已有同名渠道", status: 409 as const };
         }
         const id = randomUUID();
@@ -170,7 +176,7 @@ export async function POST(request: Request) {
             changedFields: ["name", "channelType"],
             name: created.name,
             scope: "COMPANY",
-            departmentId,
+            companyId,
             groupCount: groups.length,
           },
         });
@@ -180,7 +186,7 @@ export async function POST(request: Request) {
         const highRisk = isHeadquartersManager
           ? await authorizeHeadquartersChannelOperation(client, access.actor.id, body)
           : null;
-        const configuredDepartmentId = typeof body.departmentId === "string" ? body.departmentId : null;
+        const configuredCompanyId = typeof body.companyId === "string" ? body.companyId : null;
         const groups = await client.teamGroup.findMany({ select: { id: true, departmentId: true }, orderBy: { createdAt: "asc" } });
         if (!groups.length) return { error: "请先创建至少一个小组", status: 400 as const };
         const normalizedName = normalizeChannelName(name);
@@ -221,7 +227,7 @@ export async function POST(request: Request) {
                 active: created.active,
                 channelType: created.channelType,
               },
-              impact: { headquartersOverride: true, groups: groups.length, configuredDepartmentId },
+              impact: { headquartersOverride: true, groups: groups.length, configuredCompanyId },
             } : {}),
           },
         });
@@ -301,21 +307,23 @@ export async function PATCH(request: Request) {
   const globalRequest = body.global === true;
   const companyRequest = body.company === true;
   const isHeadquartersManager = access.actor.role === "ADMIN" || access.actor.duty === "HQ_MANAGER";
-  const isCompanyManager = access.actor.role === "COMPANY_MANAGER" && !isHeadquartersManager;
+  const isCompanyManager = access.actor.duty === "COMPANY_MANAGER" && !isHeadquartersManager;
+  const isResourceManager = access.actor.role === "RESOURCE_MANAGER";
+  if (!isHeadquartersManager && !isCompanyManager && !isResourceManager) return authorizationDenied(access.actor, "当前账号没有公司级渠道管理权限");
   if (isCompanyManager && (!companyRequest || globalRequest || typeof body.groupId === "string")) {
     return authorizationDenied(access.actor, "公司管理员只能管理本公司的渠道");
   }
-  if (companyRequest && (!isCompanyManager || !access.actor.departmentId)) {
+  if (companyRequest && (!isCompanyManager || !access.actor.companyId)) {
     return authorizationDenied(access.actor, "当前账号不能管理公司范围渠道");
   }
-  if (companyRequest && typeof body.departmentId === "string" && body.departmentId !== access.actor.departmentId) {
+  if (companyRequest && typeof body.companyId === "string" && body.companyId !== access.actor.companyId) {
     return authorizationDenied(access.actor, "不能操作其他公司的渠道");
   }
-  const scopedDepartmentId = companyRequest
-    ? access.actor.departmentId as string
-    : typeof body.departmentId === "string" ? body.departmentId : undefined;
+  const scopedCompanyId = companyRequest
+    ? access.actor.companyId as string
+    : typeof body.companyId === "string" ? body.companyId : undefined;
   const catalogRequest = globalRequest || companyRequest;
-  if (typeof body.id !== "string" || body.id.length > API_LIMITS.identifierCharacters || (!catalogRequest && typeof body.groupId !== "string") || (typeof body.groupId === "string" && body.groupId.length > API_LIMITS.identifierCharacters) || (typeof scopedDepartmentId === "string" && scopedDepartmentId.length > API_LIMITS.identifierCharacters))
+  if (typeof body.id !== "string" || body.id.length > API_LIMITS.identifierCharacters || (!catalogRequest && typeof body.groupId !== "string") || (typeof body.groupId === "string" && body.groupId.length > API_LIMITS.identifierCharacters) || (typeof scopedCompanyId === "string" && scopedCompanyId.length > API_LIMITS.identifierCharacters))
     return NextResponse.json({ error: "渠道参数不正确" }, { status: 400 });
   const requested: {
     name?: string;
@@ -337,7 +345,7 @@ export async function PATCH(request: Request) {
     const channel = await db.$transaction(async (client) => {
       const copies = catalogRequest
         ? await client.channel.findMany({
-          where: { id: body.id as string, ...(scopedDepartmentId ? { group: { departmentId: scopedDepartmentId } } : {}) },
+          where: { id: body.id as string, ...(scopedCompanyId ? { group: { department: { companyId: scopedCompanyId } } } : {}) },
           include: {
             group: {
               select: { name: true, active: true, department: { select: { active: true } } },
@@ -401,17 +409,17 @@ export async function PATCH(request: Request) {
         : null;
       const impact = highRisk
         ? await Promise.all([
-          client.sourceBatch.count({ where: catalogRequest ? { channelId: existing.id, ...(scopedDepartmentId ? { group: { departmentId: scopedDepartmentId } } : {}) } : { groupId: existing.groupId, channelId: existing.id } }),
-          client.leadCustomer.count({ where: { batch: catalogRequest ? { channelId: existing.id, ...(scopedDepartmentId ? { group: { departmentId: scopedDepartmentId } } : {}) } : { groupId: existing.groupId, channelId: existing.id } } }),
-          client.customerOrder.count({ where: { batch: catalogRequest ? { channelId: existing.id, ...(scopedDepartmentId ? { group: { departmentId: scopedDepartmentId } } : {}) } : { groupId: existing.groupId, channelId: existing.id } } }),
-          client.metricEvent.count({ where: { batch: catalogRequest ? { channelId: existing.id, ...(scopedDepartmentId ? { group: { departmentId: scopedDepartmentId } } : {}) } : { groupId: existing.groupId, channelId: existing.id } } }),
+          client.sourceBatch.count({ where: catalogRequest ? { channelId: existing.id, ...(scopedCompanyId ? { group: { department: { companyId: scopedCompanyId } } } : {}) } : { groupId: existing.groupId, channelId: existing.id } }),
+          client.leadCustomer.count({ where: { batch: catalogRequest ? { channelId: existing.id, ...(scopedCompanyId ? { group: { department: { companyId: scopedCompanyId } } } : {}) } : { groupId: existing.groupId, channelId: existing.id } } }),
+          client.customerOrder.count({ where: { batch: catalogRequest ? { channelId: existing.id, ...(scopedCompanyId ? { group: { department: { companyId: scopedCompanyId } } } : {}) } : { groupId: existing.groupId, channelId: existing.id } } }),
+          client.metricEvent.count({ where: { batch: catalogRequest ? { channelId: existing.id, ...(scopedCompanyId ? { group: { department: { companyId: scopedCompanyId } } } : {}) } : { groupId: existing.groupId, channelId: existing.id } } }),
         ])
         : null;
       if (catalogRequest) {
-        await client.channel.updateMany({ where: { id: existing.id, ...(scopedDepartmentId ? { group: { departmentId: scopedDepartmentId } } : {}) }, data });
+        await client.channel.updateMany({ where: { id: existing.id, ...(scopedCompanyId ? { group: { department: { companyId: scopedCompanyId } } } : {}) }, data });
       }
       const updatedWithGroup = catalogRequest
-        ? await client.channel.findFirstOrThrow({ where: { id: existing.id, ...(scopedDepartmentId ? { group: { departmentId: scopedDepartmentId } } : {}) }, include: { group: { select: { name: true } } } })
+        ? await client.channel.findFirstOrThrow({ where: { id: existing.id, ...(scopedCompanyId ? { group: { department: { companyId: scopedCompanyId } } } : {}) }, include: { group: { select: { name: true } } } })
         : await client.channel.update({
           where: { id_groupId: { id: body.id as string, groupId: body.groupId as string } },
           data,
@@ -435,7 +443,7 @@ export async function PATCH(request: Request) {
           changedFields,
           name: updatedWithGroup.name,
           ...(catalogRequest
-            ? { scope: companyRequest ? "COMPANY" : "GLOBAL", groupCount: copies.length, ...(scopedDepartmentId ? { departmentId: scopedDepartmentId } : {}) }
+            ? { scope: companyRequest ? "COMPANY" : "GLOBAL", groupCount: copies.length, ...(scopedCompanyId ? { companyId: scopedCompanyId } : {}) }
             : { groupId: updatedWithGroup.groupId, groupName: updatedWithGroup.group.name }),
           ...(valueFields.length ? { before, after } : {}),
           ...(highRisk && impact ? {
@@ -456,7 +464,7 @@ export async function PATCH(request: Request) {
               metricEvents: impact[3],
               headquartersOverride: isHeadquartersManager,
               ...(catalogRequest ? { groups: copies.length } : {}),
-              ...(scopedDepartmentId ? { departmentId: scopedDepartmentId } : {}),
+              ...(scopedCompanyId ? { companyId: scopedCompanyId } : {}),
             },
           } : {}),
         },

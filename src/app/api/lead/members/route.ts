@@ -16,6 +16,7 @@ import { authorizationDenied, type SecurityEventActor } from "../../../../lib/se
 import { getSystemSettings } from "../../../../lib/settings";
 import { resolveGroupBusinessDate } from "../../../../lib/business-time";
 import { replaceReceptionistGroupOperatorAssignment } from "../../../../lib/group-operator-collaboration";
+import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
 
 type MemberRequest = {
   id?: unknown;
@@ -124,7 +125,30 @@ export async function GET() {
         select: safeLeadMemberSelect,
         orderBy: { createdAt: "desc" },
       });
-      return { members };
+      const settings = await getSystemSettings();
+      const businessDate = await resolveGroupBusinessDate(group.id, settings.timezone, new Date(), client);
+      const memberIds = members.map((member) => member.id);
+      const [customers, devices, accounts, filledEntries] = memberIds.length ? await Promise.all([
+        client.leadCustomer.findMany({
+          where: { AND: [customerCurrentGroupWhere(group.id)], invalid: false, leftOn: null, receptionArchivedAt: null },
+          select: { ownerId: true, joinedOn: true, groupOperatorOwnerId: true, expertIntroducedOn: true, expertOwnerId: true, expertWorkflowStage: true },
+        }),
+        client.device.findMany({ where: { groupId: group.id, memberId: { in: memberIds } }, select: { memberId: true } }),
+        client.deviceAccount.findMany({ where: { groupId: group.id, ownerId: { in: memberIds } }, select: { ownerId: true } }),
+        client.dailyStatEntry.findMany({ where: { groupId: group.id, ownerId: { in: memberIds }, businessDate, approvedRevisionId: { not: null } }, distinct: ["ownerId"], select: { ownerId: true } }),
+      ]) : [[], [], [], []];
+      const clientCounts = new Map<string, number>();
+      const addClient = (id: string | null) => { if (id && memberIds.includes(id)) clientCounts.set(id, (clientCounts.get(id) ?? 0) + 1); };
+      for (const customer of customers) {
+        if (!customer.joinedOn) addClient(customer.ownerId);
+        else if (!customer.expertIntroducedOn) addClient(customer.groupOperatorOwnerId);
+        else if (customer.expertWorkflowStage !== "STALLED" && customer.expertWorkflowStage !== "DECLINED_DEPOSIT") addClient(customer.expertOwnerId);
+      }
+      const deviceCounts = new Map<string, number>();
+      for (const device of devices) if (device.memberId) deviceCounts.set(device.memberId, (deviceCounts.get(device.memberId) ?? 0) + 1);
+      for (const account of accounts) deviceCounts.set(account.ownerId, (deviceCounts.get(account.ownerId) ?? 0) + 1);
+      const filledIds = new Set(filledEntries.map((entry) => entry.ownerId));
+      return { members: members.map((member) => ({ ...member, filledToday: filledIds.has(member.id), clients: clientCounts.get(member.id) ?? 0, devices: deviceCounts.get(member.id) ?? 0 })) };
     },
     { isolationLevel: "Serializable" },
   );

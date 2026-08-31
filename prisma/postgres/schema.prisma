@@ -119,6 +119,7 @@ enum DeviceAccountType {
   NORMAL_WS
   BUSINESS_WS
   RCS
+  SIG
 }
 
 enum LeadActivityKind {
@@ -463,6 +464,7 @@ model TeamGroup {
   createdAt                   DateTime              @default(now())
   updatedAt                   DateTime              @updatedAt
   dailyStatEntries            DailyStatEntry[]
+  currentCustomers            LeadCustomer[]        @relation("CurrentCustomerGroup")
 
   @@unique([departmentId, name])
 }
@@ -699,6 +701,7 @@ model DailyStatRevision {
   duplicateCount            Int             @default(0)
   lowAmountCount            Int             @default(0)
   noWsCount                 Int             @default(0)
+  manualInvalidCount       Int             @default(0)
   effectiveCount            Int             @default(0)
   replyCount                Int             @default(0)
   joinCount                 Int             @default(0)
@@ -783,6 +786,8 @@ model LeadCustomer {
   id                            String                  @id @default(cuid())
   phone                         String                  @unique
   batchId                       String
+  // 当前工作小组；为空表示仍在来源批次小组。跨组调动只改这里，batchId 永久保留历史来源。
+  currentGroupId                String?
   ownerId                       String
   // 录入人负责客户流程；粉的归属用于代理线和后续业绩归属，二者可以不同。
   attributionOwnerId            String?
@@ -844,6 +849,7 @@ model LeadCustomer {
   historicalReviewedById        String?
   historicalReviewedAt          DateTime?
   batch                         SourceBatch             @relation(fields: [batchId], references: [id])
+  currentGroup                  TeamGroup?               @relation("CurrentCustomerGroup", fields: [currentGroupId], references: [id])
   owner                         User                    @relation(fields: [ownerId], references: [id])
   attributionOwner              User?                   @relation("FanAttributionOwner", fields: [attributionOwnerId], references: [id])
   device                        Device?                 @relation(fields: [deviceId], references: [id])
@@ -864,6 +870,7 @@ model LeadCustomer {
   @@index([attributionOwnerId, updatedAt])
   @@index([ownerId, receptionCategory, updatedAt])
   @@index([batchId, groupStatus, updatedAt])
+  @@index([currentGroupId, updatedAt])
   @@index([batchId, invalid, groupStatus, expertIntroducedOn])
   @@index([batchId, invalid, expertOwnerId, registeredOn])
   @@index([deviceId])

@@ -28,7 +28,7 @@ export async function GET(request: Request) {
   const requestedGroupId = url.searchParams.get("groupId") ?? "";
   const allGroups = await db.teamGroup.findMany({
     where: requestedDepartmentId && user.role !== "COMPANY_MANAGER" && user.role !== "LEAD" ? { departmentId: requestedDepartmentId } : {},
-    select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true } } },
+    select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } },
   });
   const groups = user.role === "HR" ? allGroups : resolveReadableReportGroups(user, allGroups);
   const groupIds = requestedGroupId ? groups.some((group) => group.id === requestedGroupId) ? [requestedGroupId] : [] : groups.map((group) => group.id);

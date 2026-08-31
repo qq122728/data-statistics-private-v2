@@ -24,3 +24,6 @@ design-qa-assets/
 .worktrees/
 .claude/
 test-backups/
+artifacts/
+__pycache__/
+*.pyc

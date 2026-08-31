@@ -11,7 +11,7 @@ export default async function NotificationsPage() {
   if (user.role === "HR") redirect("/personnel");
   const [items, scope] = await Promise.all([
     db.notificationRecipient.findMany({ where: { userId: user.id, notification: { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } }, select: { id: true, readAt: true, acknowledgedAt: true, notification: { select: { id: true, title: true, content: true, type: true, requiresAck: true, createdAt: true, expiresAt: true, sender: { select: { name: true, role: true } } } } }, orderBy: { notification: { createdAt: "desc" } }, take: 60 }),
-    canSendNotifications(user.role) ? notificationScope(user) : Promise.resolve({ groups: [], users: [], departments: [] }),
+    canSendNotifications(user) ? notificationScope(user) : Promise.resolve({ groups: [], users: [], departments: [] }),
   ]);
-  return <NotificationCenter canSend={canSendNotifications(user.role)} actorRole={user.role} items={items} groups={scope.groups} users={scope.users} departments={scope.departments} />;
+  return <NotificationCenter canSend={canSendNotifications(user)} actorRole={user.role} items={items} groups={scope.groups} users={scope.users} departments={scope.departments} />;
 }

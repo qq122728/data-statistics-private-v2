@@ -86,11 +86,12 @@ function expertRow(row: ExpertRankingRow): MemberMetricRow {
 }
 
 function rowsFrom(result: RoleRankingsResult) {
-  // 财务成员行按“粉的归属”计算；旧导出参数没有该字段时才回退旧的接粉维度。
-  const fanOwnerRows = result.fanOwners?.length
+  // “按人汇总”只显示客户的永久归属人。炒群/专家仍保留在岗位排行和
+  // 操作日志里，但不在这份业绩导出再拆出一行，否则同一个客户会看起来被
+  // A 接粉、B 炒群、C 专家分走三次。
+  return result.fanOwners?.length
     ? result.fanOwners.map((row) => receptionRow(row, "粉的归属", "fan-owner"))
     : result.reception.map((row) => receptionRow(row));
-  return [...fanOwnerRows, ...result.groupOperators.map(operatorRow), ...result.experts.map(expertRow)];
 }
 
 const headers = [
@@ -193,8 +194,8 @@ export async function buildMemberPerformanceWorkbook(input: WorkbookInput) {
   overview.getRow(1).height = 26;
   overview.mergeCells("A2:V2");
   overview.getCell("A2").value = dailyReport
-    ? "说明：本报表统计选择日期当天导入的客户，流程和资金只计算截至当天已经发生的记录；“粉的归属”行按客户归属计算业绩，其余岗位行按实际工作环节统计。"
-    : "说明：汇总按号码所属小组统计；“粉的归属”行按客户归属计算业绩，其余岗位行按实际工作环节统计。撞粉为系统发现或人工确认的重复号码，不创建客户。";
+    ? "说明：本报表统计选择日期当天导入的客户，流程和资金只计算截至当天已经发生的记录；个人行永久按最初客户归属计算，不因后续炒群或专家代为操作而改变。"
+    : "说明：汇总按号码所属小组统计；个人行永久按最初客户归属计算。撞粉为系统发现或人工确认的重复号码，不创建客户。";
   overview.getCell("A2").font = { color: { argb: "FF64748B" }, italic: true };
   overview.getRow(4).values = ["小组", ...headers.slice(1)];
   const groupRows = groupSummaryRows(input);

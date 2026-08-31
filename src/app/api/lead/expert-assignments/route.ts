@@ -4,6 +4,7 @@ import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { leadCurrentGroupId } from "../../../../lib/customer-current-group";
 
 const inputSchema = z.object({
   leadId: z.string().min(1).max(API_LIMITS.identifierCharacters),
@@ -31,10 +32,11 @@ export async function PATCH(request: Request) {
           id: true,
           phone: true,
           expertIntroducedOn: true,
+          currentGroupId: true,
           batch: { select: { groupId: true } },
         },
       });
-      if (!lead || lead.batch.groupId !== user.groupId)
+      if (!lead || leadCurrentGroupId(lead) !== user.groupId)
         return { status: 404 as const, error: "本组没有这个客户" };
       if (!lead.expertIntroducedOn)
         return { status: 400 as const, error: "客户推专家后才能分配" };

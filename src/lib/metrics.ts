@@ -95,9 +95,9 @@ export function addBatchTotals(target: BatchTotals, value: BatchTotals): BatchTo
 export type ConversionRates = {
   /** 回复 ÷ 有效数据 */
   replyRate?: number | null;
-  /** 进群 ÷ 回复 */
+  /** 进群 ÷ 有效数据 */
   groupRate: number | null;
-  /** 退群 ÷ 进群 */
+  /** 异常退群 ÷（进群 - 正常退群） */
   leaveRate: number | null;
   /** 推专家 ÷ 进群 */
   expertRate: number | null;
@@ -115,7 +115,7 @@ export type ChannelComparison = {
 };
 
 const divideOrNull = (numerator: number, denominator: number) =>
-  denominator === 0 ? null : numerator / denominator;
+  denominator <= 0 ? null : numerator / denominator;
 
 export function calculateBatchTotals(events: MetricEvent[]): BatchTotals {
   const totals = emptyBatchTotals();
@@ -176,8 +176,8 @@ export function calculateBatchTotals(events: MetricEvent[]): BatchTotals {
 export function calculateConversionRates(totals: BatchTotals): ConversionRates {
   return {
     replyRate: divideOrNull(totals.replies, totals.effectiveFans),
-    groupRate: divideOrNull(totals.groupJoin, totals.replies),
-    leaveRate: divideOrNull(totals.abnormalGroupLeave ?? 0, totals.groupJoin),
+    groupRate: divideOrNull(totals.groupJoin, totals.effectiveFans),
+    leaveRate: divideOrNull(totals.abnormalGroupLeave ?? 0, totals.groupJoin - totals.groupLeave),
     expertRate: divideOrNull(totals.expertIntro, totals.groupJoin),
     registrationRate: divideOrNull(totals.registration, totals.expertIntro),
     orderRate: divideOrNull(totals.orders, totals.registration),

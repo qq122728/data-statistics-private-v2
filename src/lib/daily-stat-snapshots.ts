@@ -10,19 +10,16 @@ type CurrentInGroupSnapshotEntry = {
 
 /**
  * “当前在群”是业务线快照，不是每天可以累加的流量。
- * 同一条业务线由“小组 + 渠道 + 炒群 + 来源接粉”唯一确定；每条线只取截止日最近一版，
- * 再把不同业务线的快照相加。
+ * 旧数据按“小组 + 渠道 + 炒群 + 来源接粉”识别业务线；新版统一组员日报
+ * 则按“小组 + 渠道 + 归属组员”识别。每条线只取截止日最近一版，再相加。
  */
 export function sumLatestCurrentInGroup(entries: CurrentInGroupSnapshotEntry[]): number {
   const latestByLine = new Map<string, { date: string; count: number }>();
   for (const entry of entries) {
-    if (entry.position !== "GROUP_OPERATOR" || !entry.approvedRevision) continue;
-    const lineKey = JSON.stringify([
-      entry.groupId,
-      entry.channelId,
-      entry.ownerId,
-      entry.sourceReceptionId,
-    ]);
+    if (!entry.approvedRevision || (entry.position !== "GROUP_OPERATOR" && entry.position !== "RECEPTION")) continue;
+    const lineKey = entry.position === "RECEPTION"
+      ? JSON.stringify(["UNIFIED_MEMBER", entry.groupId, entry.channelId, entry.ownerId])
+      : JSON.stringify(["LEGACY_OPERATOR", entry.groupId, entry.channelId, entry.ownerId, entry.sourceReceptionId]);
     const current = latestByLine.get(lineKey);
     if (!current || entry.businessDate > current.date) {
       latestByLine.set(lineKey, {

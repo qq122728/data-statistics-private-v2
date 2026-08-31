@@ -2,9 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { recordAudit } from "../../../../lib/audit";
-import { DailyStatError, dailyStatEntryInclude, publicDailyStat } from "../../../../lib/daily-stats";
+import { DailyStatError, dailyStatEntryInclude, isUnifiedDailyStatIdentity, publicDailyStat } from "../../../../lib/daily-stats";
 import { db } from "../../../../lib/db";
-import { expandResourceChannelIdsByType } from "../../../../lib/resource-channel-access";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 
@@ -52,16 +51,9 @@ export async function PATCH(request: Request) {
       });
       if (!actor?.active || !hasAssignedRole(actor, "RESOURCE_MANAGER"))
         throw new DailyStatError("只有在职资源部账号可以审核每日数据", 403);
-      // 登录读取待核对列表时，资源部权限会按渠道类型扩展到所有小组的同类型渠道。
-      // 确认动作必须在事务内重新执行同一套扩展，不能只使用数据库里作为“类型种子”的原始渠道，
-      // 否则会出现列表看得到、点击确认却返回 404。
-      const channelCatalog = await tx.channel.findMany({
-        select: { id: true, channelType: true },
-      });
-      const allowedChannelIds = expandResourceChannelIdsByType(
-        channelCatalog,
-        actor.resourceChannelAccess.map((item) => item.channelId),
-      );
+      // 资源账号严格按明确绑定的渠道目录 ID 审核。一个目录 ID 可以在多个小组有副本，
+      // 但不能因为另一个渠道同为 ADS/SMS，就自动获得那个渠道的权限。
+      const allowedChannelIds = actor.resourceChannelAccess.map((item) => item.channelId);
       const entry = await tx.dailyStatEntry.findFirst({
         where: { id: input.entryId, position: "RECEPTION", channelId: { in: allowedChannelIds } },
         include: dailyStatEntryInclude,
@@ -80,12 +72,96 @@ export async function PATCH(request: Request) {
         },
         include: dailyStatEntryInclude,
       });
+      // 新版组员日报已把基础、炒群、专家和资金合在一条 RECEPTION 存储行。
+      // 审核通过的同一刻才停用旧岗位行，避免新行还在待审时报表突然少数；
+      // 仅清除 approvedRevisionId，所有旧修订和操作人仍完整保留。
+      if (isUnifiedDailyStatIdentity(entry.identityKey)) {
+        const legacyCompanions = await tx.dailyStatEntry.findMany({
+          where: {
+            id: { not: entry.id },
+            groupId: entry.groupId,
+            channelId: entry.channelId,
+            businessDate: entry.businessDate,
+            position: { in: ["GROUP_OPERATOR", "EXPERT"] },
+            approvedRevisionId: { not: null },
+            OR: [
+              { ownerId: entry.ownerId },
+              { sourceReceptionId: entry.ownerId },
+            ],
+          },
+          select: {
+            id: true,
+            position: true,
+            approvedRevision: true,
+          },
+        });
+        const legacyTotals = legacyCompanions.reduce((totals, companion) => {
+          const revision = companion.approvedRevision;
+          if (!revision) return totals;
+          if (companion.position === "GROUP_OPERATOR") {
+            totals.normalLeaveCount += revision.normalLeaveCount;
+            totals.abnormalLeaveCount += revision.abnormalLeaveCount;
+            totals.currentInGroupCount += revision.currentInGroupCount;
+            totals.expertIntroCount += revision.expertIntroCount;
+          } else if (companion.position === "EXPERT") {
+            totals.expertContactedCount += revision.expertContactedCount;
+            totals.registrationCount += revision.registrationCount;
+            totals.orderCount += revision.orderCount;
+            totals.cryptoInitialDepositCents += revision.cryptoInitialDepositCents;
+            totals.bankInitialDepositCents += revision.bankInitialDepositCents;
+            totals.cryptoRechargeCents += revision.cryptoRechargeCents;
+            totals.bankRechargeCents += revision.bankRechargeCents;
+            totals.withdrawalCents += revision.withdrawalCents;
+          }
+          return totals;
+        }, {
+          normalLeaveCount: 0,
+          abnormalLeaveCount: 0,
+          currentInGroupCount: 0,
+          expertIntroCount: 0,
+          expertContactedCount: 0,
+          registrationCount: 0,
+          orderCount: 0,
+          cryptoInitialDepositCents: 0,
+          bankInitialDepositCents: 0,
+          cryptoRechargeCents: 0,
+          bankRechargeCents: 0,
+          withdrawalCents: 0,
+        });
+        const unifiedRevision = entry.currentRevision;
+        const coversLegacyValues = unifiedRevision
+          ? Object.entries(legacyTotals).every(([field, value]) =>
+              unifiedRevision[field as keyof typeof legacyTotals] === value,
+            )
+          : false;
+        // 老前端可能仍只提交“接粉基础字段”。这时不能把旧炒群/专家行停掉，
+        // 否则审核后会丢失历史漏斗与资金。统一页面会先读取合并值再保存；
+        // 已审核历史的人工纠正则带 changeReason，明确表示新版行应取代旧行。
+        if (legacyCompanions.length && (coversLegacyValues || Boolean(unifiedRevision?.changeReason))) {
+          await tx.dailyStatEntry.updateMany({
+            where: { id: { in: legacyCompanions.map((companion) => companion.id) } },
+          data: {
+            status: "RETURNED",
+            approvedRevisionId: null,
+            reviewedById: actor.id,
+            reviewedAt,
+            reviewReason: `已并入统一组员日报 ${entry.id}`,
+          },
+          });
+        }
+      }
       await recordAudit(tx, {
         actorId: actor.id,
         action: "DAILY_STAT_RESOURCE_APPROVED",
         entityType: "DailyStatEntry",
         entityId: entry.id,
-        summary: { businessDate: entry.businessDate },
+        summary: {
+          businessDate: entry.businessDate,
+          groupId: entry.groupId,
+          channelId: entry.channelId,
+          ownerId: entry.ownerId,
+          approvedRevisionId: entry.currentRevisionId,
+        },
       });
       return updated;
     }, { isolationLevel: "Serializable" });

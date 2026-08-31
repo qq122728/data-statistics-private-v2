@@ -59,9 +59,9 @@ const PAGE_META: Record<View, { title: string; section: string }> = {
   notice: { title: "通知中心", section: "日常工作" },
   devices: { title: "设备管理", section: "我的数据" },
   leaderboard: { title: "精英榜", section: "我的数据" },
-  "team-overview": { title: "团队汇总", section: "日常工作" },
-  "team-detail": { title: "组内明细", section: "日常工作" },
-  "group-leadership": { title: "组长与人事", section: "组织管理" },
+  "team-overview": { title: "部门工作台", section: "日常工作" },
+  "team-detail": { title: "数据汇总", section: "日常工作" },
+  "group-leadership": { title: "小组与人员管理", section: "组织管理" },
   "dept-notice": { title: "通知中心", section: "日常工作" },
   "dept-leaderboard": { title: "精英榜", section: "组织管理" },
   "company-overview": { title: "部门汇总", section: "日常工作" },
@@ -297,8 +297,8 @@ export default function Page() {
                 : view === "dashboard" ? <TabDashboard />
                     : ["group-leadership", "company-leadership", "hq-leadership"].includes(view) ? <RealOrganizationManagement duty={role === "HQ_MANAGER" ? "HQ_MANAGER" : sessionUser.duty as "DEPARTMENT_MANAGER" | "COMPANY_MANAGER"} onToast={showToast} />
                       : view === "channel-settings" ? <RealChannelSettings />
-                      : view === "team-detail" ? <OrganizationDetailWorkspace scope="department" />
-                        : view === "team-overview" ? <RealHierarchyOverview level="group" title="团队汇总" />
+                      : view === "team-detail" ? <RealOrganizationReporting permissionLabel="本部门管理" />
+                        : view === "team-overview" ? <RealHierarchyOverview level="group" title="部门工作台" />
                           : view === "company-detail" ? <OrganizationDetailWorkspace scope="company" />
                             : view === "company-overview" ? <RealHierarchyOverview level="department" title="部门汇总" fixedMonth />
                               : view === "hq-detail" ? <OrganizationDetailWorkspace scope="hq" />

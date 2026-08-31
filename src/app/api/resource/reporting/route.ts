@@ -9,6 +9,7 @@ import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 
 const ranges = new Set(["today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
 
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
       group: {
         select: {
           id: true, name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true,
-          department: { select: { name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
+          department: { select: { id: true, name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, company: { select: { id: true, name: true } } } },
         },
       },
     },
@@ -65,7 +66,9 @@ export async function GET(request: Request) {
       groupId: true,
       channelId: true,
       ownerId: true,
+      owner: { select: { id: true, name: true, role: true } },
       sourceReceptionId: true,
+      sourceReception: { select: { id: true, name: true, role: true } },
       businessDate: true,
       position: true,
       approvedRevision: true,
@@ -80,6 +83,8 @@ export async function GET(request: Request) {
     },
     select: {
       groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
+      owner: { select: { id: true, name: true, role: true } },
+      sourceReception: { select: { id: true, name: true, role: true } },
       businessDate: true, position: true, approvedRevision: true,
     },
   }) : [];
@@ -91,6 +96,7 @@ export async function GET(request: Request) {
       sum.collision += revision.duplicateCount;
       sum.lowAmount += revision.lowAmountCount;
       sum.noWs += revision.noWsCount;
+      sum.manualInvalid += revision.manualInvalidCount;
       sum.effective += revision.effectiveCount;
       sum.replied += revision.replyCount;
       sum.joined += revision.joinCount;
@@ -99,14 +105,15 @@ export async function GET(request: Request) {
       sum.pushed += revision.expertIntroCount;
       sum.registered += revision.registrationCount;
       sum.ordered += revision.orderCount;
-      sum.depositCents += revision.cryptoInitialDepositCents + revision.bankInitialDepositCents
-        + revision.cryptoRechargeCents + revision.bankRechargeCents;
+      sum.initialDepositCents += revision.cryptoInitialDepositCents + revision.bankInitialDepositCents;
+      sum.rechargeCents += revision.cryptoRechargeCents + revision.bankRechargeCents;
+      sum.depositCents += revision.cryptoInitialDepositCents + revision.bankInitialDepositCents + revision.cryptoRechargeCents + revision.bankRechargeCents;
       sum.withdrawalCents += revision.withdrawalCents;
       return sum;
     }, {
-      added: 0, collision: 0, lowAmount: 0, noWs: 0, effective: 0, replied: 0, joined: 0,
+      added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, effective: 0, replied: 0, joined: 0,
       left: 0, abnormalLeft: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0,
-      withdrawalCents: 0,
+      initialDepositCents: 0, rechargeCents: 0, withdrawalCents: 0,
     });
     return { ...totals, inGroup: sumLatestCurrentInGroup(snapshots) };
   }
@@ -118,7 +125,7 @@ export async function GET(request: Request) {
       && entry.groupId === channel.group.id && entry.businessDate <= range.to);
     return {
       channel: { id: channel.id, name: channel.name, normalizedName: channel.normalizedName },
-      group: { id: channel.group.id, name: channel.group.name, departmentName: channel.group.department.name },
+      group: { id: channel.group.id, name: channel.group.name, departmentId: channel.group.department.id, departmentName: channel.group.department.name, companyId: channel.group.department.company?.id ?? null, companyName: channel.group.department.company?.name ?? "未归属公司" },
       period: { preset: range.preset, from: range.from, to: range.to, today, timezone },
       totals: aggregate(scoped, snapshots),
     };
@@ -139,9 +146,83 @@ export async function GET(request: Request) {
     }),
   })).filter((day) => day.rows.length > 0);
 
+  const groupIds = [...new Set(channels.map((channel) => channel.group.id))];
+  const members = groupIds.length ? await db.user.findMany({
+    where: { active: true, groupId: { in: groupIds }, role: { in: ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] } },
+    select: { id: true, name: true, role: true, groupId: true },
+    orderBy: [{ groupId: "asc" }, { name: "asc" }],
+  }) : [];
+  const memberBuckets = new Map<string, { date: string; channelId: string; groupId: string; member: { id: string; name: string; role: string }; totals: ReturnType<typeof aggregate> }>();
+  for (const entry of entries) {
+    if (!entry.approvedRevision) continue;
+    const attributionOwner = entry.sourceReception ?? entry.owner;
+    const attributionOwnerId = dailyStatAttributionOwnerId(entry);
+    const key = `${entry.businessDate}\u0000${entry.channelId}\u0000${entry.groupId}\u0000${attributionOwnerId}`;
+    const current = memberBuckets.get(key);
+    const totals = aggregate([entry], []);
+    if (current) {
+      for (const metric of Object.keys(totals) as Array<keyof typeof totals>) {
+        totals[metric] += current.totals[metric];
+      }
+    }
+    memberBuckets.set(key, {
+      date: entry.businessDate,
+      channelId: entry.channelId,
+      groupId: entry.groupId,
+      member: { id: attributionOwner.id, name: attributionOwner.name, role: attributionOwner.role },
+      totals,
+    });
+  }
+  // “当前在群”是存量，不是当天新增量。某位归属组员当天没有新填写，
+  // 仍要把此前最近一次快照带到当天，否则个人合计会比小组合计少。
+  const datesByScope = new Map<string, Set<string>>();
+  for (const entry of entries) {
+    const scopeKey = `${entry.channelId}\u0000${entry.groupId}`;
+    const dates = datesByScope.get(scopeKey) ?? new Set<string>();
+    dates.add(entry.businessDate);
+    datesByScope.set(scopeKey, dates);
+  }
+  const snapshotOwners = new Map<string, { channelId: string; groupId: string; member: { id: string; name: string; role: string }; firstDate: string }>();
+  for (const entry of snapshotEntries) {
+    const member = entry.sourceReception ?? entry.owner;
+    const key = `${entry.channelId}\u0000${entry.groupId}\u0000${member.id}`;
+    const existing = snapshotOwners.get(key);
+    if (!existing || entry.businessDate < existing.firstDate)
+      snapshotOwners.set(key, { channelId: entry.channelId, groupId: entry.groupId, member, firstDate: entry.businessDate });
+  }
+  for (const owner of snapshotOwners.values()) {
+    const dates = datesByScope.get(`${owner.channelId}\u0000${owner.groupId}`) ?? [];
+    for (const date of dates) {
+      if (date < owner.firstDate) continue;
+      const key = `${date}\u0000${owner.channelId}\u0000${owner.groupId}\u0000${owner.member.id}`;
+      if (!memberBuckets.has(key)) memberBuckets.set(key, {
+        date,
+        channelId: owner.channelId,
+        groupId: owner.groupId,
+        member: owner.member,
+        totals: aggregate([], []),
+      });
+    }
+  }
+  // 员工行里的“当前在群”同样是业务线快照。先聚合同日流量，再按员工、渠道、
+  // 小组和截止日重新取各来源业务线最新值，避免同日多来源漏算、跨日重复累加。
+  for (const bucket of memberBuckets.values()) {
+    bucket.totals.inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+      dailyStatAttributionOwnerId(entry) === bucket.member.id
+      && entry.channelId === bucket.channelId
+      && entry.groupId === bucket.groupId
+      && entry.businessDate <= bucket.date));
+  }
+
   return NextResponse.json({
     rows,
     days,
+    members,
+    memberRows: [...memberBuckets.values()].sort((left, right) =>
+      right.date.localeCompare(left.date)
+      || left.groupId.localeCompare(right.groupId)
+      || left.channelId.localeCompare(right.channelId)
+      || left.member.name.localeCompare(right.member.name, "zh-CN")),
     channels: [...new Map(rows.map((row) => [row.channel.id, row.channel])).values()],
     groups: [...new Map(rows.map((row) => [row.group.id, row.group])).values()],
   }, { headers: { "Cache-Control": "private, no-store" } });

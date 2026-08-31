@@ -5,6 +5,7 @@ export type RealMetrics = {
   collision: number;
   lowAmount: number;
   noWs: number;
+  manualInvalid?: number;
   effective: number;
   replied: number;
   joined: number;
@@ -15,6 +16,8 @@ export type RealMetrics = {
   registered: number;
   ordered: number;
   depositCents: number;
+  initialDepositCents?: number;
+  rechargeCents?: number;
   withdrawalCents: number;
   netCents: number;
 };
@@ -23,6 +26,7 @@ export type RealMetricRates = {
   replyRate?: number | null;
   groupRate?: number | null;
   leaveRate?: number | null;
+  abnormalLeaveRate?: number | null;
 };
 
 export type RealMetricColumn = {
@@ -44,6 +48,7 @@ const METRIC_ROWS: Array<{ label: string; render: (column: RealMetricColumn) => 
   { label: "撞粉", render: ({ metrics }) => metrics.collision },
   { label: "低金额", render: ({ metrics }) => metrics.lowAmount },
   { label: "无WS号码", render: ({ metrics }) => metrics.noWs },
+  { label: "人工无效", render: ({ metrics }) => metrics.manualInvalid ?? 0 },
   { label: "有效数据", render: ({ metrics }) => <strong>{metrics.effective}</strong> },
   { label: "回复", render: ({ metrics }) => metrics.replied },
   { label: "进群", render: ({ metrics }) => metrics.joined },
@@ -55,8 +60,9 @@ const METRIC_ROWS: Array<{ label: string; render: (column: RealMetricColumn) => 
   { label: "开单", render: ({ metrics }) => metrics.ordered },
   { label: "回复率", render: ({ rates }) => <span className="muted">{percent(rates.replyRate)}</span> },
   { label: "拉群率", render: ({ rates }) => <span className="muted">{percent(rates.groupRate)}</span> },
-  { label: "退群率", render: ({ rates }) => <span className="muted">{percent(rates.leaveRate)}</span> },
-  { label: "入金", render: ({ metrics }) => money(metrics.depositCents) },
+  { label: "异常退群率", render: ({ rates }) => <span className="muted">{percent(rates.abnormalLeaveRate)}</span> },
+  { label: "首充", render: ({ metrics }) => money(metrics.initialDepositCents ?? metrics.depositCents) },
+  { label: "续充", render: ({ metrics }) => money(metrics.rechargeCents ?? 0) },
   { label: "出金", render: ({ metrics }) => money(metrics.withdrawalCents) },
   { label: "净业绩", render: ({ metrics }) => <strong style={{ color: metrics.netCents >= 0 ? "var(--ok)" : "var(--bad)" }}>{money(metrics.netCents)}</strong> },
 ];

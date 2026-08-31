@@ -228,8 +228,8 @@ describe.sequential("administrator member boundaries", () => {
     const username = `${fixturePrefix}${randomUUID()}`;
     await db.teamGroup.create({ data: { id: groupId, name: "资源渠道绑定测试组" } });
     const channels = await Promise.all([
-      db.channel.create({ data: { id: `${fixturePrefix}sms-${randomUUID()}`, groupId, name: "短信", normalizedName: `${fixturePrefix}sms-${randomUUID()}` } }),
-      db.channel.create({ data: { id: `${fixturePrefix}ads-${randomUUID()}`, groupId, name: "投流", normalizedName: `${fixturePrefix}ads-${randomUUID()}` } }),
+      db.channel.create({ data: { id: `${fixturePrefix}sms-${randomUUID()}`, groupId, name: "短信", normalizedName: `${fixturePrefix}sms-${randomUUID()}`, channelType: "SMS" } }),
+      db.channel.create({ data: { id: `${fixturePrefix}ads-${randomUUID()}`, groupId, name: "投流", normalizedName: `${fixturePrefix}ads-${randomUUID()}`, channelType: "ADS" } }),
     ]);
 
     const response = await POST(new Request("http://localhost/api/admin/users", {
@@ -260,6 +260,24 @@ describe.sequential("administrator member boundaries", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "资源部管理员必须选择至少一个可见渠道" });
+  });
+
+  it("rejects a resource manager assigned to mixed channel types", async () => {
+    await seededAdmin();
+    const groupId = `${fixturePrefix}mixed-resource-group-${randomUUID()}`;
+    const username = `${fixturePrefix}${randomUUID()}`;
+    await db.teamGroup.create({ data: { id: groupId, name: "资源类型隔离测试组" } });
+    const channels = await Promise.all([
+      db.channel.create({ data: { id: `${fixturePrefix}mixed-sms-${randomUUID()}`, groupId, name: "短信", normalizedName: `${fixturePrefix}mixed-sms-${randomUUID()}`, channelType: "SMS" } }),
+      db.channel.create({ data: { id: `${fixturePrefix}mixed-ads-${randomUUID()}`, groupId, name: "投流", normalizedName: `${fixturePrefix}mixed-ads-${randomUUID()}`, channelType: "ADS" } }),
+    ]);
+    const response = await POST(new Request("http://localhost/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({ username, name: "混合资源管理员", password: "resource-password", role: "RESOURCE_MANAGER", resourceChannelIds: channels.map((channel) => channel.id) }),
+    }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "一个资源部账号只能选择一种渠道类型（投流或短信）" });
+    await expect(db.user.findUnique({ where: { username } })).resolves.toBeNull();
   });
 
   it("rejects a company manager without an active subsidiary", async () => {

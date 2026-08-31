@@ -1,7 +1,7 @@
 import type { DailyStatEntry, Position, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { localDateYYYYMMDD } from "./dates";
-import { getAssignedRoles } from "./role-access";
+import { getAssignedRoles, isFrontlineGroupMember } from "./role-access";
 
 const nonNegativeInt = z.number().int().min(0).max(2_147_483_647).default(0);
 const optionalId = z.string().trim().min(1).nullable().optional();
@@ -11,6 +11,7 @@ export const dailyStatValuesSchema = z.object({
   duplicateCount: nonNegativeInt,
   lowAmountCount: nonNegativeInt,
   noWsCount: nonNegativeInt,
+  manualInvalidCount: nonNegativeInt,
   replyCount: nonNegativeInt,
   joinCount: nonNegativeInt,
   operatorReceivedCount: nonNegativeInt,
@@ -32,7 +33,8 @@ export const dailyStatValuesSchema = z.object({
 export const saveDailyStatSchema = z.object({
   entryId: z.string().trim().min(1).optional(),
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式不正确"),
-  position: z.enum(["RECEPTION", "GROUP_OPERATOR", "EXPERT"]),
+  // position 仅是旧库的存储分类。新组员页面不传时默认写基础日报。
+  position: z.enum(["RECEPTION", "GROUP_OPERATOR", "EXPERT"]).default("RECEPTION"),
   channelId: z.string().trim().min(1, "请选择渠道"),
   sourceReceptionId: optionalId,
   sourceGroupOperatorId: optionalId,
@@ -65,7 +67,7 @@ function entryIdentity(input: {
   sourceReceptionId: string | null;
   sourceGroupOperatorId: string | null;
 }) {
-  return JSON.stringify([
+  const serialized = JSON.stringify([
     input.ownerId,
     input.groupId,
     input.businessDate,
@@ -74,39 +76,62 @@ function entryIdentity(input: {
     input.sourceReceptionId,
     input.sourceGroupOperatorId,
   ]);
+  return input.position === "RECEPTION" ? `unified-member-v1:${serialized}` : serialized;
 }
 
-function normalizeSources(input: SaveDailyStatInput) {
+export function isUnifiedDailyStatIdentity(identityKey: string): boolean {
+  return identityKey.startsWith("unified-member-v1:");
+}
+
+function normalizeSources(input: SaveDailyStatInput, actorId: string) {
   if (input.position === "RECEPTION") {
     return { sourceReceptionId: null, sourceGroupOperatorId: null };
   }
-  if (!input.sourceReceptionId) throw new DailyStatError("炒群和专家数据必须选择来源接粉");
+  const sourceReceptionId = input.sourceReceptionId ?? actorId;
   if (input.position === "GROUP_OPERATOR") {
-    return { sourceReceptionId: input.sourceReceptionId, sourceGroupOperatorId: null };
+    return { sourceReceptionId, sourceGroupOperatorId: null };
   }
-  if (!input.sourceGroupOperatorId) throw new DailyStatError("专家数据必须选择来源炒群");
   return {
-    sourceReceptionId: input.sourceReceptionId,
-    sourceGroupOperatorId: input.sourceGroupOperatorId,
+    sourceReceptionId,
+    sourceGroupOperatorId: input.sourceGroupOperatorId ?? actorId,
   };
 }
 
 function revisionValues(input: SaveDailyStatInput) {
   const all = input.values;
   if (input.position === "RECEPTION") {
-    const effectiveCount = all.dispatchCount - all.duplicateCount - all.lowAmountCount - all.noWsCount;
-    if (effectiveCount < 0) throw new DailyStatError("撞粉、低金额与无 WhatsApp 数量之和不能超过总下发粉数量");
+    const effectiveCount = all.dispatchCount - all.duplicateCount - all.lowAmountCount - all.noWsCount - all.manualInvalidCount;
+    if (effectiveCount < 0) throw new DailyStatError("撞粉、低金额、无 WhatsApp 与人工无效数量之和不能超过总下发粉数量");
+    if (all.replyCount > effectiveCount) throw new DailyStatError("回复数量不能超过有效数据数量");
+    if (all.joinCount > effectiveCount) throw new DailyStatError("进群数量不能超过有效数据数量");
+    if (all.registrationCount > all.expertIntroCount) throw new DailyStatError("注册数量不能超过推专家数量");
+    if (all.orderCount > all.registrationCount) throw new DailyStatError("开单数量不能超过注册数量");
     return {
       dispatchCount: all.dispatchCount,
       duplicateCount: all.duplicateCount,
       lowAmountCount: all.lowAmountCount,
       noWsCount: all.noWsCount,
+      manualInvalidCount: all.manualInvalidCount,
       effectiveCount,
       replyCount: all.replyCount,
       joinCount: all.joinCount,
+      normalLeaveCount: all.normalLeaveCount,
+      abnormalLeaveCount: all.abnormalLeaveCount,
+      currentInGroupCount: all.currentInGroupCount,
+      expertIntroCount: all.expertIntroCount,
+      expertContactedCount: all.expertContactedCount,
+      registrationCount: all.registrationCount,
+      orderCount: all.orderCount,
+      cryptoInitialDepositCents: all.cryptoInitialDepositCents,
+      bankInitialDepositCents: all.bankInitialDepositCents,
+      cryptoRechargeCents: all.cryptoRechargeCents,
+      bankRechargeCents: all.bankRechargeCents,
+      withdrawalCents: all.withdrawalCents,
     };
   }
   if (input.position === "GROUP_OPERATOR") {
+    // 当前在群是存量快照，正常/异常退群及推专家都可能来自前几天的存量。
+    // 由于表单没有“昨日存量”，不能用当天接收数给这些字段设置错误上限。
     return {
       operatorReceivedCount: all.operatorReceivedCount,
       normalLeaveCount: all.normalLeaveCount,
@@ -115,6 +140,8 @@ function revisionValues(input: SaveDailyStatInput) {
       expertIntroCount: all.expertIntroCount,
     };
   }
+  if (all.registrationCount > all.expertReceivedCount) throw new DailyStatError("注册数量不能超过收到的推专家数量");
+  if (all.orderCount > all.registrationCount) throw new DailyStatError("开单数量不能超过注册数量");
   return {
     expertReceivedCount: all.expertReceivedCount,
     expertContactedCount: all.expertContactedCount,
@@ -206,9 +233,8 @@ export async function saveDailyStat(
     && requestedExisting.businessDate === input.businessDate
     && requestedExisting.position === input.position
     && requestedExisting.channelId === input.channelId);
-  if (!getAssignedRoles(actor).includes(input.position) && !editingOwnHistoricalPosition) {
-    throw new DailyStatError("当前账号没有所选岗位权限", 403);
-  }
+  if (!isFrontlineGroupMember(actor) && !editingOwnHistoricalPosition)
+    throw new DailyStatError("只有在职组员可以填写每日和资金数据", 403);
 
   const group = await tx.teamGroup.findUnique({
     where: { id: actor.groupId },
@@ -224,7 +250,7 @@ export async function saveDailyStat(
   });
   if (!channel) throw new DailyStatError("渠道不存在或已停用");
 
-  const sources = normalizeSources(input);
+  const sources = normalizeSources(input, actor.id);
   if (sources.sourceReceptionId) {
     await validateSourcePerson(tx, {
       userId: sources.sourceReceptionId,
@@ -255,12 +281,28 @@ export async function saveDailyStat(
     channelId: input.channelId,
     ...sources,
   });
-  const existing = input.entryId
+  let existing = input.entryId
     ? requestedExisting
     : await tx.dailyStatEntry.findUnique({ where: { identityKey }, include: { revisions: { orderBy: { version: "desc" }, take: 1 } } });
+  // 旧 RECEPTION 行的 identityKey 没有 unified-member-v1 标记。第一次用新页面保存时
+  // 复用原行并升级标记，不另建一条导致同日同渠道重复。
+  if (!existing && input.position === "RECEPTION") {
+    existing = await tx.dailyStatEntry.findFirst({
+      where: {
+        ownerId: actor.id,
+        groupId: actor.groupId,
+        businessDate: input.businessDate,
+        channelId: input.channelId,
+        position: "RECEPTION",
+      },
+      include: { revisions: { orderBy: { version: "desc" }, take: 1 } },
+      orderBy: { createdAt: "asc" },
+    });
+  }
   const migratedEntry = Boolean(existing && (
     existing.identityKey.startsWith("legacy-metric-v1:")
     || existing.identityKey.startsWith("transition-customer-v1:")
+    || (input.position === "RECEPTION" && !isUnifiedDailyStatIdentity(existing.identityKey))
   ));
   const migratedScopeMatches = Boolean(existing && migratedEntry
     && existing.groupId === actor.groupId

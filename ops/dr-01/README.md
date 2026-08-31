@@ -89,7 +89,7 @@ All commands below require an approved change window. Take no action directly fr
    retention.
 10. Treat migration evidence as three separate, immutable inputs. The committed
    `migration-manifest.sha256` is the **repository manifest**: CI regenerates it
-   from all 17 `migration.sql` files and fails on any name or SHA-256 change.
+   from all 48 `migration.sql` files and fails on any name or SHA-256 change.
    Install it as
    `/usr/local/share/data-statistics-dr/migration-manifest.sha256`, owned by
    root, mode `0644`, and not writable by postgres. Install

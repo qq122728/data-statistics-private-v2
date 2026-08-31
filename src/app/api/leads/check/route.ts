@@ -6,6 +6,7 @@ import { customerCodePrefixForChannel, parsePhoneImport } from "../../../../lib/
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { leadCurrentGroupId } from "../../../../lib/customer-current-group";
 
 const inputSchema = z.object({
   phones: z.string().trim().min(1, "请粘贴至少一个手机号").max(API_LIMITS.customerImportTextCharacters, "一次粘贴的号码过多，请分批检查"),
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
       where: { phone: { in: parsed.distinctPhones } },
       select: {
         phone: true,
+        currentGroupId: true,
         owner: { select: { name: true } },
         batch: { select: { groupId: true } },
       },
@@ -53,7 +55,7 @@ export async function POST(request: Request) {
       collisionCount: collisions.length,
       collisions: collisions.map((lead) => ({
         phone: lead.phone,
-        ownerName: lead.batch.groupId === user.groupId ? lead.owner.name : "其他公司或小组",
+        ownerName: leadCurrentGroupId(lead) === user.groupId ? lead.owner.name : "其他公司或小组",
       })),
     });
   } catch (error) {

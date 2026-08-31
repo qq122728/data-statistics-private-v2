@@ -45,13 +45,13 @@ beforeAll(async () => {
     { id: ids.otherBatch, groupId: ids.otherGroup, channelId: ids.otherChannel, sourceDate: "2026-08-29" },
   ] });
   await db.leadCustomer.createMany({ data: [
-    { id: id("queued"), phone: "492000000001", customerName: "本人排队客户", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, expertIntroducedOn: "2026-08-29" },
-    { id: id("pending-order"), phone: "492000000002", customerName: "本人待开单", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, expertIntroducedOn: "2026-08-27", expertWorkflowStage: "PENDING_ORDER", registeredOn: "2026-08-29" },
-    { id: ids.ordered, phone: "492000000003", customerName: "本人已开单", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, expertIntroducedOn: "2026-08-20", expertWorkflowStage: "ORDERED", registeredOn: "2026-08-25" },
-    { id: id("peer"), phone: "492000000004", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.peer, expertIntroducedOn: "2026-08-29" },
-    { id: id("invalid"), phone: "492000000005", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, expertIntroducedOn: "2026-08-29", invalid: true },
-    { id: id("pending-history"), phone: "492000000006", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, expertIntroducedOn: "2026-08-29", isHistoricalRecord: true, historicalReviewStatus: "PENDING" },
-    { id: id("other-group"), phone: "492000000007", batchId: ids.otherBatch, ownerId: ids.reception, expertOwnerId: ids.expert, expertIntroducedOn: "2026-08-29" },
+    { id: id("queued"), phone: "492000000001", customerName: "本人排队客户", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, groupStatus: "JOINED", joinedOn: "2026-08-20", expertIntroducedOn: "2026-08-29" },
+    { id: id("pending-order"), phone: "492000000002", customerName: "本人待开单", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, groupStatus: "JOINED", joinedOn: "2026-08-20", expertIntroducedOn: "2026-08-27", expertWorkflowStage: "PENDING_ORDER", registeredOn: "2026-08-29" },
+    { id: ids.ordered, phone: "492000000003", customerName: "本人已开单", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, groupStatus: "JOINED", joinedOn: "2026-08-20", expertIntroducedOn: "2026-08-20", expertWorkflowStage: "ORDERED", registeredOn: "2026-08-25" },
+    { id: id("peer"), phone: "492000000004", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.peer, groupStatus: "JOINED", joinedOn: "2026-08-20", expertIntroducedOn: "2026-08-29" },
+    { id: id("invalid"), phone: "492000000005", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, groupStatus: "JOINED", joinedOn: "2026-08-20", expertIntroducedOn: "2026-08-29", invalid: true },
+    { id: id("pending-history"), phone: "492000000006", batchId: ids.batch, ownerId: ids.reception, expertOwnerId: ids.expert, groupStatus: "JOINED", joinedOn: "2026-08-20", expertIntroducedOn: "2026-08-29", isHistoricalRecord: true, historicalReviewStatus: "PENDING" },
+    { id: id("other-group"), phone: "492000000007", batchId: ids.otherBatch, ownerId: ids.reception, expertOwnerId: ids.expert, groupStatus: "JOINED", joinedOn: "2026-08-20", expertIntroducedOn: "2026-08-29" },
   ] });
   const order = await db.customerOrder.create({ data: {
     id: id("order"), phone: "492000000003", batchId: ids.batch, enteredById: ids.expert,
@@ -80,25 +80,31 @@ async function signIn(userId: string) {
 
 const request = (query = "") => new Request(`http://localhost/api/expert/customers?${query}`);
 
-describe.sequential("新版专家本人客户 API", () => {
-  it("只返回明确分配给本人的当前小组客户，并提供阶段与资金摘要", async () => {
+describe.sequential("本组专家流程客户 API", () => {
+  it("返回本组全部已进群的专家客户，并提供阶段与资金摘要", async () => {
     await signIn(ids.expert);
     const all = await (await GET(request())).json();
     const ordered = await (await GET(request("stage=ORDERED&q=已开单"))).json();
 
-    expect(all.counts).toEqual({ QUEUED: 1, MATERIALS: 0, TRACKING: 0, PENDING_REGISTRATION: 0, PENDING_ORDER: 1, DECLINED_DEPOSIT: 0, ORDERED: 1, STALLED: 0 });
-    expect(new Set(all.customers.map((customer: { phone: string }) => customer.phone))).toEqual(new Set(["492000000001", "492000000002", "492000000003"]));
+    expect(all.counts).toEqual({ QUEUED: 2, MATERIALS: 0, TRACKING: 0, PENDING_REGISTRATION: 0, PENDING_ORDER: 1, DECLINED_DEPOSIT: 0, ORDERED: 1, STALLED: 0 });
+    expect(new Set(all.customers.map((customer: { phone: string }) => customer.phone))).toEqual(new Set(["492000000001", "492000000002", "492000000003", "492000000004"]));
+    expect(all.customers.find((customer: { phone: string }) => customer.phone === "492000000001")).toMatchObject({ canEdit: true });
+    expect(all.customers.find((customer: { phone: string }) => customer.phone === "492000000004")).toMatchObject({ canEdit: false });
     expect(ordered.customers[0]).toMatchObject({
       id: ids.ordered, phone: "492000000003", stage: "ORDERED",
       order: { initialDepositCents: 114800, rechargeCents: 10000, withdrawalCents: 5000, netDepositCents: 119800, nextContinuationNumber: 2 },
     });
-    expect(JSON.stringify([all, ordered])).not.toMatch(/49200000000[4-7]/);
+    expect(JSON.stringify([all, ordered])).not.toMatch(/49200000000[5-7]/);
   });
 
-  it("组长默认能进入专家工作台，但仍只读取明确归给自己的客户", async () => {
+  it("组长和普通组员都能读取本组专家流程客户", async () => {
     await signIn(ids.lead);
     const response = await GET(request());
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ customers: [], total: 0 });
+    await expect(response.json()).resolves.toMatchObject({ total: 4 });
+    await signIn(ids.reception);
+    const memberResponse = await GET(request());
+    expect(memberResponse.status).toBe(200);
+    await expect(memberResponse.json()).resolves.toMatchObject({ total: 4 });
   });
 });

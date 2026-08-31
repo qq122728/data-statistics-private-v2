@@ -1,5 +1,6 @@
 import type { Duty, Prisma, Role } from "@prisma/client";
 import { recordAudit } from "../audit";
+import { customerCurrentGroupWhere } from "../customer-current-group";
 import { closeGroupOperatorReceptionAssignmentsForMember } from "../group-operator-collaboration";
 import { canManageDepartment } from "../managed-department-scope";
 
@@ -42,13 +43,14 @@ export type TransferUserPositionParams = {
 export type TransferUserPositionResult =
   | { denied: true }
   | { error: string; status: 400 | 409 }
-  | { ok: true; preview: true; counts: { reception: number; operator: number; expert: number }; customerCount: number; deviceAccountCount: number }
-  | { ok: true; customerCount: number; deviceAccountCount: number };
+  | { ok: true; preview: true; groupChanged: boolean; counts: { reception: number; operator: number; expert: number }; customerCount: number; movingCustomerCount: number; deviceCount: number; deviceAccountCount: number; conflicts: string[] }
+  | { ok: true; groupChanged: boolean; customerCount: number; movingCustomerCount: number; deviceCount: number; deviceAccountCount: number };
 
 /**
  * 转组转岗只能通过这个函数走（需求文档1.5/1.6）：原子地关闭旧的 UserPosition
  * 有效行、按新岗位开一条新的；LEAD 是职务不是岗位，不写 UserPosition 行，只改
- * User.duty。转岗前必须先交接在办客户，否则拒绝——除非调用方已指定接手人。
+ * User.duty。同组转岗且失去原岗位时，在办客户必须交接；跨组时在办客户、
+ * 实体设备和设备账号跟着本人去新组，来源批次和历史统计归属永远不改。
  *
  * 专家名下"未成交/停止维护"(STALLED/DECLINED_DEPOSIT)的客户是已放弃跟进的
  * 终态（需求文档8.2/8.3，随时可恢复），不算需要人工指定接手人的"在办"客户，
@@ -110,17 +112,31 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
   const groupChanged = member.groupId !== targetGroup.id;
   const currentRoles = new Set([member.role, ...currentSecondaryRoles]);
   const targetRoles = new Set([role, ...targetSecondaryRoles]);
-  const shouldHandoffReception = groupChanged || !targetRoles.has("RECEPTION");
-  const shouldHandoffOperator = groupChanged || !targetRoles.has("GROUP_OPERATOR");
-  const shouldHandoffExpert = groupChanged || !targetRoles.has("EXPERT");
+  const shouldHandoffReception = !targetRoles.has("RECEPTION");
+  const shouldHandoffOperator = !targetRoles.has("GROUP_OPERATOR");
+  const shouldHandoffExpert = !targetRoles.has("EXPERT");
   const shouldResetCollaboration = groupChanged
     || (currentRoles.has("RECEPTION") && !targetRoles.has("RECEPTION"))
     || (currentRoles.has("GROUP_OPERATOR") && !targetRoles.has("GROUP_OPERATOR"));
 
+  const currentGroupWhere = customerCurrentGroupWhere(member.groupId);
+  const receptionCustomerWhere = {
+    AND: [currentGroupWhere],
+    ownerId: member.id,
+    joinedOn: null,
+    receptionArchivedAt: null,
+  } satisfies Prisma.LeadCustomerWhereInput;
+  const operatorCustomerWhere = {
+    AND: [currentGroupWhere],
+    groupOperatorOwnerId: member.id,
+    expertIntroducedOn: null,
+    leftOn: null,
+  } satisfies Prisma.LeadCustomerWhereInput;
   const activeExpertWhere = {
-    batch: { groupId: member.groupId },
+    AND: [currentGroupWhere],
     expertOwnerId: member.id,
-    customerOrder: null,
+    expertIntroducedOn: { not: null },
+    leftOn: null,
     OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: [...abandonedExpertStages] } }],
   } satisfies Prisma.LeadCustomerWhereInput;
   // STALLED（停止维护）按需求文档8.2定义只能在已开单后发生（markExpertStalled
@@ -128,7 +144,7 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
   // （未成交）则相反，只能在未开单时发生。两个分支不能共用同一个 customerOrder
   // 条件，否则 STALLED 客户永远匹配不上，自动交接给组长会静默失效。
   const abandonedExpertWhere = {
-    batch: { groupId: member.groupId },
+    AND: [currentGroupWhere],
     expertOwnerId: member.id,
     OR: [
       { expertWorkflowStage: "DECLINED_DEPOSIT" as const, customerOrder: null },
@@ -136,16 +152,32 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
     ],
   } satisfies Prisma.LeadCustomerWhereInput;
 
-  const [customerCount, receptionCount, operatorCount, expertCount, abandonedExpertCount, deviceCount, deviceAccountCount, handoffMembers, groupLeader] = await Promise.all([
+  // 跨组时只搬“此刻由本人负责、且到新组仍保留对应岗位”的在办客户。
+  // ownerId/attributionOwnerId 会永久保留历史经手关系，不能单独当作当前责任人依据。
+  const movingResponsibilityWhere: Prisma.LeadCustomerWhereInput[] = [];
+  if (targetRoles.has("RECEPTION")) movingResponsibilityWhere.push({ ownerId: member.id, joinedOn: null, receptionArchivedAt: null });
+  if (targetRoles.has("GROUP_OPERATOR")) movingResponsibilityWhere.push({ groupOperatorOwnerId: member.id, expertIntroducedOn: null, leftOn: null });
+  if (targetRoles.has("EXPERT")) movingResponsibilityWhere.push({ expertOwnerId: member.id, expertIntroducedOn: { not: null }, leftOn: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: [...abandonedExpertStages] } }] });
+  const movingCustomerWhere = {
+    AND: [
+      currentGroupWhere,
+      { OR: movingResponsibilityWhere.length ? movingResponsibilityWhere : [{ id: "__no_current_responsibility__" }] },
+    ],
+  } satisfies Prisma.LeadCustomerWhereInput;
+
+  const [customerCount, movingCustomerCount, receptionCount, operatorCount, expertCount, abandonedExpertCount, devices, deviceAccounts, handoffMembers, groupLeader] = await Promise.all([
     tx.leadCustomer.count({ where: { batch: { groupId: member.groupId }, OR: [{ ownerId: member.id }, { attributionOwnerId: member.id }, { groupOperatorOwnerId: member.id }, { expertOwnerId: member.id }] } }),
-    tx.leadCustomer.count({ where: { batch: { groupId: member.groupId }, ownerId: member.id, joinedOn: null, receptionArchivedAt: null } }),
-    tx.leadCustomer.count({ where: { batch: { groupId: member.groupId }, groupOperatorOwnerId: member.id, expertIntroducedOn: null, leftOn: null } }),
+    groupChanged ? tx.leadCustomer.count({ where: movingCustomerWhere }) : Promise.resolve(0),
+    tx.leadCustomer.count({ where: receptionCustomerWhere }),
+    tx.leadCustomer.count({ where: operatorCustomerWhere }),
     tx.leadCustomer.count({ where: activeExpertWhere }),
     tx.leadCustomer.count({ where: abandonedExpertWhere }),
-    tx.device.count({ where: { groupId: member.groupId, memberId: member.id, active: true } }),
-    tx.deviceAccount.count({ where: { groupId: member.groupId, ownerId: member.id } }),
+    // 只有正在使用的实体设备才是“当前工作”。已停用设备是历史记录，
+    // 人员跨组时必须留在原组，否则旧设备的归属历史会被篡改。
+    tx.device.findMany({ where: { groupId: member.groupId, memberId: member.id, active: true }, select: { id: true, code: true } }),
+    tx.deviceAccount.findMany({ where: { groupId: member.groupId, ownerId: member.id }, select: { id: true, accountNumber: true } }),
     tx.user.findMany({ where: { id: { in: [receptionHandoffId, operatorHandoffId, expertHandoffId].filter((id): id is string => Boolean(id)) }, groupId: member.groupId, active: true }, select: { id: true, role: true, roleAssignments: { select: { role: true } } } }),
-    shouldHandoffExpert ? tx.user.findFirst({ where: { groupId: member.groupId, role: "LEAD", active: true, id: { not: member.id } }, select: { id: true } }) : Promise.resolve(null),
+    (groupChanged || shouldHandoffExpert) ? tx.user.findFirst({ where: { groupId: member.groupId, role: "LEAD", active: true, id: { not: member.id } }, select: { id: true } }) : Promise.resolve(null),
   ]);
 
   const handoffById = new Map(handoffMembers.map((candidate) => [candidate.id, new Set([candidate.role, ...candidate.roleAssignments.map((item) => item.role)])]));
@@ -154,7 +186,16 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
     operator: shouldHandoffOperator ? operatorCount : 0,
     expert: shouldHandoffExpert ? expertCount : 0,
   };
-  if (params.mode === "preview") return { ok: true, preview: true, counts, customerCount, deviceAccountCount };
+  const [deviceConflicts, accountConflicts] = groupChanged ? await Promise.all([
+    devices.length ? tx.device.findMany({ where: { groupId: targetGroup.id, code: { in: devices.map((item) => item.code) } }, select: { code: true } }) : Promise.resolve([]),
+    deviceAccounts.length ? tx.deviceAccount.findMany({ where: { groupId: targetGroup.id, accountNumber: { in: deviceAccounts.map((item) => item.accountNumber) } }, select: { accountNumber: true } }) : Promise.resolve([]),
+  ]) : [[], []];
+  const conflicts = [
+    ...deviceConflicts.map((item) => `目标组已有设备号 ${item.code}`),
+    ...accountConflicts.map((item) => `目标组已有设备账号 ${item.accountNumber}`),
+  ];
+  if (params.mode === "preview") return { ok: true, preview: true, groupChanged, counts, customerCount, movingCustomerCount, deviceCount: devices.length, deviceAccountCount: deviceAccounts.length, conflicts };
+  if (conflicts.length) return { error: `设备资料存在冲突：${conflicts.join("；")}`, status: 409 };
   if (params.expectedCounts && (
     params.expectedCounts.reception !== counts.reception
     || params.expectedCounts.operator !== counts.operator
@@ -195,11 +236,13 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
   }
   await Promise.all([
     tx.session.deleteMany({ where: { userId: member.id } }),
-    groupChanged ? tx.device.updateMany({ where: { groupId: member.groupId, memberId: member.id }, data: { memberId: null } }) : Promise.resolve(),
-    shouldHandoffReception && receptionHandoffId ? tx.leadCustomer.updateMany({ where: { batch: { groupId: member.groupId }, ownerId: member.id, joinedOn: null, receptionArchivedAt: null }, data: { ownerId: receptionHandoffId } }) : Promise.resolve(),
-    shouldHandoffOperator && operatorHandoffId ? tx.leadCustomer.updateMany({ where: { batch: { groupId: member.groupId }, groupOperatorOwnerId: member.id, expertIntroducedOn: null, leftOn: null }, data: { groupOperatorOwnerId: operatorHandoffId } }) : Promise.resolve(),
+    groupChanged ? tx.leadCustomer.updateMany({ where: movingCustomerWhere, data: { currentGroupId: targetGroup.id } }) : Promise.resolve(),
+    groupChanged ? tx.device.updateMany({ where: { groupId: member.groupId, memberId: member.id, active: true }, data: { groupId: targetGroup.id } }) : Promise.resolve(),
+    groupChanged ? tx.deviceAccount.updateMany({ where: { groupId: member.groupId, ownerId: member.id }, data: { groupId: targetGroup.id } }) : Promise.resolve(),
+    shouldHandoffReception && receptionHandoffId ? tx.leadCustomer.updateMany({ where: receptionCustomerWhere, data: { ownerId: receptionHandoffId } }) : Promise.resolve(),
+    shouldHandoffOperator && operatorHandoffId ? tx.leadCustomer.updateMany({ where: operatorCustomerWhere, data: { groupOperatorOwnerId: operatorHandoffId } }) : Promise.resolve(),
     shouldHandoffExpert && expertHandoffId ? tx.leadCustomer.updateMany({ where: activeExpertWhere, data: { expertOwnerId: expertHandoffId } }) : Promise.resolve(),
-    shouldHandoffExpert && groupLeader ? tx.leadCustomer.updateMany({ where: abandonedExpertWhere, data: { expertOwnerId: groupLeader.id } }) : Promise.resolve(),
+    (groupChanged || shouldHandoffExpert) && groupLeader ? tx.leadCustomer.updateMany({ where: abandonedExpertWhere, data: { expertOwnerId: groupLeader.id } }) : Promise.resolve(),
   ]);
   await recordAudit(tx, {
     actorId: actor.id,
@@ -213,12 +256,13 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
       reason,
       before: { groupId: member.groupId, role: member.role },
       after: { groupId: targetGroup.id, role, secondaryRoles },
-      retainedInOriginalGroup: { customerCount, receptionCount, operatorCount, expertCount, deviceAccountCount },
+      retainedInOriginalGroup: { historicalCustomerAndStatAttribution: true, sourceCustomerCount: customerCount },
+      movedToTargetGroup: { movingCustomerCount, deviceCount: devices.length, deviceAccountCount: deviceAccounts.length },
       handoff: { receptionHandoffId, operatorHandoffId, expertHandoffId },
-      autoReassignedAbandonedExpertCount: shouldHandoffExpert && groupLeader ? abandonedExpertCount : 0,
-      autoReassignedAbandonedExpertTargetId: shouldHandoffExpert ? groupLeader?.id ?? null : null,
-      releasedDeviceCount: groupChanged ? deviceCount : 0,
+      autoReassignedAbandonedExpertCount: (groupChanged || shouldHandoffExpert) && groupLeader ? abandonedExpertCount : 0,
+      autoReassignedAbandonedExpertTargetId: groupChanged || shouldHandoffExpert ? groupLeader?.id ?? null : null,
+      releasedDeviceCount: 0,
     },
   });
-  return { ok: true, customerCount, deviceAccountCount };
+  return { ok: true, groupChanged, customerCount, movingCustomerCount, deviceCount: devices.length, deviceAccountCount: deviceAccounts.length };
 }

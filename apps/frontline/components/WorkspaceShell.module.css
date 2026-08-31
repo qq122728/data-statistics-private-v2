@@ -1,0 +1,326 @@
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  background: #f6f8fb;
+  color: #202b3c;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0 12px 18px;
+  overflow: auto;
+  background: #fff;
+  border-right: 1px solid #e0e4eb;
+}
+
+.brand {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 9px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.brand > span {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #1a73e8;
+  color: #fff;
+  font-weight: 750;
+}
+
+.brand div,
+.user div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.brand strong {
+  color: #273245;
+  font-size: 15px;
+}
+
+.brand small,
+.user small {
+  margin-top: 2px;
+  color: #8a94a6;
+  font-size: 11px;
+}
+
+.nav {
+  display: grid;
+  gap: 4px;
+  padding-top: 12px;
+}
+
+.navButton {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #4b5565;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.navButton:hover {
+  background: #f3f6fb;
+}
+
+.navButton:focus-visible,
+.logout:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+}
+
+.navButton[data-active="true"] {
+  background: #e8f0fe;
+  color: #1769d2;
+  font-weight: 650;
+}
+
+.navButton i {
+  width: 20px;
+  color: #667085;
+  font-size: 16px;
+  font-style: normal;
+  text-align: center;
+}
+
+.navButton[data-active="true"] i {
+  color: #1a73e8;
+}
+
+.navButton span {
+  min-width: 0;
+  flex: 1;
+}
+
+.navButton b {
+  min-width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: #d93f3f;
+  color: #fff;
+  font-size: 10px;
+}
+
+.navGroup {
+  display: grid;
+  gap: 2px;
+  margin-top: 5px;
+}
+
+.navGroup > small {
+  padding: 7px 12px 3px;
+  color: #9aa2af;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.navGroup .navButton {
+  min-height: 34px;
+  padding-left: 43px;
+  font-size: 12px;
+}
+
+.scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+  padding: 12px;
+  border: 1px solid #d4e2f6;
+  border-radius: 9px;
+  background: #f7faff;
+}
+
+.scope strong {
+  color: #315b93;
+  font-size: 12px;
+}
+
+.scope span {
+  color: #6b7890;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.main {
+  min-width: 0;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 8px 24px;
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom: 1px solid #e0e4eb;
+}
+
+.header h1 {
+  margin: 0 0 3px;
+  color: #202b3c;
+  font-size: 18px;
+  font-weight: 680;
+}
+
+.header p {
+  margin: 0;
+  color: #8a94a6;
+  font-size: 11.5px;
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+}
+
+.user > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #303846;
+  color: #fff;
+  font-weight: 700;
+}
+
+.user div {
+  min-width: 120px;
+}
+
+.user strong {
+  font-size: 13px;
+}
+
+.logout {
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: #7b8495;
+  cursor: pointer;
+}
+
+.content {
+  width: 100%;
+  max-width: 1800px;
+  display: grid;
+  gap: 12px;
+  margin: 0 auto;
+  padding: 14px 18px 28px;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 108px minmax(0, 1fr);
+  }
+  .sidebar {
+    padding: 0 8px 14px;
+  }
+  .brand {
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .brand div,
+  .navGroup > small,
+  .scope,
+  .user div {
+    display: none;
+  }
+  .navButton,
+  .navGroup .navButton {
+    min-height: 48px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    padding: 5px 3px;
+    font-size: 11px;
+    line-height: 1.2;
+    text-align: center;
+  }
+  .navButton i {
+    width: auto;
+  }
+  .navButton span {
+    width: 100%;
+  }
+  .navGroup .navButton {
+    min-height: 44px;
+    font-size: 10.5px;
+  }
+  .header {
+    gap: 8px;
+    padding-inline: 14px;
+  }
+  .header > div:first-child {
+    min-width: 0;
+    flex: 1;
+  }
+  .header h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .content {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 560px) {
+  .shell {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+  .sidebar {
+    padding-inline: 5px;
+  }
+  .header {
+    padding-inline: 10px;
+  }
+  .header p {
+    display: none;
+  }
+  .header h1 {
+    font-size: 16px;
+  }
+  .logout {
+    padding-inline: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navButton {
+    transition: none;
+  }
+}

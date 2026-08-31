@@ -20,6 +20,17 @@ export async function deleteEmptyAccount(input: {
     return await db.$transaction(async (tx) => {
       const target = await tx.user.findUnique({ where: { id: input.targetId }, select: { id: true } });
       if (!target) return { deleted: false, error: "账号不存在", status: 404 as const };
+      // attributionOwnerId 是客户的永久业绩归属。该外键为了兼容旧数据是可空的，
+      // 数据库默认删除用户时可把它置空；必须在删号入口显式拦住，否则代录人会
+      // 在归属人删除后突然“继承”历史业绩。
+      const attributedCustomerCount = await tx.leadCustomer.count({ where: { attributionOwnerId: input.targetId } });
+      if (attributedCustomerCount > 0) {
+        return {
+          deleted: false,
+          error: `该账号仍是 ${attributedCustomerCount} 位客户的永久归属人，不能删除；请改为停用账号`,
+          status: 409 as const,
+        };
+      }
       await tx.session.deleteMany({ where: { userId: input.targetId } });
       await tx.user.delete({ where: { id: input.targetId } });
       await recordAudit(tx, {

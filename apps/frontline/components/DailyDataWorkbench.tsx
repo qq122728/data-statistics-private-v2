@@ -6,7 +6,7 @@ import { requestJson } from "@/lib/backend";
 type Position = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
 type Status = "DRAFT" | "PENDING" | "RESOURCE_PENDING" | "RETURNED" | "APPROVED" | "CORRECTION_PENDING";
 type Values = {
-  dispatchCount: number; duplicateCount: number; lowAmountCount: number; noWsCount: number; effectiveCount: number;
+  dispatchCount: number; duplicateCount: number; lowAmountCount: number; noWsCount: number; manualInvalidCount: number; effectiveCount: number;
   replyCount: number; joinCount: number; operatorReceivedCount: number; normalLeaveCount: number;
   abnormalLeaveCount: number; currentInGroupCount: number; expertIntroCount: number; expertReceivedCount: number;
   expertContactedCount: number; registrationCount: number; orderCount: number; cryptoInitialDepositCents: number;
@@ -35,7 +35,7 @@ const statusMeta: Record<Status, { label: string; tone: string }> = {
   CORRECTION_PENDING: { label: "旧纠错待处理", tone: "warn" },
 };
 const emptyValues: Values = {
-  dispatchCount: 0, duplicateCount: 0, lowAmountCount: 0, noWsCount: 0, effectiveCount: 0,
+  dispatchCount: 0, duplicateCount: 0, lowAmountCount: 0, noWsCount: 0, manualInvalidCount: 0, effectiveCount: 0,
   replyCount: 0, joinCount: 0, operatorReceivedCount: 0, normalLeaveCount: 0, abnormalLeaveCount: 0,
   currentInGroupCount: 0, expertIntroCount: 0, expertReceivedCount: 0, expertContactedCount: 0,
   registrationCount: 0, orderCount: 0, cryptoInitialDepositCents: 0, bankInitialDepositCents: 0,
@@ -104,7 +104,7 @@ export function DailyDataWorkbench() {
     .map((pairing) => pairing.receptionistId))], [businessDate, context]);
   const defaultReceptionMembers = useMemo(() => allGroupMembers.filter((member) => defaultReceptionIds.includes(member.id)), [allGroupMembers, defaultReceptionIds]);
   const otherReceptionMembers = useMemo(() => allGroupMembers.filter((member) => !defaultReceptionIds.includes(member.id)), [allGroupMembers, defaultReceptionIds]);
-  const effectiveCount = Math.max(0, values.dispatchCount - values.duplicateCount - values.lowAmountCount - values.noWsCount);
+  const effectiveCount = Math.max(0, values.dispatchCount - values.duplicateCount - values.lowAmountCount - values.noWsCount - values.manualInvalidCount);
 
   useEffect(() => {
     if (!context || editingId || position !== "GROUP_OPERATOR" || sourceReceptionTouched) return;
@@ -167,6 +167,7 @@ export function DailyDataWorkbench() {
           <NumberField label="撞粉" value={values.duplicateCount} onChange={(value) => setValue("duplicateCount", value)} hint="从总下发中扣除后计算有效粉" />
           <NumberField label="低金额" value={values.lowAmountCount} onChange={(value) => setValue("lowAmountCount", value)} />
           <NumberField label="无 WhatsApp" value={values.noWsCount} onChange={(value) => setValue("noWsCount", value)} />
+          <NumberField label="人工无效" value={values.manualInvalidCount} onChange={(value) => setValue("manualInvalidCount", value)} />
           <label><span className="label">有效粉（自动计算）</span><input className="field tnum" value={effectiveCount} disabled style={{ width: "100%", fontWeight: 700 }} /></label>
           <NumberField label="回复" value={values.replyCount} onChange={(value) => setValue("replyCount", value)} />
           <NumberField label="进群" value={values.joinCount} onChange={(value) => setValue("joinCount", value)} />

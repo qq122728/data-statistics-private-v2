@@ -69,7 +69,7 @@ export async function POST(request: Request) {
         where: { id: { in: validRows.map(({ row }) => row.customerOrderId) } },
         include: {
           batch: { select: { groupId: true } },
-          lead: { select: { ownerId: true, expertOwnerId: true } },
+          lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true } },
           events: { where: { kind: "RECHARGE", continuationNumber: { not: null } }, select: { id: true, continuationNumber: true, voidedAt: true } },
         },
       });

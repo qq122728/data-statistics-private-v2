@@ -9,6 +9,7 @@ import { calculateConversionRates, emptyBatchTotals } from "../../../../lib/metr
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
 import { canManageDepartment } from "../../../../lib/managed-department-scope";
+import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
 
@@ -57,6 +58,7 @@ export async function GET(request: Request) {
         groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
         businessDate: true, position: true,
         owner: { select: { id: true, name: true } },
+        sourceReception: { select: { id: true, name: true } },
         channel: { select: { id: true, name: true, normalizedName: true } },
         approvedRevision: true,
       },
@@ -70,6 +72,7 @@ export async function GET(request: Request) {
         groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
         businessDate: true, position: true,
         owner: { select: { id: true, name: true } },
+        sourceReception: { select: { id: true, name: true } },
         channel: { select: { id: true, name: true, normalizedName: true } },
         approvedRevision: true,
       },
@@ -84,9 +87,10 @@ export async function GET(request: Request) {
     if (!byChannel.has(entry.channel.id)) byChannel.set(entry.channel.id, {
       channel: entry.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "",
     });
-    const memberKey = `${entry.channel.id}:${entry.owner.id}`;
+    const attributionOwner = dailyStatAttributionOwner(entry);
+    const memberKey = `${entry.channel.id}:${attributionOwner.id}`;
     if (!byChannelMember.has(memberKey)) byChannelMember.set(memberKey, {
-      channel: entry.channel, owner: entry.owner,
+      channel: entry.channel, owner: attributionOwner,
       totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "",
     });
   }
@@ -116,14 +120,15 @@ export async function GET(request: Request) {
     if (!entry.approvedRevision) continue;
     const channelRow = byChannel.get(entry.channel.id) ?? { channel: entry.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
     accumulate(channelRow, entry); byChannel.set(entry.channel.id, channelRow);
-    const memberKey = `${entry.channel.id}:${entry.owner.id}`;
-    const memberRow = byChannelMember.get(memberKey) ?? { channel: entry.channel, owner: entry.owner, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
+    const attributionOwner = dailyStatAttributionOwner(entry);
+    const memberKey = `${entry.channel.id}:${attributionOwner.id}`;
+    const memberRow = byChannelMember.get(memberKey) ?? { channel: entry.channel, owner: attributionOwner, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
     accumulate(memberRow, entry); byChannelMember.set(memberKey, memberRow);
     const dayChannelKey = `${entry.businessDate}:${entry.channel.id}`;
     const dayChannelRow = byDayChannel.get(dayChannelKey) ?? { channel: entry.channel, businessDate: entry.businessDate, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
     accumulate(dayChannelRow, entry); byDayChannel.set(dayChannelKey, dayChannelRow);
-    const dayMemberKey = `${dayChannelKey}:${entry.owner.id}`;
-    const dayMemberRow = byDayChannelMember.get(dayMemberKey) ?? { channel: entry.channel, owner: entry.owner, businessDate: entry.businessDate, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
+    const dayMemberKey = `${dayChannelKey}:${attributionOwner.id}`;
+    const dayMemberRow = byDayChannelMember.get(dayMemberKey) ?? { channel: entry.channel, owner: attributionOwner, businessDate: entry.businessDate, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "" };
     accumulate(dayMemberRow, entry); byDayChannelMember.set(dayMemberKey, dayMemberRow);
   }
   function serialize(row: Row) {
@@ -145,7 +150,7 @@ export async function GET(request: Request) {
       ...serialize(row),
       members: [...byChannelMember.values()].filter((member) => member.channel.id === row.channel.id).map((member) => {
         member.inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
-          entry.channelId === row.channel.id && entry.ownerId === member.owner!.id));
+          entry.channelId === row.channel.id && dailyStatAttributionOwnerId(entry) === member.owner!.id));
         return { ...serialize(member), id: member.owner!.id, name: member.owner!.name };
       }).sort((left, right) => left.name.localeCompare(right.name, "zh-CN")),
     };

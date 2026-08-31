@@ -26,7 +26,7 @@ export default async function PerformanceLeaderboardPage({ searchParams }: { sea
   const [raw, settings, groups] = await Promise.all([
     searchParams,
     getSystemSettings(),
-    db.teamGroup.findMany({ select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true } } }, orderBy: { name: "asc" } }),
+    db.teamGroup.findMany({ select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } }, orderBy: { name: "asc" } }),
   ]);
   const userTimezone = await resolveUserBusinessTimezone(user, settings.timezone);
   const now = new Date();

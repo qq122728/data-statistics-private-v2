@@ -53,7 +53,7 @@ export async function GET() {
   try {
     user = await requireUser();
     const readableGroupIds = user.role === "COMPANY_MANAGER"
-      ? resolveReadableReportGroups(user, await db.teamGroup.findMany({ select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true } } } })).map((group) => group.id)
+      ? resolveReadableReportGroups(user, await db.teamGroup.findMany({ select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } } })).map((group) => group.id)
       : [];
     const where = hasAssignedRole(user, "RECEPTION")
       ? { reporterId: user.id }

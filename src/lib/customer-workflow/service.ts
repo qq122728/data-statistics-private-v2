@@ -4,10 +4,11 @@ import { recordAudit } from "../audit";
 import { normalizeCustomerPhone } from "../entry-ledger";
 import { authorizeCustomerAction, authorizeCustomerDelete, resolveWorkflowActorRole } from "./access";
 import { isCorrectionAction } from "./actions";
-import { getAssignedRoles, hasAssignedRole } from "../role-access";
+import { frontlineMemberRoles, hasAssignedRole, isFrontlineGroupMember } from "../role-access";
 import type { CustomerWorkflowInput } from "./input";
 import { buildBasicCustomerMutation } from "./mutations";
 import { resolveExpertWorkflowStage } from "../expert-workflow-stage";
+import { leadCurrentGroupId } from "../customer-current-group";
 
 type WorkflowActor = {
   id: string;
@@ -36,7 +37,7 @@ export async function executeCustomerWorkflow(
       where: { id: actor.id },
       select: { id: true, role: true, groupId: true, active: true, roleAssignments: { select: { role: true } } },
     });
-    if (!liveActor?.active || !getAssignedRoles(liveActor).some((role) => ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"].includes(role)))
+    if (!liveActor || !isFrontlineGroupMember(liveActor))
       return { status: 403 as const, error: "当前岗位不能在此修改客户" };
 
     const lead = await transaction.leadCustomer.findUnique({
@@ -44,6 +45,7 @@ export async function executeCustomerWorkflow(
       include: { batch: { select: { groupId: true } }, customerOrder: { select: { id: true, voidedAt: true } } },
     });
     if (!lead) return { status: 404 as const, error: "客户不存在" };
+    const currentGroupId = leadCurrentGroupId(lead);
 
     // The reporting APIs deliberately infer a stage for customers created before
     // expertWorkflowStage existed. Mutations must use the same interpretation,
@@ -90,18 +92,18 @@ export async function executeCustomerWorkflow(
       let device = input.deviceId
         ? await transaction.device.findUnique({ where: { id: input.deviceId } })
         : await transaction.device.findUnique({
-            where: { groupId_code: { groupId: lead.batch.groupId, code: input.deviceCode! } },
+            where: { groupId_code: { groupId: currentGroupId, code: input.deviceCode! } },
           });
       if (!device && input.deviceCode) {
         device = await transaction.device.create({
           data: {
             code: input.deviceCode,
-            groupId: lead.batch.groupId,
+            groupId: currentGroupId,
             memberId: workflowRole === "RECEPTION" ? liveActor.id : null,
           },
         });
       }
-      if (!device || !device.active || device.groupId !== lead.batch.groupId)
+      if (!device || !device.active || device.groupId !== currentGroupId)
         return { status: 400 as const, error: "设备号不存在或已停用" };
       if (workflowRole === "RECEPTION" && device.memberId !== liveActor.id)
         return { status: 403 as const, error: "只能使用分配给自己的设备号" };
@@ -119,15 +121,15 @@ export async function executeCustomerWorkflow(
         return { status: 400 as const, error: "该客户已推专家并分配负责人" };
       const assignee = await transaction.user.findFirst({
         where: {
-          groupId: lead.batch.groupId,
+          groupId: currentGroupId,
           active: true,
           ...(input.expertOwnerId
-            ? { id: input.expertOwnerId, OR: [{ role: { in: ["LEAD", "EXPERT"] } }, { roleAssignments: { some: { role: "EXPERT" } } }] }
-            : { OR: [{ role: "LEAD" }, { roleAssignments: { some: { role: "LEAD" } } }] }),
+            ? { id: input.expertOwnerId, role: { in: [...frontlineMemberRoles] } }
+            : { role: "LEAD" }),
         },
         select: { id: true, name: true },
       });
-      if (!assignee) return { status: 400 as const, error: input.expertOwnerId ? "只能选择本组在职专家或组长" : "本组没有启用的组长，请选择一位专家" };
+      if (!assignee) return { status: 400 as const, error: input.expertOwnerId ? "只能选择本组在职组员" : "本组没有启用的组长，请选择一位组员" };
       if (!lead.expertIntroducedOn) update.expertIntroducedOn = occurredOn;
       if (lead.isHistoricalRecord) update.historicalExpertIntroCounted = true;
       update.expertOwnerId = assignee.id;
@@ -166,7 +168,7 @@ export async function executeCustomerWorkflow(
       if (!input.expertDeviceAccountId && !input.expertDeviceAccountNumber)
         return { status: 400 as const, error: "请输入本次接待使用的专家设备号" };
       const expertAccount = input.expertDeviceAccountId ? await transaction.deviceAccount.findFirst({
-        where: { id: input.expertDeviceAccountId, groupId: lead.batch.groupId, ownerId: liveActor.id },
+        where: { id: input.expertDeviceAccountId, groupId: currentGroupId, ownerId: liveActor.id },
         select: { id: true, accountNumber: true },
       }) : null;
       if (input.expertDeviceAccountId && !expertAccount)
@@ -276,7 +278,7 @@ export async function executeCustomerWorkflow(
       if (!input.progressNote?.trim()) return { status: 400 as const, error: "请填写今日进度" };
       if (input.deviceAccountId) {
         const account = await transaction.deviceAccount.findFirst({
-          where: { id: input.deviceAccountId, groupId: lead.batch.groupId, ownerId: liveActor.id },
+          where: { id: input.deviceAccountId, groupId: currentGroupId, ownerId: liveActor.id },
           select: { id: true, accountNumber: true },
         });
         if (!account) return { status: 403 as const, error: "只能使用自己名下的炒群联系号码" };
@@ -287,7 +289,7 @@ export async function executeCustomerWorkflow(
 
     if (input.action === "updateExpertDetails" && input.deviceAccountId) {
       const account = await transaction.deviceAccount.findFirst({
-        where: { id: input.deviceAccountId, groupId: lead.batch.groupId, ownerId: liveActor.id },
+        where: { id: input.deviceAccountId, groupId: currentGroupId, ownerId: liveActor.id },
         select: { id: true, accountNumber: true },
       });
       if (!account) return { status: 403 as const, error: "只能使用自己名下的专家联系号码" };
@@ -330,10 +332,10 @@ export async function executeCustomerWorkflow(
       }
       const collision = await transaction.leadCustomer.findFirst({
         where: { phone, id: { not: lead.id } },
-        select: { owner: { select: { name: true } }, batch: { select: { groupId: true } } },
+        select: { owner: { select: { name: true } }, currentGroupId: true, batch: { select: { groupId: true } } },
       });
       if (collision) {
-        const owner = collision.batch.groupId === lead.batch.groupId ? collision.owner.name : "其他公司或小组";
+        const owner = leadCurrentGroupId(collision) === currentGroupId ? collision.owner.name : "其他公司或小组";
         return { status: 409 as const, error: `该号码已归属 ${owner}，不能重复录入` };
       }
       update.phone = phone;

@@ -100,13 +100,26 @@ describe("data permissions", () => {
   });
 
   it("uses the same ownership rule for opening orders and financial records", () => {
-    const target = { batch: { groupId: "group-a" }, lead: { expertOwnerId: "expert-a" } };
+    const target = {
+      batch: { groupId: "group-a" },
+      lead: {
+        ownerId: "reception-a",
+        attributionOwnerId: "reception-a",
+        groupOperatorOwnerId: "operator-a",
+        expertOwnerId: "expert-a",
+        currentGroupId: "group-b",
+      },
+    };
     const lead = { id: "lead-a", role: "LEAD" as const, groupId: "group-a", active: true };
     const expert = { id: "expert-a", role: "EXPERT" as const, groupId: "group-b", active: true };
 
-    expect(canWriteCustomerRevenue(lead, target)).toBe(true);
-    expect(canWriteCustomerRevenue({ ...lead, groupId: "group-b" }, target)).toBe(false);
+    expect(canWriteCustomerRevenue(lead, target)).toBe(false);
+    expect(canWriteCustomerRevenue({ ...lead, groupId: "group-b" }, target)).toBe(true);
     expect(canWriteCustomerRevenue(expert, target)).toBe(true);
+    expect(canWriteCustomerRevenue({ id: "reception-a", role: "RECEPTION", groupId: "group-b", active: true }, target)).toBe(true);
+    expect(canWriteCustomerRevenue({ id: "operator-a", role: "GROUP_OPERATOR", groupId: "group-b", active: true }, target)).toBe(true);
+    expect(canWriteCustomerRevenue({ id: "reception-b", role: "RECEPTION", groupId: "group-b", active: true }, target)).toBe(false);
+    expect(canWriteCustomerRevenue({ ...expert, groupId: "group-a" }, target)).toBe(false);
     expect(canWriteCustomerRevenue({ ...expert, id: "expert-b" }, target)).toBe(false);
     expect(canWriteCustomerRevenue({ ...expert, active: false }, target)).toBe(false);
   });

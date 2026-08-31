@@ -19,7 +19,7 @@ export function GroupProgressDialog({
   currentDate: string;
   dayNumber: number | null;
   existingNote: string;
-  contactAccounts: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" }>;
+  contactAccounts: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" | "SIG" }>;
   selectedAccountId: string;
   busy: boolean;
   error: string;
@@ -56,7 +56,7 @@ export function GroupProgressDialog({
             <h2 id="group-progress-title" className="m-0 text-lg font-bold text-slate-900">填写今日进度</h2>
             <p className="mt-1 text-sm text-slate-500">{customer.phone}{customer.customerName ? ` · ${customer.customerName}` : ""}</p>
           </div>
-          {contactAccounts.length ? <label className="block text-sm font-semibold text-slate-700">本次炒群使用号码<select value={deviceAccountId} onChange={(event) => setDeviceAccountId(event.target.value)} className="mt-2 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal"><option value="">暂不填写</option>{contactAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountNumber} · {account.accountType === "NORMAL_WS" ? "普通 WS" : account.accountType === "BUSINESS_WS" ? "商业 WS" : "RCS"}</option>)}</select></label> : <p className="m-0 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">请先在“设备账号”中新增自己的炒群号码，才能绑定到客户。</p>}
+          {contactAccounts.length ? <label className="block text-sm font-semibold text-slate-700">本次炒群使用号码<select value={deviceAccountId} onChange={(event) => setDeviceAccountId(event.target.value)} className="mt-2 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-normal"><option value="">暂不填写</option>{contactAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountNumber} · {account.accountType === "NORMAL_WS" ? "普通 WS" : account.accountType === "BUSINESS_WS" ? "商业 WS" : account.accountType}</option>)}</select></label> : <p className="m-0 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">请先在“设备账号”中新增自己的炒群号码，才能绑定到客户。</p>}
           <button type="button" aria-label="关闭每日进度弹窗" disabled={busy} onClick={onClose} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50"><X size={18} /></button>
         </div>
         <div className="space-y-4 p-5">

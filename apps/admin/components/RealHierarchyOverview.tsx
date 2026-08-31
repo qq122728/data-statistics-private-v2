@@ -20,7 +20,7 @@ type Payload = { range: { label: string }; groups: Group[] };
 type Level = "group" | "department" | "company";
 
 const ranges: Array<[Range, string]> = [["today", "今日"], ["yesterday", "昨日"], ["7d", "近7天"], ["30d", "近30天"], ["month", "本月"], ["lastMonth", "上月"]];
-const emptyMetrics = (): RealMetrics => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, effective: 0, replied: 0, joined: 0, leftNormal: 0, leftAbnormal: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0, withdrawalCents: 0, netCents: 0 });
+const emptyMetrics = (): RealMetrics => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, effective: 0, replied: 0, joined: 0, leftNormal: 0, leftAbnormal: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, initialDepositCents: 0, rechargeCents: 0, depositCents: 0, withdrawalCents: 0, netCents: 0 });
 const addMetrics = (target: RealMetrics, value: RealMetrics) => { for (const key of Object.keys(target) as Array<keyof RealMetrics>) target[key] += value[key] ?? 0; };
 const divide = (a: number, b: number) => b > 0 ? a / b : null;
 
@@ -81,6 +81,7 @@ export function RealHierarchyOverview({ level, title, fixedMonth = false }: { le
         replyRate: divide(row.metrics.replied, row.metrics.effective),
         groupRate: divide(row.metrics.joined, row.metrics.replied),
         leaveRate: divide(row.metrics.leftAbnormal, row.metrics.joined),
+        abnormalLeaveRate: divide(row.metrics.leftAbnormal, Math.max(0, row.metrics.joined - row.metrics.leftNormal)),
       },
     }));
   }, [data, level]);

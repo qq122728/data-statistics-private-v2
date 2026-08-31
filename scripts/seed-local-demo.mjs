@@ -16,10 +16,13 @@ const DEMO = {
   departmentId: "demo-department",
   groupId: "demo-group",
   channelId: "demo-channel",
+  smsChannelId: "demo-channel-sms",
   deviceId: "demo-device-wa-01",
   accounts: {
     admin: "demo-admin",
     resource: "demo-resource",
+    resourceAds: "demo-resource-ads",
+    resourceSms: "demo-resource-sms",
     departmentManager: "demo-department-manager",
     companyManager: "demo-company",
     hqManager: "demo-hq-manager",
@@ -56,6 +59,8 @@ const date = (days) => daysAgo(days);
 const accounts = [
   { key: "admin", username: "demo_admin", name: "演示系统管理员", password: "AdminDemo@56790", role: "ADMIN", duty: null, groupId: null, departmentId: null, companyId: null },
   { key: "resource", username: "demo_resource", name: "演示资源部管理员", password: "ResourceDemo@56790", role: "RESOURCE_MANAGER", groupId: null, departmentId: null },
+  { key: "resourceAds", username: "demo_resource_ads", name: "演示投流资源部", password: "ResourceDemo@56790", role: "RESOURCE_MANAGER", groupId: null, departmentId: null },
+  { key: "resourceSms", username: "demo_resource_sms", name: "演示短信资源部", password: "ResourceDemo@56790", role: "RESOURCE_MANAGER", groupId: null, departmentId: null },
   { key: "departmentManager", username: "demo_department", name: "演示部门管理员", password: "DepartmentDemo@56790", role: "COMPANY_MANAGER", duty: "DEPARTMENT_MANAGER", groupId: null, departmentId: DEMO.departmentId, companyId: null },
   { key: "companyManager", username: "demo_company", name: "演示公司管理员", password: "CompanyDemo@56790", role: "COMPANY_MANAGER", duty: "COMPANY_MANAGER", groupId: null, departmentId: null, companyId: DEMO.companyId },
   { key: "hqManager", username: "demo_hq", name: "演示总公司管理员", password: "HqDemo@56790", role: "COMPANY_MANAGER", duty: "HQ_MANAGER", groupId: null, departmentId: null, companyId: null },
@@ -66,7 +71,7 @@ const accounts = [
 ];
 
 async function clearOnlyDemoOperationalData(transaction) {
-  await transaction.resourceChannelAccess.deleteMany({ where: { userId: DEMO.accounts.resource } });
+  await transaction.resourceChannelAccess.deleteMany({ where: { userId: { in: [DEMO.accounts.resource, DEMO.accounts.resourceAds, DEMO.accounts.resourceSms] } } });
   const dailyEntries = await transaction.dailyStatEntry.findMany({ where: { groupId: DEMO.groupId }, select: { id: true } });
   const dailyEntryIds = dailyEntries.map((entry) => entry.id);
   if (dailyEntryIds.length) {
@@ -220,6 +225,23 @@ async function main() {
     await transaction.resourceChannelAccess.create({
       data: { userId: DEMO.accounts.resource, channelId: DEMO.channelId },
     });
+    await transaction.resourceChannelAccess.create({
+      data: { userId: DEMO.accounts.resourceAds, channelId: DEMO.channelId },
+    });
+    await transaction.channel.create({
+      data: {
+        id: DEMO.smsChannelId,
+        groupId: DEMO.groupId,
+        name: "演示短信渠道",
+        normalizedName: "演示短信渠道",
+        channelType: "SMS",
+        createdById: DEMO.accounts.resourceSms,
+        active: true,
+      },
+    });
+    await transaction.resourceChannelAccess.create({
+      data: { userId: DEMO.accounts.resourceSms, channelId: DEMO.smsChannelId },
+    });
 
     const batchDates = [date(16), date(10), date(7), date(4), date(1), today];
     const batchByDate = new Map();
@@ -319,7 +341,8 @@ async function main() {
   });
   console.log(`本地演示数据已准备完成：${today}，系统演示公司 / 系统演示组。`);
   console.log(`客户状态：${summary.map((item) => `${item.groupStatus} ${item._count._all}`).join("；")}`);
-  console.log("演示账号已创建：demo_reception、demo_operator、demo_expert、demo_lead、demo_department、demo_company、demo_hq、demo_resource（以及系统初始化账号 demo_admin）。");
+  console.log("演示账号已创建：demo_reception、demo_operator、demo_expert、demo_lead、demo_department、demo_company、demo_hq、demo_resource、demo_resource_ads、demo_resource_sms（以及系统初始化账号 demo_admin）。");
+  console.log("资源部分权验收：demo_resource_ads 仅投流 ADS；demo_resource_sms 仅短信 SMS；密码均为 ResourceDemo@56790。");
 }
 
 main()

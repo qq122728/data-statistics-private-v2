@@ -49,7 +49,7 @@ export default async function ExpertCustomersPage({ searchParams = Promise.resol
     searchParams,
     getSystemSettings(),
     isManager ? db.teamGroup.findMany({
-      select: { id: true, name: true, active: true, departmentId: true, countryCode: true, department: { select: { name: true, countryCode: true } } },
+      select: { id: true, name: true, active: true, departmentId: true, countryCode: true, department: { select: { name: true, countryCode: true, companyId: true } } },
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
     }) : Promise.resolve([]),
   ]);

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import type { ExpertCustomerRecord } from "./types";
+import { customerCurrentGroupsWhere } from "../customer-current-group";
 
 type ExpertCustomerQuery = {
   groupIds: string[];
@@ -115,7 +116,7 @@ export async function loadExpertCustomerWorkspace(input: ExpertCustomerQuery) {
   const groupId = groupIds[0];
   const where: Prisma.LeadCustomerWhereInput = {
     // 专家工作台是实时待办：日期范围只筛选上方业绩汇总，不能把尚未进入下一步的老客户藏掉。
-    batch: { groupId: { in: groupIds } },
+    AND: [customerCurrentGroupsWhere(groupIds)],
     expertIntroducedOn: { not: null },
     ...(input.isExpert ? { expertOwnerId: input.userId } : {}),
     ...(input.query ? { OR: [{ phone: { contains: input.query } }, { customerName: { contains: input.query } }] } : {}),

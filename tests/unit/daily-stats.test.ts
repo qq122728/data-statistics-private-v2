@@ -127,10 +127,10 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       channelId: data.channelId,
       values: { ...emptyValues, dispatchCount: 10, replyCount: 2 },
     }));
-    expect(unauthorizedNewRow.status).toBe(403);
+    expect(unauthorizedNewRow.status).toBe(201);
   });
 
-  it("lets a resource account confirm every same-type channel it can see, but not another channel type", async () => {
+  it("lets a resource account confirm only explicitly assigned channel ids", async () => {
     const data = await fixture();
     const departmentId = (await db.teamGroup.findUniqueOrThrow({ where: { id: data.groupId } })).departmentId;
     const secondGroupId = `${prefix}same-type-group-${randomUUID()}`;
@@ -159,11 +159,10 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     const adsEntryId = (await adsEntry.json() as { entry: { id: string } }).entry.id;
     const smsEntryId = (await smsEntry.json() as { entry: { id: string } }).entry.id;
 
-    // requireUser 在真实登录中会把原始 ADS 种子权限扩成所有 ADS 渠道；这里按同样结果模拟会话。
-    signInAs({ ...data.resource, resourceChannelAccess: [{ channelId: data.channelId }, { channelId: adsChannelId }] });
+    signInAs(data.resource);
     const inbox = await GET_RESOURCE_REVIEW();
-    expect((await inbox.json() as { entries: Array<{ id: string }> }).entries.map((entry) => entry.id)).toContain(adsEntryId);
-    expect((await RESOURCE_REVIEW(request("PATCH", { entryId: adsEntryId, action: "APPROVE" }))).status).toBe(200);
+    expect((await inbox.json() as { entries: Array<{ id: string }> }).entries.map((entry) => entry.id)).not.toContain(adsEntryId);
+    expect((await RESOURCE_REVIEW(request("PATCH", { entryId: adsEntryId, action: "APPROVE" }))).status).toBe(404);
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId: smsEntryId, action: "APPROVE" }))).status).toBe(404);
   });
 
@@ -255,7 +254,61 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId, action: "APPROVE" }))).status).toBe(200);
   });
 
-  it("requires source reception for operator data and both source roles for expert data", async () => {
+  it("rejects impossible same-day funnel inversions without treating current-in-group as an additive daily flow", async () => {
+    const data = await fixture();
+    signInAs(data.reception);
+    const tooManyReplies = await POST(request("POST", {
+      businessDate: "2026-08-20", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, dispatchCount: 10, duplicateCount: 2, replyCount: 9 },
+    }));
+    expect(tooManyReplies.status).toBe(400);
+    await expect(tooManyReplies.json()).resolves.toEqual({ error: "回复数量不能超过有效数据数量" });
+    const tooManyJoins = await POST(request("POST", {
+      businessDate: "2026-08-21", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, dispatchCount: 10, noWsCount: 3, joinCount: 8 },
+    }));
+    expect(tooManyJoins.status).toBe(400);
+    await expect(tooManyJoins.json()).resolves.toEqual({ error: "进群数量不能超过有效数据数量" });
+
+    signInAs(data.expert);
+    const tooManyRegistrations = await POST(request("POST", {
+      businessDate: "2026-08-23", position: "EXPERT", channelId: data.channelId, sourceReceptionId: data.reception.id, sourceGroupOperatorId: data.operator.id,
+      values: { ...emptyValues, expertReceivedCount: 3, registrationCount: 4 },
+    }));
+    expect(tooManyRegistrations.status).toBe(400);
+    const tooManyOrders = await POST(request("POST", {
+      businessDate: "2026-08-24", position: "EXPERT", channelId: data.channelId, sourceReceptionId: data.reception.id, sourceGroupOperatorId: data.operator.id,
+      values: { ...emptyValues, expertReceivedCount: 3, registrationCount: 2, orderCount: 3 },
+    }));
+    expect(tooManyOrders.status).toBe(400);
+  });
+
+  it("merges same-day member snapshot sources and carries each source latest value across dates", async () => {
+    const data = await fixture();
+    const secondReception = await db.user.create({ data: { id: `${prefix}second-source-${randomUUID()}`, username: `${prefix}second-source-${randomUUID()}`, name: "第二来源接粉", role: "RECEPTION", groupId: data.groupId } });
+    signInAs(data.operator);
+    for (const row of [
+      { businessDate: "2026-08-20", sourceReceptionId: data.reception.id, currentInGroupCount: 10 },
+      { businessDate: "2026-08-20", sourceReceptionId: secondReception.id, currentInGroupCount: 20 },
+      { businessDate: "2026-08-21", sourceReceptionId: data.reception.id, currentInGroupCount: 12 },
+    ]) {
+      const response = await POST(request("POST", {
+        businessDate: row.businessDate, position: "GROUP_OPERATOR", channelId: data.channelId, sourceReceptionId: row.sourceReceptionId,
+        values: { ...emptyValues, currentInGroupCount: row.currentInGroupCount },
+      }));
+      expect(response.status).toBe(201);
+    }
+    signInAs(data.resource);
+    const response = await GET_RESOURCE_REPORTING(new Request("http://localhost/api/resource/reporting?range=custom&sourceDateFrom=2026-08-20&sourceDateTo=2026-08-21"));
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { memberRows: Array<{ date: string; member: { id: string }; totals: { inGroup: number } }> };
+    expect(payload.memberRows.find((row) => row.date === "2026-08-20" && row.member.id === data.reception.id)?.totals.inGroup).toBe(10);
+    expect(payload.memberRows.find((row) => row.date === "2026-08-20" && row.member.id === secondReception.id)?.totals.inGroup).toBe(20);
+    expect(payload.memberRows.find((row) => row.date === "2026-08-21" && row.member.id === data.reception.id)?.totals.inGroup).toBe(12);
+    expect(payload.memberRows.find((row) => row.date === "2026-08-21" && row.member.id === secondReception.id)?.totals.inGroup).toBe(20);
+  });
+
+  it("defaults legacy operator sources to the member while preserving explicit upstream attribution", async () => {
     const data = await fixture();
     signInAs(data.reception);
     const receptionRow = await POST(request("POST", {
@@ -269,7 +322,12 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       businessDate: "2026-08-29", position: "GROUP_OPERATOR", channelId: data.channelId,
       values: { ...emptyValues, operatorReceivedCount: 12, currentInGroupCount: 23, expertIntroCount: 5 },
     }));
-    expect(missingReception.status).toBe(400);
+    expect(missingReception.status).toBe(201);
+    const defaultedOperatorPayload = await missingReception.json() as { entry: { id: string; ownerId: string; sourceReceptionId: string } };
+    expect(defaultedOperatorPayload).toMatchObject({
+      entry: { ownerId: data.operator.id, sourceReceptionId: data.operator.id },
+    });
+    await db.dailyStatEntry.delete({ where: { id: defaultedOperatorPayload.entry.id } });
 
     const operatorRow = await POST(request("POST", {
       businessDate: "2026-08-29", position: "GROUP_OPERATOR", channelId: data.channelId,
@@ -311,6 +369,13 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     ]);
 
     signInAs(data.reception);
+    const unifiedLegacyContext = await GET(new Request("http://localhost/api/daily-stats?from=2026-08-29&to=2026-08-29"));
+    await expect(unifiedLegacyContext.json()).resolves.toMatchObject({
+      unifiedEntries: [expect.objectContaining({
+        entryId: receptionEntryId,
+        values: expect.objectContaining({ dispatchCount: 20, currentInGroupCount: 23, expertIntroCount: 5, registrationCount: 2, orderCount: 1, cryptoInitialDepositCents: 114800 }),
+      })],
+    });
     const receptionPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=RECEPTION&range=month"));
     await expect(receptionPerformance.json()).resolves.toMatchObject({
       totals: { added: 20, joined: 12, introduced: 0, registered: 0, orders: 0 },
@@ -334,6 +399,57 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       totals: { registered: 2, orders: 1, initialDepositCents: 114800 },
       funnel: { summary: { pushed: 5, registered: 2, ordered: 1, depositCents: 114800 }, currentInGroup: 0 },
     });
+  });
+
+  it("replaces matching legacy position rows only after a complete unified member row is approved", async () => {
+    const data = await fixture();
+    signInAs(data.operator);
+    const operatorRow = await POST(request("POST", {
+      businessDate: "2026-08-28", position: "GROUP_OPERATOR", channelId: data.channelId,
+      sourceReceptionId: data.reception.id,
+      values: { ...emptyValues, operatorReceivedCount: 8, normalLeaveCount: 2, abnormalLeaveCount: 1, currentInGroupCount: 5, expertIntroCount: 4 },
+    }));
+    const operatorEntryId = (await operatorRow.json() as { entry: { id: string } }).entry.id;
+
+    signInAs(data.expert);
+    const expertRow = await POST(request("POST", {
+      businessDate: "2026-08-28", position: "EXPERT", channelId: data.channelId,
+      sourceReceptionId: data.reception.id, sourceGroupOperatorId: data.operator.id,
+      values: { ...emptyValues, expertReceivedCount: 4, expertContactedCount: 3, registrationCount: 2, orderCount: 1, cryptoInitialDepositCents: 100_000, bankRechargeCents: 20_000, withdrawalCents: 5_000 },
+    }));
+    const expertEntryId = (await expertRow.json() as { entry: { id: string } }).entry.id;
+
+    signInAs(data.reception);
+    const unifiedRow = await POST(request("POST", {
+      businessDate: "2026-08-28", channelId: data.channelId,
+      values: {
+        ...emptyValues,
+        dispatchCount: 10, duplicateCount: 1, replyCount: 6, joinCount: 8,
+        normalLeaveCount: 2, abnormalLeaveCount: 1, currentInGroupCount: 5,
+        expertIntroCount: 4, expertContactedCount: 3, registrationCount: 2, orderCount: 1,
+        cryptoInitialDepositCents: 100_000, bankRechargeCents: 20_000, withdrawalCents: 5_000,
+      },
+    }));
+    expect(unifiedRow.status).toBe(201);
+    const unifiedEntryId = (await unifiedRow.json() as { entry: { id: string } }).entry.id;
+
+    const context = await GET(new Request("http://localhost/api/daily-stats?from=2026-08-28&to=2026-08-28"));
+    await expect(context.json()).resolves.toMatchObject({
+      unifiedEntries: [expect.objectContaining({
+        entryId: unifiedEntryId,
+        values: expect.objectContaining({ dispatchCount: 10, expertIntroCount: 4, orderCount: 1, bankRechargeCents: 20_000 }),
+      })],
+    });
+
+    signInAs(data.resource);
+    expect((await RESOURCE_REVIEW(request("PATCH", { entryId: unifiedEntryId, action: "APPROVE" }))).status).toBe(200);
+    await expect(db.dailyStatEntry.findMany({
+      where: { id: { in: [operatorEntryId, expertEntryId] } },
+      select: { status: true, approvedRevisionId: true, reviewReason: true },
+    })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "RETURNED", approvedRevisionId: null, reviewReason: expect.stringContaining(unifiedEntryId) }),
+      expect.objectContaining({ status: "RETURNED", approvedRevisionId: null, reviewReason: expect.stringContaining(unifiedEntryId) }),
+    ]));
   });
 
   it("lets reception edit a saved row freely while resource is still checking it", async () => {
@@ -363,9 +479,10 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     const response = await GET(new Request("http://localhost/api/daily-stats"));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      positions: ["RECEPTION"],
+      positions: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"],
       channels: [expect.objectContaining({ id: data.channelId })],
       entries: [expect.objectContaining({ ownerId: data.reception.id })],
+      unifiedEntries: [expect.objectContaining({ entryId: expect.any(String), values: expect.objectContaining({ dispatchCount: 10 }) })],
     });
   });
 
@@ -419,7 +536,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
 
     const context = await GET(new Request("http://localhost/api/daily-stats"));
     expect(context.status).toBe(200);
-    await expect(context.json()).resolves.toMatchObject({ positions: ["EXPERT"] });
+    await expect(context.json()).resolves.toMatchObject({ positions: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] });
 
     const created = await POST(request("POST", {
       businessDate: "2026-08-29",

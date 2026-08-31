@@ -51,15 +51,17 @@ describe("org-permissions: 5.6 组织结构操作权限", () => {
 
   describe("canCreateDepartment", () => {
     it("allows an active HQ manager", () => {
-      expect(canCreateDepartment(user({ duty: "HQ_MANAGER" }))).toBe(true);
+      expect(canCreateDepartment(user({ duty: "HQ_MANAGER" }), { id: "company-a" })).toBe(true);
     });
 
-    it("rejects a company manager (per 5.6, only HQ builds departments)", () => {
-      expect(canCreateDepartment(user({ duty: "COMPANY_MANAGER", companyId: "company-a" }))).toBe(false);
+    it("allows a company manager only inside the bound company", () => {
+      const manager = user({ duty: "COMPANY_MANAGER", companyId: "company-a" });
+      expect(canCreateDepartment(manager, { id: "company-a" })).toBe(true);
+      expect(canCreateDepartment(manager, { id: "company-b" })).toBe(false);
     });
 
     it("rejects a department manager", () => {
-      expect(canCreateDepartment(user({ duty: "DEPARTMENT_MANAGER", departmentId: "department-a" }))).toBe(false);
+      expect(canCreateDepartment(user({ duty: "DEPARTMENT_MANAGER", departmentId: "department-a" }), { id: "company-a" })).toBe(false);
     });
   });
 
@@ -333,22 +335,30 @@ describe("org-permissions: 5.1 能操作哪些客户 (canOperateCustomer)", () =
   const target = { batch: { groupId: "group-a" }, ownerId: "reception-1", groupOperatorOwnerId: "operator-1", expertOwnerId: "expert-1" };
 
   it("lets reception operate only their own customer", () => {
-    expect(canOperateCustomer(user({ role: "RECEPTION", id: "reception-1" }), target)).toBe(true);
-    expect(canOperateCustomer(user({ role: "RECEPTION", id: "reception-2" }), target)).toBe(false);
+    expect(canOperateCustomer(user({ role: "RECEPTION", id: "reception-1", groupId: "group-a" }), target)).toBe(true);
+    expect(canOperateCustomer(user({ role: "RECEPTION", id: "reception-2", groupId: "group-a" }), target)).toBe(false);
   });
 
   it("lets group operator (炒群) operate only the customer assigned to them", () => {
-    expect(canOperateCustomer(user({ role: "GROUP_OPERATOR", id: "operator-1" }), target)).toBe(true);
-    expect(canOperateCustomer(user({ role: "GROUP_OPERATOR", id: "operator-2" }), target)).toBe(false);
+    expect(canOperateCustomer(user({ role: "GROUP_OPERATOR", id: "operator-1", groupId: "group-a" }), target)).toBe(true);
+    expect(canOperateCustomer(user({ role: "GROUP_OPERATOR", id: "operator-2", groupId: "group-a" }), target)).toBe(false);
   });
 
   it("lets an expert operate only the customer explicitly assigned to them", () => {
-    expect(canOperateCustomer(user({ role: "EXPERT", id: "expert-1" }), target)).toBe(true);
-    expect(canOperateCustomer(user({ role: "EXPERT", id: "expert-2" }), target)).toBe(false);
+    expect(canOperateCustomer(user({ role: "EXPERT", id: "expert-1", groupId: "group-a" }), target)).toBe(true);
+    expect(canOperateCustomer(user({ role: "EXPERT", id: "expert-2", groupId: "group-a" }), target)).toBe(false);
   });
 
   it("lets a lead operate every customer in their own group, regardless of individual ownership", () => {
     expect(canOperateCustomer(user({ role: "LEAD", id: "someone-else", groupId: "group-a" }), target)).toBe(true);
+  });
+
+  it("uses current working group after a customer moves, while keeping the source batch unchanged", () => {
+    const moved = { ...target, currentGroupId: "group-b" };
+    expect(canOperateCustomer(user({ role: "LEAD", id: "lead-a", groupId: "group-a" }), moved)).toBe(false);
+    expect(canOperateCustomer(user({ role: "LEAD", id: "lead-b", groupId: "group-b" }), moved)).toBe(true);
+    expect(canOperateCustomer(user({ role: "EXPERT", id: "expert-1", groupId: "group-a" }), moved)).toBe(false);
+    expect(canOperateCustomer(user({ role: "EXPERT", id: "expert-1", groupId: "group-b" }), moved)).toBe(true);
   });
 
   it("blocks a lead from operating a customer outside their own group", () => {
@@ -356,7 +366,7 @@ describe("org-permissions: 5.1 能操作哪些客户 (canOperateCustomer)", () =
   });
 
   it("honors dual reception+group-operator assignment (1.4 兼任): can operate either side's own customer", () => {
-    const dualRole = user({ role: "RECEPTION", id: "operator-1", roleAssignments: [{ role: "GROUP_OPERATOR" }] });
+    const dualRole = user({ role: "RECEPTION", id: "operator-1", groupId: "group-a", roleAssignments: [{ role: "GROUP_OPERATOR" }] });
     expect(canOperateCustomer(dualRole, target)).toBe(true);
   });
 

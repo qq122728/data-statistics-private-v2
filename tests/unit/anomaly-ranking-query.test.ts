@@ -39,7 +39,7 @@ async function addBatch(input: {
   channelId: string;
   sourceDate: string;
   memberId: string;
-  values: Partial<Record<"NEW_FANS" | "EFFECTIVE_FANS" | "REPLIES" | "GROUP_JOIN" | "EXPERT_INTRO" | "REGISTRATION" | "ORDER", number>>;
+  values: Partial<Record<"NEW_FANS" | "EFFECTIVE_FANS" | "REPLIES" | "GROUP_JOIN" | "GROUP_LEAVE" | "ABNORMAL_GROUP_LEAVE" | "EXPERT_INTRO" | "REGISTRATION" | "ORDER", number>>;
   occurredOn?: string;
 }) {
   const batch = await db.sourceBatch.findFirst({ where: { groupId: input.groupId, channelId: input.channelId, sourceDate: input.sourceDate } })
@@ -121,20 +121,20 @@ afterAll(async () => {
 });
 
 describe("member anomaly ranking query", () => {
-  it("uses weighted channel averages and all five existing funnel formulas", async () => {
+  it("uses weighted channel averages and the five unified funnel formulas", async () => {
     const result = await loadAnomalyRanking(scope({ groupIds: [ids.groupA], groupId: ids.groupA }), "2026-08-12");
     const weak = result.rows.find((row) => row.memberId === ids.weak && row.normalizedName === "抖音直播");
 
     expect(weak?.newFans).toBe(20);
     expect(weak?.metrics.replyRate).toMatchObject({ value: 0.2, average: 0.6, status: "LOW" });
     expect(weak?.metrics.replyRate.gap).toBeCloseTo(-0.4);
-    expect(weak?.metrics.groupRate).toMatchObject({ value: 1, average: 44 / 60, status: "OK" });
-    expect(weak?.metrics.groupRate.gap).toBeCloseTo(16 / 60);
-    expect(weak?.metrics.expertRate.average).toBeCloseTo(21 / 44);
+    expect(weak?.metrics.groupRate).toMatchObject({ value: 0.2, average: 44 / 100, status: "LOW" });
+    expect(weak?.metrics.groupRate.gap).toBeCloseTo(-0.24);
+    expect(weak?.metrics.leaveRate.average).toBe(0);
     expect(weak?.metrics.registrationRate.average).toBeCloseTo(10 / 21);
     expect(weak?.metrics.orderRate).toMatchObject({ value: null, average: 0.8, gap: null, status: "UNAVAILABLE" });
     expect(weak?.anomalyCount).toBe(3);
-    expect(result.summary).toMatchObject({ anomalousMemberCount: 2, affectedChannelCount: 1 });
+    expect(result.summary).toMatchObject({ anomalousMemberCount: 2, affectedChannelCount: 2 });
   });
 
   it("ignores immature batches and events after D7, and does not flag unavailable denominators", async () => {
@@ -143,8 +143,8 @@ describe("member anomaly ranking query", () => {
 
     expect(weak?.newFans).toBe(20);
     expect(weak?.metrics.orderRate.value).toBe(null);
-    // A row with no comparable denominator must not be surfaced as an anomaly.
-    expect(result.rows.some((row) => row.memberId === ids.zero)).toBe(false);
+    // 统一口径下，进群率以有效数据为分母，因此有效数据不为零的零进群行应被识别。
+    expect(result.rows.some((row) => row.memberId === ids.zero)).toBe(true);
     expect(result.rows.some((row) => row.memberId === ids.solo)).toBe(false);
   });
 

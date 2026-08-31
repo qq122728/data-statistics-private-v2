@@ -124,7 +124,7 @@ beforeAll(async () => {
   const [leadA, leadB, leadC] = await Promise.all([
     db.leadCustomer.create({ data: { phone: normalizeCustomerPhone("13800000001"), customerName: "甲组已有客户", batchId: batchA.id, ownerId: ids.receptionA } }),
     db.leadCustomer.create({ data: { phone: normalizeCustomerPhone("13800000002"), customerName: "乙组机密客户", batchId: batchB.id, ownerId: ids.receptionB } }),
-    db.leadCustomer.create({ data: { phone: normalizeCustomerPhone("13800000003"), batchId: batchA.id, ownerId: ids.receptionA, groupStatus: "JOINED", joinedOn: "2026-08-14" } }),
+    db.leadCustomer.create({ data: { phone: normalizeCustomerPhone("13800000003"), batchId: batchA.id, ownerId: ids.receptionA, groupOperatorOwnerId: ids.groupOperatorA, groupStatus: "JOINED", joinedOn: "2026-08-14" } }),
   ]);
   ids.leadCustomerA = leadA.id;
   ids.leadCustomerB = leadB.id;
@@ -250,6 +250,7 @@ describe.sequential("frontline role boundaries", () => {
         phone: `137${String(Date.now()).slice(-8)}`,
         batchId: sourceLead.batchId,
         ownerId: ids.groupOperatorA,
+        groupOperatorOwnerId: ids.groupOperatorA,
         groupStatus: "JOINED",
         joinedOn: "2026-08-14",
       },
@@ -281,6 +282,55 @@ describe.sequential("frontline role boundaries", () => {
         where: { userId: ids.groupOperatorA, role: "RECEPTION" },
       });
       await db.leadCustomer.deleteMany({ where: { id: ownLead.id } });
+    }
+  });
+
+  it("让旧岗位是接粉的组员按客户明确负责关系处理炒群和专家进度", async () => {
+    const sourceLead = await db.leadCustomer.findUniqueOrThrow({
+      where: { id: ids.leadCustomerA },
+      select: { batchId: true },
+    });
+    const customer = await db.leadCustomer.create({
+      data: {
+        phone: `135${String(Date.now()).slice(-8)}`,
+        batchId: sourceLead.batchId,
+        ownerId: ids.receptionA,
+        attributionOwnerId: ids.groupOperatorA,
+        groupOperatorOwnerId: ids.receptionA,
+        expertOwnerId: ids.receptionA,
+        groupStatus: "JOINED",
+        joinedOn: "2026-08-14",
+        expertIntroducedOn: "2026-08-14",
+      },
+    });
+    try {
+      vi.restoreAllMocks();
+      await signInAs(ids.receptionA);
+      const groupProgress = await updateLead(
+        new Request("http://localhost/api/leads/target", {
+          method: "PATCH",
+          body: JSON.stringify({ action: "updateGroupProgress", occurredOn: "2026-08-15", progressNote: "已在群内继续跟进" }),
+        }),
+        leadContext(customer.id),
+      );
+      const expertProgress = await updateLead(
+        new Request("http://localhost/api/leads/target", {
+          method: "PATCH",
+          body: JSON.stringify({ action: "updateExpertDetails", occurredOn: "2026-08-15", expertNotes: "已与客户沟通资料" }),
+        }),
+        leadContext(customer.id),
+      );
+
+      expect(groupProgress.status).toBe(200);
+      expect(expertProgress.status).toBe(200);
+      await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id } })).resolves.toMatchObject({
+        attributionOwnerId: ids.groupOperatorA,
+        groupOperatorOwnerId: ids.receptionA,
+        expertOwnerId: ids.receptionA,
+        expertNotes: "已与客户沟通资料",
+      });
+    } finally {
+      await db.leadCustomer.deleteMany({ where: { id: customer.id } });
     }
   });
 
@@ -645,7 +695,7 @@ describe.sequential("frontline role boundaries", () => {
     },
   );
 
-  it("keeps the group operator read-only for finance", async () => {
+  it("lets a group member reach finance ownership and input validation instead of blocking by legacy role", async () => {
     await signInAs(ids.groupOperatorA);
     expect(
       (
@@ -657,7 +707,7 @@ describe.sequential("frontline role boundaries", () => {
           { params: Promise.resolve({ eventId: "missing" }) },
         )
       ).status,
-    ).toBe(403);
+    ).toBe(404);
     expect(
       (
         await createFinance(
@@ -672,7 +722,7 @@ describe.sequential("frontline role boundaries", () => {
           }),
         )
       ).status,
-    ).toBe(403);
+    ).toBe(400);
   });
 
   it("keeps reception ownership and lead group boundaries in place", async () => {
@@ -741,7 +791,7 @@ describe.sequential("frontline role boundaries", () => {
         leadContext(handedOff.id),
       );
       expect(response.status).toBe(403);
-      await expect(response.json()).resolves.toEqual({ error: "客户已确认入群并交棒，接粉只能查看后续进度" });
+      await expect(response.json()).resolves.toEqual({ error: "当前岗位不能处理该客户或执行此操作" });
     }
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: handedOff.id } })).resolves.toMatchObject({
       phone: handedOff.phone,
@@ -800,6 +850,7 @@ describe.sequential("frontline role boundaries", () => {
       data: {
         groupStatus: "JOINED",
         joinedOn: "2026-08-14",
+        groupOperatorOwnerId: ids.groupOperatorA,
       },
     });
     await db.groupOperatorReception.create({
@@ -1312,7 +1363,7 @@ describe.sequential("frontline role boundaries", () => {
         }),
       }),
     );
-    expect(receptionFinance.status).toBe(403);
+    expect(receptionFinance.status).toBe(201);
 
     vi.restoreAllMocks();
     await signInAs(ids.receptionB);
@@ -1330,7 +1381,7 @@ describe.sequential("frontline role boundaries", () => {
           }),
         )
       ).status,
-    ).toBe(403);
+    ).toBe(400);
 
     vi.restoreAllMocks();
     await signInAs(ids.expertA);
@@ -1347,7 +1398,7 @@ describe.sequential("frontline role boundaries", () => {
     ).toBe(200);
   });
 
-  it("blocks reception from expert, registration, order, and finance writes", async () => {
+  it("keeps workflow stage changes separate while allowing members through order and finance validation", async () => {
     await signInAs(ids.receptionA);
     const expertAction = await updateLead(
       new Request("http://localhost/api/leads/target", {
@@ -1369,7 +1420,7 @@ describe.sequential("frontline role boundaries", () => {
       }),
     );
     expect(expertAction.status).toBe(403);
-    expect(order.status).toBe(403);
-    expect(finance.status).toBe(403);
+    expect(order.status).toBe(400);
+    expect(finance.status).toBe(400);
   });
 });

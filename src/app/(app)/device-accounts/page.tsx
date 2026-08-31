@@ -85,8 +85,8 @@ export default async function DeviceAccountsPage() {
             {isAdmin
               ? "查看所有小组的设备账号、归属人员、续费日期和跟进情况；管理员为只读，避免误改一线资料。"
               : canManageGroup
-              ? "维护本组普通 WS、商业 WS 和 RCS 账号，优先处理临近续费与待跟进账号。"
-              : "维护自己的普通 WS、商业 WS 和 RCS 账号，记录续费、用途和跟进情况。"}
+              ? "维护本组普通 WS、商业 WS、RCS 和 SIG 账号，优先处理临近续费与待跟进账号。"
+              : "维护自己的普通 WS、商业 WS、RCS 和 SIG 账号，记录续费、用途和跟进情况。"}
           </p>
         </div>
       </div>

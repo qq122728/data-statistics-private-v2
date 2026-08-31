@@ -19,6 +19,7 @@ type ScopedAccount = {
   group: { id: string; name: string; departmentId: string; department: { companyId: string | null } } | null;
   department: { id: string; name: string; companyId: string | null } | null;
   companyId: string | null;
+  resourceChannelAccess: Array<{ channelId: string }>;
 };
 
 const accountSelect = {
@@ -32,12 +33,13 @@ const accountSelect = {
   group: { select: { id: true, name: true, departmentId: true, department: { select: { companyId: true } } } },
   department: { select: { id: true, name: true, companyId: true } },
   companyId: true,
+  resourceChannelAccess: { select: { channelId: true }, orderBy: { channelId: "asc" } },
 } as const;
 
 function canManageAccount(actor: SessionUser, target: ScopedAccount): boolean {
   if (actor.id === target.id || target.role === "ADMIN" || target.duty === "HQ_MANAGER") return false;
   if (actor.role === "ADMIN" || actor.duty === "HQ_MANAGER") {
-    return Boolean(target.groupId || target.duty === "DEPARTMENT_MANAGER" || target.duty === "COMPANY_MANAGER");
+    return Boolean(target.groupId || target.role === "RESOURCE_MANAGER" || target.duty === "DEPARTMENT_MANAGER" || target.duty === "COMPANY_MANAGER");
   }
   if (actor.duty === "COMPANY_MANAGER") {
     if (!actor.companyId || target.duty === "COMPANY_MANAGER") return false;
@@ -55,7 +57,7 @@ export async function GET() {
   const access = await requireOrgManagerRequest();
   if ("response" in access) return access.response;
   const accounts = await db.user.findMany({
-    where: { id: { not: access.actor.id }, role: { notIn: ["ADMIN", "RESOURCE_MANAGER", "FINANCE", "HR"] } },
+    where: { id: { not: access.actor.id }, role: { notIn: ["ADMIN", "FINANCE", "HR"] } },
     select: accountSelect,
     orderBy: [{ active: "desc" }, { name: "asc" }],
   });
@@ -68,6 +70,7 @@ export async function GET() {
     active: account.active,
     groupName: account.group?.name ?? null,
     departmentName: account.department?.name ?? null,
+    resourceChannelIds: account.resourceChannelAccess.map((item) => item.channelId),
   })));
 }
 

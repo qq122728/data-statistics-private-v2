@@ -42,8 +42,11 @@ async function fixture() {
       groupStatus: "JOINED",
     },
   });
+  const device = await db.device.create({ data: { code: `D-${randomUUID().slice(0, 8)}`, groupId: groupA, memberId: userId } });
+  const inactiveDevice = await db.device.create({ data: { code: `D-OLD-${randomUUID().slice(0, 8)}`, groupId: groupA, memberId: userId, active: false } });
+  const deviceAccount = await db.deviceAccount.create({ data: { groupId: groupA, ownerId: userId, accountType: "NORMAL_WS", provider: "WS", accountNumber: `AC-${randomUUID()}` } });
   await db.session.create({ data: { id: `${prefix}session-${randomUUID()}`, userId, expiresAt: new Date(Date.now() + 60_000) } });
-  return { groupA, groupB, userId, batchId: batch.id, leadId: lead.id };
+  return { groupA, groupB, userId, batchId: batch.id, leadId: lead.id, deviceId: device.id, inactiveDeviceId: inactiveDevice.id, deviceAccountId: deviceAccount.id };
 }
 
 afterEach(async () => {
@@ -52,16 +55,18 @@ afterEach(async () => {
   const userIds = users.map((user) => user.id);
   await db.auditLog.deleteMany({ where: { OR: [{ entityId: { in: userIds } }, { actorId: { in: userIds } }] } });
   await db.session.deleteMany({ where: { userId: { in: userIds } } });
+  await db.deviceAccount.deleteMany({ where: { ownerId: { in: userIds } } });
   await db.leadCustomer.deleteMany({ where: { batch: { groupId: { startsWith: prefix } } } });
   await db.sourceBatch.deleteMany({ where: { groupId: { startsWith: prefix } } });
   await db.channel.deleteMany({ where: { groupId: { startsWith: prefix } } });
+  await db.device.deleteMany({ where: { OR: [{ memberId: { in: userIds } }, { groupId: { startsWith: prefix } }] } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.teamGroup.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.department.deleteMany({ where: { id: { startsWith: prefix } } });
 });
 
 describe.sequential("人员调组历史", () => {
-  it("保留原组客户和业绩，只更新当前权限，并使旧会话失效", async () => {
+  it("保留历史业绩，只迁设备和当前负责的客户，并使旧会话失效", async () => {
     const data = await fixture();
     const before = await db.user.findUniqueOrThrow({ where: { id: data.userId }, select: { employeeCode: true } });
     const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
@@ -77,7 +82,10 @@ describe.sequential("人员调组历史", () => {
       { groupId: data.groupB, role: "EXPERT", effectiveFrom: "2026-08-16", effectiveTo: null },
     ]);
     await expect(db.session.count({ where: { userId: data.userId } })).resolves.toBe(0);
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: data.leadId }, select: { ownerId: true, attributionOwnerId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ ownerId: data.userId, attributionOwnerId: data.userId, batch: { groupId: data.groupA } });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: data.leadId }, select: { ownerId: true, attributionOwnerId: true, currentGroupId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ ownerId: data.userId, attributionOwnerId: data.userId, currentGroupId: null, batch: { groupId: data.groupA } });
+    await expect(db.device.findUniqueOrThrow({ where: { id: data.deviceId }, select: { groupId: true, memberId: true } })).resolves.toEqual({ groupId: data.groupB, memberId: data.userId });
+    await expect(db.device.findUniqueOrThrow({ where: { id: data.inactiveDeviceId }, select: { groupId: true, memberId: true, active: true } })).resolves.toEqual({ groupId: data.groupA, memberId: data.userId, active: false });
+    await expect(db.deviceAccount.findUniqueOrThrow({ where: { id: data.deviceAccountId }, select: { groupId: true, ownerId: true } })).resolves.toEqual({ groupId: data.groupB, ownerId: data.userId });
 
     const aRanking = await loadRoleRankings({ groupIds: [data.groupA], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-31" });
     expect(aRanking.reception.find((row) => row.id === data.userId)).toMatchObject({ groupId: data.groupA, valid: 1, replied: 1, joined: 1 });
@@ -89,7 +97,7 @@ describe.sequential("人员调组历史", () => {
     expect(companyRanking.groups.find((row) => row.id === data.groupB)).toMatchObject({ valid: 0, joined: 0 });
   });
 
-  it("把原组尚未进群的客户交给原组成员，但保留客户原归属", async () => {
+  it("跨组后不再保留接粉岗位时，在办客户必须明确交接给原组", async () => {
     const data = await fixture();
     const handoffId = `${prefix}handoff-${randomUUID()}`;
     await db.user.create({ data: { id: handoffId, employeeCode: `AB-${randomUUID().slice(0, 8)}`, username: `${prefix}${randomUUID()}`, name: "A组接收人", role: "RECEPTION", groupId: data.groupA } });
@@ -100,7 +108,76 @@ describe.sequential("人员调组历史", () => {
       body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "调入B组负责专家", receptionHandoffId: handoffId }),
     }));
     expect(response.status).toBe(200);
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: pending.id }, select: { ownerId: true, attributionOwnerId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ ownerId: handoffId, attributionOwnerId: data.userId, batch: { groupId: data.groupA } });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: pending.id }, select: { ownerId: true, attributionOwnerId: true, currentGroupId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ ownerId: handoffId, attributionOwnerId: data.userId, currentGroupId: null, batch: { groupId: data.groupA } });
+  });
+
+  it("已经结束的历史客户不搬到新组", async () => {
+    const data = await fixture();
+    const closed = await db.leadCustomer.create({ data: { phone: `6${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: data.batchId, ownerId: data.userId, attributionOwnerId: data.userId, joinedOn: "2026-08-12", groupStatus: "LEFT", leftOn: "2026-08-14" } });
+    const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "调入B组继续开展工作" }),
+    }));
+    expect(response.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: closed.id }, select: { currentGroupId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ currentGroupId: null, batch: { groupId: data.groupA } });
+  });
+
+  it("目标组设备重号时预览提示并禁止确认", async () => {
+    const data = await fixture();
+    const sourceDevice = await db.device.findUniqueOrThrow({ where: { id: data.deviceId } });
+    await db.device.create({ data: { code: sourceDevice.code, groupId: data.groupB } });
+    const preview = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ mode: "preview", userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "先检查目标组设备冲突" }),
+    }));
+    expect(preview.status).toBe(200);
+    await expect(preview.json()).resolves.toMatchObject({ conflicts: [`目标组已有设备号 ${sourceDevice.code}`] });
+    const confirm = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "尝试确认冲突调动" }),
+    }));
+    expect(confirm.status).toBe(409);
+    await expect(db.user.findUniqueOrThrow({ where: { id: data.userId }, select: { groupId: true } })).resolves.toEqual({ groupId: data.groupA });
+  });
+
+  it("目标组设备账号重号时预览提示并禁止确认", async () => {
+    const data = await fixture();
+    const sourceAccount = await db.deviceAccount.findUniqueOrThrow({ where: { id: data.deviceAccountId } });
+    const targetOwnerId = `${prefix}target-owner-${randomUUID()}`;
+    await db.user.create({
+      data: {
+        id: targetOwnerId,
+        employeeCode: `AT-${randomUUID().slice(0, 8)}`,
+        username: `${prefix}${randomUUID()}`,
+        name: "B组账号持有人",
+        role: "RECEPTION",
+        groupId: data.groupB,
+      },
+    });
+    await db.deviceAccount.create({
+      data: {
+        groupId: data.groupB,
+        ownerId: targetOwnerId,
+        accountType: "NORMAL_WS",
+        provider: "WS",
+        accountNumber: sourceAccount.accountNumber,
+      },
+    });
+
+    const preview = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ mode: "preview", userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "先检查目标组账号冲突" }),
+    }));
+    expect(preview.status).toBe(200);
+    await expect(preview.json()).resolves.toMatchObject({ conflicts: [`目标组已有设备账号 ${sourceAccount.accountNumber}`] });
+
+    const confirm = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "尝试确认账号冲突调动" }),
+    }));
+    expect(confirm.status).toBe(409);
+    await expect(db.user.findUniqueOrThrow({ where: { id: data.userId }, select: { groupId: true } })).resolves.toEqual({ groupId: data.groupA });
+    await expect(db.deviceAccount.findUniqueOrThrow({ where: { id: data.deviceAccountId }, select: { groupId: true } })).resolves.toEqual({ groupId: data.groupA });
   });
 
   it("拒绝通过普通编辑直接覆盖小组", async () => {
@@ -209,7 +286,80 @@ describe.sequential("人员调组历史", () => {
       body: JSON.stringify({ mode: "preview", userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "先预览跨组调动" }),
     }));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({ preview: true, counts: { reception: 0, operator: 0, expert: 0 } });
+    await expect(response.json()).resolves.toMatchObject({ preview: true, groupChanged: true, movingCustomerCount: 0, deviceCount: 1, deviceAccountCount: 1, counts: { reception: 0, operator: 0, expert: 0 }, conflicts: [] });
     await expect(db.user.findUniqueOrThrow({ where: { id: data.userId }, select: { groupId: true, role: true } })).resolves.toEqual({ groupId: data.groupA, role: "RECEPTION" });
+  });
+
+  it("历史接粉和归属人离组时，不会拖走已由炒群和专家负责的客户", async () => {
+    const data = await fixture();
+    const operatorId = `${prefix}operator-${randomUUID()}`;
+    const expertId = `${prefix}expert-${randomUUID()}`;
+    await db.user.createMany({ data: [
+      { id: operatorId, username: `${prefix}${randomUUID()}`, name: "A组炒群", role: "GROUP_OPERATOR", groupId: data.groupA },
+      { id: expertId, username: `${prefix}${randomUUID()}`, name: "A组专家", role: "EXPERT", groupId: data.groupA },
+    ] });
+    const expertCustomer = await db.leadCustomer.create({ data: {
+      phone: `1${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+      batchId: data.batchId,
+      ownerId: data.userId,
+      attributionOwnerId: data.userId,
+      joinedOn: "2026-08-12",
+      groupStatus: "JOINED",
+      groupOperatorOwnerId: operatorId,
+      expertIntroducedOn: "2026-08-13",
+      expertOwnerId: expertId,
+      expertWorkflowStage: "TRACKING",
+    } });
+
+    const response = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "RECEPTION", secondaryRoles: [], effectiveOn: "2026-08-16", reason: "调组继续接粉" }),
+    }));
+    expect(response.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: expertCustomer.id }, select: { currentGroupId: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true } })).resolves.toEqual({
+      currentGroupId: null,
+      ownerId: data.userId,
+      attributionOwnerId: data.userId,
+      groupOperatorOwnerId: operatorId,
+      expertOwnerId: expertId,
+    });
+  });
+
+  it("客户首次跨组后再转岗，按 currentGroupId 识别并交接迁入客户", async () => {
+    const data = await fixture();
+    const targetExpertId = `${prefix}target-expert-${randomUUID()}`;
+    await db.user.create({ data: { id: targetExpertId, username: `${prefix}${randomUUID()}`, name: "B组接手专家", role: "EXPERT", groupId: data.groupB } });
+    await db.user.update({ where: { id: data.userId }, data: { role: "EXPERT", roleAssignments: { create: { role: "EXPERT" } } } });
+    const movingExpertCustomer = await db.leadCustomer.create({ data: {
+      phone: `2${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`,
+      batchId: data.batchId,
+      ownerId: data.userId,
+      attributionOwnerId: data.userId,
+      joinedOn: "2026-08-12",
+      groupStatus: "JOINED",
+      expertIntroducedOn: "2026-08-13",
+      expertOwnerId: data.userId,
+      expertWorkflowStage: "TRACKING",
+    } });
+    const first = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", secondaryRoles: [], effectiveOn: "2026-08-16", reason: "调入B组继续专家跟进" }),
+    }));
+    expect(first.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: movingExpertCustomer.id }, select: { currentGroupId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ currentGroupId: data.groupB, batch: { groupId: data.groupA } });
+
+    const missingHandoff = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "RECEPTION", secondaryRoles: [], effectiveOn: "2026-08-20", reason: "B组内改任接粉" }),
+    }));
+    expect(missingHandoff.status).toBe(400);
+    await expect(missingHandoff.json()).resolves.toMatchObject({ error: "还有 1 位专家阶段客户，请选择原小组专家接收人" });
+
+    const handedOff = await TRANSFER(new Request("http://localhost/api/admin/users/transfer", {
+      method: "POST",
+      body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "RECEPTION", secondaryRoles: [], effectiveOn: "2026-08-20", reason: "B组内改任接粉", expertHandoffId: targetExpertId }),
+    }));
+    expect(handedOff.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: movingExpertCustomer.id }, select: { currentGroupId: true, expertOwnerId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ currentGroupId: data.groupB, expertOwnerId: targetExpertId, batch: { groupId: data.groupA } });
   });
 });

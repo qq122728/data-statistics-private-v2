@@ -9,7 +9,7 @@ export type DeviceAccountRow = {
   ownerName: string;
   groupName: string;
   ownerRole: "LEAD" | "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
-  accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS";
+  accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" | "SIG";
   provider: string;
   accountNumber: string;
   renewalDate: string | null;
@@ -42,6 +42,7 @@ const typeNames = {
   NORMAL_WS: "普通 WS",
   BUSINESS_WS: "商业 WS",
   RCS: "RCS",
+  SIG: "SIG",
 } as const;
 
 const roleNames = {

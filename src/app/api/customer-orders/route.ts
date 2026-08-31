@@ -5,7 +5,7 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
 import { parseCustomerOrderInput, type CustomerOrderInput } from "../../../lib/validation";
-import { customerOrderWriteRoles, getAssignedRoles, hasAnyRole } from "../../../lib/role-access";
+import { customerOrderWriteRoles, getAssignedRoles, hasAnyRole, isFrontlineGroupMember } from "../../../lib/role-access";
 import { canWriteCustomerRevenue } from "../../../lib/permissions";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { getSystemSettings } from "../../../lib/settings";
@@ -31,11 +31,18 @@ function normalizeCustomerOrderIdentifier(value: string): string {
 function customerScope(user: { id: string; role: Parameters<typeof getAssignedRoles>[0]["role"]; groupId: string | null; active: boolean; roleAssignments?: Array<{ role: Parameters<typeof getAssignedRoles>[0]["role"] }> }): Prisma.CustomerOrderWhereInput {
   if (user.role === "ADMIN") return {};
   const roles = getAssignedRoles(user);
-  if (roles.includes("LEAD")) return { batch: { groupId: user.groupId ?? "__none__" } };
-  const ownScopes: Prisma.CustomerOrderWhereInput[] = [];
-  if (roles.includes("EXPERT")) ownScopes.push({ lead: { expertOwnerId: user.id } });
-  if (roles.includes("RECEPTION")) ownScopes.push({ lead: { ownerId: user.id } });
-  return ownScopes.length ? { OR: ownScopes } : { id: "__none__" };
+  if (roles.includes("LEAD")) return { lead: { OR: [{ currentGroupId: user.groupId ?? "__none__" }, { currentGroupId: null, batch: { groupId: user.groupId ?? "__none__" } }] } };
+  if (!isFrontlineGroupMember(user)) return { id: "__none__" };
+  const currentGroup = { OR: [
+    { currentGroupId: user.groupId ?? "__none__" },
+    { currentGroupId: null, batch: { groupId: user.groupId ?? "__none__" } },
+  ] } satisfies Prisma.LeadCustomerWhereInput;
+  return { lead: { AND: [{ OR: [
+    { attributionOwnerId: user.id },
+    { ownerId: user.id },
+    { groupOperatorOwnerId: user.id },
+    { expertOwnerId: user.id },
+  ] }, currentGroup] } };
 }
 
 export async function GET() {
@@ -116,14 +123,13 @@ export async function POST(request: Request) {
       const leadIds = validRows.map(({ row }) => row.leadId);
       const leads = await transaction.leadCustomer.findMany({
         where: { id: { in: leadIds } },
-        select: { id: true, phone: true, batchId: true, ownerId: true, expertOwnerId: true, invalid: true, groupStatus: true, registeredOn: true },
+        select: { id: true, phone: true, batchId: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, invalid: true, groupStatus: true, registeredOn: true },
       });
       const leadById = new Map(leads.map((lead) => [lead.id, lead]));
       for (const { row, index } of validRows) {
         const batch = batchById.get(row.batchId);
         if (!batch) fields[`rows.${index}.batchId`] = ["来源批次不存在"];
         else if (!batch.group.active || !batch.channel.active) fields[`rows.${index}.batchId`] = ["来源批次已停用"];
-        else if (hasAnyRole(actor, ["LEAD"]) && (!actor.groupId || batch.groupId !== actor.groupId)) fields[`rows.${index}.batchId`] = ["只能为自己所在小组的来源批次开单"];
         const lead = leadById.get(row.leadId);
         const canOpen = Boolean(lead && batch && canWriteCustomerRevenue(actor, { batch, lead }));
         if (!lead || !canOpen) fields[`rows.${index}.leadId`] = ["只能为自己负责的客户开单"];

@@ -26,7 +26,7 @@ type CustomerRow = {
   updatedBy: string;
 };
 
-const ROLE_LABEL: Record<WorkRole, string> = { RECEPTION: "接粉", GROUP_OPERATOR: "炒群", EXPERT: "专家" };
+const ROLE_LABEL: Record<WorkRole, string> = { LEAD: "组长", RECEPTION: "接粉", GROUP_OPERATOR: "炒群", EXPERT: "专家" };
 const RECEPTION_RESULTS: ReceptionResult[] = ["待处理", "有效粉", "撞粉", "无WS", "低金额"];
 const GROUP_STATUSES: GroupStatus[] = ["待接手", "跟进中", "已进群", "正常退群", "异常退群"];
 const EXPERT_STAGES: ExpertStage[] = ["未分配", "排队中", "交资料", "追踪中", "待注册", "待开单", "已开单", "未成交"];

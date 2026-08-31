@@ -26,7 +26,7 @@ export default async function ChannelAnalysisPage({ searchParams }: { searchPara
   const [raw, settings, groups, departments] = await Promise.all([
     searchParams,
     getSystemSettings(),
-    db.teamGroup.findMany({ select: { id: true, name: true, active: true, departmentId: true, countryCode: true, department: { select: { name: true, countryCode: true } } }, orderBy: { name: "asc" } }),
+    db.teamGroup.findMany({ select: { id: true, name: true, active: true, departmentId: true, countryCode: true, department: { select: { name: true, countryCode: true, companyId: true } } }, orderBy: { name: "asc" } }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
   const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));

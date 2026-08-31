@@ -148,9 +148,9 @@ describe.sequential("transferUserPosition 岗位冻结", () => {
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: declined.id }, select: { expertOwnerId: true } })).resolves.toEqual({ expertOwnerId: data.userId });
   });
 
-  it("真正还在办的专家客户（未放弃）仍然需要指定接手人才能转岗", async () => {
+  it("跨组后仍保留专家岗位时，未放弃客户跟本人迁入新组", async () => {
     const data = await fixture();
-    await db.leadCustomer.create({
+    const customer = await db.leadCustomer.create({
       data: { phone: `4${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", expertWorkflowStage: "TRACKING" },
     });
 
@@ -158,13 +158,13 @@ describe.sequential("transferUserPosition 岗位冻结", () => {
       method: "POST",
       body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", secondaryRoles: [], effectiveOn: "2026-08-16", reason: "调至B组继续担任专家" }),
     }));
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({ error: "还有 1 位专家阶段客户，请选择原小组专家接收人" });
+    expect(response.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id }, select: { currentGroupId: true, expertOwnerId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ currentGroupId: data.groupB, expertOwnerId: data.userId, batch: { groupId: data.groupA } });
   });
 
-  it("刚推专家、还没进入任何放弃或推进阶段（expertWorkflowStage 为 null）的客户仍算在办", async () => {
+  it("刚推专家且阶段为 null 的客户，在保留专家岗位时一同迁入", async () => {
     const data = await fixture();
-    await db.leadCustomer.create({
+    const customer = await db.leadCustomer.create({
       data: { phone: `2${Math.floor(1_000_000_000 + Math.random() * 8_000_000_000)}`, batchId: data.batchId, ownerId: data.leaderId, attributionOwnerId: data.leaderId, expertOwnerId: data.userId, expertIntroducedOn: "2026-08-06", expertWorkflowStage: null },
     });
 
@@ -172,7 +172,7 @@ describe.sequential("transferUserPosition 岗位冻结", () => {
       method: "POST",
       body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", secondaryRoles: [], effectiveOn: "2026-08-16", reason: "调至B组继续担任专家" }),
     }));
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({ error: "还有 1 位专家阶段客户，请选择原小组专家接收人" });
+    expect(response.status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id }, select: { currentGroupId: true, expertOwnerId: true } })).resolves.toEqual({ currentGroupId: data.groupB, expertOwnerId: data.userId });
   });
 });

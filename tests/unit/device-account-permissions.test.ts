@@ -177,6 +177,15 @@ describe.sequential("device account permissions", () => {
     ).toBe(409);
   });
 
+  it("accepts SIG as a supported device account platform", async () => {
+    await signInAs(ids.receptionA);
+    const response = await POST(
+      request("POST", accountInput({ accountType: "SIG", provider: "SIG" })),
+    );
+    expect(response.status).toBe(201);
+    expect((await response.json()).account.accountType).toBe("SIG");
+  });
+
   it("blocks an old session after the account is disabled", async () => {
     await signInAs(ids.expertA);
     await db.user.update({ where: { id: ids.expertA }, data: { active: false } });

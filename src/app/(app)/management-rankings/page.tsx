@@ -21,7 +21,7 @@ export default async function ManagementRankingsPage({ searchParams }: { searchP
     throw error;
   }
   if (user.role !== "ADMIN" && user.role !== "COMPANY_MANAGER") redirect("/dashboard");
-  const [raw, settings, groups] = await Promise.all([searchParams, getSystemSettings(), db.teamGroup.findMany({ select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true } } } })]);
+  const [raw, settings, groups] = await Promise.all([searchParams, getSystemSettings(), db.teamGroup.findMany({ select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } } })]);
   const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
   const today = localDateYYYYMMDD(new Date(), timezone);
   const values = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => {

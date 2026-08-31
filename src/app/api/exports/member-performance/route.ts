@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   const days = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
   if (days > 31) return NextResponse.json({ error: "月度报表一次最多导出 31 天，请按月选择日期" }, { status: 400 });
   const allGroups = await db.teamGroup.findMany({
-    select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true } } },
+    select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } },
   });
   const groups = resolveReadableReportGroups(user, allGroups);
   const groupIds = requestedGroupId

@@ -45,7 +45,10 @@ export function workspaceOrigin(workspace: LoginResponse["workspace"]): string {
     return workspace === "ADMIN" ? "http://admin.localtest.me:3002/" : "http://frontline.localtest.me:3000/";
   }
   if (typeof window !== "undefined") {
-    return workspace === "ADMIN" ? `${window.location.origin}/admin/` : `${window.location.origin}/`;
+    // 独立管理端开发服务直接挂在 3002 根路径；只有旧的单体服务才使用 /admin/。
+    return workspace === "ADMIN"
+      ? (window.location.port === "3002" ? `${window.location.origin}/` : `${window.location.origin}/admin/`)
+      : `${window.location.origin}/`;
   }
   return workspace === "ADMIN" ? "http://127.0.0.1:3002/" : "http://127.0.0.1:3000/";
 }

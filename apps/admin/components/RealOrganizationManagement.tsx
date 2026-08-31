@@ -123,6 +123,7 @@ export function RealOrganizationManagement({
     "company" | "department" | "group" | null
   >(null);
   const [createParentId, setCreateParentId] = useState("");
+  const [createLeadWithGroup, setCreateLeadWithGroup] = useState(true);
   const [leadGroup, setLeadGroup] = useState<GroupNode | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [candidateId, setCandidateId] = useState("");
@@ -216,6 +217,12 @@ export function RealOrganizationManagement({
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
     const timezone = String(data.get("timezone") ?? "Europe/Berlin");
+    const groupLeadAccount = createKind === "group" && createLeadWithGroup ? {
+      name: String(data.get("leadName") ?? "").trim(),
+      username: String(data.get("leadUsername") ?? "").trim(),
+      password: temporaryPassword,
+      effectiveOn: String(data.get("leadEffectiveOn") ?? ""),
+    } : null;
     const config =
       createKind === "company"
         ? { url: "/api/org/companies", body: { name } }
@@ -226,7 +233,7 @@ export function RealOrganizationManagement({
             }
           : {
               url: "/api/org/groups",
-              body: { departmentId: createParentId, name },
+              body: { departmentId: createParentId, name, leadAccount: groupLeadAccount },
             };
     setBusy(true);
     setError("");
@@ -237,8 +244,17 @@ export function RealOrganizationManagement({
         body: JSON.stringify(config.body),
       });
       onToast(
-        `已创建${createKind === "company" ? "公司" : createKind === "department" ? "部门" : "小组"}“${name}”`,
+        createKind === "group" && groupLeadAccount
+          ? `已创建小组“${name}”并开设首任组长账号`
+          : `已创建${createKind === "company" ? "公司" : createKind === "department" ? "部门" : "小组"}“${name}”`,
       );
+      if (createKind === "group" && groupLeadAccount) setCreatedAccount({
+        scopeName: name,
+        roleLabel: "组长",
+        name: groupLeadAccount.name,
+        username: groupLeadAccount.username,
+        password: groupLeadAccount.password,
+      });
       setCreateKind(null);
       await load();
     } catch (caught) {
@@ -645,6 +661,9 @@ export function RealOrganizationManagement({
                           data-size="sm"
                           onClick={() => {
                             setCreateParentId(department.id);
+                            setCreateLeadWithGroup(true);
+                            setTemporaryPassword(generateSecureTemporaryPassword());
+                            setEffectiveOn(new Date().toISOString().slice(0, 10));
                             setCreateKind("group");
                           }}
                         >
@@ -769,7 +788,7 @@ export function RealOrganizationManagement({
               ? "新建部门"
               : "开设小组"
         }
-        note="保存后直接写入本地真实数据库。"
+        note={createKind === "group" ? "可以一次建好小组和首任组长账号；任一步失败都会整体取消。" : "保存后直接写入本地真实数据库。"}
       >
         <form
           onSubmit={submitCreate}
@@ -810,7 +829,7 @@ export function RealOrganizationManagement({
             </>
           ) : null}
           <label>
-            <span className="label">名称</span>
+            <span className="label">{createKind === "group" ? "小组名称" : "名称"}</span>
             <input
               className="field"
               name="name"
@@ -820,6 +839,23 @@ export function RealOrganizationManagement({
               style={{ width: "100%" }}
             />
           </label>
+          {createKind === "group" ? <>
+            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="checkbox" checked={createLeadWithGroup} onChange={(event) => {
+                setCreateLeadWithGroup(event.target.checked);
+                if (event.target.checked && !temporaryPassword) setTemporaryPassword(generateSecureTemporaryPassword());
+              }} />
+              <span>同时开设首任组长账号（推荐）</span>
+            </label>
+            {createLeadWithGroup ? <div style={{ display: "grid", gap: 12, padding: 14, border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface-soft)" }}>
+              <strong>首任组长账号</strong>
+              <label><span className="label">组长姓名</span><input className="field" name="leadName" required maxLength={100} style={{ width: "100%" }} /></label>
+              <label><span className="label">登录用户名</span><input className="field" name="leadUsername" required autoComplete="off" maxLength={100} style={{ width: "100%" }} /></label>
+              <label><span className="label">生效日期</span><input className="field" name="leadEffectiveOn" type="date" required value={effectiveOn} onChange={(event) => setEffectiveOn(event.target.value)} style={{ width: "100%" }} /></label>
+              <label><span className="label">临时密码</span><div style={{ display: "flex", gap: 8 }}><input className="field" readOnly value={temporaryPassword} style={{ flex: 1 }} /><button type="button" className="btn" onClick={() => setTemporaryPassword(generateSecureTemporaryPassword())}>重新生成</button></div></label>
+              <p className="card-note" style={{ margin: 0 }}>账号首次登录必须修改密码。新组自动继承本部门时区和系统全部启用渠道。</p>
+            </div> : null}
+          </> : null}
           {error ? (
             <p role="alert" style={{ color: "var(--bad)" }}>
               {error}

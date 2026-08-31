@@ -3,8 +3,8 @@ import test from "node:test";
 
 import { resolveFrontlineEntry } from "../lib/frontline-entry.ts";
 
-test("组长兼专家仍进入管理端", () => {
-  assert.deepEqual(resolveFrontlineEntry(["LEAD", "EXPERT"], "group-1"), { workspace: "ADMIN" });
+test("组长进入一线工作台并保留组长权限", () => {
+  assert.deepEqual(resolveFrontlineEntry(["LEAD", "EXPERT"], "group-1"), { workspace: "FRONTLINE", role: "LEAD" });
 });
 
 test("纯专家留在一线前台", () => {

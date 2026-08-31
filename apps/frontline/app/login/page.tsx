@@ -24,7 +24,8 @@ export default function LoginPage() {
       if (payload.mustChangePassword) {
         window.location.assign("/change-password");
       } else {
-        window.location.assign(workspaceOrigin(payload.workspace ?? "FRONTLINE"));
+        const workspace = payload.user?.role === "LEAD" ? "FRONTLINE" : (payload.workspace ?? "FRONTLINE");
+        window.location.assign(workspaceOrigin(workspace));
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "登录失败，请稍后再试");

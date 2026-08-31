@@ -1,0 +1,1 @@
+ALTER TYPE "DeviceAccountType" ADD VALUE IF NOT EXISTS 'SIG';

@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   const requestedGroupId = url.searchParams.get("groupId") ?? "";
   if (!dateOnly.test(date)) return NextResponse.json({ error: "请选择正确的报表日期" }, { status: 400 });
   const allGroups = await db.teamGroup.findMany({
-    select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true } } },
+    select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } },
   });
   const groups = resolveReadableReportGroups(user, allGroups);
   const groupIds = requestedGroupId

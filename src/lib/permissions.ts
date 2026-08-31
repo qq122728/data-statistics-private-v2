@@ -1,6 +1,6 @@
 import { Prisma, type Role } from "@prisma/client";
 import { db } from "./db";
-import { hasAssignedRole } from "./role-access";
+import { hasAssignedRole, isFrontlineGroupMember } from "./role-access";
 export {
   customerWorkflowRoles,
   customerDeleteRoles,
@@ -17,12 +17,15 @@ export {
 export type PermissionUser = {
   id: string;
   role: Role;
+  duty?: import("@prisma/client").Duty | null;
   groupId: string | null;
   departmentId?: string | null;
+  companyId?: string | null;
   managementCountryCode?: string | null;
   active: boolean;
   roleAssignments?: Array<{ role: Role }>;
   resourceChannelAccess?: Array<{ channelId: string }>;
+  managedDepartments?: Array<{ departmentId: string }>;
 };
 
 /**
@@ -30,7 +33,7 @@ export type PermissionUser = {
  * 还必须调用 findLivePermissionUser，避免旧登录状态绕过刚发生的停用/调岗。
  */
 export const attendanceWriteRoles = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
-export const notificationWriteRoles = ["ADMIN", "COMPANY_MANAGER", "LEAD"] as const;
+export const notificationWriteRoles = ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER", "LEAD"] as const;
 export const deviceAccountWriteRoles = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
 export const adminWriteRoles = ["ADMIN"] as const;
 export const channelManagementWriteRoles = ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER"] as const;
@@ -43,7 +46,7 @@ export async function findLivePermissionUser(
 ): Promise<PermissionUser | null> {
   return client.user.findFirst({
     where: { id: userId, active: true },
-    select: { id: true, role: true, groupId: true, departmentId: true, managementCountryCode: true, active: true, roleAssignments: { select: { role: true } } },
+    select: { id: true, role: true, duty: true, groupId: true, departmentId: true, companyId: true, managementCountryCode: true, active: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, managedDepartments: { select: { departmentId: true } } },
   });
 }
 
@@ -52,7 +55,14 @@ export function canWriteAttendance(user: PermissionUser): boolean {
 }
 
 export function canWriteNotifications(user: PermissionUser): boolean {
-  return user.active && notificationWriteRoles.includes(user.role as (typeof notificationWriteRoles)[number]);
+  return user.active && (
+    user.role === "ADMIN"
+    || user.role === "RESOURCE_MANAGER"
+    || user.duty === "HQ_MANAGER"
+    || user.duty === "COMPANY_MANAGER"
+    || user.duty === "DEPARTMENT_MANAGER"
+    || hasAssignedRole(user, "LEAD")
+  );
 }
 
 export function canWriteDeviceAccounts(user: PermissionUser): boolean {
@@ -71,7 +81,7 @@ export type ReportReadableGroup = {
   id: string;
   departmentId?: string | null;
   countryCode?: string | null;
-  department?: { countryCode?: string | null };
+  department?: { countryCode?: string | null; companyId?: string | null };
 };
 
 /**
@@ -80,7 +90,13 @@ export type ReportReadableGroup = {
  */
 export type CustomerRevenueWriteTarget = {
   batch: { groupId: string };
-  lead: { expertOwnerId: string | null } | null;
+  lead: {
+    ownerId?: string | null;
+    attributionOwnerId?: string | null;
+    groupOperatorOwnerId?: string | null;
+    expertOwnerId: string | null;
+    currentGroupId?: string | null;
+  } | null;
 };
 
 export function canWriteCustomerRevenue(
@@ -88,8 +104,17 @@ export function canWriteCustomerRevenue(
   target: CustomerRevenueWriteTarget,
 ): boolean {
   if (!user.active) return false;
-  if (hasAssignedRole(user, "LEAD")) return Boolean(user.groupId && target.batch.groupId === user.groupId);
-  if (hasAssignedRole(user, "EXPERT")) return target.lead?.expertOwnerId === user.id;
+  if (hasAssignedRole(user, "LEAD")) return Boolean(user.groupId && (target.lead?.currentGroupId ?? target.batch.groupId) === user.groupId);
+  if (isFrontlineGroupMember(user) && target.lead) {
+    const currentGroupId = target.lead.currentGroupId ?? target.batch.groupId;
+    const responsibleIds = new Set([
+      target.lead.attributionOwnerId,
+      target.lead.ownerId,
+      target.lead.groupOperatorOwnerId,
+      target.lead.expertOwnerId,
+    ].filter((id): id is string => Boolean(id)));
+    return currentGroupId === user.groupId && responsibleIds.has(user.id);
+  }
   return false;
 }
 
@@ -99,7 +124,17 @@ export function canWriteCustomerRevenue(
  */
 export function canReadReportGroup(user: PermissionUser, group: ReportReadableGroup): boolean {
   if (!user.active) return false;
-  if (user.role === "ADMIN" || user.role === "RESOURCE_MANAGER" || user.role === "FINANCE") return true;
+  if (user.role === "ADMIN" || user.duty === "HQ_MANAGER" || user.role === "RESOURCE_MANAGER" || user.role === "FINANCE") return true;
+  if (user.duty === "COMPANY_MANAGER") {
+    return Boolean(user.companyId && group.department?.companyId === user.companyId);
+  }
+  if (user.duty === "DEPARTMENT_MANAGER") {
+    const departmentIds = new Set([
+      ...(user.departmentId ? [user.departmentId] : []),
+      ...(user.managedDepartments?.map((item) => item.departmentId) ?? []),
+    ]);
+    return Boolean(group.departmentId && departmentIds.has(group.departmentId));
+  }
   if (user.role === "COMPANY_MANAGER") {
     if (!user.departmentId || group.departmentId !== user.departmentId) return false;
     return !user.managementCountryCode || (group.countryCode || group.department?.countryCode) === user.managementCountryCode;

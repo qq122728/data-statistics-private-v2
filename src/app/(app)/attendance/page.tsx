@@ -23,7 +23,7 @@ export default async function AttendancePage({ searchParams }: { searchParams: P
   if (canManage) {
     const [raw, settings, allGroups, departments] = await Promise.all([
       searchParams, getSystemSettings(),
-      db.teamGroup.findMany({ where: { active: true }, select: { id: true, name: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, department: { select: { countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, name: true } } }, orderBy: [{ department: { name: "asc" } }, { name: "asc" }] }),
+      db.teamGroup.findMany({ where: { active: true }, select: { id: true, name: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, department: { select: { countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, name: true, companyId: true } } }, orderBy: [{ department: { name: "asc" } }, { name: "asc" }] }),
       db.department.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     ]);
     // 行政只使用考勤与人员档案，不继承任何经营报表权限；考勤范围在这里单独放行。

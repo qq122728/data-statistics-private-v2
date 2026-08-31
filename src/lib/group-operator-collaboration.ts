@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { customerCurrentGroupWhere } from "./customer-current-group";
 
 /**
  * 组长手工分配的接粉员，加上炒群员自己兼任接粉时的本人。
@@ -203,7 +204,7 @@ export function activeGroupOperatorHandoffWhere(input: {
   fromGroupOperatorId: string;
 }): Prisma.LeadCustomerWhereInput {
   return {
-    batch: { groupId: input.groupId },
+    AND: [customerCurrentGroupWhere(input.groupId)],
     ownerId: input.receptionistId,
     groupOperatorOwnerId: input.fromGroupOperatorId,
     joinedOn: { not: null },

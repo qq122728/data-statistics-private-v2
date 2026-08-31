@@ -113,8 +113,9 @@ export async function POST(request: Request) {
         return { error: "该小组已经有一位启用中的组长", status: 409 as const };
       }
       if (resourceChannels.value.length) {
-        const channels = await client.channel.findMany({ where: { id: { in: resourceChannels.value } }, select: { id: true } });
+        const channels = await client.channel.findMany({ where: { id: { in: resourceChannels.value } }, select: { id: true, channelType: true } });
         if (new Set(channels.map((channel) => channel.id)).size !== resourceChannels.value.length) return { error: "选择的资源渠道不存在", status: 400 as const };
+        if (new Set(channels.map((channel) => channel.channelType)).size !== 1) return { error: "一个资源部账号只能选择一种渠道类型（投流或短信）", status: 400 as const };
       }
       const highRisk = role === "ADMIN"
         ? await authorizeHighRiskOperation(client, access.actor.id, body)
@@ -314,8 +315,9 @@ export async function PATCH(request: Request) {
       const sortedNextResourceChannelIds = [...nextResourceChannels.value].sort();
       const resourceChannelsChanged = currentResourceChannelIds.join(",") !== sortedNextResourceChannelIds.join(",");
       if (resourceChannelsChanged) {
-        const channels = await client.channel.findMany({ where: { id: { in: sortedNextResourceChannelIds } }, select: { id: true } });
+        const channels = await client.channel.findMany({ where: { id: { in: sortedNextResourceChannelIds } }, select: { id: true, channelType: true } });
         if (new Set(channels.map((channel) => channel.id)).size !== sortedNextResourceChannelIds.length) return { error: "选择的资源渠道不存在", status: 400 as const };
+        if (new Set(channels.map((channel) => channel.channelType)).size !== 1) return { error: "一个资源部账号只能选择一种渠道类型（投流或短信）", status: 400 as const };
         changedFields.push("resourceChannelIds");
       }
       const currentSecondaryRoles = existing.roleAssignments.map((assignment) => assignment.role).filter((assignedRole) => assignedRole !== existing.role);

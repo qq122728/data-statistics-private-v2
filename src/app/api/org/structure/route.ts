@@ -6,7 +6,7 @@ import { requireAdminOrOrgManagerRequest } from "../_auth";
 import { managedDepartmentIds } from "../../../../lib/managed-department-scope";
 
 type GroupNode = { id: string; name: string; active: boolean; leadId: string | null; leadName: string | null };
-type DepartmentNode = { id: string; name: string; active: boolean; countryCode: string; timezone: string; companyId: string | null; groups: GroupNode[] };
+type DepartmentNode = { id: string; name: string; active: boolean; countryCode: string; timezone: string; workStartMinutes: number; workEndMinutes: number; companyId: string | null; groups: GroupNode[] };
 type CompanyNode = { id: string; name: string; active: boolean; departments: DepartmentNode[] };
 
 const groupSelect = {
@@ -35,7 +35,7 @@ function filterGroupsInScope(actor: OrgPermissionUser, department: { id: string;
 async function loadDepartmentNode(departmentId: string): Promise<DepartmentNode | null> {
   const department = await db.department.findUnique({
     where: { id: departmentId },
-    select: { id: true, name: true, active: true, countryCode: true, timezone: true, companyId: true, groups: { select: groupSelect } },
+    select: { id: true, name: true, active: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, companyId: true, groups: { select: groupSelect } },
   });
   if (!department) return null;
   return {
@@ -44,6 +44,8 @@ async function loadDepartmentNode(departmentId: string): Promise<DepartmentNode 
     active: department.active,
     countryCode: department.countryCode,
     timezone: department.timezone,
+    workStartMinutes: department.workStartMinutes,
+    workEndMinutes: department.workEndMinutes,
     companyId: department.companyId,
     groups: department.groups.map(toGroupNode),
   };
@@ -56,7 +58,7 @@ async function loadCompanyNode(companyId: string): Promise<CompanyNode | null> {
       id: true,
       name: true,
       active: true,
-      departments: { select: { id: true, name: true, active: true, countryCode: true, timezone: true, companyId: true, groups: { select: groupSelect } } },
+      departments: { select: { id: true, name: true, active: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, companyId: true, groups: { select: groupSelect } } },
     },
   });
   if (!company) return null;
@@ -70,6 +72,8 @@ async function loadCompanyNode(companyId: string): Promise<CompanyNode | null> {
       active: department.active,
       countryCode: department.countryCode,
       timezone: department.timezone,
+      workStartMinutes: department.workStartMinutes,
+      workEndMinutes: department.workEndMinutes,
       companyId: department.companyId,
       groups: department.groups.map(toGroupNode),
     })),
@@ -94,7 +98,7 @@ export async function GET() {
       db.company.findMany({ select: { id: true } }),
       db.department.findMany({
         where: { companyId: null },
-        select: { id: true, name: true, active: true, countryCode: true, timezone: true, companyId: true, groups: { select: groupSelect } },
+        select: { id: true, name: true, active: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, companyId: true, groups: { select: groupSelect } },
       }),
     ]);
     const companyNodes = (await Promise.all(companies.map((company) => loadCompanyNode(company.id))))
@@ -109,6 +113,8 @@ export async function GET() {
       active: department.active,
       countryCode: department.countryCode,
       timezone: department.timezone,
+      workStartMinutes: department.workStartMinutes,
+      workEndMinutes: department.workEndMinutes,
       companyId: department.companyId,
       groups: filterGroupsInScope(actor, department, department.groups.map(toGroupNode)),
     }));

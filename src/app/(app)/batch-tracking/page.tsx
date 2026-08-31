@@ -22,7 +22,7 @@ export default async function BatchTrackingPage({ searchParams }: { searchParams
   try { user = await requireUser(); }
   catch (error) { if (error instanceof AuthenticationError) redirect("/login?next=/batch-tracking"); throw error; }
   if (user.role !== "ADMIN" && user.role !== "LEAD") redirect("/dashboard");
-  const [raw, settings, groups] = await Promise.all([searchParams, getSystemSettings(), db.teamGroup.findMany({ select: { id: true, name: true, active: true }, orderBy: { name: "asc" } })]);
+  const [raw, settings, groups] = await Promise.all([searchParams, getSystemSettings(), db.teamGroup.findMany({ select: { id: true, name: true, active: true, departmentId: true, department: { select: { companyId: true } } }, orderBy: { name: "asc" } })]);
   const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
   const readableGroups = resolveReadableReportGroups(user, groups);
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => first(value) === undefined ? [] : [[key, first(value)!]]));

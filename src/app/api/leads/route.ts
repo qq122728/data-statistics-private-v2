@@ -14,6 +14,7 @@ import { authorizationDenied } from "../../../lib/security-events";
 import { splitCustomerImportRows } from "../../../lib/customer-import-eligibility";
 import { hasAssignedRole } from "../../../lib/role-access";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
+import { leadCurrentGroupId } from "../../../lib/customer-current-group";
 
 const date = z.string().refine(isCalendarDate, "日期必须是实际存在的 YYYY-MM-DD");
 const importCustomerRowSchema = z.object({
@@ -126,6 +127,7 @@ export async function POST(request: Request) {
           phone: true,
           id: true,
           ownerId: true,
+          currentGroupId: true,
           owner: { select: { name: true } },
           batch: { select: { groupId: true } },
         },
@@ -208,7 +210,7 @@ export async function POST(request: Request) {
         lowAmountCount: lowAmountRows.length,
         collisions: existing.map((lead) => ({
           phone: lead.phone,
-          ownerName: lead.batch.groupId === channel.groupId ? lead.owner.name : "其他公司或小组",
+          ownerName: leadCurrentGroupId(lead) === channel.groupId ? lead.owner.name : "其他公司或小组",
         })),
         submitted: acceptedRows.length,
       };

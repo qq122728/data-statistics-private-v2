@@ -75,7 +75,7 @@ async function renderManagementDashboard(user: User, raw: SearchParams) {
   const [settings, allGroups, departments] = await Promise.all([
     getSystemSettings(),
     db.teamGroup.findMany({
-      select: { id: true, name: true, active: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, department: { select: { name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } } },
+      select: { id: true, name: true, active: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, department: { select: { name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true, companyId: true } } },
       orderBy: { name: "asc" },
     }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),

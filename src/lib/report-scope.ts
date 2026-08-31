@@ -1,6 +1,6 @@
 import { canReadReportGroup, type PermissionUser } from "./permissions";
 
-export type ReportGroup = { id: string; name?: string; active?: boolean; departmentId?: string; countryCode?: string | null; department?: { name?: string; countryCode?: string | null } };
+export type ReportGroup = { id: string; name?: string; active?: boolean; departmentId?: string; countryCode?: string | null; department?: { name?: string; countryCode?: string | null; companyId?: string | null } };
 
 export function resolveReadableReportGroups<T extends ReportGroup>(user: PermissionUser, groups: T[]): T[] {
   return groups.filter((group) => canReadReportGroup(user, group));

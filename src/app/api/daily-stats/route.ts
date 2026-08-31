@@ -5,12 +5,13 @@ import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import {
   DailyStatError,
   dailyStatEntryInclude,
+  isUnifiedDailyStatIdentity,
   publicDailyStat,
   saveDailyStat,
 } from "../../../lib/daily-stats";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { db } from "../../../lib/db";
-import { getAssignedRoles } from "../../../lib/role-access";
+import { frontlineMemberRoles, isFrontlineGroupMember } from "../../../lib/role-access";
 import { authorizationDenied, type SecurityEventActor } from "../../../lib/security-events";
 
 function errorResponse(error: unknown, actor?: SecurityEventActor) {
@@ -35,30 +36,32 @@ export async function GET(request: Request) {
   try {
     const actor = await requireUser();
     securityActor = actor;
-    if (!actor.groupId) return authorizationDenied(actor, "当前账号未分配小组");
+    if (!isFrontlineGroupMember(actor)) return authorizationDenied(actor, "只有在职组员可以查看和填写自己的数据");
+    const groupId = actor.groupId!;
     const url = new URL(request.url);
     const from = url.searchParams.get("from")?.trim();
     const to = url.searchParams.get("to")?.trim();
-    const entries = await db.dailyStatEntry.findMany({
+    const attributionEntries = await db.dailyStatEntry.findMany({
       where: {
-        ownerId: actor.id,
+        OR: [{ ownerId: actor.id }, { sourceReceptionId: actor.id }],
         ...(from || to ? { businessDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
       },
       include: dailyStatEntryInclude,
       orderBy: [{ businessDate: "desc" }, { createdAt: "desc" }],
       take: 200,
     });
+    const entries = attributionEntries.filter((entry) => entry.ownerId === actor.id);
     const [channels, members, pairingRows, timezone] = await Promise.all([
       db.channel.findMany({
-        where: { groupId: actor.groupId, active: true },
+        where: { groupId, active: true },
         select: { id: true, name: true, channelType: true },
         orderBy: { name: "asc" },
       }),
       db.user.findMany({
         where: {
           OR: [
-            { groupId: actor.groupId },
-            { positionHistory: { some: { groupId: actor.groupId } } },
+            { groupId },
+            { positionHistory: { some: { groupId } } },
           ],
         },
         select: {
@@ -69,7 +72,7 @@ export async function GET(request: Request) {
           role: true,
           roleAssignments: { select: { role: true } },
           positionHistory: {
-            where: { groupId: actor.groupId },
+            where: { groupId },
             select: { position: true, secondaryPositions: true, effectiveFrom: true, effectiveTo: true },
           },
         },
@@ -81,8 +84,8 @@ export async function GET(request: Request) {
             groupOperatorId: actor.id,
             receptionist: {
               OR: [
-                { groupId: actor.groupId },
-                { positionHistory: { some: { groupId: actor.groupId } } },
+                { groupId },
+                { positionHistory: { some: { groupId } } },
               ],
             },
           },
@@ -94,8 +97,8 @@ export async function GET(request: Request) {
             groupOperatorId: actor.id,
             receptionist: {
               OR: [
-                { groupId: actor.groupId },
-                { positionHistory: { some: { groupId: actor.groupId } } },
+                { groupId },
+                { positionHistory: { some: { groupId } } },
               ],
             },
           },
@@ -123,25 +126,134 @@ export async function GET(request: Request) {
           effectiveTo: null,
         })),
     ];
+    const numberFields = [
+      "dispatchCount", "duplicateCount", "lowAmountCount", "noWsCount", "manualInvalidCount", "effectiveCount",
+      "replyCount", "joinCount", "operatorReceivedCount", "normalLeaveCount", "abnormalLeaveCount", "currentInGroupCount",
+      "expertIntroCount", "expertReceivedCount", "expertContactedCount", "registrationCount", "orderCount",
+      "cryptoInitialDepositCents", "bankInitialDepositCents", "cryptoRechargeCents", "bankRechargeCents", "withdrawalCents",
+    ] as const;
+    type RevisionValues = Record<(typeof numberFields)[number], number>;
+    const emptyValues = () => Object.fromEntries(numberFields.map((field) => [field, 0])) as RevisionValues;
+    const unifiedByScope = new Map<string, typeof attributionEntries>();
+    for (const entry of attributionEntries) {
+      const attributionOwnerId = entry.sourceReceptionId ?? entry.ownerId;
+      if (attributionOwnerId !== actor.id) continue;
+      const key = `${entry.businessDate}\0${entry.channelId}`;
+      const rows = unifiedByScope.get(key) ?? [];
+      rows.push(entry);
+      unifiedByScope.set(key, rows);
+    }
+    const unifiedEntries = [...unifiedByScope.values()].map((rows) => {
+      const primary = rows.find((entry) => entry.position === "RECEPTION" && isUnifiedDailyStatIdentity(entry.identityKey))
+        ?? rows.find((entry) => entry.position === "RECEPTION" && entry.ownerId === actor.id)
+        ?? null;
+      const primaryRevision = primary?.currentRevision ?? primary?.approvedRevision ?? null;
+      const activeCompanions = rows.filter((entry) =>
+        entry.position !== "RECEPTION"
+        && entry.status !== "RETURNED"
+        && Boolean(entry.currentRevision ?? entry.approvedRevision),
+      );
+      const companionTotals = {
+        normalLeaveCount: 0,
+        abnormalLeaveCount: 0,
+        currentInGroupCount: 0,
+        expertIntroCount: 0,
+        expertContactedCount: 0,
+        registrationCount: 0,
+        orderCount: 0,
+        cryptoInitialDepositCents: 0,
+        bankInitialDepositCents: 0,
+        cryptoRechargeCents: 0,
+        bankRechargeCents: 0,
+        withdrawalCents: 0,
+      };
+      for (const companion of activeCompanions) {
+        const revision = companion.currentRevision ?? companion.approvedRevision;
+        if (!revision) continue;
+        if (companion.position === "GROUP_OPERATOR") {
+          for (const field of ["normalLeaveCount", "abnormalLeaveCount", "currentInGroupCount", "expertIntroCount"] as const)
+            companionTotals[field] += revision[field];
+        } else {
+          for (const field of ["expertContactedCount", "registrationCount", "orderCount", "cryptoInitialDepositCents", "bankInitialDepositCents", "cryptoRechargeCents", "bankRechargeCents", "withdrawalCents"] as const)
+            companionTotals[field] += revision[field];
+        }
+      }
+      const primaryCoversCompanions = primaryRevision
+        ? activeCompanions.length === 0
+          || Boolean(primaryRevision.changeReason)
+          || Object.entries(companionTotals).every(([field, value]) =>
+              primaryRevision[field as keyof typeof companionTotals] === value,
+            )
+        : false;
+      const values = emptyValues();
+      if (primary && isUnifiedDailyStatIdentity(primary.identityKey) && primaryRevision && primaryCoversCompanions) {
+        for (const field of numberFields) values[field] = primaryRevision[field];
+      } else {
+        const receptionRows = rows.filter((entry) => entry.position === "RECEPTION");
+        const operatorRows = activeCompanions.filter((entry) => entry.position === "GROUP_OPERATOR");
+        const expertRows = activeCompanions.filter((entry) => entry.position === "EXPERT");
+        for (const entry of receptionRows) {
+          const revision = entry.currentRevision ?? entry.approvedRevision;
+          if (!revision) continue;
+          for (const field of numberFields)
+            values[field] += revision[field];
+        }
+        // 仍有旧岗位行时，由旧岗位行提供其负责的字段，不能再叠加新版接粉行中的同名值。
+        if (operatorRows.length) {
+          for (const field of ["operatorReceivedCount", "normalLeaveCount", "abnormalLeaveCount", "currentInGroupCount", "expertIntroCount"] as const)
+            values[field] = 0;
+        }
+        for (const entry of operatorRows) {
+          const revision = entry.currentRevision ?? entry.approvedRevision;
+          if (!revision) continue;
+          values.operatorReceivedCount += revision.operatorReceivedCount;
+          values.normalLeaveCount += revision.normalLeaveCount;
+          values.abnormalLeaveCount += revision.abnormalLeaveCount;
+          values.currentInGroupCount += revision.currentInGroupCount;
+          values.expertIntroCount += revision.expertIntroCount;
+        }
+        // 旧接粉行如果没有进群数，才用旧炒群“接手”数补齐，防止同一批客户算两次。
+        if (values.joinCount === 0) values.joinCount = values.operatorReceivedCount;
+        if (expertRows.length) {
+          for (const field of ["expertReceivedCount", "expertContactedCount", "registrationCount", "orderCount", "cryptoInitialDepositCents", "bankInitialDepositCents", "cryptoRechargeCents", "bankRechargeCents", "withdrawalCents"] as const)
+            values[field] = 0;
+        }
+        for (const entry of expertRows) {
+          const revision = entry.currentRevision ?? entry.approvedRevision;
+          if (!revision) continue;
+          for (const field of ["expertReceivedCount", "expertContactedCount", "registrationCount", "orderCount", "cryptoInitialDepositCents", "bankInitialDepositCents", "cryptoRechargeCents", "bankRechargeCents", "withdrawalCents"] as const)
+            values[field] += revision[field];
+        }
+      }
+      const first = rows[0];
+      return {
+        entryId: primary?.id ?? null,
+        businessDate: first.businessDate,
+        channel: first.channel,
+        status: primary?.status ?? "LEGACY_MERGED",
+        values,
+      };
+    }).sort((left, right) => right.businessDate.localeCompare(left.businessDate) || left.channel.name.localeCompare(right.channel.name, "zh-CN"));
     return NextResponse.json({
       actorId: actor.id,
       today: localDateYYYYMMDD(new Date(), timezone),
       timezone,
-      positions: getAssignedRoles(actor).filter((role) => ["RECEPTION", "GROUP_OPERATOR", "EXPERT"].includes(role)),
+      // 旧前端仍需要这三个存储分类；对所有组员都返回，不再绑定账号岗位。
+      positions: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"],
       channels,
       members: members.map((member) => ({
         id: member.id,
         name: member.name,
         active: member.active,
-        current: member.active && member.groupId === actor.groupId,
-        roles: [...new Set([
-          member.role,
-          ...member.roleAssignments.map((item) => item.role),
-          ...member.positionHistory.flatMap((item) => [item.position, ...(item.secondaryPositions?.split(",").filter(Boolean) ?? [])]),
-        ])].filter((role) => ["RECEPTION", "GROUP_OPERATOR", "EXPERT"].includes(role)),
+        current: member.active && member.groupId === groupId,
+        roles: frontlineMemberRoles.includes(member.role as (typeof frontlineMemberRoles)[number])
+          ? ["RECEPTION", "GROUP_OPERATOR", "EXPERT"]
+          : [],
       })),
       sourceReceptionPairings,
       entries: entries.map(publicDailyStat),
+      // 新组员页面使用这个单行视图；entries 继续保留给旧页面和历史审计。
+      unifiedEntries,
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     return errorResponse(error, securityActor);

@@ -39,13 +39,16 @@ export function canCreateCompany(user: OrgPermissionUser): boolean {
   return user.active && (user.role === "ADMIN" || user.duty === "HQ_MANAGER");
 }
 
+export type CompanyScope = { id: string };
+
 /**
- * 总公司管理员新建部门（5.6："另外能新建公司、新建部门"，只在总公司管理员这一行出现，
- * 部门管理员/公司管理员都没有这项权限）。国家/时区是创建时的输入，不是权限判断的依据，
- * 由路由自己校验，这里不强制要求调用方传公司信息。
+ * 新建部门：公司管理员只能在自己绑定的公司内创建；总公司管理员和 ADMIN 不限。
+ * 目标公司必须由路由先从数据库解析，再传入本纯函数，不能直接相信请求体中的 companyId。
  */
-export function canCreateDepartment(user: OrgPermissionUser): boolean {
-  return user.active && (user.role === "ADMIN" || user.duty === "HQ_MANAGER");
+export function canCreateDepartment(user: OrgPermissionUser, company: CompanyScope): boolean {
+  if (!user.active) return false;
+  if (user.role === "ADMIN" || user.duty === "HQ_MANAGER") return true;
+  return user.duty === "COMPANY_MANAGER" && Boolean(user.companyId) && company.id === user.companyId;
 }
 
 export type DepartmentScope = { id: string; companyId: string | null };
@@ -185,6 +188,7 @@ export function canViewOrgScope(user: OrgPermissionUser, scope: OrgScopeTarget):
 
 export type CustomerOperationTarget = {
   batch: { groupId: string };
+  currentGroupId?: string | null;
   ownerId: string | null;
   groupOperatorOwnerId: string | null;
   expertOwnerId: string | null;
@@ -198,9 +202,10 @@ export type CustomerOperationTarget = {
  */
 export function canOperateCustomer(user: OrgPermissionUser, target: CustomerOperationTarget): boolean {
   if (!user.active) return false;
-  if (hasAssignedRole(user, "LEAD")) return Boolean(user.groupId) && target.batch.groupId === user.groupId;
-  if (hasAssignedRole(user, "RECEPTION") && target.ownerId === user.id) return true;
-  if (hasAssignedRole(user, "GROUP_OPERATOR") && target.groupOperatorOwnerId === user.id) return true;
-  if (hasAssignedRole(user, "EXPERT") && target.expertOwnerId === user.id) return true;
+  const currentGroupId = target.currentGroupId ?? target.batch.groupId;
+  if (hasAssignedRole(user, "LEAD")) return Boolean(user.groupId) && currentGroupId === user.groupId;
+  if (hasAssignedRole(user, "RECEPTION") && target.ownerId === user.id) return Boolean(user.groupId) && currentGroupId === user.groupId;
+  if (hasAssignedRole(user, "GROUP_OPERATOR") && target.groupOperatorOwnerId === user.id) return Boolean(user.groupId) && currentGroupId === user.groupId;
+  if (hasAssignedRole(user, "EXPERT") && target.expertOwnerId === user.id) return Boolean(user.groupId) && currentGroupId === user.groupId;
   return false;
 }

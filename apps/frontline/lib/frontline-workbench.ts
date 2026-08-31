@@ -50,6 +50,7 @@ export type GroupOperatorCustomer = {
   activities: ActivityRef[];
   latestGroupProgress: ActivityRef | null;
   order: OrderSummary | null;
+  canEdit: boolean;
 };
 export type GroupOperatorResponse = {
   stage: GroupOperatorStage;
@@ -96,6 +97,7 @@ export type ExpertCustomer = {
   batch: { id: string; sourceDate: string; channel: { id: string; name: string } };
   activities: ActivityRef[];
   order: OrderSummary | null;
+  canEdit: boolean;
 };
 export type ExpertResponse = {
   stage: ExpertStage | "all";

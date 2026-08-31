@@ -30,7 +30,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ev
         customerOrder: {
           select: {
             batch: { select: { groupId: true } },
-            lead: { select: { ownerId: true, expertOwnerId: true } },
+            lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true } },
           },
         },
       },

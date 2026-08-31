@@ -16,6 +16,7 @@ afterEach(async () => {
   await db.teamGroup.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.department.deleteMany({ where: { id: { startsWith: prefix } } });
+  await db.company.deleteMany({ where: { id: { startsWith: prefix } } });
 });
 
 describe.sequential("resource department channel permissions", () => {
@@ -180,11 +181,17 @@ describe.sequential("resource department channel permissions", () => {
   });
 
   it("lets a company manager manage only its own company channel catalog", async () => {
+    const companyId = `${prefix}company-scope-${randomUUID()}`;
+    const otherCompanyId = `${prefix}other-company-scope-${randomUUID()}`;
     const departmentId = `${prefix}company-${randomUUID()}`;
     const otherDepartmentId = `${prefix}other-company-${randomUUID()}`;
+    await db.company.createMany({ data: [
+      { id: companyId, name: `${prefix}本公司主体-${randomUUID()}` },
+      { id: otherCompanyId, name: `${prefix}其他公司主体-${randomUUID()}` },
+    ] });
     await db.department.createMany({ data: [
-      { id: departmentId, name: `${prefix}本公司-${randomUUID()}` },
-      { id: otherDepartmentId, name: `${prefix}其他公司-${randomUUID()}` },
+      { id: departmentId, name: `${prefix}本公司-${randomUUID()}`, companyId },
+      { id: otherDepartmentId, name: `${prefix}其他公司-${randomUUID()}`, companyId: otherCompanyId },
     ] });
     const ownGroupIds = [`${prefix}company-a-${randomUUID()}`, `${prefix}company-b-${randomUUID()}`];
     const otherGroupId = `${prefix}other-group-${randomUUID()}`;
@@ -194,14 +201,16 @@ describe.sequential("resource department channel permissions", () => {
     ] });
     const password = "Company-channel@56790";
     const actor = await db.user.create({
-      data: { id: `${prefix}company-manager-${randomUUID()}`, username: `${prefix}company-manager-${randomUUID()}`, name: "公司渠道管理员", passwordHash: hashPassword(password), role: "COMPANY_MANAGER", departmentId },
+      data: { id: `${prefix}company-manager-${randomUUID()}`, username: `${prefix}company-manager-${randomUUID()}`, name: "公司渠道管理员", passwordHash: hashPassword(password), role: "COMPANY_MANAGER", duty: "COMPANY_MANAGER", companyId },
     });
     vi.spyOn(auth, "requireRole").mockResolvedValue(actor);
     const name = `${prefix}公司短信-${randomUUID()}`;
 
     const rejectedGlobal = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ global: true, name }) }));
     expect(rejectedGlobal.status).toBe(403);
-    const created = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ company: true, name }) }));
+    const forged = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ company: true, companyId: otherCompanyId, name }) }));
+    expect(forged.status).toBe(403);
+    const created = await POST(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({ company: true, companyId, name }) }));
     expect(created.status).toBe(201);
     const channel = await created.json() as { id: string; groupCount: number };
     expect(channel.groupCount).toBe(ownGroupIds.length);
@@ -209,7 +218,9 @@ describe.sequential("resource department channel permissions", () => {
     expect(await db.channel.count({ where: { id: channel.id, groupId: otherGroupId } })).toBe(0);
 
     const renamed = `${name}-改名`;
-    const updated = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ company: true, id: channel.id, name: renamed }) }));
+    const forgedUpdate = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ company: true, companyId: otherCompanyId, id: channel.id, name: renamed }) }));
+    expect(forgedUpdate.status).toBe(403);
+    const updated = await PATCH(new Request("http://localhost/api/admin/channels", { method: "PATCH", body: JSON.stringify({ company: true, companyId, id: channel.id, name: renamed }) }));
     expect(updated.status).toBe(200);
     const copies = await db.channel.findMany({ where: { id: channel.id }, select: { groupId: true, name: true } });
     expect(copies).toHaveLength(ownGroupIds.length);

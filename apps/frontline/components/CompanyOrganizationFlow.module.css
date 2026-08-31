@@ -1,0 +1,76 @@
+.timeField {
+  display: grid;
+  gap: 3px;
+}
+
+.timeField span {
+  color: #7b8596;
+  font-size: 10px;
+}
+
+.steps {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #dfe4ec;
+  border-radius: 9px;
+  display: flex;
+  gap: 12px;
+  padding: 12px 15px;
+}
+
+.steps article {
+  align-items: center;
+  color: #7b8596;
+  display: flex;
+  flex: 1;
+  gap: 9px;
+}
+
+.steps article b {
+  background: #eef1f5;
+  border-radius: 50%;
+  display: grid;
+  height: 28px;
+  place-items: center;
+  width: 28px;
+}
+
+.steps article div {
+  display: grid;
+  gap: 2px;
+}
+
+.steps article strong {
+  color: #4d586a;
+  font-size: 12px;
+}
+
+.steps article span {
+  font-size: 10px;
+}
+
+.steps article[data-active="true"] b {
+  background: #1a73e8;
+  color: #fff;
+}
+
+.steps article[data-active="true"] strong {
+  color: #1769d2;
+}
+
+.steps > i {
+  color: #9aa3b2;
+  font-style: normal;
+}
+
+@media (max-width: 760px) {
+  .steps {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .steps > i {
+    align-self: center;
+    transform: rotate(90deg);
+  }
+}

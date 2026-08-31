@@ -1,0 +1,177 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { BackendUser } from "@/lib/backend";
+import { requestJson } from "@/lib/backend";
+import { DepartmentCustomerProgress } from "@/components/DepartmentCustomerProgress";
+import DepartmentGroupManagement from "@/components/DepartmentGroupManagement";
+import DepartmentPersonnelTransfer from "@/components/DepartmentPersonnelTransfer";
+import { NotificationBadge, UnifiedNotificationCenter, useNotificationUnread } from "@/components/UnifiedNotificationCenter";
+import { WorkspaceNavButton, WorkspaceShell } from "@/components/WorkspaceShell";
+import DepartmentDeviceAccounts from "@/components/DepartmentDeviceAccounts";
+
+type View = "dashboard" | "summary" | "customers" | "groups" | "transfer" | "devices" | "notifications";
+type Metrics = {
+  added: number; collision: number; lowAmount: number; noWs: number; manualInvalid?: number;
+  effective: number; replied: number; joined: number; leftNormal: number; leftAbnormal: number;
+  inGroup: number; pushed: number; registered: number; ordered: number;
+  initialDepositCents?: number; rechargeCents?: number; withdrawalCents: number; netCents: number;
+};
+type ReportGroup = { id: string; name: string; activePeople: number; totals: Metrics; rates: { replyRate?: number | null; groupRate?: number | null; abnormalLeaveRate?: number | null } };
+type ReportMember = { id: string; name: string; groupId: string; groupName: string; totals: Metrics };
+type ReportChannel = { id: string; name: string; groupCount: number; totals: Metrics };
+type ReportDay = { date: string; groups: Array<{ groupId: string; totals: Metrics }> };
+type ReportPayload = { range: { label: string }; groups: ReportGroup[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
+type StructureGroup = { id: string; name: string; active: boolean; leadId: string | null; leadName: string | null };
+type StructureDepartment = { id: string; name: string; timezone: string; groups: StructureGroup[] };
+type StructurePayload = {
+  department?: StructureDepartment | null;
+  companies?: Array<{ departments: StructureDepartment[] }>;
+  unassignedDepartments?: StructureDepartment[];
+};
+
+const money = (cents = 0) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
+const pct = (value: number | null | undefined) => value == null ? "—" : `${(value * 100).toFixed(1)}%`;
+function addMetricRows(rows: Array<{ totals: Metrics }>): Metrics {
+  const output = {} as Metrics;
+  const target = output as unknown as Record<string, number>;
+  for (const row of rows) for (const [key, value] of Object.entries(row.totals)) target[key] = (target[key] ?? 0) + (Number(value) || 0);
+  return output;
+}
+
+export default function DepartmentWorkspace({ user, onLogout }: { user: BackendUser; onLogout: () => void }) {
+  const [notificationUnread, setNotificationUnread] = useNotificationUnread();
+  const [view, setView] = useState<View>("dashboard");
+  const [range, setRange] = useState("month");
+  const [report, setReport] = useState<ReportPayload | null>(null);
+  const [structure, setStructure] = useState<StructureDepartment | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [summaryMode, setSummaryMode] = useState<"group" | "member" | "channel" | "day">("group");
+  const [groupFilter, setGroupFilter] = useState("");
+  const [filteredChannelReport, setFilteredChannelReport] = useState<ReportPayload | null>(null);
+  const [channelLoading, setChannelLoading] = useState(false);
+  const [channelError, setChannelError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const [nextReport, nextStructure] = await Promise.all([
+        requestJson<ReportPayload>(`/api/org/reporting?range=${encodeURIComponent(range)}`),
+        requestJson<StructurePayload>("/api/org/structure"),
+      ]);
+      setReport(nextReport);
+      setStructure(nextStructure.department
+        ?? nextStructure.companies?.flatMap((company) => company.departments)[0]
+        ?? nextStructure.unassignedDepartments?.[0]
+        ?? null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "部门数据读取失败");
+    } finally { setLoading(false); }
+  }, [range]);
+  useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (summaryMode !== "channel" || !groupFilter) {
+      setFilteredChannelReport(null);
+      setChannelLoading(false);
+      setChannelError("");
+      return;
+    }
+    let cancelled = false;
+    setChannelLoading(true);
+    setChannelError("");
+    void requestJson<ReportPayload>(`/api/org/reporting?range=${encodeURIComponent(range)}&groupId=${encodeURIComponent(groupFilter)}`)
+      .then((nextReport) => {
+        if (!cancelled) setFilteredChannelReport(nextReport);
+      })
+      .catch((caught) => {
+        if (!cancelled) {
+          setFilteredChannelReport(null);
+          setChannelError(caught instanceof Error ? caught.message : "小组渠道数据读取失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setChannelLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [groupFilter, range, summaryMode]);
+
+  const departmentTotals = useMemo(() => (report?.groups ?? []).reduce<Metrics>((sum, group) => {
+    for (const [key, value] of Object.entries(group.totals)) (sum as unknown as Record<string, number>)[key] = ((sum as unknown as Record<string, number>)[key] ?? 0) + (Number(value) || 0);
+    return sum;
+  }, { added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, effective: 0, replied: 0, joined: 0, leftNormal: 0, leftAbnormal: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, initialDepositCents: 0, rechargeCents: 0, withdrawalCents: 0, netCents: 0 }), [report]);
+  const visibleMembers = (report?.members ?? []).filter((member) => !groupFilter || member.groupId === groupFilter);
+  const selectedGroup = report?.groups.find((group) => group.id === groupFilter);
+  const visibleChannels = groupFilter ? (filteredChannelReport?.channels ?? []) : (report?.channels ?? []);
+
+  const title = view === "dashboard" ? "部门工作台" : view === "summary" ? "数据汇总" : view === "customers" ? "客户进度" : view === "groups" ? "小组管理" : view === "transfer" ? "人员调动" : view === "devices" ? "设备账号" : "通知中心";
+  const subtitle = view === "dashboard" ? "先看部门整体，再定位需要处理的小组" : view === "summary" ? "按小组、个人和日期查看真实汇总" : view === "groups" ? "先开设小组，再为已存在的小组单独开设组长账号" : "只查看本部门权限范围内的数据";
+
+  return <WorkspaceShell mark="部" workspaceLabel="部门管理员" title={title} subtitle={subtitle} userName={user.name} userLabel="部门管理员" onLogout={onLogout} scope={{ label: "部门管理权限", value: structure?.name ?? user.departmentName ?? "所属部门" }} navigation={<>
+        <WorkspaceNavButton active={view === "dashboard"} icon="dashboard" onClick={() => setView("dashboard")}>部门工作台</WorkspaceNavButton>
+        <WorkspaceNavButton active={view === "summary"} icon="summary" onClick={() => setView("summary")}>数据汇总</WorkspaceNavButton>
+        <WorkspaceNavButton active={view === "customers"} icon="search" onClick={() => setView("customers")}>客户进度</WorkspaceNavButton>
+        <WorkspaceNavButton active={view === "groups"} icon="settings" onClick={() => setView("groups")}>小组管理</WorkspaceNavButton>
+        <WorkspaceNavButton active={view === "transfer"} icon="transfer" onClick={() => setView("transfer")}>人员调动</WorkspaceNavButton>
+        <WorkspaceNavButton active={view === "devices"} icon="devices" onClick={() => setView("devices")}>设备账号</WorkspaceNavButton>
+        <WorkspaceNavButton active={view === "notifications"} icon="notifications" onClick={() => setView("notifications")}>通知中心<NotificationBadge count={notificationUnread} /></WorkspaceNavButton>
+      </>}>
+        {(view === "dashboard" || view === "summary") ? <div className="fresh-toolbar"><div className="fresh-history-intro"><strong>{report?.range.label ?? "统计区间"}</strong><span>只统计已经保存并生效的数据</span></div><label><span>统计周期</span><select value={range} onChange={(event) => setRange(event.target.value)}><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="month">本月</option><option value="lastMonth">上月</option></select></label><button className="fresh-primary" onClick={() => void load()}>刷新</button></div> : null}
+        {loading ? <section className="fresh-sheet-card department-empty">正在读取真实部门数据…</section> : null}
+        {error ? <section className="fresh-sheet-card department-error">{error}</section> : null}
+        {!loading && !error && view === "dashboard" ? <>
+          <section className="department-kpis">
+            {[ ["有效数据", departmentTotals.effective], ["进群", departmentTotals.joined], ["开单", departmentTotals.ordered], ["当前在群", departmentTotals.inGroup], ["净业绩", money(departmentTotals.netCents)] ].map(([label,value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}
+          </section>
+          <DepartmentTable title="小组经营概况" rows={(report?.groups ?? []).map((group) => ({ name: group.name, people: group.activePeople, totals: group.totals }))} />
+        </> : null}
+        {!loading && !error && view === "summary" ? <>
+          <div className="department-tabs"><button data-active={summaryMode === "group"} aria-pressed={summaryMode === "group"} onClick={() => setSummaryMode("group")}>按小组</button><button data-active={summaryMode === "member"} aria-pressed={summaryMode === "member"} onClick={() => setSummaryMode("member")}>按归属个人</button><button data-active={summaryMode === "channel"} aria-pressed={summaryMode === "channel"} onClick={() => setSummaryMode("channel")}>按渠道</button><button data-active={summaryMode === "day"} aria-pressed={summaryMode === "day"} onClick={() => setSummaryMode("day")}>按日期</button>{summaryMode === "member" || summaryMode === "channel" ? <select aria-label={summaryMode === "channel" ? "筛选渠道所属小组" : "筛选成员所属小组"} value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}><option value="">全部小组</option>{report?.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : null}</div>
+          {summaryMode === "group" ? <DepartmentTable title="小组数据汇总" rows={(report?.groups ?? []).map((group) => ({ name: group.name, people: group.activePeople, totals: group.totals }))} /> : summaryMode === "member" ? <DepartmentTable title="个人归属数据汇总（每人一行）" rows={visibleMembers.map((member) => ({ name: member.name, sub: member.groupName, totals: member.totals }))} /> : summaryMode === "channel" ? channelLoading ? <section className="fresh-sheet-card department-empty">正在读取{selectedGroup?.name ?? "小组"}的渠道数据…</section> : channelError ? <section className="fresh-sheet-card department-error">{channelError}</section> : <><DepartmentTable title={selectedGroup ? `${selectedGroup.name} · 渠道数据对比` : "全部小组 · 渠道数据对比"} rows={visibleChannels.map((channel) => ({ name: channel.name, sub: selectedGroup ? selectedGroup.name : `覆盖 ${channel.groupCount} 个小组`, totals: channel.totals }))} /><ChannelInsights channels={visibleChannels} scopeName={selectedGroup?.name ?? "全部小组"} /></> : <DepartmentTable title="每日数据汇总" rows={(report?.days ?? []).map((day) => ({ name: day.date, totals: addMetricRows(day.groups) }))} />}
+        </> : null}
+        {!loading && !error && view === "customers" ? <DepartmentCustomerProgress groups={(report?.groups ?? []).map(({ id, name }) => ({ id, name }))} /> : null}
+        {!loading && !error && view === "groups" ? <DepartmentGroupManagement /> : null}
+        {!loading && !error && view === "transfer" ? <DepartmentPersonnelTransfer /> : null}
+        {!loading && !error && view === "devices" ? <DepartmentDeviceAccounts /> : null}
+        {!loading && !error && view === "notifications" ? <UnifiedNotificationCenter onUnreadChange={setNotificationUnread} /> : null}
+  </WorkspaceShell>;
+}
+
+function DepartmentTable({ title, rows }: { title: string; rows: Array<{ name: string; sub?: string; people?: number; totals: Metrics }> }) {
+  const totals = addMetricRows(rows);
+  const peopleValues = rows.flatMap((row) => row.people == null ? [] : [row.people]);
+  const totalPeople = peopleValues.length > 0 ? peopleValues.reduce((sum, value) => sum + value, 0) : null;
+  const rates = (value: Metrics) => ({
+    reply: value.effective > 0 ? value.replied / value.effective : null,
+    join: value.effective > 0 ? value.joined / value.effective : null,
+    abnormal: value.joined - value.leftNormal > 0 ? value.leftAbnormal / (value.joined - value.leftNormal) : null,
+    registration: value.pushed > 0 ? value.registered / value.pushed : null,
+    order: value.registered > 0 ? value.ordered / value.registered : null,
+  });
+
+  const rateCells = (value: Metrics) => { const valueRates = rates(value); return <><td>{pct(valueRates.reply)}</td><td>{pct(valueRates.join)}</td><td>{pct(valueRates.abnormal)}</td><td>{pct(valueRates.registration)}</td><td>{pct(valueRates.order)}</td></>; };
+  return <section className="fresh-sheet-card department-report"><div className="fresh-sheet-title"><div><h2>{title}</h2><p>数量、金额和转化率使用同一批正式数据</p></div><div><span>共</span><strong>{rows.length} 行</strong></div></div><div className="department-table-wrap"><table><thead><tr><th>名称</th><th>人数</th><th>添加数据</th><th>撞粉</th><th>低金额</th><th>无 WS 号码</th><th>人工无效</th><th>有效数据</th><th>回复</th><th>进群</th><th>正常退群</th><th>异常退群</th><th>当前在群</th><th>推专家</th><th>注册</th><th>开单</th><th>回复率</th><th>进群率</th><th>异常退群率</th><th>注册率</th><th>开单率</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.name}-${row.sub ?? ""}`}><td><strong>{row.name}</strong>{row.sub ? <small>{row.sub}</small> : null}</td><td>{row.people ?? "—"}</td><td>{row.totals.added ?? 0}</td><td>{row.totals.collision ?? 0}</td><td>{row.totals.lowAmount ?? 0}</td><td>{row.totals.noWs ?? 0}</td><td>{row.totals.manualInvalid ?? 0}</td><td><strong>{row.totals.effective ?? 0}</strong></td><td>{row.totals.replied ?? 0}</td><td>{row.totals.joined ?? 0}</td><td>{row.totals.leftNormal ?? 0}</td><td>{row.totals.leftAbnormal ?? 0}</td><td>{row.totals.inGroup ?? 0}</td><td>{row.totals.pushed ?? 0}</td><td>{row.totals.registered ?? 0}</td><td>{row.totals.ordered ?? 0}</td>{rateCells(row.totals)}<td>{money(row.totals.initialDepositCents)}</td><td>{money(row.totals.rechargeCents)}</td><td>{money(row.totals.withdrawalCents)}</td><td><strong>{money(row.totals.netCents)}</strong></td></tr>)}<tr className="department-total-row"><td><strong>合计</strong><small>当前显示 {rows.length} 行</small></td><td>{totalPeople ?? "—"}</td><td>{totals.added ?? 0}</td><td>{totals.collision ?? 0}</td><td>{totals.lowAmount ?? 0}</td><td>{totals.noWs ?? 0}</td><td>{totals.manualInvalid ?? 0}</td><td><strong>{totals.effective ?? 0}</strong></td><td>{totals.replied ?? 0}</td><td>{totals.joined ?? 0}</td><td>{totals.leftNormal ?? 0}</td><td>{totals.leftAbnormal ?? 0}</td><td>{totals.inGroup ?? 0}</td><td>{totals.pushed ?? 0}</td><td>{totals.registered ?? 0}</td><td>{totals.ordered ?? 0}</td>{rateCells(totals)}<td>{money(totals.initialDepositCents)}</td><td>{money(totals.rechargeCents)}</td><td>{money(totals.withdrawalCents)}</td><td><strong>{money(totals.netCents)}</strong></td></tr></tbody></table></div></section>;
+}
+
+function ChannelInsights({ channels, scopeName }: { channels: ReportChannel[]; scopeName: string }) {
+  const active = channels.filter((channel) => channel.totals.added > 0 || channel.totals.ordered > 0 || channel.totals.netCents !== 0);
+  if (!active.length) {
+    return <section className="analysis-insights"><header><div><h2>渠道智能分析</h2><p>{scopeName} · 只根据已生效数据生成</p></div></header><div><article data-tone="info"><i>i</i><div><strong>当前没有可比较数据</strong><p>继续填写后，系统会自动比较各渠道，不会用全 0 数据乱下结论。</p></div></article></div></section>;
+  }
+  const byNet = [...active].sort((left, right) => right.totals.netCents - left.totals.netCents);
+  const orderRate = (channel: ReportChannel) => channel.totals.effective > 0 ? channel.totals.ordered / channel.totals.effective : null;
+  const comparableOrders = active.filter((channel) => orderRate(channel) !== null).sort((left, right) => orderRate(right)! - orderRate(left)!);
+  const abnormalRate = (channel: ReportChannel) => {
+    const base = channel.totals.joined - channel.totals.leftNormal;
+    return base > 0 ? channel.totals.leftAbnormal / base : null;
+  };
+  const abnormal = active.filter((channel) => abnormalRate(channel) !== null).sort((left, right) => abnormalRate(right)! - abnormalRate(left)!)[0];
+  const netHasDifference = byNet.length > 1 && byNet[0].totals.netCents !== byNet.at(-1)!.totals.netCents;
+  const orderHasDifference = comparableOrders.length > 1 && orderRate(comparableOrders[0]) !== orderRate(comparableOrders.at(-1)!);
+  return <section className="analysis-insights"><header><div><h2>渠道智能分析</h2><p>{scopeName} · 结论可回到上方表格逐项核对</p></div></header><div>
+    {netHasDifference ? <><article data-tone="good"><i>✓</i><div><strong>当前净业绩最高：{byNet[0].name}</strong><p>净业绩 {money(byNet[0].totals.netCents)}，开单 {byNet[0].totals.ordered} 个。</p></div></article><article data-tone="warn"><i>!</i><div><strong>当前净业绩最低：{byNet.at(-1)!.name}</strong><p>净业绩 {money(byNet.at(-1)!.totals.netCents)}，与最高渠道相差 {money(byNet[0].totals.netCents - byNet.at(-1)!.totals.netCents)}。</p></div></article></> : <article data-tone="info"><i>i</i><div><strong>各渠道净业绩暂未拉开差距</strong><p>当前可比较渠道的净业绩相同，暂不判定最佳或最低渠道。</p></div></article>}
+    {orderHasDifference ? <article data-tone="info"><i>i</i><div><strong>开单转化差距</strong><p>{comparableOrders[0].name} {pct(orderRate(comparableOrders[0]))}，{comparableOrders.at(-1)!.name} {pct(orderRate(comparableOrders.at(-1)!))}。</p></div></article> : null}
+    {abnormal && abnormalRate(abnormal)! > 0 ? <article data-tone="warn"><i>!</i><div><strong>异常退群需关注：{abnormal.name}</strong><p>异常退群率 {pct(abnormalRate(abnormal))}，异常退群 {abnormal.totals.leftAbnormal} 人。</p></div></article> : null}
+  </div></section>;
+}

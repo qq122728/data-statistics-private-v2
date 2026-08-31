@@ -10,12 +10,22 @@ import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { requireOrgManagerRequest } from "../_auth";
 
-type GroupRequest = { id?: unknown; departmentId?: unknown; name?: unknown };
+type GroupRequest = {
+  id?: unknown;
+  departmentId?: unknown;
+  name?: unknown;
+  leadAccount?: {
+    name?: unknown;
+    username?: unknown;
+    password?: unknown;
+    effectiveOn?: unknown;
+  } | null;
+};
 
 /**
  * 阶段5a：开设新小组（需求文档5.6，部门管理员限本部门、公司管理员限本公司、总公司管理员不限）。
- * 新组没有组长是正常状态（5.6原文），这条路由只管建组本身，任命组长走
- * POST /api/org/groups/[groupId]/lead，两件事拆开，不在一个请求里强求同时指定组长。
+ * 这里只创建小组。组创建成功后，再调用 /api/org/groups/[groupId]/lead 任命已有人员，
+ * 或调用独立的组长账号创建入口。后端也强制两步，避免绕过“先有父级，再开账号”的业务顺序。
  *
  * 时区固定继承所属部门（1.2：组不能有自己独立的时区），不像老的 admin/groups/route.ts
  * 那样允许小组单独覆盖时区——那是老部门/小组两层结构留下的口子，阶段5的四层结构里
@@ -30,6 +40,8 @@ export async function POST(request: Request) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!departmentId || departmentId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "请选择启用中的部门" }, { status: 400 });
   if (!name || name.length > API_LIMITS.accountDisplayNameCharacters) return NextResponse.json({ error: "小组名称必须在 1 到 100 个字之间" }, { status: 400 });
+  if (body.leadAccount !== undefined && body.leadAccount !== null)
+    return NextResponse.json({ error: "请先创建小组；小组创建成功后，再单独创建或任命组长账号" }, { status: 400 });
 
   try {
     const result = await db.$transaction(async (client) => {
@@ -49,11 +61,11 @@ export async function POST(request: Request) {
         entityId: created.id,
         summary: { changedFields: ["name", "departmentId", "timezone"], copiedGlobalChannels: copiedChannels },
       });
-      return { group: created };
+      return { group: created, copiedChannels };
     }, { isolationLevel: "Serializable" });
     if ("denied" in result) return authorizationDenied(access.actor, "没有权限在这个部门下新建小组");
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json(result.group, { status: 201 });
+    return NextResponse.json(result, { status: 201 });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return NextResponse.json({ error: "该部门已经有同名小组" }, { status: 409 });
     throw error;

@@ -4,8 +4,9 @@ import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
 import { resolveExpertWorkflowStage } from "../../../../lib/expert-workflow-stage";
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limits";
-import { hasAssignedRole } from "../../../../lib/role-access";
+import { hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
 
 const stages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
 const PAGE_SIZE = 50;
@@ -29,8 +30,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
     throw error;
   }
-  if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "EXPERT"))
-    return authorizationDenied(actor, "只有在职专家可以查看自己的客户");
+  if (!actor.groupId || !isFrontlineGroupMember(actor))
+    return authorizationDenied(actor, "只有在职组员可以查看本组专家流程客户");
 
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params))
@@ -41,12 +42,13 @@ export async function GET(request: Request) {
   const page = Number.isSafeInteger(pageValue) && pageValue > 0 ? pageValue : 1;
   const query = (params.get("q") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
   const baseWhere: Prisma.LeadCustomerWhereInput = {
-    batch: { groupId: actor.groupId },
-    expertOwnerId: actor.id,
+    expertOwnerId: { not: null },
     expertIntroducedOn: { not: null },
+    groupStatus: { in: ["JOINED", "LEFT"] },
     invalid: false,
     receptionCategory: { notIn: ["INVALID", "LOW_AMOUNT", "NO_WS"] },
     AND: [
+      customerCurrentGroupWhere(actor.groupId),
       approvedCustomerWhere(),
       ...(query ? [{ OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] }] : []),
     ],
@@ -81,6 +83,7 @@ export async function GET(request: Request) {
       expertStalledOn: true, expertStalledReason: true, expertStalledNote: true,
       noInitialDepositOn: true, noInitialDepositReason: true, noInitialDepositNote: true,
       registeredOn: true, nextPlan: true, nextFollowUpOn: true,
+      expertOwnerId: true,
       groupDeviceAccountId: true, groupDeviceAccountNumber: true, expertDeviceAccountId: true, expertDeviceAccountNumber: true,
       isHistoricalRecord: true, historicalSourceName: true,
       owner: { select: { id: true, name: true } },
@@ -119,6 +122,7 @@ export async function GET(request: Request) {
     const withdrawalCents = withdrawals.reduce((sum, event) => sum + (event.amountCents ?? 0), 0);
     return [{
       ...customer,
+      canEdit: hasAssignedRole(actor, "LEAD") || customer.expertOwnerId === actor.id,
       stage: stageById.get(id),
       isHistoricalRecord: customer.isHistoricalRecord || customer.batch.isHistoricalRecord,
       sourceName: customer.historicalSourceName?.trim() || customer.batch.channel.name,

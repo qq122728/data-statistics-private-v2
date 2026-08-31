@@ -13,7 +13,7 @@ export function ExpertCustomerEditors({ canEdit, editingCustomer, orderCustomer,
   detailDraft: ExpertDetailDraft;
   orderDraft: ExpertOrderDraft;
   financeDraft: ExpertFinanceDraft;
-  contactAccounts: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" }>;
+  contactAccounts: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" | "SIG" }>;
   busy: string;
   onDetailChange: (draft: ExpertDetailDraft) => void;
   onOrderChange: (draft: ExpertOrderDraft) => void;
@@ -43,7 +43,7 @@ export function ExpertCustomerEditors({ canEdit, editingCustomer, orderCustomer,
         <div className="grid gap-3">
           <label className="grid gap-1 text-sm font-medium text-slate-700">客户姓名<input aria-label="客户姓名" value={detailDraft.customerName} onChange={(event) => onDetailChange({ ...detailDraft, customerName: event.target.value })} placeholder="客户姓名（可选）" maxLength={80} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-slate-700">专家情况<textarea aria-label="专家情况" value={detailDraft.expertNotes} onChange={(event) => onDetailChange({ ...detailDraft, expertNotes: event.target.value })} placeholder="例如：客户说周五完成注册；下次联系时间和重点写在这里" maxLength={300} rows={5} className="resize-y rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal" /></label>
-          {contactAccounts.length ? <label className="grid gap-1 text-sm font-medium text-slate-700">本次专家联系号码<select aria-label="专家联系号码" value={detailDraft.deviceAccountId} onChange={(event) => onDetailChange({ ...detailDraft, deviceAccountId: event.target.value })} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal"><option value="">暂不填写</option>{contactAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountNumber} · {account.accountType === "NORMAL_WS" ? "普通 WS" : account.accountType === "BUSINESS_WS" ? "商业 WS" : "RCS"}</option>)}</select></label> : <p className="m-0 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">请先在“设备账号”中新增自己的专家号码，才能绑定到客户。</p>}
+          {contactAccounts.length ? <label className="grid gap-1 text-sm font-medium text-slate-700">本次专家联系号码<select aria-label="专家联系号码" value={detailDraft.deviceAccountId} onChange={(event) => onDetailChange({ ...detailDraft, deviceAccountId: event.target.value })} className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal"><option value="">暂不填写</option>{contactAccounts.map((account) => <option key={account.id} value={account.id}>{account.accountNumber} · {account.accountType === "NORMAL_WS" ? "普通 WS" : account.accountType === "BUSINESS_WS" ? "商业 WS" : account.accountType}</option>)}</select></label> : <p className="m-0 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">请先在“设备账号”中新增自己的专家号码，才能绑定到客户。</p>}
         </div>
         <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={onCloseDetails} className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">取消</button><button type="button" disabled={busy === editingCustomer.id} onClick={onSaveDetails} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{busy === editingCustomer.id ? "保存中…" : "保存专家情况"}</button></div>
       </section>

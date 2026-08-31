@@ -2,10 +2,10 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
-import { resolveGroupOperatorId } from "../../../../lib/group-operator-attribution";
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limits";
-import { hasAssignedRole } from "../../../../lib/role-access";
+import { frontlineMemberRoles, hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
 
 const stages = ["active", "introduced", "left"] as const;
 type Stage = (typeof stages)[number];
@@ -45,8 +45,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
     throw error;
   }
-  if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "GROUP_OPERATOR"))
-    return authorizationDenied(actor, "只有在职炒群可以查看自己的客户");
+  if (!actor.groupId || !isFrontlineGroupMember(actor))
+    return authorizationDenied(actor, "只有在职组员可以查看本组已进群客户");
 
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params))
@@ -58,17 +58,17 @@ export async function GET(request: Request) {
   const query = (params.get("q") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
 
   const baseWhere: Prisma.LeadCustomerWhereInput = {
-    batch: { groupId: actor.groupId },
     invalid: false,
     receptionCategory: { notIn: ["INVALID", "LOW_AMOUNT", "NO_WS"] },
     groupStatus: { in: ["JOINED", "LEFT"] },
     AND: [
+      customerCurrentGroupWhere(actor.groupId),
       approvedCustomerWhere(),
       ...(query ? [{ OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] }] : []),
     ],
   };
 
-  const [candidates, pairings, expertAssignees] = await Promise.all([
+  const [candidates, expertAssignees] = await Promise.all([
     db.leadCustomer.findMany({
       where: baseWhere,
       select: {
@@ -85,29 +85,20 @@ export async function GET(request: Request) {
         },
       },
     }),
-    db.groupOperatorReception.findMany({
-      where: { groupOperator: { groupId: actor.groupId } },
-      select: { receptionistId: true, groupOperatorId: true },
-    }),
     db.user.findMany({
       where: {
         groupId: actor.groupId,
         active: true,
-        OR: [
-          { role: { in: ["LEAD", "EXPERT"] } },
-          { roleAssignments: { some: { role: "EXPERT" } } },
-        ],
+        role: { in: [...frontlineMemberRoles] },
       },
       select: { id: true, name: true, role: true },
       orderBy: [{ role: "asc" }, { name: "asc" }],
     }),
   ]);
-  const currentOperatorByReception = new Map(pairings.map((item) => [item.receptionistId, item.groupOperatorId]));
-  const owned = (candidates as Candidate[])
-    .filter((customer) => resolveGroupOperatorId(customer, currentOperatorByReception, "9999-12-31") === actor.id)
+  const visible = (candidates as Candidate[])
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime() || a.id.localeCompare(b.id));
-  const counts = Object.fromEntries(stages.map((value) => [value, owned.filter((customer) => groupStage(customer) === value).length]));
-  const matched = owned.filter((customer) => groupStage(customer) === stage);
+  const counts = Object.fromEntries(stages.map((value) => [value, visible.filter((customer) => groupStage(customer) === value).length]));
+  const matched = visible.filter((customer) => groupStage(customer) === stage);
   const pageIds = matched.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((customer) => customer.id);
 
   const rows = pageIds.length ? await db.leadCustomer.findMany({
@@ -158,6 +149,7 @@ export async function GET(request: Request) {
     const withdrawals = order?.events.filter((event) => event.kind === "WITHDRAWAL") ?? [];
     return [{
       ...customer,
+      canEdit: hasAssignedRole(actor, "LEAD") || customer.groupOperatorOwnerId === actor.id,
       latestGroupProgress: latestGroupProgressByLead.get(customer.id) ?? null,
       stage: groupStage(customer),
       isHistoricalRecord: customer.isHistoricalRecord || customer.batch.isHistoricalRecord,

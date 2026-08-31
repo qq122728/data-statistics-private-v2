@@ -141,16 +141,18 @@ describe.sequential("阶段5a组织架构路由：新公司/新部门 (总公司
 
   it("lets the HQ manager create a department under an existing company", async () => {
     await signInAs(ids.hq);
-    const response = await createDepartment(jsonRequest("http://localhost/api/org/departments", { companyId: ids.companyA, name: `新部门-${suffix}`, timezone: "Asia/Shanghai" }));
+    const response = await createDepartment(jsonRequest("http://localhost/api/org/departments", { companyId: ids.companyA, name: `新部门-${suffix}`, countryCode: "CN", timezone: "Asia/Shanghai", workStartMinutes: 600, workEndMinutes: 1320 }));
     expect(response.status).toBe(201);
     const body = await response.json();
     expect(body.companyId).toBe(ids.companyA);
   });
 
-  it("blocks a company manager from creating a department, even in their own company", async () => {
+  it("lets a company manager create a department only in their own existing company", async () => {
     await signInAs(ids.companyAManager);
-    const response = await createDepartment(jsonRequest("http://localhost/api/org/departments", { companyId: ids.companyA, name: `越权部门-${suffix}`, timezone: "Asia/Shanghai" }));
-    expect(response.status).toBe(403);
+    const own = await createDepartment(jsonRequest("http://localhost/api/org/departments", { companyId: ids.companyA, name: `本公司部门-${suffix}`, countryCode: "CN", timezone: "Asia/Shanghai", workStartMinutes: 600, workEndMinutes: 1320 }));
+    expect(own.status).toBe(201);
+    const other = await createDepartment(jsonRequest("http://localhost/api/org/departments", { companyId: ids.companyB, name: `越权部门-${suffix}`, countryCode: "US", timezone: "America/New_York", workStartMinutes: 600, workEndMinutes: 1320 }));
+    expect(other.status).toBe(403);
   });
 });
 
@@ -159,6 +161,19 @@ describe.sequential("阶段5a组织架构路由：新建小组 (部门管理员�
     await signInAs(ids.deptA1Manager);
     const response = await createGroup(jsonRequest("http://localhost/api/org/groups", { departmentId: ids.deptA1, name: `A1新组-${suffix}` }));
     expect(response.status).toBe(201);
+  });
+
+  it("forces group creation and lead-account creation to be two separate steps", async () => {
+    await signInAs(ids.deptA1Manager);
+    const name = `禁止合并创建-${suffix}`;
+    const response = await createGroup(jsonRequest("http://localhost/api/org/groups", {
+      departmentId: ids.deptA1,
+      name,
+      leadAccount: { name: "错误合并组长", username: `combined-${suffix}`, password: "temporary-password-1", effectiveOn: "2026-08-20" },
+    }));
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "请先创建小组；小组创建成功后，再单独创建或任命组长账号" });
+    await expect(db.teamGroup.findFirst({ where: { departmentId: ids.deptA1, name } })).resolves.toBeNull();
   });
 
   it("blocks a department manager from creating a group in a different department", async () => {

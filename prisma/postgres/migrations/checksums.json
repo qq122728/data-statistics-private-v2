@@ -46,6 +46,9 @@
     "20260830190000_add_multi_department_manager_scope/migration.sql": "aba5c53ecddebe1f90e85dc20bfb8f7c1212b4f3293736d9051482db350e11cd",
     "20260830230000_decouple_customer_finance_events/migration.sql": "ffd8b97a2987dc7c9172bca4fc7c1acb6e7d952ea7b9cb8c3242c67286900673",
     "20260830233000_add_group_lead_change_plan/migration.sql": "c0dbbdddcf8033ebaf1d774a5d8c7a5a04b40b560f1d3b12d9ff288ee66c9684",
-    "20260831043500_grant_group_lead_change_runtime/migration.sql": "1193d575683d82976ffdfe3e591bd1261351e40ba659123fbcb5bf55b97ddab1"
+    "20260831043500_grant_group_lead_change_runtime/migration.sql": "1193d575683d82976ffdfe3e591bd1261351e40ba659123fbcb5bf55b97ddab1",
+    "20260831213000_add_daily_stat_manual_invalid/migration.sql": "92e093472555c32f9f58e703be1c2b3667b1b67f59c76f607386aab538a3a125",
+    "20260831223000_add_current_customer_group/migration.sql": "a791de6694f028828de421b441658d90fc9eb6e4f001c352a10f167879f51fb5",
+    "20260831233000_add_device_account_sig/migration.sql": "43e5dee5e8c8598c51212e6d2f17d1e70eb442af5c87966c77ab21b3c4c19a35"
   }
 }

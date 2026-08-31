@@ -10,7 +10,7 @@ export type ExpertAssignee = {
   role: "LEAD" | "EXPERT";
   pendingRegistration: number;
   pendingOrder: number;
-  deviceAccounts: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" }>;
+  deviceAccounts: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" | "SIG" }>;
 };
 
 type AssignmentCustomer = {

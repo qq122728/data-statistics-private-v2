@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
-import { customerDeleteRoles, hasAnyRole } from "../../../../lib/role-access";
-import { canUseCustomerWorkflow } from "../../../../lib/customer-workflow/actions";
+import { customerDeleteRoles, hasAnyRole, isFrontlineGroupMember } from "../../../../lib/role-access";
 import { customerWorkflowInputSchema } from "../../../../lib/customer-workflow/input";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { deleteCustomerWorkflow, executeCustomerWorkflow } from "../../../../lib/customer-workflow/service";
@@ -20,7 +19,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
     if (error instanceof AuthenticationError) return NextResponse.json({ error: error.message }, { status: 401 });
     throw error;
   }
-  if (!user.active || !canUseCustomerWorkflow(user.role))
+  if (!isFrontlineGroupMember(user))
     return authorizationDenied(user, "当前岗位不能在此修改客户");
 
   try {

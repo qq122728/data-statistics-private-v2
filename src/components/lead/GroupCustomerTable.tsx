@@ -44,7 +44,7 @@ export function GroupCustomerTable({
   canAddHistorical?: boolean;
   historicalImportOptions?: { members: HistoricalCustomerMember[]; channels: HistoricalCustomerChannel[]; currentUserId: string; entryRole: "GROUP_OPERATOR" | "LEAD" };
   assignees?: ExpertAssignee[];
-  contactAccounts?: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" }>;
+  contactAccounts?: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" | "SIG" }>;
   currentDate: string;
   activeView?: GroupCustomerView;
   viewCounts?: GroupCustomerViewCounts;

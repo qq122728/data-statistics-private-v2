@@ -84,6 +84,20 @@ textarea {
   color: inherit;
 }
 
+/* 键盘操作必须能看见当前位置；鼠标点击时不额外显示焦点圈。 */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid rgba(47, 92, 216, 0.28);
+  outline-offset: 2px;
+}
+
+:where(button, [role="button"]):active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+:where(button, input, select, textarea):disabled {
+  cursor: not-allowed;
+}
+
 /* ============================================================
    表格：清晰的横竖网格线
    ============================================================ */
@@ -99,8 +113,12 @@ textarea {
 /* 表格滚动区：横向可滚，纵向到一定高度后内部滚动，表头留在原地 */
 .table-scroll {
   overflow: auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   max-height: calc(100vh - 392px);
   min-height: 180px;
+  scrollbar-gutter: stable;
 }
 
 /* 客户工作台：宽屏铺满，窄屏滚动时始终保留客户与操作两端。 */
@@ -334,6 +352,7 @@ kbd {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
+  box-shadow: 0 1px 2px rgba(25, 38, 65, 0.035);
 }
 
 .card-head {
@@ -490,6 +509,24 @@ kbd {
 
 .muted {
   color: var(--ink-3);
+}
+
+/* 空表格保持明确的留白和说明，不缩成一条难以发现的细线。 */
+.grid-table td[colspan],
+.shared-daily__scroll td[colspan] {
+  min-height: 120px;
+  padding: 36px 18px;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 /* 滚动条 */

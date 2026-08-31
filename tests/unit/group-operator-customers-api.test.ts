@@ -82,8 +82,8 @@ async function signIn(userId: string) {
 
 const request = (query = "") => new Request(`http://localhost/api/group-operator/customers?${query}`);
 
-describe.sequential("新版炒群本人客户 API", () => {
-  it("按三层归属只返回本人当前小组客户，并排除无效与待审核历史数据", async () => {
+describe.sequential("本组已进群客户 API", () => {
+  it("返回本组全部已进群客户，并排除无效、待审核和外组数据", async () => {
     await signIn(ids.operator);
     const active = await (await GET(request("stage=active&q=归本人"))).json();
     const introduced = await (await GET(request("stage=introduced"))).json();
@@ -91,20 +91,25 @@ describe.sequential("新版炒群本人客户 API", () => {
 
     expect(active.customers.map((customer: { phone: string }) => customer.phone)).toEqual(["491000000001"]);
     expect(active.customers[0].latestGroupProgress).toMatchObject({ note: "客户正在群内了解资料", actor: { id: ids.operator } });
-    expect(introduced.counts).toEqual({ active: 1, introduced: 1, left: 1 });
+    expect(introduced.counts).toEqual({ active: 2, introduced: 1, left: 1 });
     expect(introduced.defaultExpertId).toBe(ids.lead);
     expect(introduced.expertAssignees).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: ids.expert, name: "本组专家" }),
       expect.objectContaining({ id: ids.lead, name: "本组组长" }),
+      expect.objectContaining({ id: ids.reception, name: "配对接粉" }),
     ]));
-    expect(introduced.customers[0]).toMatchObject({ phone: "491000000002", stage: "introduced", expertOwner: { id: ids.expert } });
-    expect(left.customers[0]).toMatchObject({ phone: "491000000003", stage: "left", groupOperatorOwnerId: ids.operator });
-    expect(JSON.stringify([active, introduced, left])).not.toMatch(/49100000000[4-7]/);
+    expect(introduced.customers[0]).toMatchObject({ phone: "491000000002", stage: "introduced", canEdit: false, expertOwner: { id: ids.expert } });
+    expect(left.customers[0]).toMatchObject({ phone: "491000000003", stage: "left", canEdit: true, groupOperatorOwnerId: ids.operator });
+    expect(JSON.stringify([active, introduced, left])).not.toMatch(/49100000000[5-7]/);
   });
 
-  it("非炒群账号不能借本人接口查看客户", async () => {
+  it("同组组长和普通接粉账号都可读取同一份已进群名单", async () => {
     await signIn(ids.lead);
-    expect((await GET(request())).status).toBe(403);
+    expect((await GET(request())).status).toBe(200);
+    await signIn(ids.reception);
+    const response = await GET(request());
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ total: 2 });
   });
 
   it("组长默认能进入专家工作台并处理归给自己的专家客户", async () => {

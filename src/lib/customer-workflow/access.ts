@@ -1,7 +1,8 @@
 import type { LeadGroupStatus, Prisma, Role } from "@prisma/client";
 import type { CustomerWorkflowAction } from "./actions";
-import { canUseCustomerWorkflow, roleAllowsCustomerAction } from "./actions";
-import { customerDeleteRoles, getAssignedRoles, hasAssignedRole, roleIsOneOf } from "../role-access";
+import { roleAllowsCustomerAction } from "./actions";
+import { customerDeleteRoles, getAssignedRoles, hasAssignedRole, isFrontlineGroupMember, roleIsOneOf } from "../role-access";
+import { leadCurrentGroupId } from "../customer-current-group";
 
 type WorkflowActor = {
   id: string;
@@ -16,19 +17,15 @@ type WorkflowLead = {
   expertOwnerId: string | null;
   groupOperatorOwnerId?: string | null;
   groupStatus: LeadGroupStatus;
+  currentGroupId?: string | null;
   batch: { groupId: string };
 };
 
 export type CustomerAccessFailure = { status: 403; error: string };
 
-function canActAsGroupOperator(actor: WorkflowActor, lead: WorkflowLead) {
-  return hasAssignedRole(actor, "GROUP_OPERATOR")
-    && Boolean(actor.groupId && actor.groupId === lead.batch.groupId);
-}
-
 /**
- * 同一账号兼任时，按本次动作选择职责，而不是机械地读取主岗位。
- * 接粉动作只会走接粉职责；炒群动作只会走炒群职责。
+ * 已进群后按客户当前明确负责人选择职责，不再依赖账号的旧岗位标签。
+ * 历史 role 仍保留给报表和审计，但不能阻止被明确分配的同组组员工作。
  */
 export function resolveWorkflowActorRole(
   actor: WorkflowActor,
@@ -37,70 +34,61 @@ export function resolveWorkflowActorRole(
 ): Role | null {
   if (!actor.active) return null;
   if (hasAssignedRole(actor, "LEAD")) return "LEAD";
-  const roles = getAssignedRoles(actor);
-  // 多岗位账号必须先按“这个动作属于哪个岗位”选身份。专家动作放在
-  // 接粉归属判断之前，否则同一个人既是原接粉又是当前专家时，会被
-  // 错认成接粉并在客户入群后遭到拦截。
-  if (roles.includes("EXPERT") && lead.expertOwnerId === actor.id && roleAllowsCustomerAction("EXPERT", action))
+  if (lead.expertOwnerId === actor.id && roleAllowsCustomerAction("EXPERT", action))
     return "EXPERT";
-  if (roles.includes("GROUP_OPERATOR") && canActAsGroupOperator(actor, lead) && roleAllowsCustomerAction("GROUP_OPERATOR", action))
+  if (lead.groupOperatorOwnerId === actor.id && roleAllowsCustomerAction("GROUP_OPERATOR", action))
     return "GROUP_OPERATOR";
-  if (roles.includes("RECEPTION") && lead.ownerId === actor.id && roleAllowsCustomerAction("RECEPTION", action))
+  if (lead.groupStatus === "NOT_JOINED" && lead.ownerId === actor.id && roleAllowsCustomerAction("RECEPTION", action))
     return "RECEPTION";
-  // 以下回退只用于返回更具体的越权说明，不会放行不属于该岗位的动作。
-  if (roles.includes("EXPERT") && lead.expertOwnerId === actor.id)
+  // 以下回退只用于返回更具体的越权说明，不会放行不属于该阶段的动作。
+  if (lead.expertOwnerId === actor.id)
     return "EXPERT";
-  if (roles.includes("GROUP_OPERATOR") && canActAsGroupOperator(actor, lead))
+  if (lead.groupOperatorOwnerId === actor.id)
     return "GROUP_OPERATOR";
-  if (roles.includes("RECEPTION") && lead.ownerId === actor.id)
+  if (lead.groupStatus === "NOT_JOINED" && lead.ownerId === actor.id)
     return "RECEPTION";
   return null;
 }
 
 export async function authorizeCustomerAction(
-  transaction: Prisma.TransactionClient,
+  _transaction: Prisma.TransactionClient,
   actor: WorkflowActor,
   lead: WorkflowLead,
   action: CustomerWorkflowAction,
 ): Promise<CustomerAccessFailure | null> {
-  if (!actor.active || !getAssignedRoles(actor).some((role) => canUseCustomerWorkflow(role)))
+  if (!isFrontlineGroupMember(actor))
     return { status: 403, error: "当前岗位不能在此修改客户" };
+
+  if (leadCurrentGroupId(lead) !== actor.groupId)
+    return { status: 403, error: "该客户当前已不属于你所在的小组" };
 
   const effectiveRole = resolveWorkflowActorRole(actor, lead, action);
   if (!effectiveRole) return { status: 403, error: "当前岗位不能处理该客户或执行此操作" };
 
   if (effectiveRole === "RECEPTION" && lead.ownerId !== actor.id)
     return { status: 403, error: "只能修改自己的客户" };
+  if (effectiveRole === "RECEPTION" && leadCurrentGroupId(lead) !== actor.groupId)
+    return { status: 403, error: "该客户当前已不属于你所在的小组" };
   if (effectiveRole === "RECEPTION" && lead.groupStatus !== "NOT_JOINED")
     return { status: 403, error: "客户已确认入群并交棒，接粉只能查看后续进度" };
   if (effectiveRole === "RECEPTION" && !roleAllowsCustomerAction(effectiveRole, action))
     return { status: 403, error: "前台接粉只能录入号码、回复回访、确认入群和补充自己的备注" };
 
-  if (effectiveRole === "LEAD" && lead.batch.groupId !== actor.groupId)
+  if (effectiveRole === "LEAD" && leadCurrentGroupId(lead) !== actor.groupId)
     return { status: 403, error: "只能修改本组客户" };
 
   if (effectiveRole === "GROUP_OPERATOR") {
     const ownsFrozenCustomer = lead.groupOperatorOwnerId === actor.id;
-    const ownsOwnReceptionCustomer = hasAssignedRole(actor, "RECEPTION") && lead.ownerId === actor.id;
-    const collaboration = lead.groupOperatorOwnerId || ownsOwnReceptionCustomer
-      ? null
-      : await transaction.groupOperatorReception.findUnique({
-          where: {
-            groupOperatorId_receptionistId: {
-              groupOperatorId: actor.id,
-              receptionistId: lead.ownerId,
-            },
-          },
-          select: { groupOperatorId: true },
-        });
-    if ((!ownsFrozenCustomer && !ownsOwnReceptionCustomer && !collaboration) || lead.batch.groupId !== actor.groupId)
-      return { status: 403, error: "只能跟进组长分配给你的前台客户" };
+    if (!ownsFrozenCustomer)
+      return { status: 403, error: "只能跟进明确分配给你的炒群客户" };
     if (!roleAllowsCustomerAction(effectiveRole, action))
       return { status: 403, error: "前台炒群只能更新退群、推专家、客户资料和备注" };
   }
 
   if (effectiveRole === "EXPERT" && lead.expertOwnerId !== actor.id)
     return { status: 403, error: "只能跟进分配给自己的专家客户" };
+  if (effectiveRole === "EXPERT" && leadCurrentGroupId(lead) !== actor.groupId)
+    return { status: 403, error: "该客户当前已不属于你所在的小组" };
   if (effectiveRole === "EXPERT" && !roleAllowsCustomerAction(effectiveRole, action))
     return { status: 403, error: "前台专家只能推进专家阶段、更新客户资料、备注和开单纠错" };
 
@@ -117,7 +105,7 @@ export function authorizeCustomerDelete(actor: WorkflowActor, lead: WorkflowLead
   if (!actor.active) return { status: 403, error: "当前岗位不能删除客户" };
   if (!getAssignedRoles(actor).some((role) => roleIsOneOf(role, customerDeleteRoles)))
     return { status: 403, error: "当前岗位不能删除客户" };
-  if (hasAssignedRole(actor, "LEAD") && lead.batch.groupId !== actor.groupId)
+  if (hasAssignedRole(actor, "LEAD") && leadCurrentGroupId(lead) !== actor.groupId)
     return { status: 403, error: "只能删除本组客户" };
   if (!hasAssignedRole(actor, "LEAD") && lead.ownerId !== actor.id)
     return { status: 403, error: "只能删除自己的客户" };

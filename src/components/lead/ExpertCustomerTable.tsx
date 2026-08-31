@@ -44,7 +44,7 @@ export function ExpertCustomerTable({
     entryRole: "EXPERT" | "LEAD";
   };
   assignees?: Array<{ id: string; name: string; label: string }>;
-  contactAccounts?: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" }>;
+  contactAccounts?: Array<{ id: string; accountNumber: string; accountType: "NORMAL_WS" | "BUSINESS_WS" | "RCS" | "SIG" }>;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<ExpertCustomerTab>("queued");

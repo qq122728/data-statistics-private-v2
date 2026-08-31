@@ -28,13 +28,10 @@ test("历史和财务读取真实每日数据接口", () => {
   assert.doesNotMatch(source, /const\s+(?:history|finance|fund).*Seed/i);
 });
 
-test("客户进度按工作阶段使用真实客户工作台", () => {
+test("客户进度统一使用真实共享表格", () => {
   const source = read("MemberCustomerProgress.tsx");
-  assert.match(source, /<GroupOperatorWorkbench/);
-  assert.match(source, /<ExpertWorkbench/);
   assert.match(source, /<DepartmentCustomerProgress/);
+  assert.match(source, /member=\{user\}/);
   assert.match(source, /user\.groupId/);
-  assert.doesNotMatch(source, /RealReceptionProgress/);
-  assert.match(source, /已进群客户进度/);
-  assert.doesNotMatch(source, /roles\.includes\("GROUP_OPERATOR"\)|roles\.includes\("EXPERT"\)/);
+  assert.doesNotMatch(source, /GroupOperatorWorkbench|ExpertWorkbench|RealReceptionProgress/);
 });

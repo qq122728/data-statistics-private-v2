@@ -30,10 +30,10 @@ test("搜索按钮与输入框底边对齐，窄屏时搜索框单独换行", ()
 });
 
 test("各级管理员共享同一张只读客户表及统一字段", () => {
-  assert.match(component, /共享客户进度表/);
-  assert.match(component, /管理账号统一只读/);
-  assert.match(component, /只读共享表/);
-  for (const field of ["设备号", "来源渠道", "接粉负责人", "炒群情况", "专家情况", "注册日期", "首充", "续充", "出金", "净业绩"]) {
+  assert.match(component, /组内共享客户进度表/);
+  assert.match(component, /管理账号只读/);
+  assert.match(component, /组内共享 · 分栏填写/);
+  for (const field of ["设备号", "来源渠道", "接粉归属", "炒群情况", "专家情况", "注册日期", "首充", "续充", "出金", "净业绩"]) {
     assert.match(component, new RegExp(field));
   }
 });

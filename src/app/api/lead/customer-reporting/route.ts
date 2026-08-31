@@ -13,6 +13,7 @@ import { resolveExpertWorkflowStage, type ExpertWorkflowStage } from "../../../.
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
 import { normalizeCustomerPhone } from "../../../../lib/entry-ledger";
 import { entryDateError } from "../../../../lib/entry-date-validation";
+import { recordAudit } from "../../../../lib/audit";
 
 const stages = new Set(["reception", "group", "expert"]);
 const expertStages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
@@ -22,8 +23,6 @@ const createSchema = z.object({
   customerName: z.string().trim().max(80, "客户姓名不能超过 80 个字").optional(),
   channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
   joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
-  deviceCode: z.string().trim().max(50, "设备号不能超过 50 个字").optional(),
-  attributionOwnerId: z.string().trim().max(API_LIMITS.identifierCharacters).optional(),
 });
 
 function stageWhere(stage: string): Prisma.LeadCustomerWhereInput {
@@ -125,16 +124,17 @@ export async function GET(request: Request) {
         noInitialDepositOn: true, noInitialDepositReason: true, noInitialDepositNote: true,
         expertStalledOn: true, expertStalledReason: true, expertStalledNote: true,
         owner: { select: { id: true, name: true } },
+        attributionOwner: { select: { id: true, name: true } },
         device: { select: { id: true, code: true } },
         groupOperatorOwner: { select: { id: true, name: true } },
         expertOwner: { select: { id: true, name: true } },
         batch: { select: { id: true, sourceDate: true, channel: { select: { name: true } }, group: { select: { name: true } } } },
         customerOrder: {
           select: {
-            id: true, openedOn: true, initialDepositCents: true, voidedAt: true,
+            id: true, openedOn: true, initialDepositCents: true, voidedAt: true, enteredBy: { select: { id: true, name: true } },
             events: {
               where: { voidedAt: null, kind: { in: ["RECHARGE", "WITHDRAWAL"] } },
-              select: { id: true, kind: true, amountCents: true, occurredOn: true, continuationNumber: true },
+              select: { id: true, kind: true, amountCents: true, occurredOn: true, continuationNumber: true, enteredBy: { select: { id: true, name: true } } },
               orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
             },
           },
@@ -175,11 +175,32 @@ export async function GET(request: Request) {
   const memberOptions = isLead || isOwnGroupMember ? await db.user.findMany({
     where: { groupId: group.id, active: true }, select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }],
   }) : [];
+  const expertOptions = isLead || isOwnGroupMember ? await db.user.findMany({
+    where: {
+      groupId: group.id,
+      active: true,
+      OR: [
+        { role: { in: ["LEAD", "EXPERT"] } },
+        { roleAssignments: { some: { role: "EXPERT" } } },
+      ],
+    },
+    select: { id: true, name: true },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  }) : [];
+  const deviceOptions = isLead || isOwnGroupMember ? await db.device.findMany({
+    where: {
+      groupId: group.id,
+      active: true,
+      ...(isLead ? {} : { memberId: actor.id }),
+    },
+    select: { id: true, code: true, memberId: true, member: { select: { name: true } } },
+    orderBy: [{ code: "asc" }, { id: "asc" }],
+  }) : [];
   return NextResponse.json({
     stage, expertStage, expertCounts, page, pageSize: PAGE_SIZE, total, today, timezone,
     channels: [...new Set(channelRows.map((row) => row.batch.channel.name))].sort((left, right) => left.localeCompare(right, "zh-CN")),
     channelOptions: await db.channel.findMany({ where: { groupId: group.id, active: true }, select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }),
-    memberOptions,
+    memberOptions, expertOptions, deviceOptions,
     summary: {
       customerCount: total,
       orderCount,
@@ -198,6 +219,7 @@ export async function GET(request: Request) {
           id: activeOrder.id,
           openedOn: activeOrder.openedOn,
           initialDepositCents: activeOrder.initialDepositCents,
+          enteredBy: activeOrder.enteredBy,
           rechargeCents: continuations.reduce((sum, event) => sum + (event.amountCents ?? 0), 0),
           withdrawalCents: activeOrder.events.filter((event) => event.kind === "WITHDRAWAL").reduce((sum, event) => sum + (event.amountCents ?? 0), 0),
           nextContinuationNumber: Math.max(0, ...continuations.map((event) => event.continuationNumber ?? 0)) + 1,
@@ -233,34 +255,28 @@ export async function POST(request: Request) {
     try { phone = normalizeCustomerPhone(input.phone); }
     catch { return NextResponse.json({ error: "客户号码必须包含数字" }, { status: 400 }); }
     const result = await db.$transaction(async (transaction) => {
-      const [channel, owner, existing] = await Promise.all([
+      const [channel, existing] = await Promise.all([
         transaction.channel.findUnique({ where: { id_groupId: { id: input.channelId, groupId: group.id } }, select: { id: true, active: true } }),
-        transaction.user.findFirst({ where: { id: input.attributionOwnerId || actor.id, groupId: group.id, active: true }, select: { id: true } }),
         transaction.leadCustomer.findUnique({ where: { phone }, select: { id: true } }),
       ]);
       if (!channel?.active) return { status: 400 as const, error: "来源渠道不存在或已停用" };
-      if (!owner) return { status: 400 as const, error: "接粉归属只能选择本组在职组员" };
       if (existing) return { status: 409 as const, error: "该客户号码已经存在，不能重复新增" };
-      const assignment = await transaction.groupOperatorReception.findUnique({ where: { receptionistId: owner.id }, select: { groupOperatorId: true } });
-      let deviceId: string | null = null;
-      if (input.deviceCode) {
-        const device = await transaction.device.upsert({
-          where: { groupId_code: { groupId: group.id, code: input.deviceCode } },
-          update: {}, create: { groupId: group.id, code: input.deviceCode, memberId: owner.id }, select: { id: true, active: true, memberId: true },
-        });
-        if (!device.active || (device.memberId && device.memberId !== owner.id && !hasAssignedRole(actor, "LEAD")))
-          return { status: 400 as const, error: "设备号已归属其他组员" };
-        deviceId = device.id;
-      }
       const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate: input.joinedOn }, transaction);
       const customer = await transaction.leadCustomer.create({
         data: {
-          phone, customerName: input.customerName || null, batchId: batch.id, ownerId: owner.id, attributionOwnerId: owner.id,
-          groupOperatorOwnerId: assignment?.groupOperatorId ?? (hasAssignedRole(actor, "GROUP_OPERATOR") || hasAssignedRole(actor, "LEAD") ? actor.id : null),
-          deviceId, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: input.joinedOn,
+          phone, customerName: input.customerName || null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
+          groupOperatorOwnerId: null,
+          deviceId: null, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: input.joinedOn,
           groupStatus: "JOINED", joinedOn: input.joinedOn,
           activities: { create: { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从组内共享客户进度表新增" } },
         }, select: { id: true, phone: true },
+      });
+      await recordAudit(transaction, {
+        actorId: actor.id,
+        action: "SHARED_CUSTOMER_CREATE",
+        entityType: "LeadCustomer",
+        entityId: customer.id,
+        summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id },
       });
       return { status: 201 as const, customer };
     });

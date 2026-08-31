@@ -6,6 +6,7 @@ import { GET as getOrgReporting } from "../../src/app/api/org/reporting/route";
 import { GET as getOrgChannelReporting } from "../../src/app/api/org/channel-reporting/route";
 import { GET as getLeadChannelReporting } from "../../src/app/api/lead/channel-reporting/route";
 import { GET as getLeadCustomerReporting } from "../../src/app/api/lead/customer-reporting/route";
+import { PATCH as patchSharedCustomer } from "../../src/app/api/lead/customer-reporting/[leadId]/route";
 import { GET as getResourceReporting } from "../../src/app/api/resource/reporting/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
@@ -415,5 +416,34 @@ describe.sequential("新版客户进度 API", () => {
     await signIn(ids.companyManager);
     expect((await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=expert"))).status).toBe(400);
     expect((await getLeadCustomerReporting(new Request(`http://localhost/api/lead/customer-reporting?stage=expert&groupId=${ids.berlinGroup}`))).status).toBe(200);
+  });
+
+  it("共享表按接粉、炒群、专家负责人逐列交接并记录审计", async () => {
+    const leadId = id("customer-group");
+    const patch = (body: Record<string, unknown>) => patchSharedCustomer(
+      new Request(`http://localhost/api/lead/customer-reporting/${leadId}`, {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }),
+      { params: Promise.resolve({ leadId }) },
+    );
+
+    await signIn(ids.berlinExpert);
+    expect((await patch({ action: "assignGroupOperator", userId: ids.berlinOperatorA })).status).toBe(403);
+
+    await signIn(ids.berlinReception);
+    expect((await patch({ action: "assignGroupOperator", userId: ids.berlinOperatorA })).status).toBe(200);
+
+    await signIn(ids.berlinOperatorA);
+    expect((await patch({ action: "assignExpert", userId: ids.berlinExpert })).status).toBe(200);
+
+    await signIn(ids.berlinExpert);
+    expect((await patch({ action: "setRegistration", occurredOn: "2026-07-09" })).status).toBe(200);
+
+    expect(await db.leadCustomer.findUniqueOrThrow({ where: { id: leadId }, select: { groupOperatorOwnerId: true, expertOwnerId: true, registeredOn: true } })).toEqual({
+      groupOperatorOwnerId: ids.berlinOperatorA,
+      expertOwnerId: ids.berlinExpert,
+      registeredOn: "2026-07-09",
+    });
+    expect(await db.auditLog.count({ where: { entityId: leadId, action: { startsWith: "SHARED_CUSTOMER_" } } })).toBe(3);
   });
 });

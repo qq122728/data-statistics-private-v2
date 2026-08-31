@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { requestJson, type BackendUser } from "@/lib/backend";
 import { localToday } from "@/lib/frontline-workbench";
@@ -8,26 +8,29 @@ import styles from "./DepartmentCustomerProgress.module.css";
 
 export type DepartmentCustomerGroup = { id: string; name: string };
 type Owner = { id: string; name: string } | null;
+type Option = { id: string; name: string };
+type DeviceOption = { id: string; code: string; memberId: string | null; member: { name: string } | null };
 type Activity = { id?: string; kind: string; occurredOn: string; note: string | null; actor?: { name: string } };
+type FinanceEvent = { id: string; kind: "RECHARGE" | "WITHDRAWAL"; amountCents: number; occurredOn: string; continuationNumber: number | null; enteredBy?: Option };
 type Customer = {
   id: string; phone: string; customerName: string | null; groupStatus: string; joinedOn: string | null; leftOn: string | null;
   leftNote: string | null; leftWithOrder: boolean; expertIntroducedOn: string | null; expertContactNote: string | null;
   expertWorkflowStage: string | null; registeredOn: string | null; expertNotes: string | null; nextPlan: string | null;
-  owner: Owner; groupOperatorOwner: Owner; expertOwner: Owner; device: { id: string; code: string } | null;
-  batch: { sourceDate: string; channel: { name: string } };
-  order: { initialDepositCents: number; rechargeCents: number; withdrawalCents: number } | null;
+  owner: Owner; attributionOwner: Owner; groupOperatorOwner: Owner; expertOwner: Owner; device: { id: string; code: string } | null;
+  batch: { id: string; sourceDate: string; channel: { name: string } };
+  order: { id: string; openedOn: string; initialDepositCents: number; enteredBy: Option; rechargeCents: number; withdrawalCents: number; nextContinuationNumber: number; financeEvents: FinanceEvent[] } | null;
   activities: Activity[];
 };
 type Payload = {
   page: number; pageSize: number; total: number; customers: Customer[]; channels: string[];
-  channelOptions: Array<{ id: string; name: string }>; memberOptions: Array<{ id: string; name: string }>;
+  channelOptions: Option[]; memberOptions: Option[]; expertOptions: Option[]; deviceOptions: DeviceOption[];
 };
 type ReportingPayload = { groups: DepartmentCustomerGroup[] };
 type ProgressFilter = "全部进度" | "群内维护" | "已推专家" | "已开单" | "已退群";
+type FinanceKind = "INITIAL" | "RECHARGE" | "WITHDRAWAL";
 
 const money = (cents = 0) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
 const expertLabels: Record<string, string> = { QUEUED: "待专家接待", MATERIALS: "已经交资料，等待进一步沟通", TRACKING: "专家跟进中", PENDING_REGISTRATION: "待注册", PENDING_ORDER: "待开单", DECLINED_DEPOSIT: "暂不首充", ORDERED: "已开单，等待客户后续维护", STALLED: "停止维护" };
-const activityLabels: Record<string, string> = { JOINED_GROUP: "客户已进群", LEFT_GROUP: "客户已退群", GROUP_PROGRESS_UPDATED: "炒群情况已更新", EXPERT_INTRODUCED: "已推专家", EXPERT_CONTACTED: "专家已接待", REGISTERED: "客户已注册", PLAN_UPDATED: "专家情况已更新" };
 const progressFilters: ProgressFilter[] = ["全部进度", "群内维护", "已推专家", "已开单", "已退群"];
 
 function latestGroupText(customer: Customer) {
@@ -56,8 +59,7 @@ function EditableCell({ label, value, editable, saving, onSave }: { label: strin
   const [draft, setDraft] = useState(value);
   useEffect(() => { if (!editing) setDraft(value); }, [editing, value]);
   async function finish() {
-    const next = draft.trim();
-    setEditing(false);
+    const next = draft.trim(); setEditing(false);
     if (!next || next === value.trim()) { setDraft(value); return; }
     await onSave(next);
   }
@@ -74,7 +76,13 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   const [query, setQuery] = useState(""); const [progress, setProgress] = useState<ProgressFilter>("全部进度");
   const [savingCell, setSavingCell] = useState(""); const [savedMessage, setSavedMessage] = useState("");
   const [adding, setAdding] = useState(false); const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState({ phone: "", customerName: "", channelId: "", joinedOn: localToday(), deviceCode: "", attributionOwnerId: member?.id ?? "" });
+  const [draft, setDraft] = useState({ phone: "", channelId: "", joinedOn: localToday() });
+  const [finance, setFinance] = useState<{ kind: FinanceKind; customer: Customer } | null>(null);
+  const [financeDraft, setFinanceDraft] = useState({ occurredOn: localToday(), amount: "", depositMethod: "CRYPTO" as "CRYPTO" | "BANK" });
+  const [savingFinance, setSavingFinance] = useState(false);
+  const phoneInput = useRef<HTMLInputElement>(null);
+  const roles = member?.roles ?? (member ? [member.role] : []);
+  const isLead = roles.includes("LEAD");
 
   useEffect(() => {
     if (groups) { setAvailableGroups(groups); setGroupId((current) => groups.some((group) => group.id === current) ? current : groups[0]?.id ?? ""); return; }
@@ -90,33 +98,58 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
     void requestJson<Payload>(`/api/lead/customer-reporting?${params}`).then((result) => { if (!cancelled) setPayload(result); }).catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "客户进度读取失败"); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [groupId, page, reloadKey]);
+  useEffect(() => { if (adding) phoneInput.current?.focus(); }, [adding]);
 
   const customers = useMemo(() => (payload?.customers ?? []).filter((customer) => {
-    const haystack = `${customer.phone} ${customer.customerName ?? ""} ${customer.owner?.name ?? ""} ${customer.batch.channel.name} ${customer.groupOperatorOwner?.name ?? ""} ${customer.expertOwner?.name ?? ""} ${latestGroupText(customer)} ${latestExpertText(customer)}`.toLowerCase();
+    const haystack = `${customer.phone} ${customer.customerName ?? ""} ${customer.attributionOwner?.name ?? customer.owner?.name ?? ""} ${customer.batch.channel.name} ${customer.groupOperatorOwner?.name ?? ""} ${customer.expertOwner?.name ?? ""} ${latestGroupText(customer)} ${latestExpertText(customer)}`.toLowerCase();
     return (!query.trim() || haystack.includes(query.trim().toLowerCase())) && (progress === "全部进度" || progressOf(customer) === progress);
   }), [payload?.customers, progress, query]);
   const pageCount = Math.max(1, Math.ceil((payload?.total ?? 0) / (payload?.pageSize ?? 50)));
   function showSaved(message: string) { setSavedMessage(message); window.setTimeout(() => setSavedMessage(""), 2400); }
-  function beginAdd() {
-    setAdding(true); setError("");
-    setDraft((value) => ({ ...value, channelId: value.channelId || payload?.channelOptions[0]?.id || "", attributionOwnerId: value.attributionOwnerId || member?.id || "" }));
+  function beginAdd() { setAdding(true); setError(""); setDraft({ phone: "", channelId: payload?.channelOptions[0]?.id ?? "", joinedOn: localToday() }); }
+  async function createCustomer() {
+    if (!adding || creating || !draft.phone.trim()) return;
+    setCreating(true); setError("");
+    try {
+      await requestJson("/api/lead/customer-reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
+      setAdding(false); setPage(1); setProgress("全部进度"); showSaved("客户已加入组内共享表"); setReloadKey((value) => value + 1);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "新增客户失败"); phoneInput.current?.focus(); }
+    finally { setCreating(false); }
+  }
+  async function patchCell(customer: Customer, action: Record<string, unknown>, key: string, message: string) {
+    setSavingCell(`${customer.id}:${key}`); setError("");
+    try {
+      await requestJson(`/api/lead/customer-reporting/${customer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(action) });
+      showSaved(message); setReloadKey((value) => value + 1);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "单元格保存失败"); }
+    finally { setSavingCell(""); }
   }
   async function saveSituation(customer: Customer, kind: "group" | "expert", note: string) {
     const key = `${customer.id}:${kind}`; setSavingCell(key); setError("");
     try {
       await requestJson(`/api/leads/${customer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(kind === "group" ? { action: "updateGroupProgress", progressNote: note, occurredOn: localToday() } : { action: "updateExpertDetails", expertNotes: note, occurredOn: localToday() }) });
       showSaved(`${kind === "group" ? "炒群情况" : "专家情况"}已自动保存`); setReloadKey((value) => value + 1);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "客户进度保存失败"); throw caught; }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "客户进度保存失败"); }
     finally { setSavingCell(""); }
   }
-  async function createCustomer(event: FormEvent) {
-    event.preventDefault(); setCreating(true); setError("");
+  function openFinance(kind: FinanceKind, customer: Customer) { setFinance({ kind, customer }); setFinanceDraft({ occurredOn: localToday(), amount: "", depositMethod: "CRYPTO" }); setError(""); }
+  async function saveFinance() {
+    if (!finance) return;
+    const amount = Number(financeDraft.amount);
+    if (!Number.isFinite(amount) || amount <= 0) { setError("金额必须大于 0"); return; }
+    setSavingFinance(true); setError("");
     try {
-      await requestJson("/api/lead/customer-reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
-      setAdding(false); setDraft({ phone: "", customerName: "", channelId: payload?.channelOptions[0]?.id ?? "", joinedOn: localToday(), deviceCode: "", attributionOwnerId: member?.id ?? "" });
-      setPage(1); setProgress("全部进度"); showSaved("客户已加入组内共享表"); setReloadKey((value) => value + 1);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "新增客户失败"); }
-    finally { setCreating(false); }
+      if (finance.kind === "INITIAL") {
+        await requestJson("/api/customer-orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batchId: finance.customer.batch.id, leadId: finance.customer.id, phone: finance.customer.phone, openedOn: financeDraft.occurredOn, initialDepositCents: Math.round(amount * 100), initialDepositMethod: financeDraft.depositMethod }) });
+      } else {
+        const order = finance.customer.order;
+        if (!order) throw new Error("请先登记首充");
+        await requestJson("/api/customer-finance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ customerOrderId: order.id, occurredOn: financeDraft.occurredOn, kind: finance.kind, amountCents: Math.round(amount * 100), ...(finance.kind === "RECHARGE" ? { depositMethod: financeDraft.depositMethod, continuationNumber: order.nextContinuationNumber } : {}) }) });
+      }
+      showSaved(finance.kind === "INITIAL" ? "首充已登记" : finance.kind === "RECHARGE" ? "本次续充已登记" : "本次出金已登记");
+      setFinance(null); setReloadKey((value) => value + 1);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "资金记录保存失败"); }
+    finally { setSavingFinance(false); }
   }
 
   return <div className={styles.sheetWorkspace}>
@@ -124,25 +157,53 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
       <label className={styles.search}><MagnifyingGlass size={14} /><input aria-label="搜索客户" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索号码、组员、渠道或进度" /></label>
       {availableGroups.length > 1 ? <select aria-label="查看小组" value={groupId} onChange={(event) => { setGroupId(event.target.value); setPage(1); }}>{availableGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : null}
       <select aria-label="进度筛选" value={progress} onChange={(event) => setProgress(event.target.value as ProgressFilter)}>{progressFilters.map((item) => <option key={item}>{item}</option>)}</select>
-      {member ? <button className={styles.addButton} disabled={!groupId || loading} onClick={beginAdd}><Plus size={15} weight="bold" />新增已进群客户</button> : null}
+      {member ? <button className={styles.addButton} disabled={!groupId || loading || adding} onClick={beginAdd}><Plus size={15} weight="bold" />新增已进群客户</button> : null}
     </section>
 
     {error ? <div className={styles.error}>{error}</div> : null}
     <section className={styles.sheetCard}>
-      <header className={styles.sheetHeader}><div><h2>组内共享客户进度</h2><p>只登记已经进群的客户；修改单元格后自动保存</p></div><span><i />实时共享</span></header>
+      <header className={styles.sheetHeader}><div><h2>组内共享客户进度</h2><p>一位客户一行；按负责人填写自己的单元格，修改后自动保存</p></div><span><i />实时共享</span></header>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead><tr><th>进群日期（自动）</th><th>客户号码</th><th>归属组员</th><th>来源渠道</th><th>炒群负责人</th><th>设备号</th><th>群内天数</th><th>炒群情况</th><th>退群类型</th><th>退群日期（自动）</th><th>专家负责人</th><th>专家情况</th><th>注册日期</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>最后修改</th></tr></thead>
-          <tbody>{loading ? <tr><td colSpan={18} className={styles.empty}>正在读取组内共享数据…</td></tr> : customers.map((customer) => {
-            const canEdit = Boolean(member); const net = (customer.order?.initialDepositCents ?? 0) + (customer.order?.rechargeCents ?? 0) - (customer.order?.withdrawalCents ?? 0);
-            return <tr key={customer.id}><td>{customer.joinedOn ?? "—"}</td><td className={styles.phone}><strong>{customer.phone}</strong>{customer.customerName?.trim() ? <small>{customer.customerName}</small> : null}</td><td>{customer.owner?.name ?? "未分配"}</td><td>{customer.batch.channel.name}</td><td>{customer.groupOperatorOwner?.name ?? "待分配"}</td><td>{customer.device?.code ?? "—"}</td><td className={styles.dayCell}>{daysInGroup(customer.joinedOn, customer.leftOn)}</td><td className={styles.progressCell}><EditableCell label="炒群情况" value={latestGroupText(customer)} editable={canEdit} saving={savingCell === `${customer.id}:group`} onSave={(note) => saveSituation(customer, "group", note)} /></td><td>{customer.groupStatus === "LEFT" ? (customer.leftWithOrder ? "正常退群" : "异常退群") : "—"}</td><td>{customer.leftOn ?? "—"}</td><td>{customer.expertOwner?.name ?? "未分配"}</td><td className={styles.progressCell}><EditableCell label="专家情况" value={latestExpertText(customer)} editable={canEdit} saving={savingCell === `${customer.id}:expert`} onSave={(note) => saveSituation(customer, "expert", note)} /></td><td>{customer.registeredOn ?? "—"}</td><td className={styles.money}>{money(customer.order?.initialDepositCents)}</td><td className={styles.money}>{money(customer.order?.rechargeCents)}</td><td>{money(customer.order?.withdrawalCents)}</td><td className={styles.net}>{money(net)}</td><td className={styles.updated}>{customer.activities[0]?.actor?.name ?? "系统"}<small>{customer.activities[0]?.occurredOn ?? "—"}</small></td></tr>;
-          })}{!loading && customers.length === 0 ? <tr><td colSpan={18} className={styles.empty}>没有符合当前条件的已进群客户</td></tr> : null}</tbody>
+          <tbody>
+            {adding && member ? <tr className={styles.draftRow}><td>{draft.joinedOn}</td><td><div className={styles.draftPhone}><input ref={phoneInput} aria-label="新客户号码" value={draft.phone} placeholder="输入号码后回车" disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value }))} onBlur={() => void createCustomer()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void createCustomer(); } }} /><button type="button" title="取消新增" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding(false)}><X size={13} /></button></div></td><td>{member.name}</td><td><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))}>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td><td className={styles.draftHint} colSpan={14}>{creating ? "正在保存…" : "先输入客户号码；保存后可在这一行继续选择炒群负责人、设备和专家"}</td></tr> : null}
+            {loading ? <tr><td colSpan={18} className={styles.empty}>正在读取组内共享数据…</td></tr> : customers.map((customer) => {
+              const attributedOwner = customer.attributionOwner ?? customer.owner;
+              const canOwner = Boolean(member && (isLead || attributedOwner?.id === member.id || customer.owner?.id === member.id));
+              const canOperator = Boolean(member && (isLead || customer.groupOperatorOwner?.id === member.id));
+              const canExpert = Boolean(member && (isLead || customer.expertOwner?.id === member.id));
+              const net = (customer.order?.initialDepositCents ?? 0) + (customer.order?.rechargeCents ?? 0) - (customer.order?.withdrawalCents ?? 0);
+              const rechargeCount = customer.order?.financeEvents.filter((event) => event.kind === "RECHARGE").length ?? 0;
+              const withdrawalCount = customer.order?.financeEvents.filter((event) => event.kind === "WITHDRAWAL").length ?? 0;
+              return <tr key={customer.id}>
+                <td>{customer.joinedOn ?? "—"}</td>
+                <td className={styles.phone}><strong>{customer.phone}</strong>{customer.customerName?.trim() ? <small>{customer.customerName}</small> : null}</td>
+                <td>{isLead && member ? <select className={styles.cellSelect} value={attributedOwner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setOwner", userId: event.target.value }, "owner", "接粉及业绩归属已保存")}>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : attributedOwner?.name ?? "未分配"}</td>
+                <td>{canOwner ? <select className={styles.cellSelect} value={payload?.channelOptions.find((item) => item.name === customer.batch.channel.name)?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setChannel", channelId: event.target.value }, "channel", "来源渠道已保存")}>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : customer.batch.channel.name}</td>
+                <td>{canOwner ? <select className={styles.cellSelect} value={customer.groupOperatorOwner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "assignGroupOperator", userId: event.target.value }, "operator", "炒群负责人已保存")}><option value="" disabled>点击选择</option>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : customer.groupOperatorOwner?.name ?? "待分配"}</td>
+                <td>{canOwner ? <select className={styles.cellSelect} value={customer.device?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "assignDevice", deviceId: event.target.value }, "device", "设备号已保存")}><option value="" disabled>点击选择</option>{payload?.deviceOptions.map((item) => <option key={item.id} value={item.id}>{item.code}{isLead && item.member?.name ? ` · ${item.member.name}` : ""}</option>)}</select> : customer.device?.code ?? "—"}</td>
+                <td className={styles.dayCell}>{daysInGroup(customer.joinedOn, customer.leftOn)}</td>
+                <td className={styles.progressCell}><EditableCell label="炒群情况" value={latestGroupText(customer)} editable={canOperator} saving={savingCell === `${customer.id}:group`} onSave={(note) => saveSituation(customer, "group", note)} /></td>
+                <td>{canOperator && customer.groupStatus !== "LEFT" ? <select className={styles.cellSelect} value="" disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setLeave", leaveType: event.target.value, occurredOn: localToday() }, "leave", "退群类型和日期已保存")}><option value="">—</option><option value="NORMAL">正常退群</option><option value="ABNORMAL">异常退群</option></select> : customer.groupStatus === "LEFT" ? (customer.leftWithOrder ? "正常退群" : "异常退群") : "—"}</td>
+                <td>{customer.leftOn ?? "—"}</td>
+                <td>{canOperator ? <select className={styles.cellSelect} value={customer.expertOwner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "assignExpert", userId: event.target.value }, "expert", "专家负责人已保存")}><option value="" disabled>点击选择</option>{payload?.expertOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : customer.expertOwner?.name ?? "未分配"}</td>
+                <td className={styles.progressCell}><EditableCell label="专家情况" value={latestExpertText(customer)} editable={canExpert} saving={savingCell === `${customer.id}:expert`} onSave={(note) => saveSituation(customer, "expert", note)} /></td>
+                <td>{canExpert ? <input key={customer.registeredOn ?? "empty"} className={styles.dateInput} type="date" defaultValue={customer.registeredOn ?? ""} min={customer.joinedOn ?? undefined} disabled={Boolean(savingCell)} onChange={(event) => event.target.value && void patchCell(customer, { action: "setRegistration", occurredOn: event.target.value }, "registration", "注册日期已保存")} /> : customer.registeredOn ?? "—"}</td>
+                <td className={styles.money}>{customer.order ? <button className={styles.financeCell} onClick={() => canExpert && openFinance("INITIAL", customer)} disabled={!canExpert}>{money(customer.order.initialDepositCents)}</button> : <button className={styles.financeAdd} disabled={!canExpert || !customer.registeredOn} title={!customer.registeredOn ? "请先填写注册日期" : "登记首充"} onClick={() => openFinance("INITIAL", customer)}>+ 首充</button>}</td>
+                <td className={styles.money}><button className={styles.financeCell} disabled={!canExpert || !customer.order} onClick={() => openFinance("RECHARGE", customer)}>{money(customer.order?.rechargeCents)}{rechargeCount ? <small>{rechargeCount}笔</small> : null}</button></td>
+                <td><button className={styles.financeCell} disabled={!canExpert || !customer.order} onClick={() => openFinance("WITHDRAWAL", customer)}>{money(customer.order?.withdrawalCents)}{withdrawalCount ? <small>{withdrawalCount}笔</small> : null}</button></td>
+                <td className={styles.net}>{money(net)}</td><td className={styles.updated}>{customer.activities[0]?.actor?.name ?? "系统"}<small>{customer.activities[0]?.occurredOn ?? "—"}</small></td>
+              </tr>;
+            })}
+            {!loading && customers.length === 0 && !adding ? <tr><td colSpan={18} className={styles.empty}>没有符合当前条件的已进群客户</td></tr> : null}
+          </tbody>
         </table>
       </div>
-      <footer className={styles.footer}><span>共 {payload?.total ?? 0} 位客户 · 双击可填写单元格修改</span><div><span>每次修改都记录账号和时间</span><button disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>上一页</button><b>{page} / {pageCount}</b><button disabled={page >= pageCount || loading} onClick={() => setPage((value) => value + 1)}>下一页</button></div></footer>
+      <footer className={styles.footer}><span>共 {payload?.total ?? 0} 位客户 · 双击情况单元格编辑，选择框修改后自动保存</span><div><span>每次修改都记录账号和时间</span><button disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>上一页</button><b>{page} / {pageCount}</b><button disabled={page >= pageCount || loading} onClick={() => setPage((value) => value + 1)}>下一页</button></div></footer>
     </section>
 
-    {adding && member ? <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setAdding(false); }}><form className={styles.modal} onSubmit={createCustomer}><header><div><h3>新增已进群客户</h3><p>保存后直接出现在组内共享表，客户业绩归属所选组员。</p></div><button type="button" onClick={() => setAdding(false)}><X size={18} /></button></header><div className={styles.formGrid}><label><span>客户号码 *</span><input value={draft.phone} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value }))} required autoFocus /></label><label><span>客户姓名</span><input value={draft.customerName} onChange={(event) => setDraft((value) => ({ ...value, customerName: event.target.value }))} /></label><label><span>来源渠道 *</span><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))} required><option value="">请选择</option>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>归属组员 *</span><select value={draft.attributionOwnerId} onChange={(event) => setDraft((value) => ({ ...value, attributionOwnerId: event.target.value }))} required><option value="">请选择</option>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>进群日期 *</span><input type="date" value={draft.joinedOn} onChange={(event) => setDraft((value) => ({ ...value, joinedOn: event.target.value }))} required /></label><label><span>设备号</span><input value={draft.deviceCode} onChange={(event) => setDraft((value) => ({ ...value, deviceCode: event.target.value }))} /></label></div><footer><button type="button" onClick={() => setAdding(false)}>取消</button><button type="submit" disabled={creating}>{creating ? "保存中…" : "保存到共享表"}</button></footer></form></div> : null}
+    {finance ? <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setFinance(null); }}><section className={styles.financeModal}><header><div><h3>{finance.kind === "INITIAL" ? "首充记录" : finance.kind === "RECHARGE" ? "续充明细" : "出金明细"}</h3><p>{finance.customer.phone} · 每笔资金单独记录日期、金额和操作账号</p></div><button type="button" onClick={() => setFinance(null)}><X size={18} /></button></header>{finance.kind === "INITIAL" && finance.customer.order ? <div className={styles.financeHistory}><div><span>{finance.customer.order.openedOn}</span><strong>{money(finance.customer.order.initialDepositCents)}</strong><small>{finance.customer.order.enteredBy?.name ?? "历史记录"}</small></div></div> : finance.kind !== "INITIAL" && finance.customer.order?.financeEvents.filter((event) => event.kind === finance.kind).length ? <div className={styles.financeHistory}>{finance.customer.order.financeEvents.filter((event) => event.kind === finance.kind).map((event) => <div key={event.id}><span>{event.occurredOn}</span><strong>{money(event.amountCents)}</strong><small>{event.enteredBy?.name ?? "历史记录"}</small></div>)}</div> : null}{finance.kind !== "INITIAL" || !finance.customer.order ? <div className={styles.financeForm}><label><span>日期</span><input type="date" value={financeDraft.occurredOn} onChange={(event) => setFinanceDraft((value) => ({ ...value, occurredOn: event.target.value }))} /></label><label><span>金额</span><input type="number" min="0.01" step="0.01" value={financeDraft.amount} autoFocus placeholder="0.00" onChange={(event) => setFinanceDraft((value) => ({ ...value, amount: event.target.value }))} /></label>{finance.kind !== "WITHDRAWAL" ? <label><span>入金方式</span><select value={financeDraft.depositMethod} onChange={(event) => setFinanceDraft((value) => ({ ...value, depositMethod: event.target.value as "CRYPTO" | "BANK" }))}><option value="CRYPTO">加密货币</option><option value="BANK">银行卡</option></select></label> : null}</div> : null}<footer><button type="button" onClick={() => setFinance(null)}>{finance.kind === "INITIAL" && finance.customer.order ? "关闭" : "取消"}</button>{finance.kind !== "INITIAL" || !finance.customer.order ? <button type="button" className={styles.primaryButton} disabled={savingFinance} onClick={() => void saveFinance()}>{savingFinance ? "保存中…" : finance.kind === "INITIAL" ? "确认首充" : finance.kind === "RECHARGE" ? "+ 确认本次续充" : "+ 确认本次出金"}</button> : null}</footer></section></div> : null}
     {savedMessage ? <div className={styles.toast}>{savedMessage}</div> : null}
   </div>;
 }

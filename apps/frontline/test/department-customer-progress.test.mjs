@@ -23,7 +23,17 @@ test("共享表完整保留已进群客户业务字段", () => {
 test("组员和组长都能新增已进群客户", () => {
   assert.match(component, /\{member \? <button[^]*新增已进群客户/);
   assert.match(component, /requestJson\("\/api\/lead\/customer-reporting", \{ method: "POST"/);
-  for (const field of ["客户号码", "客户姓名", "来源渠道", "归属组员", "进群日期", "设备号"]) assert.match(component, new RegExp(field));
+  assert.match(component, /新客户号码/);
+  assert.match(component, /先输入客户号码；保存后可在这一行继续选择/);
+  assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
+});
+
+test("共享表按责任人开放下拉选择并由专家逐笔登记资金", () => {
+  for (const action of ["assignGroupOperator", "assignDevice", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
+  assert.match(component, /\/api\/customer-orders/);
+  assert.match(component, /\/api\/customer-finance/);
+  assert.match(component, /\+ 确认本次续充/);
+  assert.match(component, /financeEvents/);
 });
 
 test("炒群和专家单元格双击编辑并自动保存", () => {

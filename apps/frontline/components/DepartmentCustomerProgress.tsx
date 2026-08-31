@@ -18,6 +18,7 @@ type Customer = {
 };
 type Payload = {
   page: number; pageSize: number; total: number; customers: Customer[]; channels: string[];
+  channelOptions: Array<{ id: string; name: string }>; memberOptions: Array<{ id: string; name: string }>;
   summary: { customerCount: number; orderCount: number; initialDepositCents: number; rechargeCents: number; withdrawalCents: number };
 };
 type ReportingPayload = { groups: DepartmentCustomerGroup[] };
@@ -52,6 +53,8 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   const [payload, setPayload] = useState<Payload | null>(null); const [loading, setLoading] = useState(true);
   const [error, setError] = useState(""); const [reloadKey, setReloadKey] = useState(0);
   const [savingCell, setSavingCell] = useState("");
+  const [adding, setAdding] = useState(false); const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState({ phone: "", customerName: "", channelId: "", joinedOn: localToday(), deviceCode: "", attributionOwnerId: member?.id ?? "" });
 
   useEffect(() => {
     if (groups) { setAvailableGroups(groups); setGroupId((current) => groups.some((group) => group.id === current) ? current : groups[0]?.id ?? ""); return; }
@@ -83,6 +86,15 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
     } catch (caught) { setError(caught instanceof Error ? caught.message : "客户进度保存失败"); throw caught; }
     finally { setSavingCell(""); }
   }
+  async function createCustomer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setCreating(true); setError("");
+    try {
+      await requestJson("/api/lead/customer-reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
+      setAdding(false); setDraft({ phone: "", customerName: "", channelId: "", joinedOn: localToday(), deviceCode: "", attributionOwnerId: member?.id ?? "" });
+      setPage(1); setReloadKey((value) => value + 1);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "新增客户失败"); }
+    finally { setCreating(false); }
+  }
 
   return <div className={styles.workspace}>
     <section className={styles.toolbar}>
@@ -90,8 +102,19 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
       <label className={styles.field}><span>查看小组</span><select aria-label="查看小组" disabled={loading} value={groupId} onChange={(event) => { setGroupId(event.target.value); setChannel(""); setPage(1); }}><option value="">请选择小组</option>{availableGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
       <label className={styles.field}><span>来源渠道</span><select aria-label="来源渠道" disabled={loading} value={channel} onChange={(event) => { setChannel(event.target.value); setPage(1); }}><option value="">全部渠道</option>{channels.map((name) => <option key={name}>{name}</option>)}</select></label>
       <form className={`${styles.field} ${styles.search}`} aria-busy={loading} onSubmit={submitSearch}><label className={styles.field}><span>搜索客户</span><input aria-label="搜索客户" value={draftQuery} onChange={(event) => setDraftQuery(event.target.value)} placeholder="输入号码或客户姓名" /></label><button className={styles.primary} disabled={!groupId || loading}>{loading ? "查询中…" : "搜索"}</button>{query ? <button type="button" className={styles.secondary} disabled={loading} onClick={() => { setDraftQuery(""); setQuery(""); setPage(1); }}>清除</button> : null}</form>
+      {member ? <button className={styles.primary} disabled={!groupId || loading} onClick={() => { setAdding((value) => !value); setDraft((value) => ({ ...value, channelId: value.channelId || payload?.channelOptions[0]?.id || "", attributionOwnerId: value.attributionOwnerId || member.id })); }}>＋ 新增一行</button> : null}
       <button className={styles.secondary} disabled={!groupId || loading} onClick={() => setReloadKey((value) => value + 1)}>{loading ? "刷新中…" : "刷新"}</button>
     </section>
+    {adding && member ? <form className={styles.addRow} onSubmit={createCustomer}>
+      <div><strong>新增已进群客户</strong><span>一位客户一行，保存后立即进入组内共享表</span></div>
+      <label><span>客户号码 *</span><input value={draft.phone} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value }))} placeholder="填写客户号码" required /></label>
+      <label><span>客户姓名</span><input value={draft.customerName} onChange={(event) => setDraft((value) => ({ ...value, customerName: event.target.value }))} placeholder="可不填" /></label>
+      <label><span>来源渠道 *</span><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))} required><option value="">请选择渠道</option>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label><span>进群日期 *</span><input type="date" value={draft.joinedOn} onChange={(event) => setDraft((value) => ({ ...value, joinedOn: event.target.value }))} required /></label>
+      <label><span>设备号</span><input value={draft.deviceCode} onChange={(event) => setDraft((value) => ({ ...value, deviceCode: event.target.value }))} placeholder="可不填" /></label>
+      <label><span>接粉归属 *</span><select value={draft.attributionOwnerId} onChange={(event) => setDraft((value) => ({ ...value, attributionOwnerId: event.target.value }))} required>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <div className={styles.addActions}><button type="button" className={styles.secondary} onClick={() => setAdding(false)}>取消</button><button className={styles.primary} disabled={creating}>{creating ? "保存中…" : "保存到共享表"}</button></div>
+    </form> : null}
     <section className={styles.summary}><article><span>进群客户</span><strong>{totals.customerCount}</strong></article><article><span>已开单</span><strong>{totals.orderCount}</strong></article><article><span>首充</span><strong>{money(totals.initialDepositCents)}</strong></article><article><span>续充</span><strong>{money(totals.rechargeCents)}</strong></article><article><span>净业绩</span><strong>{money(totals.initialDepositCents + totals.rechargeCents - totals.withdrawalCents)}</strong></article></section>
     {error ? <div className={styles.error}>{error}</div> : null}
     {groupId ? <section className={styles.card}><div className={styles.head}><div><h2>{selectedGroup?.name ?? "所选小组"} · 已进群客户共享表</h2><p>接粉归属、设备号、炒群情况、专家情况和资金结果全部放在同一行</p></div><span className={styles.readonly}>{member ? "组内共享 · 分栏填写" : "管理账号只读"}</span></div>

@@ -37,3 +37,10 @@ test("各级管理员共享同一张只读客户表及统一字段", () => {
     assert.match(component, new RegExp(field));
   }
 });
+
+test("组员和组长都能从共享表新增已进群客户", () => {
+  assert.match(component, /member \? <button[^]*新增一行/);
+  assert.match(component, /新增已进群客户/);
+  assert.match(component, /requestJson\("\/api\/lead\/customer-reporting", \{ method: "POST"/);
+  for (const field of ["客户号码", "客户姓名", "来源渠道", "进群日期", "设备号", "接粉归属"]) assert.match(component, new RegExp(field));
+});

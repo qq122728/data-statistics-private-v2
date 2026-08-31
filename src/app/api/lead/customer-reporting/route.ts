@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
+import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
-import { db } from "../../../../lib/db";
+import { db, getOrCreateSourceBatch } from "../../../../lib/db";
 import { hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-access";
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
@@ -10,10 +11,20 @@ import { localDateYYYYMMDD } from "../../../../lib/dates";
 import { canViewOrgScope } from "../../../../lib/org-permissions";
 import { resolveExpertWorkflowStage, type ExpertWorkflowStage } from "../../../../lib/expert-workflow-stage";
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
+import { normalizeCustomerPhone } from "../../../../lib/entry-ledger";
+import { entryDateError } from "../../../../lib/entry-date-validation";
 
 const stages = new Set(["reception", "group", "expert"]);
 const expertStages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
 const PAGE_SIZE = 50;
+const createSchema = z.object({
+  phone: z.string().trim().min(1, "请输入客户号码").max(80, "客户号码不能超过 80 个字"),
+  customerName: z.string().trim().max(80, "客户姓名不能超过 80 个字").optional(),
+  channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
+  joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
+  deviceCode: z.string().trim().max(50, "设备号不能超过 50 个字").optional(),
+  attributionOwnerId: z.string().trim().max(API_LIMITS.identifierCharacters).optional(),
+});
 
 function stageWhere(stage: string): Prisma.LeadCustomerWhereInput {
   if (stage === "reception") return { groupStatus: "NOT_JOINED", receptionArchivedAt: null };
@@ -161,9 +172,14 @@ export async function GET(request: Request) {
     ? expertPageIds.map((id) => customerById.get(id)).filter((customer): customer is NonNullable<typeof customer> => Boolean(customer))
     : customerRows;
 
+  const memberOptions = isLead || isOwnGroupMember ? await db.user.findMany({
+    where: { groupId: group.id, active: true }, select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }],
+  }) : [];
   return NextResponse.json({
     stage, expertStage, expertCounts, page, pageSize: PAGE_SIZE, total, today, timezone,
     channels: [...new Set(channelRows.map((row) => row.batch.channel.name))].sort((left, right) => left.localeCompare(right, "zh-CN")),
+    channelOptions: await db.channel.findMany({ where: { groupId: group.id, active: true }, select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }),
+    memberOptions,
     summary: {
       customerCount: total,
       orderCount,
@@ -191,4 +207,68 @@ export async function GET(request: Request) {
       };
     }),
   }, { headers: { "Cache-Control": "private, no-store" } });
+}
+
+/** 共享表只录入已经进群的客户；组员和组长都可以新增，业绩永久归属所选接粉组员。 */
+export async function POST(request: Request) {
+  let actor;
+  try { actor = await requireUser(); }
+  catch (error) {
+    if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    throw error;
+  }
+  if (!actor.active || !actor.groupId || !isFrontlineGroupMember(actor))
+    return authorizationDenied(actor, "只有在职组员和组长可以新增已进群客户");
+  try {
+    const input = createSchema.parse(await request.json());
+    const group = await db.teamGroup.findFirst({
+      where: { id: actor.groupId, active: true },
+      select: { id: true, timezone: true, countryCode: true, workStartMinutes: true, workEndMinutes: true, department: { select: { timezone: true, countryCode: true, workStartMinutes: true, workEndMinutes: true } } },
+    });
+    if (!group) return authorizationDenied(actor, "当前小组不存在或已停用");
+    const today = localDateYYYYMMDD(new Date(), resolveGroupBusinessTime(group).timezone);
+    const dateError = entryDateError(input.joinedOn, today, "进群日期");
+    if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
+    let phone: string;
+    try { phone = normalizeCustomerPhone(input.phone); }
+    catch { return NextResponse.json({ error: "客户号码必须包含数字" }, { status: 400 }); }
+    const result = await db.$transaction(async (transaction) => {
+      const [channel, owner, existing] = await Promise.all([
+        transaction.channel.findUnique({ where: { id_groupId: { id: input.channelId, groupId: group.id } }, select: { id: true, active: true } }),
+        transaction.user.findFirst({ where: { id: input.attributionOwnerId || actor.id, groupId: group.id, active: true }, select: { id: true } }),
+        transaction.leadCustomer.findUnique({ where: { phone }, select: { id: true } }),
+      ]);
+      if (!channel?.active) return { status: 400 as const, error: "来源渠道不存在或已停用" };
+      if (!owner) return { status: 400 as const, error: "接粉归属只能选择本组在职组员" };
+      if (existing) return { status: 409 as const, error: "该客户号码已经存在，不能重复新增" };
+      const assignment = await transaction.groupOperatorReception.findUnique({ where: { receptionistId: owner.id }, select: { groupOperatorId: true } });
+      let deviceId: string | null = null;
+      if (input.deviceCode) {
+        const device = await transaction.device.upsert({
+          where: { groupId_code: { groupId: group.id, code: input.deviceCode } },
+          update: {}, create: { groupId: group.id, code: input.deviceCode, memberId: owner.id }, select: { id: true, active: true, memberId: true },
+        });
+        if (!device.active || (device.memberId && device.memberId !== owner.id && !hasAssignedRole(actor, "LEAD")))
+          return { status: 400 as const, error: "设备号已归属其他组员" };
+        deviceId = device.id;
+      }
+      const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate: input.joinedOn }, transaction);
+      const customer = await transaction.leadCustomer.create({
+        data: {
+          phone, customerName: input.customerName || null, batchId: batch.id, ownerId: owner.id, attributionOwnerId: owner.id,
+          groupOperatorOwnerId: assignment?.groupOperatorId ?? (hasAssignedRole(actor, "GROUP_OPERATOR") || hasAssignedRole(actor, "LEAD") ? actor.id : null),
+          deviceId, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: input.joinedOn,
+          groupStatus: "JOINED", joinedOn: input.joinedOn,
+          activities: { create: { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从组内共享客户进度表新增" } },
+        }, select: { id: true, phone: true },
+      });
+      return { status: 201 as const, customer };
+    });
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
+    return NextResponse.json(result.customer, { status: 201 });
+  } catch (error) {
+    if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues[0]?.message ?? "请检查客户资料" }, { status: 400 });
+    if (error instanceof SyntaxError) return NextResponse.json({ error: "请求内容不是有效 JSON" }, { status: 400 });
+    return NextResponse.json({ error: "新增客户失败，请检查号码是否重复" }, { status: 409 });
+  }
 }

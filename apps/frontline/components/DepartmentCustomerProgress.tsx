@@ -5,6 +5,7 @@ import { MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { requestJson, type BackendUser } from "@/lib/backend";
 import { localToday } from "@/lib/frontline-workbench";
 import styles from "./DepartmentCustomerProgress.module.css";
+import { LegacyCustomerImport } from "./LegacyCustomerImport";
 
 export type DepartmentCustomerGroup = { id: string; name: string };
 type Owner = { id: string; name: string } | null;
@@ -67,6 +68,7 @@ function EditableCell({ label, value, editable, saving, onSave }: { label: strin
 }
 
 export function DepartmentCustomerProgress({ groups, member }: { groups?: DepartmentCustomerGroup[]; member?: BackendUser }) {
+  const [legacyMode, setLegacyMode] = useState(false);
   const [availableGroups, setAvailableGroups] = useState(groups ?? []);
   const [groupId, setGroupId] = useState(groups?.[0]?.id ?? "");
   const [payload, setPayload] = useState<Payload | null>(null);
@@ -151,11 +153,14 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
     finally { setSavingFinance(false); }
   }
 
+  if (legacyMode) return <LegacyCustomerImport onBack={() => setLegacyMode(false)} />;
+
   return <div className={styles.sheetWorkspace}>
     <section className={styles.toolbar}>
       <label className={styles.search}><MagnifyingGlass size={14} /><input aria-label="搜索客户" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索号码、组员、渠道或进度" /></label>
       {availableGroups.length > 1 ? <select aria-label="查看小组" value={groupId} onChange={(event) => { setGroupId(event.target.value); setPage(1); }}>{availableGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : null}
       <select aria-label="进度筛选" value={progress} onChange={(event) => setProgress(event.target.value as ProgressFilter)}>{progressFilters.map((item) => <option key={item}>{item}</option>)}</select>
+      {member ? <button type="button" className={styles.legacyButton} disabled={!groupId || loading} onClick={() => setLegacyMode(true)}>老客户导入</button> : null}
       {member ? <button className={styles.addButton} disabled={!groupId || loading || adding} onClick={beginAdd}><Plus size={15} weight="bold" />新增已进群客户</button> : null}
     </section>
 

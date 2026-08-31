@@ -1147,3 +1147,32 @@ model NotificationRecipient {
   @@unique([notificationId, userId])
   @@index([userId, readAt])
 }
+
+// 老客户导入共享表与新客户流程完全独立：所有原始字段由组内成员自由填写，
+// 退群日期、群内天数和净业绩由系统根据这些原始字段计算。
+model LegacyCustomerRow {
+  id                    String   @id @default(cuid())
+  groupId               String
+  createdById           String
+  updatedById           String
+  joinedOn              String?
+  phone                 String   @default("")
+  attributionMemberName String   @default("")
+  sourceChannelName     String   @default("")
+  groupOperatorName     String   @default("")
+  deviceCode            String   @default("")
+  groupSituation        String   @default("")
+  leaveType             String   @default("")
+  leftOn                String?
+  expertName            String   @default("")
+  expertSituation       String   @default("")
+  registeredOn          String?
+  initialDepositCents   Int      @default(0)
+  rechargeCents         Int      @default(0)
+  withdrawalCents       Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([groupId, updatedAt])
+  @@index([groupId, phone])
+}

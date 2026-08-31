@@ -4,6 +4,7 @@ import test from "node:test";
 
 const component = readFileSync(new URL("../components/DepartmentCustomerProgress.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../components/DepartmentCustomerProgress.module.css", import.meta.url), "utf8");
+const legacy = readFileSync(new URL("../components/LegacyCustomerImport.tsx", import.meta.url), "utf8");
 
 test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /组内共享客户进度/);
@@ -55,4 +56,17 @@ test("表格视觉匹配目标截图的紧凑大表", () => {
   assert.match(css, /\.table\{[^}]*min-width:2160px/);
   assert.match(css, /\.dayCell\{[^}]*background:#edf8f1/);
   assert.match(css, /\.progressCell\{[^}]*width:240px/);
+});
+
+test("客户进度提供独立的老客户自由填写共享表", () => {
+  assert.match(component, /老客户导入/);
+  assert.match(component, /LegacyCustomerImport/);
+  assert.match(legacy, /添加一行/);
+  for (const field of ["进群日期", "客户号码", "归属组员", "来源渠道", "炒群负责人", "设备号", "群内天数", "炒群情况", "退群类型", "退群日期（自动）", "专家负责人", "专家情况", "注册日期", "首充", "续充", "出金", "净业绩"]) {
+    assert.match(legacy, new RegExp(field));
+  }
+  assert.doesNotMatch(legacy, /<select/);
+  assert.match(legacy, /\/api\/legacy-customer-rows/);
+  assert.match(legacy, /onBlur=\{\(\) => void finish\(\)\}/);
+  assert.match(legacy, /initialDepositCents \+ row\.rechargeCents - row\.withdrawalCents|netPerformanceCents/);
 });

@@ -1,58 +1,78 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { requestJson, type BackendUser } from "@/lib/backend";
 import { localToday } from "@/lib/frontline-workbench";
 import styles from "./DepartmentCustomerProgress.module.css";
 
 export type DepartmentCustomerGroup = { id: string; name: string };
 type Owner = { id: string; name: string } | null;
-type Activity = { kind: string; occurredOn: string; note: string | null };
+type Activity = { id?: string; kind: string; occurredOn: string; note: string | null; actor?: { name: string } };
 type Customer = {
-  id: string; phone: string; customerName: string | null; groupStatus: string; joinedOn: string | null;
+  id: string; phone: string; customerName: string | null; groupStatus: string; joinedOn: string | null; leftOn: string | null;
   leftNote: string | null; leftWithOrder: boolean; expertIntroducedOn: string | null; expertContactNote: string | null;
-  expertWorkflowStage: string | null; registeredOn: string | null; expertNotes: string | null; nextPlan: string | null; nextFollowUpOn: string | null;
+  expertWorkflowStage: string | null; registeredOn: string | null; expertNotes: string | null; nextPlan: string | null;
   owner: Owner; groupOperatorOwner: Owner; expertOwner: Owner; device: { id: string; code: string } | null;
   batch: { sourceDate: string; channel: { name: string } };
-  order: { initialDepositCents: number; rechargeCents: number; withdrawalCents: number } | null; activities: Activity[];
+  order: { initialDepositCents: number; rechargeCents: number; withdrawalCents: number } | null;
+  activities: Activity[];
 };
 type Payload = {
   page: number; pageSize: number; total: number; customers: Customer[]; channels: string[];
   channelOptions: Array<{ id: string; name: string }>; memberOptions: Array<{ id: string; name: string }>;
-  summary: { customerCount: number; orderCount: number; initialDepositCents: number; rechargeCents: number; withdrawalCents: number };
 };
 type ReportingPayload = { groups: DepartmentCustomerGroup[] };
+type ProgressFilter = "全部进度" | "群内维护" | "已推专家" | "已开单" | "已退群";
 
-const expertLabels: Record<string, string> = { QUEUED: "待专家接待", MATERIALS: "准备资料", TRACKING: "专家跟进中", PENDING_REGISTRATION: "待注册", PENDING_ORDER: "待开单", DECLINED_DEPOSIT: "暂不首充", ORDERED: "已开单", STALLED: "停止维护" };
-const activityLabels: Record<string, string> = { JOINED_GROUP: "客户已进群", LEFT_GROUP: "客户已退群", GROUP_PROGRESS_UPDATED: "炒群情况已更新", EXPERT_INTRODUCED: "已推送专家", EXPERT_CONTACTED: "专家已接待", REGISTERED: "客户已注册", PLAN_UPDATED: "跟进计划已更新" };
 const money = (cents = 0) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
-function latestText(customer: Customer) { const item = customer.activities[0]; return item ? item.note?.trim() || activityLabels[item.kind] || "客户进度已更新" : "暂无跟进记录"; }
-function latestGroupText(customer: Customer) { return customer.activities.find((item) => item.kind === "GROUP_PROGRESS_UPDATED")?.note?.trim() || customer.leftNote || (customer.expertIntroducedOn ? "已推专家" : "暂无炒群记录"); }
+const expertLabels: Record<string, string> = { QUEUED: "待专家接待", MATERIALS: "已经交资料，等待进一步沟通", TRACKING: "专家跟进中", PENDING_REGISTRATION: "待注册", PENDING_ORDER: "待开单", DECLINED_DEPOSIT: "暂不首充", ORDERED: "已开单，等待客户后续维护", STALLED: "停止维护" };
+const activityLabels: Record<string, string> = { JOINED_GROUP: "客户已进群", LEFT_GROUP: "客户已退群", GROUP_PROGRESS_UPDATED: "炒群情况已更新", EXPERT_INTRODUCED: "已推专家", EXPERT_CONTACTED: "专家已接待", REGISTERED: "客户已注册", PLAN_UPDATED: "专家情况已更新" };
+const progressFilters: ProgressFilter[] = ["全部进度", "群内维护", "已推专家", "已开单", "已退群"];
 
-function EditableSituation({ label, value, editable, saving, onSave }: { label: string; value: string; editable: boolean; saving: boolean; onSave: (value: string) => Promise<void> }) {
+function latestGroupText(customer: Customer) {
+  return customer.activities.find((item) => item.kind === "GROUP_PROGRESS_UPDATED")?.note?.trim()
+    || customer.leftNote || (customer.expertIntroducedOn ? "已推专家" : "暂无炒群记录");
+}
+function latestExpertText(customer: Customer) {
+  return customer.expertNotes?.trim() || customer.nextPlan || customer.expertContactNote
+    || (customer.expertIntroducedOn ? (expertLabels[customer.expertWorkflowStage ?? ""] ?? "专家跟进中") : "—");
+}
+function progressOf(customer: Customer): Exclude<ProgressFilter, "全部进度"> {
+  if (customer.groupStatus === "LEFT") return "已退群";
+  if (customer.order) return "已开单";
+  if (customer.expertIntroducedOn) return "已推专家";
+  return "群内维护";
+}
+function daysInGroup(joinedOn: string | null, leftOn: string | null) {
+  if (!joinedOn) return "—";
+  const start = Date.parse(`${joinedOn}T00:00:00Z`);
+  const end = Date.parse(`${leftOn || localToday()}T00:00:00Z`);
+  return `第${Math.max(1, Math.floor((end - start) / 86_400_000) + 1)}天`;
+}
+
+function EditableCell({ label, value, editable, saving, onSave }: { label: string; value: string; editable: boolean; saving: boolean; onSave: (value: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   useEffect(() => { if (!editing) setDraft(value); }, [editing, value]);
-
   async function finish() {
     const next = draft.trim();
     setEditing(false);
     if (!next || next === value.trim()) { setDraft(value); return; }
     await onSave(next);
   }
-
-  if (editing) return <textarea className={styles.cellEditor} aria-label={label} value={draft} maxLength={300} rows={2} autoFocus onChange={(event) => setDraft(event.target.value)} onBlur={() => void finish()} />;
-  return <button type="button" className={styles.situationCell} data-editable={editable} disabled={!editable || saving} onClick={() => setEditing(true)} title={editable ? `点击填写${label}` : `${label}仅当前负责人或组长可修改`}><span>{value || "暂无记录"}</span><small>{saving ? "保存中…" : editable ? "点击填写" : "只读"}</small></button>;
+  if (editing) return <textarea aria-label={label} className={styles.cellEditor} value={draft} maxLength={300} rows={2} autoFocus onChange={(event) => setDraft(event.target.value)} onBlur={() => void finish()} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void finish(); } }} />;
+  return <button type="button" className={styles.editableCell} data-editable={editable} disabled={!editable || saving} onDoubleClick={() => setEditing(true)} title={editable ? `双击修改${label}` : `${label}只读`}><span>{value || "—"}</span>{saving ? <small>保存中…</small> : null}</button>;
 }
 
 export function DepartmentCustomerProgress({ groups, member }: { groups?: DepartmentCustomerGroup[]; member?: BackendUser }) {
   const [availableGroups, setAvailableGroups] = useState(groups ?? []);
   const [groupId, setGroupId] = useState(groups?.[0]?.id ?? "");
-  const [page, setPage] = useState(1); const [channel, setChannel] = useState("");
-  const [draftQuery, setDraftQuery] = useState(""); const [query, setQuery] = useState("");
-  const [payload, setPayload] = useState<Payload | null>(null); const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(""); const [reloadKey, setReloadKey] = useState(0);
-  const [savingCell, setSavingCell] = useState("");
+  const [payload, setPayload] = useState<Payload | null>(null);
+  const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  const [page, setPage] = useState(1); const [reloadKey, setReloadKey] = useState(0);
+  const [query, setQuery] = useState(""); const [progress, setProgress] = useState<ProgressFilter>("全部进度");
+  const [savingCell, setSavingCell] = useState(""); const [savedMessage, setSavedMessage] = useState("");
   const [adding, setAdding] = useState(false); const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState({ phone: "", customerName: "", channelId: "", joinedOn: localToday(), deviceCode: "", attributionOwnerId: member?.id ?? "" });
 
@@ -66,60 +86,63 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   useEffect(() => {
     if (!groupId) { setPayload(null); setLoading(false); return; }
     let cancelled = false; setLoading(true); setError("");
-    const params = new URLSearchParams({ groupId, stage: "group", page: String(page) }); if (query) params.set("q", query);
-    if (channel) params.set("channel", channel);
+    const params = new URLSearchParams({ groupId, stage: "group", page: String(page) });
     void requestJson<Payload>(`/api/lead/customer-reporting?${params}`).then((result) => { if (!cancelled) setPayload(result); }).catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "客户进度读取失败"); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [groupId, page, query, channel, reloadKey]);
+  }, [groupId, page, reloadKey]);
 
-  const selectedGroup = useMemo(() => availableGroups.find((group) => group.id === groupId), [availableGroups, groupId]);
-  const channels = payload?.channels ?? [];
-  const customers = payload?.customers ?? [];
-  const totals = payload?.summary ?? { customerCount: 0, orderCount: 0, initialDepositCents: 0, rechargeCents: 0, withdrawalCents: 0 };
+  const customers = useMemo(() => (payload?.customers ?? []).filter((customer) => {
+    const haystack = `${customer.phone} ${customer.customerName ?? ""} ${customer.owner?.name ?? ""} ${customer.batch.channel.name} ${customer.groupOperatorOwner?.name ?? ""} ${customer.expertOwner?.name ?? ""} ${latestGroupText(customer)} ${latestExpertText(customer)}`.toLowerCase();
+    return (!query.trim() || haystack.includes(query.trim().toLowerCase())) && (progress === "全部进度" || progressOf(customer) === progress);
+  }), [payload?.customers, progress, query]);
   const pageCount = Math.max(1, Math.ceil((payload?.total ?? 0) / (payload?.pageSize ?? 50)));
-  function submitSearch(event: FormEvent) { event.preventDefault(); setPage(1); setQuery(draftQuery.trim()); }
+  function showSaved(message: string) { setSavedMessage(message); window.setTimeout(() => setSavedMessage(""), 2400); }
+  function beginAdd() {
+    setAdding(true); setError("");
+    setDraft((value) => ({ ...value, channelId: value.channelId || payload?.channelOptions[0]?.id || "", attributionOwnerId: value.attributionOwnerId || member?.id || "" }));
+  }
   async function saveSituation(customer: Customer, kind: "group" | "expert", note: string) {
     const key = `${customer.id}:${kind}`; setSavingCell(key); setError("");
     try {
       await requestJson(`/api/leads/${customer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(kind === "group" ? { action: "updateGroupProgress", progressNote: note, occurredOn: localToday() } : { action: "updateExpertDetails", expertNotes: note, occurredOn: localToday() }) });
-      setReloadKey((value) => value + 1);
+      showSaved(`${kind === "group" ? "炒群情况" : "专家情况"}已自动保存`); setReloadKey((value) => value + 1);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "客户进度保存失败"); throw caught; }
     finally { setSavingCell(""); }
   }
-  async function createCustomer(event: FormEvent<HTMLFormElement>) {
+  async function createCustomer(event: FormEvent) {
     event.preventDefault(); setCreating(true); setError("");
     try {
       await requestJson("/api/lead/customer-reporting", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(draft) });
-      setAdding(false); setDraft({ phone: "", customerName: "", channelId: "", joinedOn: localToday(), deviceCode: "", attributionOwnerId: member?.id ?? "" });
-      setPage(1); setReloadKey((value) => value + 1);
+      setAdding(false); setDraft({ phone: "", customerName: "", channelId: payload?.channelOptions[0]?.id ?? "", joinedOn: localToday(), deviceCode: "", attributionOwnerId: member?.id ?? "" });
+      setPage(1); setProgress("全部进度"); showSaved("客户已加入组内共享表"); setReloadKey((value) => value + 1);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "新增客户失败"); }
     finally { setCreating(false); }
   }
 
-  return <div className={styles.workspace}>
+  return <div className={styles.sheetWorkspace}>
     <section className={styles.toolbar}>
-      <div className={styles.intro}><strong>组内共享客户进度表</strong><span>只显示已经进过群的客户；一位客户一行，炒群和专家在各自负责列继续填写</span></div>
-      <label className={styles.field}><span>查看小组</span><select aria-label="查看小组" disabled={loading} value={groupId} onChange={(event) => { setGroupId(event.target.value); setChannel(""); setPage(1); }}><option value="">请选择小组</option>{availableGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-      <label className={styles.field}><span>来源渠道</span><select aria-label="来源渠道" disabled={loading} value={channel} onChange={(event) => { setChannel(event.target.value); setPage(1); }}><option value="">全部渠道</option>{channels.map((name) => <option key={name}>{name}</option>)}</select></label>
-      <form className={`${styles.field} ${styles.search}`} aria-busy={loading} onSubmit={submitSearch}><label className={styles.field}><span>搜索客户</span><input aria-label="搜索客户" value={draftQuery} onChange={(event) => setDraftQuery(event.target.value)} placeholder="输入号码或客户姓名" /></label><button className={styles.primary} disabled={!groupId || loading}>{loading ? "查询中…" : "搜索"}</button>{query ? <button type="button" className={styles.secondary} disabled={loading} onClick={() => { setDraftQuery(""); setQuery(""); setPage(1); }}>清除</button> : null}</form>
-      {member ? <button className={styles.primary} disabled={!groupId || loading} onClick={() => { setAdding((value) => !value); setDraft((value) => ({ ...value, channelId: value.channelId || payload?.channelOptions[0]?.id || "", attributionOwnerId: value.attributionOwnerId || member.id })); }}>＋ 新增一行</button> : null}
-      <button className={styles.secondary} disabled={!groupId || loading} onClick={() => setReloadKey((value) => value + 1)}>{loading ? "刷新中…" : "刷新"}</button>
+      <label className={styles.search}><MagnifyingGlass size={14} /><input aria-label="搜索客户" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索号码、组员、渠道或进度" /></label>
+      {availableGroups.length > 1 ? <select aria-label="查看小组" value={groupId} onChange={(event) => { setGroupId(event.target.value); setPage(1); }}>{availableGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : null}
+      <select aria-label="进度筛选" value={progress} onChange={(event) => setProgress(event.target.value as ProgressFilter)}>{progressFilters.map((item) => <option key={item}>{item}</option>)}</select>
+      {member ? <button className={styles.addButton} disabled={!groupId || loading} onClick={beginAdd}><Plus size={15} weight="bold" />新增已进群客户</button> : null}
     </section>
-    {adding && member ? <form className={styles.addRow} onSubmit={createCustomer}>
-      <div><strong>新增已进群客户</strong><span>一位客户一行，保存后立即进入组内共享表</span></div>
-      <label><span>客户号码 *</span><input value={draft.phone} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value }))} placeholder="填写客户号码" required /></label>
-      <label><span>客户姓名</span><input value={draft.customerName} onChange={(event) => setDraft((value) => ({ ...value, customerName: event.target.value }))} placeholder="可不填" /></label>
-      <label><span>来源渠道 *</span><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))} required><option value="">请选择渠道</option>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label><span>进群日期 *</span><input type="date" value={draft.joinedOn} onChange={(event) => setDraft((value) => ({ ...value, joinedOn: event.target.value }))} required /></label>
-      <label><span>设备号</span><input value={draft.deviceCode} onChange={(event) => setDraft((value) => ({ ...value, deviceCode: event.target.value }))} placeholder="可不填" /></label>
-      <label><span>接粉归属 *</span><select value={draft.attributionOwnerId} onChange={(event) => setDraft((value) => ({ ...value, attributionOwnerId: event.target.value }))} required>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <div className={styles.addActions}><button type="button" className={styles.secondary} onClick={() => setAdding(false)}>取消</button><button className={styles.primary} disabled={creating}>{creating ? "保存中…" : "保存到共享表"}</button></div>
-    </form> : null}
-    <section className={styles.summary}><article><span>进群客户</span><strong>{totals.customerCount}</strong></article><article><span>已开单</span><strong>{totals.orderCount}</strong></article><article><span>首充</span><strong>{money(totals.initialDepositCents)}</strong></article><article><span>续充</span><strong>{money(totals.rechargeCents)}</strong></article><article><span>净业绩</span><strong>{money(totals.initialDepositCents + totals.rechargeCents - totals.withdrawalCents)}</strong></article></section>
+
     {error ? <div className={styles.error}>{error}</div> : null}
-    {groupId ? <section className={styles.card}><div className={styles.head}><div><h2>{selectedGroup?.name ?? "所选小组"} · 已进群客户共享表</h2><p>接粉归属、设备号、炒群情况、专家情况和资金结果全部放在同一行</p></div><span className={styles.readonly}>{member ? "组内共享 · 分栏填写" : "管理账号只读"}</span></div>
-      {loading ? <div className={styles.empty}>正在读取客户进度…</div> : !error && customers.length === 0 ? <div className={styles.empty}><strong>没有符合条件的进群客户</strong><span>{query || channel ? "可以清除筛选后重新查看。" : "该小组还没有已经进群的客户明细。"}</span></div> : !error ? <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>#</th><th>客户号码／姓名</th><th>设备号</th><th>进群日期</th><th>来源渠道</th><th>接粉归属</th><th>炒群负责人</th><th>炒群情况</th><th>专家负责人</th><th>专家情况</th><th>注册日期</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>最后更新</th></tr></thead><tbody>{customers.map((customer, index) => { const net = (customer.order?.initialDepositCents ?? 0) + (customer.order?.rechargeCents ?? 0) - (customer.order?.withdrawalCents ?? 0); const isLead = Boolean(member?.roles.includes("LEAD")); const canEditGroup = Boolean(member && (isLead || customer.groupOperatorOwner?.id === member.id)); const canEditExpert = Boolean(member && (isLead || customer.expertOwner?.id === member.id)); return <tr key={customer.id}><td>{(page - 1) * (payload?.pageSize ?? 50) + index + 1}</td><td><div className={styles.customer}><strong>{customer.phone}</strong><small>{customer.customerName?.trim() || "未填写姓名"}</small></div></td><td>{customer.device?.code ?? "—"}</td><td>{customer.joinedOn ?? "—"}</td><td>{customer.batch.channel.name}</td><td>{customer.owner?.name ?? "未分配"}</td><td>{customer.groupOperatorOwner?.name ?? "待分配"}</td><td className={styles.situation}><EditableSituation label="炒群情况" value={latestGroupText(customer)} editable={canEditGroup} saving={savingCell === `${customer.id}:group`} onSave={(note) => saveSituation(customer, "group", note)} /></td><td>{customer.expertOwner?.name ?? "待分配"}</td><td className={styles.situation}><EditableSituation label="专家情况" value={customer.expertNotes?.trim() || customer.nextPlan || customer.expertContactNote || (customer.expertIntroducedOn ? (expertLabels[customer.expertWorkflowStage ?? ""] ?? "专家跟进中") : "尚未推专家")} editable={canEditExpert} saving={savingCell === `${customer.id}:expert`} onSave={(note) => saveSituation(customer, "expert", note)} /></td><td>{customer.registeredOn ?? "—"}</td><td className={styles.money}>{money(customer.order?.initialDepositCents)}</td><td className={styles.money}>{money(customer.order?.rechargeCents)}</td><td>{money(customer.order?.withdrawalCents)}</td><td className={styles.money}>{money(net)}</td><td><div className={styles.latest}>{latestText(customer)}</div><span className={styles.subtle}>{customer.activities[0]?.occurredOn ?? "—"}</span></td></tr>; })}</tbody></table></div> : null}
-      <footer className={styles.foot}><span>共 {payload?.total ?? 0} 位进群客户 · 当前显示 {customers.length} 位 · 第 {payload?.page ?? page} / {pageCount} 页</span><div className={styles.pages}><button disabled={loading || page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>上一页</button><button disabled={loading || page >= pageCount} onClick={() => setPage((value) => value + 1)}>下一页</button></div></footer>
-    </section> : <section className={`${styles.card} ${styles.empty}`}><strong>暂无可查看的小组</strong></section>}
+    <section className={styles.sheetCard}>
+      <header className={styles.sheetHeader}><div><h2>组内共享客户进度</h2><p>只登记已经进群的客户；修改单元格后自动保存</p></div><span><i />实时共享</span></header>
+      <div className={styles.tableWrap}>
+        <table className={styles.table}>
+          <thead><tr><th>进群日期（自动）</th><th>客户号码</th><th>归属组员</th><th>来源渠道</th><th>炒群负责人</th><th>设备号</th><th>群内天数</th><th>炒群情况</th><th>退群类型</th><th>退群日期（自动）</th><th>专家负责人</th><th>专家情况</th><th>注册日期</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>最后修改</th></tr></thead>
+          <tbody>{loading ? <tr><td colSpan={18} className={styles.empty}>正在读取组内共享数据…</td></tr> : customers.map((customer) => {
+            const canEdit = Boolean(member); const net = (customer.order?.initialDepositCents ?? 0) + (customer.order?.rechargeCents ?? 0) - (customer.order?.withdrawalCents ?? 0);
+            return <tr key={customer.id}><td>{customer.joinedOn ?? "—"}</td><td className={styles.phone}><strong>{customer.phone}</strong>{customer.customerName?.trim() ? <small>{customer.customerName}</small> : null}</td><td>{customer.owner?.name ?? "未分配"}</td><td>{customer.batch.channel.name}</td><td>{customer.groupOperatorOwner?.name ?? "待分配"}</td><td>{customer.device?.code ?? "—"}</td><td className={styles.dayCell}>{daysInGroup(customer.joinedOn, customer.leftOn)}</td><td className={styles.progressCell}><EditableCell label="炒群情况" value={latestGroupText(customer)} editable={canEdit} saving={savingCell === `${customer.id}:group`} onSave={(note) => saveSituation(customer, "group", note)} /></td><td>{customer.groupStatus === "LEFT" ? (customer.leftWithOrder ? "正常退群" : "异常退群") : "—"}</td><td>{customer.leftOn ?? "—"}</td><td>{customer.expertOwner?.name ?? "未分配"}</td><td className={styles.progressCell}><EditableCell label="专家情况" value={latestExpertText(customer)} editable={canEdit} saving={savingCell === `${customer.id}:expert`} onSave={(note) => saveSituation(customer, "expert", note)} /></td><td>{customer.registeredOn ?? "—"}</td><td className={styles.money}>{money(customer.order?.initialDepositCents)}</td><td className={styles.money}>{money(customer.order?.rechargeCents)}</td><td>{money(customer.order?.withdrawalCents)}</td><td className={styles.net}>{money(net)}</td><td className={styles.updated}>{customer.activities[0]?.actor?.name ?? "系统"}<small>{customer.activities[0]?.occurredOn ?? "—"}</small></td></tr>;
+          })}{!loading && customers.length === 0 ? <tr><td colSpan={18} className={styles.empty}>没有符合当前条件的已进群客户</td></tr> : null}</tbody>
+        </table>
+      </div>
+      <footer className={styles.footer}><span>共 {payload?.total ?? 0} 位客户 · 双击可填写单元格修改</span><div><span>每次修改都记录账号和时间</span><button disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}>上一页</button><b>{page} / {pageCount}</b><button disabled={page >= pageCount || loading} onClick={() => setPage((value) => value + 1)}>下一页</button></div></footer>
+    </section>
+
+    {adding && member ? <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setAdding(false); }}><form className={styles.modal} onSubmit={createCustomer}><header><div><h3>新增已进群客户</h3><p>保存后直接出现在组内共享表，客户业绩归属所选组员。</p></div><button type="button" onClick={() => setAdding(false)}><X size={18} /></button></header><div className={styles.formGrid}><label><span>客户号码 *</span><input value={draft.phone} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value }))} required autoFocus /></label><label><span>客户姓名</span><input value={draft.customerName} onChange={(event) => setDraft((value) => ({ ...value, customerName: event.target.value }))} /></label><label><span>来源渠道 *</span><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))} required><option value="">请选择</option>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>归属组员 *</span><select value={draft.attributionOwnerId} onChange={(event) => setDraft((value) => ({ ...value, attributionOwnerId: event.target.value }))} required><option value="">请选择</option>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>进群日期 *</span><input type="date" value={draft.joinedOn} onChange={(event) => setDraft((value) => ({ ...value, joinedOn: event.target.value }))} required /></label><label><span>设备号</span><input value={draft.deviceCode} onChange={(event) => setDraft((value) => ({ ...value, deviceCode: event.target.value }))} /></label></div><footer><button type="button" onClick={() => setAdding(false)}>取消</button><button type="submit" disabled={creating}>{creating ? "保存中…" : "保存到共享表"}</button></footer></form></div> : null}
+    {savedMessage ? <div className={styles.toast}>{savedMessage}</div> : null}
   </div>;
 }

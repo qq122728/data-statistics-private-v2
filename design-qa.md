@@ -53,4 +53,15 @@ No extra crop was needed because the 478-pixel-wide comparison makes the complet
 
 - P3: on extremely narrow browser panes, large report tables still require horizontal scrolling. This matches the spreadsheet-style product direction and does not block use.
 
+## Shared customer sheet restoration
+
+- Reference image: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-ee7f04b3-d763-421e-9cef-3d2d34bcc439.png`
+- Implementation screenshot: `/Users/aaaa/Desktop/数据统计/design-qa-shared-customer-sheet.png`
+- Viewport: 1920px desktop.
+- Visual hierarchy, sidebar, toolbar, sheet header, column density, borders, colors, and whitespace match the approved reference.
+- Search, progress filter, horizontal scrolling, pagination, and the add-customer modal render correctly.
+- The live table uses real group customer data and exposes editable group/expert progress cells with automatic-save wiring.
+- Device accounts load under the same shell, are scoped to the current member, and include NORMAL WS, BUSINESS WS, RCS, and SIG choices.
+- Browser console contains no warnings or errors.
+
 final result: passed

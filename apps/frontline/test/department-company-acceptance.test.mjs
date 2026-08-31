@@ -35,12 +35,12 @@ test("公司与部门汇总覆盖各维度、全漏斗并保留表底合计", ()
 });
 
 test("管理员客户进度是统一只读共享表", () => {
-  assert.match(customers, /已进群客户共享表/);
-  assert.match(customers, /管理账号只读/);
-  assert.match(customers, /member \? "组内共享 · 分栏填写" : "管理账号只读"/);
+  assert.match(customers, /组内共享客户进度/);
+  assert.match(customers, /只登记已经进群的客户/);
+  assert.match(customers, /\{member \? <button[^]*新增已进群客户/);
   assert.match(customers, /\/api\/lead\/customer-reporting/);
-  assert.match(customers, /editable=\{canEditGroup\}/);
-  assert.match(customers, /editable=\{canEditExpert\}/);
+  assert.match(customers, /const canEdit = Boolean\(member\)/);
+  assert.match(customers, /editable=\{canEdit\}/);
 });
 
 test("人员跨组只搬当前工作对象，历史归属不变", () => {

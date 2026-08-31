@@ -57,6 +57,20 @@ test("五类管理账号共用统一工作台外壳", async () => {
   assert.match(css, /@media \(max-width: 900px\)/);
 });
 
+test("管理员网址由新版一线端直接承载，不再进入旧管理端外壳", async () => {
+  const [adminPage, adminLogin, adminPassword, backend] = await Promise.all([
+    readFile(new URL("app/admin/page.tsx", root), "utf8"),
+    readFile(new URL("app/admin/login/page.tsx", root), "utf8"),
+    readFile(new URL("app/admin/change-password/page.tsx", root), "utf8"),
+    readFile(new URL("lib/backend.ts", root), "utf8"),
+  ]);
+  assert.match(adminPage, /export \{ default \} from "\.\.\/page"/);
+  assert.match(adminLogin, /export \{ default \} from "\.\.\/\.\.\/login\/page"/);
+  assert.match(adminPassword, /export \{ default \} from "\.\.\/\.\.\/change-password\/page"/);
+  assert.match(backend, /frontline\.localtest\.me:3000\/admin\//);
+  assert.doesNotMatch(backend, /admin\.localtest\.me:3002/);
+});
+
 test("窄屏管理端保留可读导航，总公司二级入口都有图标", async () => {
   const [css, headquarters] = await Promise.all([
     readFile(new URL("components/WorkspaceShell.module.css", root), "utf8"),

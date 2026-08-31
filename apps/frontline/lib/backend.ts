@@ -24,7 +24,7 @@ export function workspaceOrigin(workspace: LoginResponse["workspace"]): string {
     : process.env.NEXT_PUBLIC_FRONTLINE_ORIGIN?.trim();
   if (configured) return configured;
   if (typeof window !== "undefined" && window.location.hostname.endsWith(".localtest.me")) {
-    return workspace === "ADMIN" ? "http://admin.localtest.me:3002/" : "http://frontline.localtest.me:3000/";
+    return workspace === "ADMIN" ? "http://frontline.localtest.me:3000/admin/" : "http://frontline.localtest.me:3000/";
   }
   if (typeof window !== "undefined") {
     return workspace === "ADMIN" ? `${window.location.origin}/admin/` : `${window.location.origin}/`;

@@ -61,7 +61,7 @@ export function DeviceAccounts() {
 
   return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
     <form className="card" onSubmit={submit}>
-      <div className="card-head"><div><h2 className="card-title">设备账号</h2><p className="card-note">这里已经连接真实设备账号库。普通岗位只能维护自己的账号；组长可在管理端维护全组账号。</p></div><span className="badge" data-tone="ok">真实数据</span></div>
+      <div className="card-head"><div><h2 className="card-title">我的设备账号</h2><p className="card-note">只显示并维护你自己的账号；支持普通 WS、商业 WS、RCS 和 SIG。</p></div><span className="badge" data-tone="ok">本人数据</span></div>
       <div style={{ padding: 16, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10 }}>
         <label><span className="label">账号类型</span><select className="field" style={{ width: "100%" }} value={draft.accountType} onChange={(event) => setDraft((value) => ({ ...value, accountType: event.target.value as AccountType }))}>{Object.entries(TYPE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label><span className="label">号商 *</span><input className="field" style={{ width: "100%" }} value={draft.provider} onChange={(event) => setDraft((value) => ({ ...value, provider: event.target.value }))} required /></label>

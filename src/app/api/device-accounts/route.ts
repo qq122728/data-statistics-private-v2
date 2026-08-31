@@ -68,13 +68,12 @@ function clean(value: string | null | undefined) {
 
 async function resolveOwner(
   user: SupportedUser,
-  requestedOwnerId: string | undefined,
+  _requestedOwnerId: string | undefined,
   client: Pick<typeof db, "user"> = db,
 ) {
-  const ownerId = user.role === "LEAD" ? requestedOwnerId ?? user.id : user.id;
   return client.user.findFirst({
     where: {
-      id: ownerId,
+      id: user.id,
       groupId: user.groupId,
       active: true,
       role: { in: ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] },
@@ -87,7 +86,7 @@ function accountScope(user: SupportedUser, id?: string) {
   return {
     ...(id ? { id } : {}),
     groupId: user.groupId,
-    ...(user.role === "LEAD" ? {} : { ownerId: user.id }),
+    ownerId: user.id,
   };
 }
 
@@ -131,7 +130,6 @@ export async function POST(request: Request) {
   try {
     const input = createSchema.parse(await request.json());
     if (
-      access.user.role !== "LEAD" &&
       input.ownerId &&
       input.ownerId !== access.user.id
     )
@@ -141,7 +139,7 @@ export async function POST(request: Request) {
       const liveActor = await findLivePermissionUser(transaction, access.user.id);
       const actor = liveActor && toSupportedUser(liveActor);
       if (!actor) return { error: "当前账号已停用或岗位/小组已变更，不能继续维护设备账号", status: 403 as const };
-      if (actor.role !== "LEAD" && input.ownerId && input.ownerId !== actor.id) return { error: "只能为自己添加设备账号", status: 403 as const };
+      if (input.ownerId && input.ownerId !== actor.id) return { error: "只能为自己添加设备账号", status: 403 as const };
       const owner = await resolveOwner(actor, input.ownerId, transaction);
       if (!owner) return { error: "只能选择本组在职人员", status: 400 as const };
       const created = await transaction.deviceAccount.create({
@@ -190,7 +188,6 @@ export async function PATCH(request: Request) {
   try {
     const input = updateSchema.parse(await request.json());
     if (
-      access.user.role !== "LEAD" &&
       input.ownerId &&
       input.ownerId !== access.user.id
     )
@@ -199,13 +196,13 @@ export async function PATCH(request: Request) {
       const liveActor = await findLivePermissionUser(transaction, access.user.id);
       const actor = liveActor && toSupportedUser(liveActor);
       if (!actor) return { error: "当前账号已停用或岗位/小组已变更，不能继续维护设备账号", status: 403 as const };
-      if (actor.role !== "LEAD" && input.ownerId && input.ownerId !== actor.id) return { error: "只能维护自己的设备账号", status: 403 as const };
+      if (input.ownerId && input.ownerId !== actor.id) return { error: "只能维护自己的设备账号", status: 403 as const };
       const existing = await transaction.deviceAccount.findFirst({
         where: accountScope(actor, input.id),
         select: { id: true, ownerId: true },
       });
       if (!existing) return { error: "设备账号不存在或无权修改", status: 404 as const };
-      const owner = await resolveOwner(actor, actor.role === "LEAD" ? input.ownerId ?? existing.ownerId : actor.id, transaction);
+      const owner = await resolveOwner(actor, actor.id, transaction);
       if (!owner) return { error: "只能选择本组在职人员", status: 400 as const };
       const updated = await transaction.deviceAccount.update({
         where: { id: existing.id },

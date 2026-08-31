@@ -127,17 +127,22 @@ describe.sequential("device account permissions", () => {
     ).toBe(403);
   });
 
-  it("lets a lead manage the group but blocks cross-group owners and records", async () => {
+  it("keeps a lead scoped to their own device accounts", async () => {
     await signInAs(ids.leadA);
     const own = await POST(request("POST", accountInput()));
     expect(own.status).toBe(201);
     expect((await own.json()).account.ownerId).toBe(ids.leadA);
-    const created = await POST(
+    const otherMember = await POST(
       request("POST", accountInput({ ownerId: ids.receptionA })),
     );
-    expect(created.status).toBe(201);
-    const payload = await created.json();
-    expect(payload.account.ownerId).toBe(ids.receptionA);
+    expect(otherMember.status).toBe(403);
+    const visible = await GET();
+    expect(visible.status).toBe(200);
+    expect((await visible.json()).accounts.every((account: { ownerId: string }) => account.ownerId === ids.leadA)).toBe(true);
+
+    const sameGroupForeign = await db.deviceAccount.findFirstOrThrow({ where: { ownerId: ids.receptionA } });
+    expect((await PATCH(request("PATCH", accountInput({ id: sameGroupForeign.id })))).status).toBe(404);
+    expect((await DELETE(request("DELETE", { id: sameGroupForeign.id }))).status).toBe(404);
 
     expect(
       (
@@ -145,7 +150,7 @@ describe.sequential("device account permissions", () => {
           request("POST", accountInput({ ownerId: ids.receptionB })),
         )
       ).status,
-    ).toBe(400);
+    ).toBe(403);
 
     const foreign = await db.deviceAccount.create({
       data: {
@@ -159,7 +164,7 @@ describe.sequential("device account permissions", () => {
     expect(
       (
         await PATCH(
-          request("PATCH", accountInput({ id: foreign.id, ownerId: ids.receptionA })),
+          request("PATCH", accountInput({ id: foreign.id })),
         )
       ).status,
     ).toBe(404);

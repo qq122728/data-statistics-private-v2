@@ -20,7 +20,7 @@ const viewMeta: Record<View, { title: string; note: string }> = {
   finance: { title: "财务数据", note: "按渠道填写首充、续充、出金，净业绩由系统计算" },
   groupSummary: { title: "小组数据汇总", note: "组长按人员和渠道查看本组真实汇总" },
   customers: { title: "客户进度表格", note: "一个客户一行，组内成员共同维护" },
-  devices: { title: "设备账号", note: "普通组员只维护自己的设备账号，组长可维护本组账号" },
+  devices: { title: "设备账号", note: "只查看和维护自己的设备与账号" },
   management: { title: "小组管理", note: "管理本组成员、工作交接和数据检查" },
   notifications: { title: "通知中心", note: "查看真实工作通知并处理未读或确认" },
 };

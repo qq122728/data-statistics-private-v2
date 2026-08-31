@@ -1,0 +1,509 @@
+@import "tailwindcss";
+
+/* ============================================================
+   设计令牌
+   中性灰打底 + 一个强调蓝 + 三个状态色。
+   绿/黄/红只表示状态，绝不用作装饰。
+   ============================================================ */
+:root {
+  color-scheme: light;
+
+  /* 画布与卡片——暖色调的柔和白，不要冷调的蓝灰 */
+  --canvas: #f5f5f2;
+  --surface: #ffffff;
+  --surface-sunken: #f6f6f3;
+
+  /* 边框（网格线） */
+  --line: #e3e8f0;
+  --line-strong: #cfd6e4;
+  --line-header: #b9c2d4;
+
+  /* 文字 */
+  --ink: #131824;
+  --ink-2: #5a6376;
+  --ink-3: #8f97a8;
+
+  /* 强调色 */
+  --accent: #2f5cd8;
+  --accent-hover: #2449b4;
+  --accent-soft: #eaf0fe;
+
+  /* 状态色 */
+  --ok: #0e7a4c;
+  --ok-soft: #e5f6ed;
+  --ok-line: #b6e3ca;
+
+  --warn: #8a5a05;
+  --warn-soft: #fdf2d9;
+  --warn-line: #f0dba6;
+
+  --bad: #b32318;
+  --bad-soft: #fdeceb;
+  --bad-line: #f4c7c3;
+
+  --radius: 10px;
+  --radius-lg: 14px;
+  --sidebar-w: 232px;
+  --header-h: 60px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+body {
+  font-family: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Microsoft YaHei", "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 所有数字等宽：金额和数量上下位数对齐 —— "整齐"的关键 */
+.tnum,
+td,
+th {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* ============================================================
+   表格：清晰的横竖网格线
+   ============================================================ */
+.grid-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--surface);
+}
+
+/* 表格滚动区：横向可滚，纵向到一定高度后内部滚动，表头留在原地 */
+.table-scroll {
+  overflow: auto;
+  max-height: calc(100vh - 392px);
+  min-height: 180px;
+}
+
+/* 客户工作台：宽屏铺满，窄屏滚动时始终保留客户与操作两端。 */
+.grid-table[data-sticky-edges="true"] th:first-child,
+.grid-table[data-sticky-edges="true"] td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--line);
+}
+
+.grid-table[data-sticky-edges="true"] th:last-child,
+.grid-table[data-sticky-edges="true"] td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--surface);
+  box-shadow: -1px 0 0 var(--line), -8px 0 14px -14px rgba(20, 32, 55, 0.55);
+}
+
+.grid-table[data-sticky-edges="true"] thead th:first-child,
+.grid-table[data-sticky-edges="true"] thead th:last-child {
+  z-index: 5;
+  background: var(--surface-sunken);
+}
+
+.grid-table[data-sticky-edges="true"] td {
+  overflow-wrap: anywhere;
+}
+
+.workbench-toolbar {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.workbench-toolbar__actions,
+.workbench-toolbar__search,
+.table-footer,
+.table-footer__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workbench-toolbar__actions {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.workbench-toolbar__search {
+  justify-self: end;
+}
+
+.workbench-toolbar__search .field {
+  width: 240px;
+}
+
+.table-footer {
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1200px) {
+  .workbench-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .workbench-toolbar__search {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .workbench-toolbar__search label {
+    flex: 1;
+  }
+
+  .workbench-toolbar__search .field {
+    width: 100% !important;
+  }
+}
+
+.grid-table th,
+.grid-table td {
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: 11px 14px;
+  text-align: left;
+}
+.grid-table th {
+  vertical-align: middle;
+}
+.grid-table td {
+  vertical-align: top;
+  padding-top: 12px;
+}
+
+.grid-table th:last-child,
+.grid-table td:last-child {
+  border-right: none;
+}
+
+/* 表头吸顶：贴在滚动区顶部（滚动区是 .table-scroll，不是整页） */
+.grid-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface-sunken);
+  border-bottom: 1.5px solid var(--line-header);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  /* 表头文字统一居中——不管下面这一列的内容是左对齐还是右对齐（.num） */
+  text-align: center;
+}
+.grid-table thead th.num {
+  text-align: center;
+}
+
+/* 可排序表头 */
+.grid-table th[data-sortable] {
+  cursor: pointer;
+  user-select: none;
+}
+.grid-table th[data-sortable]:hover {
+  background: #eef2f8;
+  color: var(--ink);
+}
+.grid-table th[data-sorted] {
+  color: var(--accent);
+}
+.sort-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  font-size: 10px;
+  vertical-align: 1px;
+}
+
+/* 紧凑模式：一屏多放几行 */
+.grid-table[data-density="compact"] th,
+.grid-table[data-density="compact"] td {
+  padding: 6px 12px;
+}
+.grid-table[data-density="compact"] .btn {
+  height: 27px;
+  padding: 0 9px;
+  font-size: 12.5px;
+}
+.grid-table[data-density="compact"] .field {
+  height: 27px;
+  font-size: 12.5px;
+}
+.grid-table[data-density="compact"] .badge {
+  padding: 2px 7px;
+  font-size: 12px;
+}
+
+/* 键盘选中的行 */
+.grid-table tbody tr[data-cursor="1"] td {
+  box-shadow: inset 0 0 0 9999px rgba(47, 92, 216, 0.06);
+}
+.grid-table tbody tr[data-cursor="1"] td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 9999px rgba(47, 92, 216, 0.06);
+}
+
+/* 键盘提示条里的按键样式 */
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--ink-2);
+}
+
+.grid-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.grid-table tbody tr:hover td {
+  background: var(--surface-sunken);
+}
+
+/* 数字列右对齐 */
+.grid-table .num {
+  text-align: right;
+}
+
+/* 整行状态着色（用状态色最浅一档，文字仍清晰） */
+.grid-table tr[data-tone="bad"] td {
+  background: var(--bad-soft);
+}
+.grid-table tr[data-tone="warn"] td {
+  background: var(--warn-soft);
+}
+.grid-table tr[data-tone="bad"]:hover td {
+  background: #fce0de;
+}
+.grid-table tr[data-tone="warn"]:hover td {
+  background: #fbeaca;
+}
+
+/* 行背景和徽章同色系时，徽章换成实心，不然徽章会隐进行背景里 */
+.grid-table tr[data-tone="bad"] td .badge[data-tone="bad"] {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+.grid-table tr[data-tone="warn"] td .badge[data-tone="warn"] {
+  background: var(--warn);
+  border-color: var(--warn);
+  color: #fff;
+}
+
+/* ============================================================
+   通用块
+   ============================================================ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.card-note {
+  margin: 3px 0 0;
+  font-size: 13px;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+/* 徽章 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+.badge[data-tone="ok"] {
+  background: var(--ok-soft);
+  border-color: var(--ok-line);
+  color: var(--ok);
+}
+.badge[data-tone="warn"] {
+  background: var(--warn-soft);
+  border-color: var(--warn-line);
+  color: var(--warn);
+}
+.badge[data-tone="bad"] {
+  background: var(--bad-soft);
+  border-color: var(--bad-line);
+  color: var(--bad);
+}
+.badge[data-tone="mute"] {
+  background: var(--surface-sunken);
+  border-color: var(--line-strong);
+  color: var(--ink-2);
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  border-color: var(--line-header);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn[data-variant="primary"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn[data-variant="primary"]:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.btn[data-size="sm"] {
+  height: 30px;
+  padding: 0 11px;
+  font-size: 13px;
+}
+.btn[data-size="lg"] {
+  height: 40px;
+  padding: 0 20px;
+  font-size: 14.5px;
+}
+
+/* 可点击编辑的表格单元格——用虚线下划线 + hover 底色，一眼看出能点 */
+.editable-cell {
+  all: unset;
+  box-sizing: border-box;
+  cursor: text;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 3px;
+  margin: -3px -3px;
+  border-radius: 5px;
+  border-bottom: 1.5px dashed var(--line-strong);
+  transition: background-color 0.12s, border-color 0.12s;
+}
+.editable-cell:hover {
+  background: var(--accent-soft);
+  border-bottom-color: var(--accent);
+}
+
+/* 输入 */
+.field {
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 13.5px;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.field:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.field-lg {
+  height: 40px;
+  font-size: 14px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c8d0de;
+  border-radius: 999px;
+  border: 2px solid var(--canvas);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #aeb8ca;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

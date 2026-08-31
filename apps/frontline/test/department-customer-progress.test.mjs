@@ -65,7 +65,9 @@ test("客户进度提供独立的老客户自由填写共享表", () => {
   for (const field of ["进群日期", "客户号码", "归属组员", "来源渠道", "炒群负责人", "设备号", "群内天数", "炒群情况", "退群类型", "退群日期（自动）", "专家负责人", "专家情况", "注册日期", "首充", "续充", "出金", "净业绩"]) {
     assert.match(legacy, new RegExp(field));
   }
-  assert.doesNotMatch(legacy, /<select/);
+  assert.match(legacy, /<select aria-label="来源渠道"/);
+  assert.match(legacy, /channelOptions\.map/);
+  assert.equal((legacy.match(/<select/g) ?? []).length, 1);
   assert.match(legacy, /\/api\/legacy-customer-rows/);
   assert.match(legacy, /onBlur=\{\(\) => void finish\(\)\}/);
   assert.match(legacy, /initialDepositCents \+ row\.rechargeCents - row\.withdrawalCents|netPerformanceCents/);

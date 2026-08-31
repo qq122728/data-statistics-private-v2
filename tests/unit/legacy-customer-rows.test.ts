@@ -12,6 +12,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   await db.auditLog.deleteMany({ where: { actorId: { startsWith: prefix } } });
   await db.legacyCustomerRow.deleteMany({ where: { groupId: { startsWith: prefix } } });
+  await db.channel.deleteMany({ where: { groupId: { startsWith: prefix } } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.teamGroup.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.department.deleteMany({ where: { id: { startsWith: prefix } } });
@@ -24,6 +25,7 @@ describe.sequential("legacy customer free-entry rows", () => {
     const groupId = `${prefix}group-${suffix}`;
     await db.department.create({ data: { id: departmentId, name: `美国部门-${suffix}`, timezone: "America/Los_Angeles" } });
     await db.teamGroup.create({ data: { id: groupId, name: `拿破仑组-${suffix}`, departmentId } });
+    await db.channel.create({ data: { id: `${prefix}channel-${suffix}`, groupId, name: "FB-M", normalizedName: `${prefix}fb-m-${suffix}` } });
     const actor = await db.user.create({ data: { id: `${prefix}member-${suffix}`, username: `${prefix}member-${suffix}`, name: "测试组员", role: "RECEPTION", groupId, passwordHash: hashPassword("LegacyRows@123") } });
     vi.spyOn(auth, "requireUser").mockResolvedValue(actor);
 
@@ -53,6 +55,6 @@ describe.sequential("legacy customer free-entry rows", () => {
 
     const listResponse = await GET();
     expect(listResponse.status).toBe(200);
-    await expect(listResponse.json()).resolves.toMatchObject({ rows: [{ id: created.id, phone: "123456" }] });
+    await expect(listResponse.json()).resolves.toMatchObject({ rows: [{ id: created.id, phone: "123456" }], channelOptions: [{ name: "FB-M" }] });
   });
 });

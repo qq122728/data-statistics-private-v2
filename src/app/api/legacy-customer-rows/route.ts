@@ -51,12 +51,19 @@ export async function GET() {
   if (!actor.active || !actor.groupId || !isFrontlineGroupMember(actor))
     return authorizationDenied(actor, "当前账号不能查看老客户导入表");
 
-  const rows = await db.legacyCustomerRow.findMany({
-    where: { groupId: actor.groupId },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: 500,
-  });
-  return NextResponse.json({ rows: rows.map(serialize) });
+  const [rows, channels] = await Promise.all([
+    db.legacyCustomerRow.findMany({
+      where: { groupId: actor.groupId },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: 500,
+    }),
+    db.channel.findMany({
+      where: { groupId: actor.groupId, active: true },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+      select: { id: true, name: true },
+    }),
+  ]);
+  return NextResponse.json({ rows: rows.map(serialize), channelOptions: channels });
 }
 
 export async function POST() {

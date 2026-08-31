@@ -27,6 +27,7 @@ type LegacyRow = {
   netPerformanceCents: number;
   updatedAt: string;
 };
+type ChannelOption = { id: string; name: string };
 
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 }).format(cents / 100);
 
@@ -52,6 +53,7 @@ function FreeInput({ label, value, field, rowId, saving, multiline, moneyField, 
 
 export function LegacyCustomerImport({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<LegacyRow[]>([]);
+  const [channelOptions, setChannelOptions] = useState<ChannelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState("");
@@ -62,8 +64,8 @@ export function LegacyCustomerImport({ onBack }: { onBack: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
-    void requestJson<{ rows: LegacyRow[] }>("/api/legacy-customer-rows")
-      .then((result) => { if (!cancelled) setRows(result.rows); })
+    void requestJson<{ rows: LegacyRow[]; channelOptions: ChannelOption[] }>("/api/legacy-customer-rows")
+      .then((result) => { if (!cancelled) { setRows(result.rows); setChannelOptions(result.channelOptions); } })
       .catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "老客户表读取失败"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -87,8 +89,8 @@ export function LegacyCustomerImport({ onBack }: { onBack: () => void }) {
       flash(`${field === "leaveType" ? "退群日期已自动记录，" : ""}已自动保存`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败");
-      const fresh = await requestJson<{ rows: LegacyRow[] }>("/api/legacy-customer-rows").catch(() => null);
-      if (fresh) setRows(fresh.rows);
+      const fresh = await requestJson<{ rows: LegacyRow[]; channelOptions: ChannelOption[] }>("/api/legacy-customer-rows").catch(() => null);
+      if (fresh) { setRows(fresh.rows); setChannelOptions(fresh.channelOptions); }
     } finally { setSaving(""); }
   }
   async function addRow() {
@@ -124,7 +126,7 @@ export function LegacyCustomerImport({ onBack }: { onBack: () => void }) {
               <td>{input(row, "joinedOn", "进群日期", { focus: true })}</td>
               <td>{input(row, "phone", "客户号码")}</td>
               <td>{input(row, "attributionMemberName", "归属组员")}</td>
-              <td>{input(row, "sourceChannelName", "来源渠道")}</td>
+              <td><select aria-label="来源渠道" value={row.sourceChannelName} disabled={saving === `${row.id}:sourceChannelName`} onChange={(event) => { const value = event.target.value; updateDraft(row.id, "sourceChannelName", value); void saveField(row.id, "sourceChannelName", value); }}><option value="">请选择渠道</option>{row.sourceChannelName && !channelOptions.some((option) => option.name === row.sourceChannelName) ? <option value={row.sourceChannelName}>{row.sourceChannelName}（历史）</option> : null}{channelOptions.map((option) => <option key={option.id} value={option.name}>{option.name}</option>)}</select></td>
               <td>{input(row, "groupOperatorName", "炒群负责人")}</td>
               <td>{input(row, "deviceCode", "设备号")}</td>
               <td className={styles.derived}>{daysInGroup(row.joinedOn, row.leftOn)}</td>

@@ -104,8 +104,8 @@ function revisionValues(input: SaveDailyStatInput) {
     if (effectiveCount < 0) throw new DailyStatError("撞粉、低金额、无 WhatsApp 与人工无效数量之和不能超过总下发粉数量");
     if (all.replyCount > effectiveCount) throw new DailyStatError("回复数量不能超过有效数据数量");
     if (all.joinCount > effectiveCount) throw new DailyStatError("进群数量不能超过有效数据数量");
-    if (all.registrationCount > all.expertIntroCount) throw new DailyStatError("注册数量不能超过推专家数量");
-    if (all.orderCount > all.registrationCount) throw new DailyStatError("开单数量不能超过注册数量");
+    // 注册和开单按实际发生日期登记，可能来自前几天已经推专家或注册的存量客户，
+    // 因此不能拿当天推专家、当天注册数量作为上限。
     return {
       dispatchCount: all.dispatchCount,
       duplicateCount: all.duplicateCount,
@@ -140,8 +140,7 @@ function revisionValues(input: SaveDailyStatInput) {
       expertIntroCount: all.expertIntroCount,
     };
   }
-  if (all.registrationCount > all.expertReceivedCount) throw new DailyStatError("注册数量不能超过收到的推专家数量");
-  if (all.orderCount > all.registrationCount) throw new DailyStatError("开单数量不能超过注册数量");
+  // 专家今天注册、开单的客户也可能是之前接手的存量，不能做同日漏斗上限校验。
   return {
     expertReceivedCount: all.expertReceivedCount,
     expertContactedCount: all.expertContactedCount,

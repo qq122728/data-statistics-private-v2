@@ -57,11 +57,12 @@ describe.sequential("组长检查统一组员日报", () => {
       status: "APPROVED", approvedRevision: { version: 2, bankInitialDepositCents: 10_000, bankRechargeCents: 5_000, registrationCount: 2, orderCount: 1 },
     });
 
-    const invalidFunnel = await PATCH(new Request(`http://localhost/api/lead/member-daily-stats/${memberId}`, {
-      method: "PATCH", body: JSON.stringify({ entryId, field: "registrationCount", value: 4, reason: "测试错误漏斗" }),
+    const crossDayCorrection = await PATCH(new Request(`http://localhost/api/lead/member-daily-stats/${memberId}`, {
+      method: "PATCH", body: JSON.stringify({ entryId, field: "registrationCount", value: 4, reason: "补记以前客户今日注册" }),
     }), context);
-    expect(invalidFunnel.status).toBe(400);
-    await expect(invalidFunnel.json()).resolves.toEqual({ error: "注册数量不能超过推专家数量" });
+    expect(crossDayCorrection.status).toBe(200);
+    await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: entryId }, include: { approvedRevision: true } }))
+      .resolves.toMatchObject({ approvedRevision: { registrationCount: 4 } });
     await expect(db.auditLog.findFirst({ where: { action: "DAILY_STAT_LEAD_CORRECTED", entityId: entryId } })).resolves.toBeTruthy();
   });
 });

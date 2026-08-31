@@ -141,8 +141,6 @@ export async function PATCH(request: Request, context: RouteContext) {
         if (values.joinCount > values.effectiveCount) return { error: "进群数量不能超过有效数据数量", status: 400 as const };
         if (isUnifiedDailyStatIdentity(entry.identityKey)) {
           values.currentInGroupCount = Math.max(0, values.joinCount - values.normalLeaveCount - values.abnormalLeaveCount);
-          if (values.registrationCount > values.expertIntroCount) return { error: "注册数量不能超过推专家数量", status: 400 as const };
-          if (values.orderCount > values.registrationCount) return { error: "开单数量不能超过注册数量", status: 400 as const };
         }
       }
       if (entry.position === "GROUP_OPERATOR") {

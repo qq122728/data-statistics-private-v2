@@ -254,7 +254,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId, action: "APPROVE" }))).status).toBe(200);
   });
 
-  it("rejects impossible same-day funnel inversions without treating current-in-group as an additive daily flow", async () => {
+  it("rejects impossible same-day reception counts but allows registrations and orders from earlier customers", async () => {
     const data = await fixture();
     signInAs(data.reception);
     const tooManyReplies = await POST(request("POST", {
@@ -270,17 +270,23 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect(tooManyJoins.status).toBe(400);
     await expect(tooManyJoins.json()).resolves.toEqual({ error: "进群数量不能超过有效数据数量" });
 
+    const receptionCrossDay = await POST(request("POST", {
+      businessDate: "2026-08-22", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, registrationCount: 3, orderCount: 2 },
+    }));
+    expect(receptionCrossDay.status).toBe(201);
+
     signInAs(data.expert);
-    const tooManyRegistrations = await POST(request("POST", {
+    const registrationsFromEarlierCustomers = await POST(request("POST", {
       businessDate: "2026-08-23", position: "EXPERT", channelId: data.channelId, sourceReceptionId: data.reception.id, sourceGroupOperatorId: data.operator.id,
-      values: { ...emptyValues, expertReceivedCount: 3, registrationCount: 4 },
+      values: { ...emptyValues, registrationCount: 4 },
     }));
-    expect(tooManyRegistrations.status).toBe(400);
-    const tooManyOrders = await POST(request("POST", {
+    expect(registrationsFromEarlierCustomers.status).toBe(201);
+    const ordersFromEarlierCustomers = await POST(request("POST", {
       businessDate: "2026-08-24", position: "EXPERT", channelId: data.channelId, sourceReceptionId: data.reception.id, sourceGroupOperatorId: data.operator.id,
-      values: { ...emptyValues, expertReceivedCount: 3, registrationCount: 2, orderCount: 3 },
+      values: { ...emptyValues, orderCount: 3 },
     }));
-    expect(tooManyOrders.status).toBe(400);
+    expect(ordersFromEarlierCustomers.status).toBe(201);
   });
 
   it("merges same-day member snapshot sources and carries each source latest value across dates", async () => {

@@ -38,23 +38,24 @@ const operating: DailyBossBrief = {
 
 const stages = { QUEUED: 1, MATERIALS: 0, TRACKING: 2, PENDING_REGISTRATION: 0, PENDING_ORDER: 1, DECLINED_DEPOSIT: 0, ORDERED: 3, STALLED: 0 };
 
-describe("国家／小组 AI 简报", () => {
+describe("国家／部门／小组当日简报", () => {
   it("以每个小组所在地的下班后 30 分钟为准，不使用服务器时间", () => {
     expect(dueBossBriefRegions([region], new Date("2026-08-19T20:29:00Z"))).toEqual([]);
     expect(dueBossBriefRegions([region], new Date("2026-08-19T20:30:00Z"))).toEqual([region]);
     expect(dueBossBriefRegions([region], new Date("2026-08-19T21:00:00Z"))).toEqual([]);
   });
 
-  it("经营简报同时列出国家汇总、每个小组和 AI 分析", () => {
-    const message = formatRegionalOperatingBrief(region, operating, {
-      summary: "今天开单已形成，但专家联系需要跟进。",
-      findings: ["推专家后 1 天仍未联系 2 人"],
-      actions: ["先逐个补齐专家联系结果"],
-    });
+  it("经营简报按部门列出每个小组的当日数据、业绩和部门汇总", () => {
+    const secondGroup = { ...operating.groupRows[0], groupId: "group-b", name: "B组", newFans: 5, effectiveFans: 4, replies: 3, groupJoin: 2, expertIntro: 1, expertContacted: 1, registration: 1, orders: 1, rechargeCents: 20_000, withdrawalCents: 2_000, netPerformanceCents: 18_000 };
+    const message = formatRegionalOperatingBrief(region, { ...operating, totals: { newFans: 15, effectiveFans: 12, replies: 9, groupJoin: 6, expertIntro: 4, expertContacted: 3, registration: 2, orders: 2, rechargeCents: 30_000, withdrawalCents: 3_000, netPerformanceCents: 27_000 }, groupRows: [...operating.groupRows, secondGroup] }, null);
     expect(message).toContain("德国 · 德国时间");
-    expect(message).toContain("恒升部 / A组：有效 8");
-    expect(message).toContain("净业绩 $90.00");
-    expect(message).toContain("AI经营分析");
+    expect(message).toContain("【恒升部｜当日小组数据】");
+    expect(message).toContain("A组｜添加 10｜有效 8｜回复 6｜进群 4");
+    expect(message).toContain("B组｜添加 5｜有效 4｜回复 3｜进群 2");
+    expect(message).toContain("恒升部汇总｜添加 15｜有效 12｜回复 9｜进群 6");
+    expect(message).toContain("入金 $300.00｜出金 $30.00｜净业绩 $270.00");
+    expect(message).toContain("【本地区总汇总】");
+    expect(message).not.toContain("AI经营分析");
   });
 
   it("专家简报包含专家、组长兼专家及超过 48 小时的追踪提醒", () => {

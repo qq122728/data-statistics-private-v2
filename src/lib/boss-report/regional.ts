@@ -2,7 +2,6 @@ import { db } from "../db";
 import { businessTimezoneOption, localClockMinutes, resolveGroupBusinessTime } from "../business-time-config";
 import { localDateYYYYMMDD } from "../dates";
 import { formatUsd } from "../money";
-import { generateBossAiAnalysis } from "./deepseek";
 import { loadDailyBossBrief } from "./data";
 import type { BossAiAnalysis, DailyBossBrief } from "./types";
 
@@ -175,30 +174,55 @@ export async function loadRegionalExpertBrief(region: BossBriefRegion, reportDat
   return { region, reportDate, total: leads.length, stages, members: [...members.values()], trackingOver48, trackingStartMissing };
 }
 
-const percent = (value: number | null) => value === null ? "暂无样本" : `${(value * 100).toFixed(1)}%`;
+type OperatingTotals = DailyBossBrief["totals"];
 
-export function formatRegionalOperatingBrief(region: BossBriefRegion, brief: DailyBossBrief, ai: BossAiAnalysis | null) {
-  const lines = [
-    `📍 国家／小组经营简报｜${region.countryLabel} · ${region.timezoneLabel}`,
-    `业务日期：${brief.reportDate}｜小组：${region.groupNames.join("、")}`,
-    "统计口径：当天实际发生的数据与资金。",
-    "",
-    "【国家／时区结果】",
-    `添加数据 ${brief.totals.newFans}｜有效数据 ${brief.totals.effectiveFans}｜回复 ${brief.totals.replies}｜进群 ${brief.totals.groupJoin}`,
-    `推专家 ${brief.totals.expertIntro}｜已联系 ${brief.totals.expertContacted}｜注册 ${brief.totals.registration}｜开单 ${brief.totals.orders}`,
-    `入金 ${formatUsd(brief.totals.rechargeCents)}｜出金 ${formatUsd(brief.totals.withdrawalCents)}｜净业绩 ${formatUsd(brief.totals.netPerformanceCents)}`,
-    "",
-    "【流程转化】",
-    `回复率 ${percent(brief.rates.replyRate)}｜进群率 ${percent(brief.rates.joinRate)}｜推专家率 ${percent(brief.rates.expertIntroRate)}｜联系率 ${percent(brief.rates.expertContactRate)}`,
-    "",
-    "【小组明细】",
-    ...brief.groupRows.map((row) => `${row.departmentName} / ${row.name}：有效 ${row.effectiveFans}｜进群 ${row.groupJoin}｜推专家 ${row.expertIntro}｜已联系 ${row.expertContacted}｜注册 ${row.registration}｜开单 ${row.orders}｜净业绩 ${formatUsd(row.netPerformanceCents)}`),
-    "",
-    "【流程异常】",
-    `进群第 3 天仍未推专家 ${brief.anomalies.overdueExpertIntro}｜推专家后 1 天仍未联系 ${brief.anomalies.overdueExpertContact}｜联系后 2 天仍未开单 ${brief.anomalies.overdueOrder}`,
+function emptyOperatingTotals(): OperatingTotals {
+  return { newFans: 0, effectiveFans: 0, replies: 0, groupJoin: 0, expertIntro: 0, expertContacted: 0, registration: 0, orders: 0, rechargeCents: 0, withdrawalCents: 0, netPerformanceCents: 0 };
+}
+
+function addGroupToTotals(totals: OperatingTotals, row: DailyBossBrief["groupRows"][number]) {
+  totals.newFans += row.newFans;
+  totals.effectiveFans += row.effectiveFans;
+  totals.replies += row.replies;
+  totals.groupJoin += row.groupJoin;
+  totals.expertIntro += row.expertIntro;
+  totals.expertContacted += row.expertContacted;
+  totals.registration += row.registration;
+  totals.orders += row.orders;
+  totals.rechargeCents += row.rechargeCents;
+  totals.withdrawalCents += row.withdrawalCents;
+  totals.netPerformanceCents += row.netPerformanceCents;
+  return totals;
+}
+
+function operatingLines(label: string, totals: OperatingTotals) {
+  return [
+    `${label}｜添加 ${totals.newFans}｜有效 ${totals.effectiveFans}｜回复 ${totals.replies}｜进群 ${totals.groupJoin}`,
+    `推专家 ${totals.expertIntro}｜已联系 ${totals.expertContacted}｜注册 ${totals.registration}｜开单 ${totals.orders}`,
+    `入金 ${formatUsd(totals.rechargeCents)}｜出金 ${formatUsd(totals.withdrawalCents)}｜净业绩 ${formatUsd(totals.netPerformanceCents)}`,
   ];
-  if (ai) lines.push("", "【AI经营分析】", `结论：${ai.summary}`, "三个问题：", ...ai.findings.map((item, index) => `${index + 1}. ${item}`), "三个行动：", ...ai.actions.map((item, index) => `${index + 1}. ${item}`));
-  else lines.push("", "【AI经营分析】暂不可用，基础统计已正常生成。");
+}
+
+export function formatRegionalOperatingBrief(region: BossBriefRegion, brief: DailyBossBrief, _ai: BossAiAnalysis | null = null) {
+  const departments = new Map<string, DailyBossBrief["groupRows"]>();
+  for (const row of brief.groupRows) {
+    const rows = departments.get(row.departmentName) ?? [];
+    rows.push(row);
+    departments.set(row.departmentName, rows);
+  }
+  const lines = [
+    `📊 当日小组数据和业绩统计｜${region.countryLabel} · ${region.timezoneLabel}`,
+    `业务日期：${brief.reportDate}`,
+    "统计口径：只统计当天实际发生的数据与资金；每个部门先列小组，再做部门汇总。",
+  ];
+  for (const [departmentName, rows] of departments) {
+    lines.push("", `【${departmentName}｜当日小组数据】`);
+    for (const row of rows) lines.push(...operatingLines(row.name, row));
+    const departmentTotals = rows.reduce(addGroupToTotals, emptyOperatingTotals());
+    lines.push("", ...operatingLines(`${departmentName}汇总`, departmentTotals));
+  }
+  if (!departments.size) lines.push("", "今天暂无已生效的小组数据。");
+  lines.push("", "【本地区总汇总】", ...operatingLines(`${region.countryLabel}合计`, brief.totals));
   return lines.join("\n");
 }
 
@@ -227,7 +251,8 @@ export async function prepareRegionalBossBriefs(region: BossBriefRegion, reportD
     loadDailyBossBrief(reportDate, { groupIds: region.groupIds }),
     loadRegionalExpertBrief(region, reportDate, now),
   ]);
-  const ai = await generateBossAiAnalysis(operating);
+  // 地区推送改为可核对的部门/小组当日数据，不再消耗 AI 额度生成主观分析。
+  const ai: BossAiAnalysis | null = null;
   return {
     region,
     reportDate,

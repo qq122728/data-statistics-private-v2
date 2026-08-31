@@ -296,7 +296,7 @@ export async function sendDueRegionalBossBriefs(options: { now?: Date; reportDat
       region: item.region,
       reportDate: item.reportDate,
       generatedAt: item.operating.generatedAt,
-      aiStatus: item.ai ? "generated" : "unavailable",
+      aiStatus: item.ai ? "generated" : "replaced-with-department-group-daily-summary",
       operating: item.operating,
       experts: item.experts,
       ai: item.ai,

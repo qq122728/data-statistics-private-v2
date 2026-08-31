@@ -50,6 +50,7 @@
     "20260831213000_add_daily_stat_manual_invalid/migration.sql": "92e093472555c32f9f58e703be1c2b3667b1b67f59c76f607386aab538a3a125",
     "20260831223000_add_current_customer_group/migration.sql": "a791de6694f028828de421b441658d90fc9eb6e4f001c352a10f167879f51fb5",
     "20260831233000_add_device_account_sig/migration.sql": "43e5dee5e8c8598c51212e6d2f17d1e70eb442af5c87966c77ab21b3c4c19a35",
-    "20260901010000_add_group_type_and_lawyer_daily_stats/migration.sql": "272b095bd633675cd3227d41c60e43e626dcb8f3798bd739ad6a013ac9b6ff5d"
+    "20260901010000_add_group_type_and_lawyer_daily_stats/migration.sql": "272b095bd633675cd3227d41c60e43e626dcb8f3798bd739ad6a013ac9b6ff5d",
+    "20260901020000_add_legacy_customer_rows/migration.sql": "91da537ce39dc84cfd2635cd0907c2b08d48b8f889c4d57be8a4ee8f707a6219"
   }
 }

@@ -45,7 +45,11 @@ export default function Page() {
     void requestJson<{ user: BackendUser }>("/api/auth/me")
       .then(({ user: current }) => {
         if (cancelled) return;
-        if (["DEPARTMENT_MANAGER", "COMPANY_MANAGER", "HQ_MANAGER"].includes(current.duty ?? "") || current.roles.some((role) => ["RESOURCE_MANAGER", "FINANCE", "HR"].includes(role))) {
+        if (
+          current.role === "ADMIN"
+          || ["DEPARTMENT_MANAGER", "COMPANY_MANAGER", "HQ_MANAGER"].includes(current.duty ?? "")
+          || current.roles.some((role) => ["ADMIN", "RESOURCE_MANAGER", "FINANCE", "HR"].includes(role))
+        ) {
           setUser(current);
           return;
         }
@@ -67,7 +71,7 @@ export default function Page() {
   }
 
   if (!ready || !user) return <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#667085" }}>正在读取登录身份…</main>;
-  if (user.duty === "HQ_MANAGER") return <HeadquartersWorkspace user={user} onLogout={logout} />;
+  if (user.role === "ADMIN" || user.duty === "HQ_MANAGER") return <HeadquartersWorkspace user={user} onLogout={logout} />;
   if (user.duty === "COMPANY_MANAGER") return <CompanyWorkspace user={user} onLogout={logout} />;
   if (user.duty === "DEPARTMENT_MANAGER") return <DepartmentWorkspace user={user} onLogout={logout} />;
   if (user.roles.includes("RESOURCE_MANAGER")) return <ResourceWorkspace user={user} onLogout={logout} />;

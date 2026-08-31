@@ -418,7 +418,7 @@ describe.sequential("新版客户进度 API", () => {
     expect((await getLeadCustomerReporting(new Request(`http://localhost/api/lead/customer-reporting?stage=expert&groupId=${ids.berlinGroup}`))).status).toBe(200);
   });
 
-  it("共享表按接粉、炒群、专家负责人逐列交接并记录审计", async () => {
+  it("共享表允许同组成员编辑所有业务列并记录审计", async () => {
     const leadId = id("customer-group");
     const patch = (body: Record<string, unknown>) => patchSharedCustomer(
       new Request(`http://localhost/api/lead/customer-reporting/${leadId}`, {
@@ -428,17 +428,15 @@ describe.sequential("新版客户进度 API", () => {
     );
 
     await signIn(ids.berlinExpert);
-    expect((await patch({ action: "assignGroupOperator", userId: ids.berlinOperatorA })).status).toBe(403);
-
-    await signIn(ids.berlinReception);
     expect((await patch({ action: "assignGroupOperator", userId: ids.berlinOperatorA })).status).toBe(200);
     expect((await patch({ action: "setDeviceCode", code: "B-手填-08" })).status).toBe(200);
 
-    await signIn(ids.berlinOperatorA);
+    await signIn(ids.berlinReception);
     expect((await patch({ action: "assignExpert", userId: ids.berlinExpert })).status).toBe(200);
 
-    await signIn(ids.berlinExpert);
+    await signIn(ids.berlinOperatorA);
     expect((await patch({ action: "setRegistration", occurredOn: "2026-07-09" })).status).toBe(200);
+    expect((await patch({ action: "setOwner", userId: ids.berlinReception })).status).toBe(200);
 
     expect(await db.leadCustomer.findUniqueOrThrow({ where: { id: leadId }, select: { groupOperatorOwnerId: true, expertOwnerId: true, registeredOn: true, device: { select: { code: true } } } })).toEqual({
       groupOperatorOwnerId: ids.berlinOperatorA,
@@ -446,6 +444,6 @@ describe.sequential("新版客户进度 API", () => {
       registeredOn: "2026-07-09",
       device: { code: "B-手填-08" },
     });
-    expect(await db.auditLog.count({ where: { entityId: leadId, action: { startsWith: "SHARED_CUSTOMER_" } } })).toBe(4);
+    expect(await db.auditLog.count({ where: { entityId: leadId, action: { startsWith: "SHARED_CUSTOMER_" } } })).toBe(5);
   });
 });

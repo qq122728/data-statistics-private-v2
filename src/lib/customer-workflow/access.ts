@@ -34,6 +34,9 @@ export function resolveWorkflowActorRole(
 ): Role | null {
   if (!actor.active) return null;
   if (hasAssignedRole(actor, "LEAD")) return "LEAD";
+  // 共享表情况列不改变负责人；这里只选择对应的字段更新逻辑。
+  if (action === "updateGroupProgress") return "GROUP_OPERATOR";
+  if (action === "updateExpertDetails") return "EXPERT";
   if (lead.expertOwnerId === actor.id && roleAllowsCustomerAction("EXPERT", action))
     return "EXPERT";
   if (lead.groupOperatorOwnerId === actor.id && roleAllowsCustomerAction("GROUP_OPERATOR", action))
@@ -61,6 +64,9 @@ export async function authorizeCustomerAction(
 
   if (leadCurrentGroupId(lead) !== actor.groupId)
     return { status: 403, error: "该客户当前已不属于你所在的小组" };
+
+  // 共享客户表的炒群情况和专家情况由同组在职成员共同维护。
+  if (action === "updateGroupProgress" || action === "updateExpertDetails") return null;
 
   const effectiveRole = resolveWorkflowActorRole(actor, lead, action);
   if (!effectiveRole) return { status: 403, error: "当前岗位不能处理该客户或执行此操作" };
@@ -91,9 +97,6 @@ export async function authorizeCustomerAction(
     return { status: 403, error: "该客户当前已不属于你所在的小组" };
   if (effectiveRole === "EXPERT" && !roleAllowsCustomerAction(effectiveRole, action))
     return { status: 403, error: "前台专家只能推进专家阶段、更新客户资料、备注和开单纠错" };
-
-  if (action === "updateExpertDetails" && effectiveRole !== "LEAD" && effectiveRole !== "EXPERT")
-    return { status: 403, error: "只有组长和负责该客户的专家可以编辑专家跟进资料" };
 
   if (action === "updateGroupDetails" && effectiveRole !== "LEAD" && effectiveRole !== "GROUP_OPERATOR")
     return { status: 403, error: "只有组长和前台炒群可以编辑群客户资料" };

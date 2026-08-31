@@ -30,7 +30,9 @@ test("组员和组长都能新增已进群客户", () => {
   assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
 });
 
-test("共享表按责任人开放下拉选择并由专家逐笔登记资金", () => {
+test("共享表向同组成员开放全部业务列并逐笔登记资金", () => {
+  assert.match(component, /const canEdit = Boolean\(member\)/);
+  assert.doesNotMatch(component, /const canOwner|const canOperator|const canExpert/);
   for (const action of ["assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
   assert.match(component, /placeholder="手动填写"/);
   assert.doesNotMatch(component, /deviceOptions/);

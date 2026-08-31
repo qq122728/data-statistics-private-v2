@@ -36,6 +36,15 @@ describe("组员按客户当前负责关系选择流程身份", () => {
       .resolves.toEqual({ status: 403, error: "当前岗位不能处理该客户或执行此操作" });
   });
 
+  it("同组未分配成员也能维护共享表的炒群和专家情况", async () => {
+    const sharedLead = { ...joinedLead, groupOperatorOwnerId: "other-member", expertOwnerId: "other-member" };
+    const transaction = {} as Parameters<typeof authorizeCustomerAction>[0];
+    await expect(authorizeCustomerAction(transaction, actor, sharedLead, "updateGroupProgress")).resolves.toBeNull();
+    await expect(authorizeCustomerAction(transaction, actor, sharedLead, "updateExpertDetails")).resolves.toBeNull();
+    expect(resolveWorkflowActorRole(actor, sharedLead, "updateGroupProgress")).toBe("GROUP_OPERATOR");
+    expect(resolveWorkflowActorRole(actor, sharedLead, "updateExpertDetails")).toBe("EXPERT");
+  });
+
   it("客户调到别组后，原小组负责人不能再绕过当前归属直接修改", async () => {
     const movedLead = { ...joinedLead, currentGroupId: "group-b" };
     const transaction = {} as Parameters<typeof authorizeCustomerAction>[0];

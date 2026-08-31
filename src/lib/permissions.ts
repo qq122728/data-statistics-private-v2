@@ -103,19 +103,8 @@ export function canWriteCustomerRevenue(
   user: PermissionUser,
   target: CustomerRevenueWriteTarget,
 ): boolean {
-  if (!user.active) return false;
-  if (hasAssignedRole(user, "LEAD")) return Boolean(user.groupId && (target.lead?.currentGroupId ?? target.batch.groupId) === user.groupId);
-  if (isFrontlineGroupMember(user) && target.lead) {
-    const currentGroupId = target.lead.currentGroupId ?? target.batch.groupId;
-    const responsibleIds = new Set([
-      target.lead.attributionOwnerId,
-      target.lead.ownerId,
-      target.lead.groupOperatorOwnerId,
-      target.lead.expertOwnerId,
-    ].filter((id): id is string => Boolean(id)));
-    return currentGroupId === user.groupId && responsibleIds.has(user.id);
-  }
-  return false;
+  if (!user.active || !target.lead || !isFrontlineGroupMember(user)) return false;
+  return Boolean(user.groupId && (target.lead.currentGroupId ?? target.batch.groupId) === user.groupId);
 }
 
 /**

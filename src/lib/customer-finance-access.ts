@@ -7,5 +7,5 @@ export const canWriteCustomerFinance = canWriteCustomerRevenue;
 
 export function financeScopeError(role: string) {
   if (role === "LEAD") return "只能处理本组客户资金";
-  return "只能处理自己归属或当前负责的本组客户资金";
+  return "只能处理本组客户资金";
 }

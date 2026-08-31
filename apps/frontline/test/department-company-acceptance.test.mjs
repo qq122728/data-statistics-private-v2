@@ -17,7 +17,7 @@ test("公司与部门开组都严格执行先建组、再开组长账号", () =>
     assert.doesNotMatch(source, /leadAccount/);
   }
   assert.match(company, /JSON\.stringify\(\{ departmentId, name:/);
-  assert.match(groups, /JSON\.stringify\(\{ departmentId: department\.id, name \}\)/);
+  assert.match(groups, /JSON\.stringify\(\{ departmentId: department\.id, name, groupType \}\)/);
   assert.match(groups, /第一步：开设新组/);
   assert.match(groups, /第二步：开设组长账号/);
 });
@@ -36,7 +36,7 @@ test("公司与部门汇总覆盖各维度、全漏斗并保留表底合计", ()
 
 test("管理员客户进度是统一只读共享表", () => {
   assert.match(customers, /组内共享客户进度/);
-  assert.match(customers, /只登记已经进群的客户/);
+  assert.match(customers, /同组组员和组长都可编辑/);
   assert.match(customers, /\{member \? <button[^]*新增已进群客户/);
   assert.match(customers, /\/api\/lead\/customer-reporting/);
   assert.match(customers, /const canEdit = Boolean\(member\)/);

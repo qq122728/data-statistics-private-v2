@@ -1144,7 +1144,7 @@ describe.sequential("frontline role boundaries", () => {
     });
   });
 
-  it("lets the lead and assigned expert edit expert follow-up details", async () => {
+  it("让同组成员共同维护专家情况", async () => {
     await signInAs(ids.expertA);
     const expertUpdate = await updateLead(
       new Request("http://localhost/api/leads/target", {
@@ -1204,7 +1204,7 @@ describe.sequential("frontline role boundaries", () => {
       }),
       leadContext(ids.leadCustomerA),
     );
-    expect(receptionUpdate.status).toBe(403);
+    expect(receptionUpdate.status).toBe(200);
   });
 
   it("stores one group progress entry per customer per day and lets same-day saves update it", async () => {
@@ -1251,7 +1251,7 @@ describe.sequential("frontline role boundaries", () => {
       }),
       leadContext(ids.leadCustomerA),
     );
-    expect(expertSave.status).toBe(403);
+    expect(expertSave.status).toBe(200);
   });
 
   it("lets only the original reception owner read downstream daily progress", async () => {
@@ -1288,7 +1288,7 @@ describe.sequential("frontline role boundaries", () => {
     expect(expert.status).toBe(403);
   });
 
-  it("lets the assigned expert and group lead manage finance while reception stays read-only", async () => {
+  it("让同组所有在职成员共同登记资金流水", async () => {
     const order = await db.customerOrder.findFirstOrThrow({
       where: { leadId: ids.leadCustomerA, voidedAt: null },
     });
@@ -1364,6 +1364,24 @@ describe.sequential("frontline role boundaries", () => {
       }),
     );
     expect(receptionFinance.status).toBe(201);
+
+    vi.restoreAllMocks();
+    await signInAs(ids.expertB);
+    expect(
+      (
+        await createFinance(
+          new Request("http://localhost/api/customer-finance", {
+            method: "POST",
+            body: JSON.stringify({
+              customerOrderId: order.id,
+              occurredOn: "2026-08-15",
+              kind: "WITHDRAWAL",
+              amountCents: 100,
+            }),
+          }),
+        )
+      ).status,
+    ).toBe(201);
 
     vi.restoreAllMocks();
     await signInAs(ids.receptionB);

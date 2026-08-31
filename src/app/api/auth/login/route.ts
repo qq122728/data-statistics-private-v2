@@ -15,6 +15,7 @@ import {
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, tooLargeResponse } from "../../../../lib/request-limits";
 import { recordSecurityEvent } from "../../../../lib/security-events";
 import { workspaceForUser } from "../../../../lib/workspace-routing";
+import { applyDueGroupLeadChangePlans } from "../../../../lib/group-lead-change";
 
 type LoginRequest = {
   username?: unknown;
@@ -68,6 +69,8 @@ export async function POST(request: Request) {
     );
   }
 
+  // 未来生效的组长更换在当天第一次登录时先原子执行，保证随后签发的会话拿到新权限。
+  await applyDueGroupLeadChangePlans();
   const authentication = await authenticateUserWithIdentity(body.username, body.password);
   const user = authentication.user;
   if (!user) {

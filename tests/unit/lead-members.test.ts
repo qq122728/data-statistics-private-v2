@@ -4,7 +4,7 @@ import * as auth from "../../src/lib/auth";
 import * as leadMembers from "../../src/lib/lead-members";
 import { hashPassword, verifyPassword } from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
-import { GET, PATCH, POST } from "../../src/app/api/lead/members/route";
+import { DELETE, GET, PATCH, POST } from "../../src/app/api/lead/members/route";
 
 const fixturePrefix = "lead-members-test-";
 
@@ -105,6 +105,61 @@ describe.sequential("lead member API", () => {
     for (const member of members) expect(member).not.toHaveProperty("passwordHash");
   });
 
+  it("lets a lead correct a same-group member name and login username with audit history", async () => {
+    await createFixture();
+    const originalUsername = `${fixturePrefix}reversed-${randomUUID()}`;
+    const createResponse = await POST(new Request("http://localhost/api/lead/members", {
+      method: "POST",
+      body: JSON.stringify({ username: originalUsername, name: "错误姓名", password: "member-password" }),
+    }));
+    expect(createResponse.status).toBe(201);
+    const member = await createResponse.json() as { id: string };
+    const correctedUsername = `${fixturePrefix}corrected-${randomUUID()}`;
+
+    const response = await PATCH(new Request("http://localhost/api/lead/members", {
+      method: "PATCH",
+      body: JSON.stringify({ id: member.id, name: "正确姓名", username: correctedUsername }),
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ id: member.id, name: "正确姓名", username: correctedUsername });
+    await expect(db.user.findUniqueOrThrow({ where: { id: member.id }, select: { name: true, username: true, employeeCode: true } }))
+      .resolves.toEqual({ name: "正确姓名", username: correctedUsername, employeeCode: correctedUsername });
+    await expect(db.auditLog.findFirst({ where: { entityType: "User", entityId: member.id, action: "MEMBER_UPDATED" }, orderBy: { createdAt: "desc" } }))
+      .resolves.toMatchObject({ summary: expect.stringContaining("username") });
+  });
+
+  it("lets a lead permanently delete a mistaken empty same-group account", async () => {
+    const { ownGroupId } = await createFixture();
+    const member = await createUser({ role: "RECEPTION", groupId: ownGroupId, name: "误开空账号" });
+    await db.session.create({ data: { userId: member.id, expiresAt: new Date(Date.now() + 60_000) } });
+
+    const response = await DELETE(new Request("http://localhost/api/lead/members", {
+      method: "DELETE",
+      body: JSON.stringify({ id: member.id }),
+    }));
+
+    expect(response.status).toBe(200);
+    await expect(db.user.findUnique({ where: { id: member.id } })).resolves.toBeNull();
+    await expect(db.auditLog.findFirst({ where: { action: "ACCOUNT_DELETED", entityType: "User", entityId: member.id } }))
+      .resolves.toMatchObject({ actorId: expect.stringContaining(`${fixturePrefix}lead-`) });
+  });
+
+  it("refuses to hard-delete an account that already owns operation history", async () => {
+    const { ownGroupId } = await createFixture();
+    const member = await createUser({ role: "RECEPTION", groupId: ownGroupId, name: "已有历史账号" });
+    await db.auditLog.create({ data: { actorId: member.id, action: "TEST_ACTIVITY", entityType: "User", entityId: member.id, summary: "{}" } });
+
+    const response = await DELETE(new Request("http://localhost/api/lead/members", {
+      method: "DELETE",
+      body: JSON.stringify({ id: member.id }),
+    }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: "该账号已经产生业务或操作记录，不能永久删除；请改为停用账号" });
+    await expect(db.user.findUnique({ where: { id: member.id } })).resolves.not.toBeNull();
+  });
+
   it("creates frontline roles but routes every existing-member role change through personnel transfer", async () => {
     const { ownGroupId } = await createFixture();
     const member = await createUser({ role: "RECEPTION", groupId: ownGroupId });
@@ -153,6 +208,38 @@ describe.sequential("lead member API", () => {
       expect(response.status).toBe(400);
       await expect(response.json()).resolves.toEqual({ error: "不允许修改所属小组" });
     }
+  });
+
+  it("lets a lead add expert permission to an old account without allowing existing roles to be removed", async () => {
+    const { ownGroupId } = await createFixture();
+    const member = await createUser({ role: "RECEPTION", groupId: ownGroupId });
+
+    const addExpertResponse = await PATCH(new Request("http://localhost/api/lead/members", {
+      method: "PATCH",
+      body: JSON.stringify({ id: member.id, secondaryRoles: ["EXPERT"] }),
+    }));
+
+    expect(addExpertResponse.status).toBe(200);
+    await expect(addExpertResponse.json()).resolves.toMatchObject({
+      id: member.id,
+      role: "RECEPTION",
+      roleAssignments: expect.arrayContaining([
+        expect.objectContaining({ role: "RECEPTION" }),
+        expect.objectContaining({ role: "EXPERT" }),
+      ]),
+    });
+
+    const removeExpertResponse = await PATCH(new Request("http://localhost/api/lead/members", {
+      method: "PATCH",
+      body: JSON.stringify({ id: member.id, secondaryRoles: [] }),
+    }));
+
+    expect(removeExpertResponse.status).toBe(400);
+    await expect(removeExpertResponse.json()).resolves.toEqual({
+      error: "已有岗位不能在这里关闭；请使用“人员调岗与跨组调动”",
+    });
+    await expect(db.userRoleAssignment.findMany({ where: { userId: member.id }, select: { role: true } }))
+      .resolves.toEqual(expect.arrayContaining([{ role: "RECEPTION" }, { role: "EXPERT" }]));
   });
 
   it("creates and updates a receptionist pairing in the same member transaction", async () => {

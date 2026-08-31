@@ -15,6 +15,7 @@ export const copyPlan = [
   ["userRoleAssignment", "UserRoleAssignment"],
   ["userGroupMembership", "UserGroupMembership"],
   ["userPosition", "UserPosition"],
+  ["groupLeadChangePlan", "GroupLeadChangePlan"],
   ["channel", "Channel"],
   ["resourceChannelAccess", "ResourceChannelAccess"],
   ["channelReviewEntry", "ChannelReviewEntry"],

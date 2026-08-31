@@ -467,6 +467,33 @@ model TeamGroup {
   @@unique([departmentId, name])
 }
 
+model GroupLeadChangePlan {
+  id                       String   @id @default(cuid())
+  groupId                  String
+  formerLeadId             String
+  newLeadId                String
+  effectiveOn              String
+  formerDisposition        String
+  formerTargetGroupId      String?
+  formerReceptionHandoffId String?
+  formerOperatorHandoffId  String?
+  formerExpertHandoffId    String?
+  newReceptionHandoffId    String?
+  newOperatorHandoffId     String?
+  newExpertHandoffId       String?
+  reason                   String
+  status                   String   @default("PENDING")
+  createdById              String
+  appliedAt                String?
+  cancelledAt              String?
+  failureReason            String?
+  createdAt                String   @default("")
+  updatedAt                String   @default("")
+
+  @@index([groupId, status])
+  @@index([status, effectiveOn])
+}
+
 model Channel {
   id                     String
   name                   String

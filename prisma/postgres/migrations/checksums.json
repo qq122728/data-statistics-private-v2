@@ -44,6 +44,8 @@
     "20260830143000_backfill_expert_workflow_stage/migration.sql": "79356e5ecf13a6c2e5c5445a32066a4a9034617375d35ad5d4058f551e27369d",
     "20260830180000_simplify_daily_stat_review/migration.sql": "2b68f983175bb5ad8b5d5c54e7115a14b12e5dc273c05deb040690eb69596f41",
     "20260830190000_add_multi_department_manager_scope/migration.sql": "aba5c53ecddebe1f90e85dc20bfb8f7c1212b4f3293736d9051482db350e11cd",
-    "20260830230000_decouple_customer_finance_events/migration.sql": "ffd8b97a2987dc7c9172bca4fc7c1acb6e7d952ea7b9cb8c3242c67286900673"
+    "20260830230000_decouple_customer_finance_events/migration.sql": "ffd8b97a2987dc7c9172bca4fc7c1acb6e7d952ea7b9cb8c3242c67286900673",
+    "20260830233000_add_group_lead_change_plan/migration.sql": "c0dbbdddcf8033ebaf1d774a5d8c7a5a04b40b560f1d3b12d9ff288ee66c9684",
+    "20260831043500_grant_group_lead_change_runtime/migration.sql": "1193d575683d82976ffdfe3e591bd1261351e40ba659123fbcb5bf55b97ddab1"
   }
 }

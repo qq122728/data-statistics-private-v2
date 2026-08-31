@@ -44,10 +44,11 @@ beforeAll(async () => {
     { id: ids.operator, username: ids.operator, name: "配对炒群", role: "GROUP_OPERATOR", groupId: ids.group },
   ] });
   await db.groupOperatorReception.create({ data: { receptionistId: ids.reception, groupOperatorId: ids.operator } });
-  await db.deviceAccount.create({ data: {
-    groupId: ids.group, ownerId: ids.reception, accountType: "NORMAL_WS",
-    provider: "测试号商", accountNumber: "RECEPTION-WS-01",
-  } });
+  await db.device.createMany({ data: [
+    { id: id("device-b22"), groupId: ids.group, memberId: ids.reception, code: "B22" },
+    { id: id("device-peer"), groupId: ids.group, memberId: ids.peer, code: "PEER-01" },
+    { id: id("device-inactive"), groupId: ids.group, memberId: ids.reception, code: "停用设备", active: false },
+  ] });
   await db.channel.createMany({ data: [
     { id: ids.channel, groupId: ids.group, name: "本人渠道", normalizedName: "本人渠道" },
     { id: ids.otherChannel, groupId: ids.otherGroup, name: "其它渠道", normalizedName: "其它渠道" },
@@ -94,8 +95,10 @@ describe.sequential("新版接粉本人客户 API", () => {
     expect(reply.counts).toEqual({ reply: 2, group: 1, archived: 1 });
     expect(reply.currentGroupOperator).toEqual({ id: ids.operator, name: "配对炒群" });
     expect(reply.receptionDevices).toEqual([
-      expect.objectContaining({ accountNumber: "RECEPTION-WS-01", provider: "测试号商" }),
+      expect.objectContaining({ code: "B22" }),
     ]);
+    expect(JSON.stringify(reply.receptionDevices)).not.toContain("PEER-01");
+    expect(JSON.stringify(reply.receptionDevices)).not.toContain("停用设备");
     expect(new Set(reply.customers.map((customer: { phone: string }) => customer.phone))).toEqual(new Set(["491111111111", "493333333333"]));
     expect(group.customers).toHaveLength(1);
     expect(group.customers[0]).toMatchObject({ phone: "492222222222", customerName: "待进群客户" });

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { hashPassword, PASSWORD_MIN_LENGTH } from "../../../../lib/auth";
 import { recordAudit } from "../../../../lib/audit";
+import { deleteEmptyAccount } from "../../../../lib/account-deletion";
 import { db } from "../../../../lib/db";
 import {
   getActiveLeadGroup,
@@ -33,6 +34,7 @@ type MemberRequest = {
 
 type RequestedMemberUpdate = {
   username?: string;
+  employeeCode?: string;
   name?: string;
   passwordHash?: string;
   active?: boolean;
@@ -287,7 +289,7 @@ export async function PATCH(request: Request) {
   const includesSecondaryRoles = Object.prototype.hasOwnProperty.call(body, "secondaryRoles");
   if (includesSecondaryRoles && !Array.isArray(body.secondaryRoles))
     return NextResponse.json({ error: "兼任岗位参数不正确" }, { status: 400 });
-  if (requested.role !== undefined || includesSecondaryRoles) {
+  if (requested.role !== undefined) {
     return NextResponse.json({ error: "岗位变化必须使用“人员调岗与跨组调动”，不能直接覆盖岗位历史" }, { status: 400 });
   }
   if (typeof body.password === "string") {
@@ -324,6 +326,7 @@ export async function PATCH(request: Request) {
           },
           select: {
             id: true,
+            employeeCode: true,
             username: true,
             name: true,
             active: true,
@@ -341,6 +344,12 @@ export async function PATCH(request: Request) {
         ) {
           data.username = requested.username;
           changedFields.push("username");
+          // 组长创建成员时 employeeCode 默认就是当时的用户名。若两者仍相同，
+          // 说明这是一次创建资料纠错，应同步修正人员代号；自定义过的代号则保持不动。
+          if (existing.employeeCode === existing.username) {
+            data.employeeCode = requested.username;
+            changedFields.push("employeeCode");
+          }
         }
         if (requested.name !== undefined && requested.name !== existing.name) {
           data.name = requested.name;
@@ -372,6 +381,9 @@ export async function PATCH(request: Request) {
         const nextSecondaryRoles = parseFrontlineSecondaryRoles(nextRole, requestedSecondaryRoles);
         if (!nextSecondaryRoles.success)
           return { error: nextSecondaryRoles.error, status: 400 as const };
+        if (includesSecondaryRoles && currentSecondaryRoles.some((assignedRole) => !nextSecondaryRoles.value.includes(assignedRole))) {
+          return { error: "已有岗位不能在这里关闭；请使用“人员调岗与跨组调动”", status: 400 as const };
+        }
         const roleAssignmentsChanged = nextRole !== existing.role
           || currentSecondaryRoles.length !== nextSecondaryRoles.value.length
           || currentSecondaryRoles.some((assignedRole) => !nextSecondaryRoles.value.includes(assignedRole));
@@ -442,4 +454,28 @@ export async function PATCH(request: Request) {
     }
     throw error;
   }
+}
+
+export async function DELETE(request: Request) {
+  const access = await requireLeadRequest();
+  if ("response" in access) return access.response;
+  const body = await request.json() as { id?: unknown };
+  const id = typeof body.id === "string" ? body.id : "";
+  if (!id || id.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "成员参数不正确" }, { status: 400 });
+
+  const group = await getActiveLeadGroup(access.actor.id);
+  if (!group) return authorizationDenied(access.actor, "组长必须归属启用中的小组");
+  const target = await db.user.findFirst({
+    where: {
+      id,
+      groupId: group.id,
+      role: { in: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] },
+    },
+    select: { id: true, name: true },
+  });
+  if (!target) return authorizationDenied(access.actor, "无权删除该组员账号");
+
+  const result = await deleteEmptyAccount({ actorId: access.actor.id, targetId: target.id, targetName: target.name });
+  if (!result.deleted) return NextResponse.json({ error: result.error }, { status: result.status === 409 ? 409 : 400 });
+  return NextResponse.json({ deleted: true });
 }

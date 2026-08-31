@@ -5,12 +5,12 @@ import { recordAudit } from "../../../../lib/audit";
 import { businessTimezoneOption, isSupportedBusinessTimezone } from "../../../../lib/business-time";
 import { db } from "../../../../lib/db";
 import { copyGlobalChannelsToGroup } from "../../../../lib/global-channels";
-import { canCreateGroup } from "../../../../lib/org-permissions";
+import { canAppointOrTransferLead, canCreateGroup } from "../../../../lib/org-permissions";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { requireOrgManagerRequest } from "../_auth";
 
-type GroupRequest = { departmentId?: unknown; name?: unknown };
+type GroupRequest = { id?: unknown; departmentId?: unknown; name?: unknown };
 
 /**
  * 阶段5a：开设新小组（需求文档5.6，部门管理员限本部门、公司管理员限本公司、总公司管理员不限）。
@@ -54,6 +54,51 @@ export async function POST(request: Request) {
     if ("denied" in result) return authorizationDenied(access.actor, "没有权限在这个部门下新建小组");
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
     return NextResponse.json(result.group, { status: 201 });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return NextResponse.json({ error: "该部门已经有同名小组" }, { status: 409 });
+    throw error;
+  }
+}
+
+/**
+ * 组织管理工作台修改小组名称。只允许改名，不在这里移动部门、停用小组或改时区，
+ * 避免一个轻量编辑入口绕过正式的人事和组织调整流程。
+ */
+export async function PATCH(request: Request) {
+  const access = await requireOrgManagerRequest();
+  if ("response" in access) return access.response;
+
+  const body = (await request.json()) as GroupRequest;
+  const id = typeof body.id === "string" ? body.id : "";
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!id || id.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "小组参数不正确" }, { status: 400 });
+  if (!name || name.length > API_LIMITS.accountDisplayNameCharacters) return NextResponse.json({ error: "小组名称必须在 1 到 100 个字之间" }, { status: 400 });
+
+  try {
+    const result = await db.$transaction(async (client) => {
+      const existing = await client.teamGroup.findUnique({
+        where: { id },
+        select: { id: true, name: true, active: true, departmentId: true, department: { select: { companyId: true } } },
+      });
+      if (!existing) return { error: "小组不存在", status: 404 as const };
+      if (!canAppointOrTransferLead(access.actor, { id: existing.id, departmentId: existing.departmentId, companyId: existing.department.companyId })) {
+        return { denied: true as const };
+      }
+      if (existing.name === name) return { group: existing };
+
+      const updated = await client.teamGroup.update({ where: { id }, data: { name } });
+      await recordAudit(client, {
+        actorId: access.actor.id,
+        action: "GROUP_UPDATED",
+        entityType: "TeamGroup",
+        entityId: existing.id,
+        summary: { changedFields: ["name"], previousName: existing.name, name },
+      });
+      return { group: updated };
+    }, { isolationLevel: "Serializable" });
+    if ("denied" in result) return authorizationDenied(access.actor, "没有权限编辑这个小组");
+    if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
+    return NextResponse.json(result.group);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return NextResponse.json({ error: "该部门已经有同名小组" }, { status: 409 });
     throw error;

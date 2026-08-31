@@ -45,6 +45,7 @@ export async function GET(request: Request) {
       id: true,
       name: true,
       role: true,
+      roleAssignments: { select: { role: true } },
       groupId: true,
       group: {
         select: {
@@ -70,6 +71,7 @@ export async function GET(request: Request) {
     groupId: person.groupId,
     groupName: person.group?.name ?? "",
     alreadyLead: person.role === "LEAD",
+    roles: Array.from(new Set([person.role, ...person.roleAssignments.map((item) => item.role)])),
   }));
   return NextResponse.json({ candidates });
 }

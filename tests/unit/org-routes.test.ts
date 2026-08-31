@@ -5,13 +5,14 @@ import { verifyPassword } from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { POST as createCompany } from "../../src/app/api/org/companies/route";
 import { POST as createDepartment } from "../../src/app/api/org/departments/route";
-import { POST as createGroup } from "../../src/app/api/org/groups/route";
+import { PATCH as updateGroup, POST as createGroup } from "../../src/app/api/org/groups/route";
 import { POST as appointLead } from "../../src/app/api/org/groups/[groupId]/lead/route";
 import { GET as getOrgStructure } from "../../src/app/api/org/structure/route";
 import { POST as createDepartmentManagerAccount } from "../../src/app/api/org/department-managers/route";
 import { POST as createCompanyManagerAccount } from "../../src/app/api/org/company-managers/route";
 import { POST as createHqManagerAccount } from "../../src/app/api/org/hq-managers/route";
 import { GET as getLeadCandidates } from "../../src/app/api/org/lead-candidates/route";
+import { DELETE as deleteOrgAccount, GET as getOrgAccounts } from "../../src/app/api/org/accounts/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -96,8 +97,8 @@ function signInAs(id: string) {
   });
 }
 
-function jsonRequest(url: string, body: unknown) {
-  return new Request(url, { method: "POST", body: JSON.stringify(body) });
+function jsonRequest(url: string, body: unknown, method = "POST") {
+  return new Request(url, { method, body: JSON.stringify(body) });
 }
 
 describe.sequential("阶段5a组织架构路由：新公司/新部门 (总公司管理员专属)", () => {
@@ -183,9 +184,87 @@ describe.sequential("阶段5a组织架构路由：新建小组 (部门管理员�
     const response = await createGroup(jsonRequest("http://localhost/api/org/groups", { departmentId: ids.deptB1, name: `B1新组-${suffix}` }));
     expect(response.status).toBe(201);
   });
+
+  it("lets a company manager rename a group in their own company and records the change", async () => {
+    await signInAs(ids.companyAManager);
+    const name = `A公司改名小组-${suffix}`;
+    const response = await updateGroup(jsonRequest("http://localhost/api/org/groups", { id: ids.groupA1, name }, "PATCH"));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ id: ids.groupA1, name });
+    await expect(db.teamGroup.findUniqueOrThrow({ where: { id: ids.groupA1 }, select: { name: true } })).resolves.toEqual({ name });
+    await expect(db.auditLog.findFirst({ where: { action: "GROUP_UPDATED", entityType: "TeamGroup", entityId: ids.groupA1 }, orderBy: { createdAt: "desc" } }))
+      .resolves.toMatchObject({ summary: expect.stringContaining("previousName") });
+  });
+
+  it("blocks a company manager from renaming a group in another company", async () => {
+    await signInAs(ids.companyAManager);
+    const response = await updateGroup(jsonRequest("http://localhost/api/org/groups", { id: ids.groupB1, name: `越权改名-${suffix}` }, "PATCH"));
+    expect(response.status).toBe(403);
+  });
+});
+
+describe.sequential("组织管理员范围内误开空账号删除", () => {
+  it("lists and deletes an empty account inside the company manager's company", async () => {
+    const id = `empty-account-${suffix}`;
+    await db.user.create({ data: { id, username: id, name: "公司内误开账号", role: "RECEPTION", groupId: ids.groupA2 } });
+    await signInAs(ids.companyAManager);
+    const listResponse = await getOrgAccounts();
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ id, name: "公司内误开账号" })]));
+
+    const deleteResponse = await deleteOrgAccount(jsonRequest("http://localhost/api/org/accounts", { id }, "DELETE"));
+    expect(deleteResponse.status).toBe(200);
+    await expect(db.user.findUnique({ where: { id } })).resolves.toBeNull();
+  });
+
+  it("blocks a company manager from deleting an account in another company", async () => {
+    await signInAs(ids.companyAManager);
+    const response = await deleteOrgAccount(jsonRequest("http://localhost/api/org/accounts", { id: ids.candidateB1 }, "DELETE"));
+    expect(response.status).toBe(403);
+    await expect(db.user.findUnique({ where: { id: ids.candidateB1 } })).resolves.not.toBeNull();
+  });
 });
 
 describe.sequential("阶段5a组织架构路由：任免/调动组长 (calls transferUserPosition, tier-scoped)", () => {
+  it("replaces an existing lead atomically and preserves both membership histories", async () => {
+    const groupId = `replacement-group-${suffix}`;
+    const formerId = `replacement-former-${suffix}`;
+    const incomingId = `replacement-incoming-${suffix}`;
+    await db.teamGroup.create({ data: { id: groupId, name: `更换组长测试组-${suffix}`, departmentId: ids.deptA1 } });
+    await db.user.createMany({ data: [
+      { id: formerId, username: formerId, name: "原组长", role: "LEAD", duty: "LEAD", groupId },
+      { id: incomingId, username: incomingId, name: "新组长", role: "RECEPTION", groupId },
+    ] });
+    await db.userGroupMembership.createMany({ data: [
+      { userId: formerId, groupId, role: "LEAD", effectiveFrom: "2026-08-01", reason: "测试初始任职" },
+      { userId: incomingId, groupId, role: "RECEPTION", effectiveFrom: "2026-08-01", reason: "测试初始任职" },
+    ] });
+    const channelId = `replacement-channel-${suffix}`;
+    const batchId = `replacement-batch-${suffix}`;
+    await db.channel.create({ data: { id: channelId, groupId, name: `更换组长渠道-${suffix}`, normalizedName: `更换组长渠道-${suffix}` } });
+    await db.sourceBatch.create({ data: { id: batchId, groupId, channelId, sourceDate: "2026-08-30" } });
+    await db.leadCustomer.createMany({ data: [
+      { id: `replacement-reception-${suffix}`, phone: `91${suffix.replaceAll("-", "").slice(0, 10)}`, batchId, ownerId: formerId },
+      { id: `replacement-operator-${suffix}`, phone: `92${suffix.replaceAll("-", "").slice(0, 10)}`, batchId, ownerId: formerId, groupOperatorOwnerId: formerId },
+      { id: `replacement-expert-${suffix}`, phone: `93${suffix.replaceAll("-", "").slice(0, 10)}`, batchId, ownerId: formerId, expertOwnerId: formerId },
+      { id: `replacement-incoming-${suffix}`, phone: `94${suffix.replaceAll("-", "").slice(0, 10)}`, batchId, ownerId: incomingId },
+    ] });
+    await signInAs(ids.hq);
+    const response = await appointLead(
+      jsonRequest(`http://localhost/api/org/groups/${groupId}/lead`, { userId: incomingId, effectiveOn: "2026-08-30", reason: "测试一键更换组长", formerDisposition: "DISABLE" }),
+      { params: Promise.resolve({ groupId }) },
+    );
+    expect(response.status).toBe(200);
+    await expect(db.user.findUniqueOrThrow({ where: { id: formerId }, select: { active: true } })).resolves.toEqual({ active: false });
+    await expect(db.user.findUniqueOrThrow({ where: { id: incomingId }, select: { role: true, duty: true } })).resolves.toEqual({ role: "LEAD", duty: "LEAD" });
+    await expect(db.groupLeadChangePlan.findFirstOrThrow({ where: { groupId } })).resolves.toMatchObject({ status: "APPLIED" });
+    await expect(db.userGroupMembership.findMany({ where: { userId: formerId } })).resolves.toEqual(expect.arrayContaining([expect.objectContaining({ effectiveTo: "2026-08-29" })]));
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: `replacement-reception-${suffix}` }, select: { ownerId: true } })).resolves.toEqual({ ownerId: incomingId });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: `replacement-operator-${suffix}` }, select: { groupOperatorOwnerId: true } })).resolves.toEqual({ groupOperatorOwnerId: incomingId });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: `replacement-expert-${suffix}` }, select: { expertOwnerId: true } })).resolves.toEqual({ expertOwnerId: incomingId });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: `replacement-incoming-${suffix}` }, select: { ownerId: true } })).resolves.toEqual({ ownerId: incomingId });
+  });
+
   it("lets a department manager promote an existing frontline member to lead within their own department", async () => {
     await signInAs(ids.deptA1Manager);
     const response = await appointLead(
@@ -248,17 +327,18 @@ describe.sequential("阶段5a组织架构路由：任免/调动组长 (calls tra
     expect(response.status).toBe(200);
   });
 
-  it("rejects a date that is tomorrow in the target group's New York timezone", async () => {
+  it("stores a future replacement as pending until the target group's local effective date", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     try {
       await signInAs(ids.hq);
       const response = await appointLead(
-        jsonRequest(`http://localhost/api/org/groups/${ids.groupB1}/lead`, { userId: ids.candidateB1, effectiveOn: "2026-09-01", reason: "验证目标小组当地日期" }),
+        jsonRequest(`http://localhost/api/org/groups/${ids.groupB1}/lead`, { userId: ids.candidateA1Reader, effectiveOn: "2026-09-01", reason: "验证未来组长更换计划" }),
         { params: Promise.resolve({ groupId: ids.groupB1 }) },
       );
-      expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({ error: "调动生效日期不能晚于目标小组当地今天 2026-08-31" });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ scheduled: true, plan: { status: "PENDING", effectiveOn: "2026-09-01", newLeadId: ids.candidateA1Reader } });
+      await expect(db.user.findUniqueOrThrow({ where: { id: ids.candidateB1 }, select: { role: true, active: true } })).resolves.toEqual({ role: "LEAD", active: true });
     } finally {
       vi.useRealTimers();
     }

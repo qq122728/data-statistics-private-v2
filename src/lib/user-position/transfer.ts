@@ -33,6 +33,10 @@ export type TransferUserPositionParams = {
   expertHandoffId: string | null;
   mode?: "preview" | "confirm";
   expectedCounts?: { reception: number; operator: number; expert: number } | null;
+  /** 更换组长事务中，允许被本事务先行卸任的现任组长。 */
+  replaceLeadId?: string | null;
+  /** 更换组长事务中，这个人会在同一事务稍后成为组长，可提前作为自动接收人。 */
+  handoffTargetWillBeLeadId?: string | null;
 };
 
 export type TransferUserPositionResult =
@@ -96,7 +100,11 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
   const currentMembership = member.membershipHistory[0];
   if (currentMembership && effectiveOn <= currentMembership.effectiveFrom)
     return { error: `生效日期必须晚于当前归属开始日期 ${currentMembership.effectiveFrom}`, status: 400 };
-  if (role === "LEAD" && await tx.user.findFirst({ where: { groupId: targetGroup.id, role: "LEAD", active: true, id: { not: member.id } }, select: { id: true } }))
+  const conflictingLead = role === "LEAD" ? await tx.user.findFirst({
+    where: { groupId: targetGroup.id, role: "LEAD", active: true, id: { not: member.id } },
+    select: { id: true },
+  }) : null;
+  if (conflictingLead && conflictingLead.id !== params.replaceLeadId)
     return { error: "目标小组已经有一位启用中的组长", status: 409 };
 
   const groupChanged = member.groupId !== targetGroup.id;
@@ -152,7 +160,11 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
     || params.expectedCounts.operator !== counts.operator
     || params.expectedCounts.expert !== counts.expert
   )) return { error: "在办客户数量已经变化，请重新预览后再确认调动", status: 409 };
-  const validHandoff = (id: string | null, expected: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT") => Boolean(id && (handoffById.get(id)?.has(expected) || handoffById.get(id)?.has("LEAD")));
+  const validHandoff = (id: string | null, expected: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT") => Boolean(id && (
+    id === params.handoffTargetWillBeLeadId
+    || handoffById.get(id)?.has(expected)
+    || handoffById.get(id)?.has("LEAD")
+  ));
   if (shouldHandoffReception && receptionCount > 0 && !validHandoff(receptionHandoffId, "RECEPTION")) return { error: `还有 ${receptionCount} 位接粉阶段客户，请选择原小组接粉接收人`, status: 400 };
   if (shouldHandoffOperator && operatorCount > 0 && !validHandoff(operatorHandoffId, "GROUP_OPERATOR")) return { error: `还有 ${operatorCount} 位炒群阶段客户，请选择原小组炒群接收人`, status: 400 };
   if (shouldHandoffExpert && expertCount > 0 && !validHandoff(expertHandoffId, "EXPERT")) return { error: `还有 ${expertCount} 位专家阶段客户，请选择原小组专家接收人`, status: 400 };

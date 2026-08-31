@@ -471,6 +471,35 @@ model TeamGroup {
   @@unique([departmentId, name])
 }
 
+// 一键更换组长计划。未来日期先保存为 PENDING，到小组当地生效日再原子执行；
+// 所有人员、任职和客户交接仍写回原有权威表，本表只保存计划及执行结果。
+model GroupLeadChangePlan {
+  id                       String   @id @default(cuid())
+  groupId                  String
+  formerLeadId             String
+  newLeadId                String
+  effectiveOn              String
+  formerDisposition        String
+  formerTargetGroupId      String?
+  formerReceptionHandoffId String?
+  formerOperatorHandoffId  String?
+  formerExpertHandoffId    String?
+  newReceptionHandoffId    String?
+  newOperatorHandoffId     String?
+  newExpertHandoffId       String?
+  reason                   String
+  status                   String   @default("PENDING")
+  createdById              String
+  appliedAt                String?
+  cancelledAt              String?
+  failureReason            String?
+  createdAt                String   @default("")
+  updatedAt                String   @default("")
+
+  @@index([groupId, status])
+  @@index([status, effectiveOn])
+}
+
 model Channel {
   id                     String
   name                   String

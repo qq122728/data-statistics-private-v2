@@ -69,13 +69,13 @@ export async function GET(request: Request) {
       where: { receptionistId: actor.id },
       select: { groupOperator: { select: { id: true, name: true, active: true, groupId: true } } },
     }),
-    // 新版“设备账号”是唯一的用户入口。客户流程仍保留旧 Device 外键兼容
-    // 线上历史数据，因此这里只把本人新版账号作为可选项返回；真正选择时
-    // assignDevice 会按号码补齐兼容 Device 记录。
-    db.deviceAccount.findMany({
-      where: { groupId: actor.groupId, ownerId: actor.id },
-      select: { id: true, accountNumber: true, accountType: true, provider: true },
-      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+    // 客户记录绑定的是实体 Device，管理端批量录入的 B22/B35 等也保存在这里。
+    // DeviceAccount 是 WhatsApp/号商账号台账，不能混进接粉设备选择器，否则会
+    // 出现“管理端已经录入设备编号，接粉端却只看到一长串号码”的错库问题。
+    db.device.findMany({
+      where: { groupId: actor.groupId, memberId: actor.id, active: true },
+      select: { id: true, code: true },
+      orderBy: [{ code: "asc" }, { id: "asc" }],
     }),
   ]);
   const currentGroupOperator = pairing?.groupOperator.active && pairing.groupOperator.groupId === actor.groupId

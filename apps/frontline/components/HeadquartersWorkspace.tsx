@@ -262,7 +262,7 @@ function ManagerAccounts({ companies, notify }: { companies: CompanyNode[]; noti
 }
 
 function ChannelResources() {
-  const [channels, setChannels] = useState<ChannelCatalogItem[]>([]); const [name, setName] = useState(""); const [channelType, setChannelType] = useState<"ADS" | "SMS">("ADS"); const [reason, setReason] = useState(""); const [currentPassword, setCurrentPassword] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const [channels, setChannels] = useState<ChannelCatalogItem[]>([]); const [name, setName] = useState(""); const [channelType, setChannelType] = useState<"ADS" | "SMS" | "REBATE">("ADS"); const [reason, setReason] = useState(""); const [currentPassword, setCurrentPassword] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   const load = useCallback(() => requestJson<{ channels: ChannelCatalogItem[] }>("/api/admin/channels").then((value) => setChannels(value.channels)), []);
   useEffect(() => { void load().catch((caught) => setError(caught instanceof Error ? caught.message : "渠道读取失败")); }, [load]);
   async function create(event: FormEvent) {
@@ -274,8 +274,8 @@ function ChannelResources() {
     finally { setBusy(false); }
   }
   return <>
-    <section className={styles.info}><strong>第 1 步先建立渠道，第 2 步再到“管理员账号”开资源账号</strong><span>投流和短信分开授权；新版渠道不保存固定有效粉单价，金额以客户订单和资金明细为准。</span></section>
-    <form className={styles.inlineCreate} onSubmit={create}><label>渠道名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：投流" required /></label><label>渠道类型<select value={channelType} onChange={(event) => setChannelType(event.target.value as typeof channelType)}><option value="ADS">投流</option><option value="SMS">短信</option></select></label><label>创建原因<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="至少 4 个字" minLength={4} required /></label><label>当前账号密码<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label><button disabled={busy}>{busy ? "创建中…" : "创建渠道"}</button></form>
+    <section className={styles.info}><strong>第 1 步先建立渠道，第 2 步再到“管理员账号”开资源账号</strong><span>渠道分为投流、短信和底料；新版渠道不保存固定有效粉单价，金额以客户订单和资金明细为准。</span></section>
+    <form className={styles.inlineCreate} onSubmit={create}><label>渠道名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：律师底料" required /></label><label>渠道类型<select value={channelType} onChange={(event) => setChannelType(event.target.value as typeof channelType)}><option value="ADS">投流</option><option value="SMS">短信</option><option value="REBATE">底料</option></select></label><label>创建原因<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="至少 4 个字" minLength={4} required /></label><label>当前账号密码<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label><button disabled={busy}>{busy ? "创建中…" : "创建渠道"}</button></form>
     {error ? <div className={styles.error}>{error}</div> : null}
     <section className={styles.card}><div className={styles.cardHead}><div><h2>渠道目录</h2><p>创建后覆盖所有启用小组，再按渠道给资源账号授权</p></div><strong>{channels.length} 个</strong></div><div className={styles.tableWrap}><table><thead><tr><th>渠道</th><th>类型</th><th>覆盖小组</th><th>真实批次</th><th>固定单价</th><th>状态</th></tr></thead><tbody>{channels.map((channel) => <tr key={channel.id}><td><strong>{channel.name}</strong></td><td>{{ SMS: "短信粉", ADS: "投流粉", REBATE: "底料返点" }[channel.channelType]}</td><td>{channel.groupCount}</td><td>{channel.batchCount}</td><td>新版不设固定单价</td><td>{channel.active ? "启用" : "停用"}</td></tr>)}</tbody></table></div></section>
   </>;

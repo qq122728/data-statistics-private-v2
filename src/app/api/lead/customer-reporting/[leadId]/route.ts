@@ -10,7 +10,7 @@ import { leadCurrentGroupId } from "../../../../../lib/customer-current-group";
 
 const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assignGroupOperator"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
-  z.object({ action: z.literal("assignDevice"), deviceId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
+  z.object({ action: z.literal("setDeviceCode"), code: z.string().trim().max(100, "设备号不能超过 100 个字") }),
   z.object({ action: z.literal("assignExpert"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
   z.object({ action: z.literal("setChannel"), channelId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
   z.object({ action: z.literal("setOwner"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
@@ -56,15 +56,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
         if (!target) return { status: 400 as const, error: "只能选择本组在职组员" };
         update.groupOperatorOwnerId = target.id;
         activity = { kind: "PLAN_UPDATED", note: `炒群负责人调整为 ${target.name}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
-      } else if (input.action === "assignDevice") {
-        if (!isLead && !isOwner) return { status: 403 as const, error: "只有接粉归属人或组长可以选择设备号" };
-        const device = await transaction.device.findFirst({
-          where: { id: input.deviceId, groupId: actor.groupId, active: true, ...(isLead ? {} : { memberId: actor.id }) },
-          select: { id: true, code: true },
-        });
-        if (!device) return { status: 400 as const, error: isLead ? "设备号不存在或已停用" : "只能选择自己名下的设备号" };
-        update.deviceId = device.id;
-        activity = { kind: "DEVICE_ASSIGNED", note: `设备号调整为 ${device.code}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
+      } else if (input.action === "setDeviceCode") {
+        if (!isLead && !isOwner) return { status: 403 as const, error: "只有接粉归属人或组长可以填写设备号" };
+        if (!input.code) {
+          update.deviceId = null;
+          activity = { kind: "DEVICE_ASSIGNED", note: "设备号已清空", occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
+        } else {
+          const device = await transaction.device.upsert({
+            where: { groupId_code: { groupId: actor.groupId, code: input.code } },
+            update: {},
+            create: { groupId: actor.groupId, code: input.code, memberId: actor.id },
+            select: { id: true, code: true },
+          });
+          update.deviceId = device.id;
+          activity = { kind: "DEVICE_ASSIGNED", note: `设备号调整为 ${device.code}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
+        }
       } else if (input.action === "assignExpert") {
         if (!isLead && !isOperator) return { status: 403 as const, error: "只有炒群负责人或组长可以选择专家负责人" };
         const target = await transaction.user.findFirst({

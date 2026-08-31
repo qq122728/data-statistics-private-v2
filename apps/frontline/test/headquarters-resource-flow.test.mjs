@@ -11,7 +11,8 @@ test("总公司按先建渠道再开资源账号的顺序展示真实入口", as
   assert.match(source, /资源部管理员/);
   assert.match(source, /\/api\/org\/resource-managers/);
   assert.match(source, /resourceChannelIds/);
-  assert.match(source, /一个资源部账号只能选择一种渠道类型|投流和短信分开授权/);
+  assert.match(source, /一个资源部账号只能选择一种渠道类型|渠道分为投流、短信和底料/);
+  assert.match(source, /<option value="REBATE">底料<\/option>/);
 });
 
 test("资源部报表包含小组组员筛选、完整指标比率和底部合计，但没有审核入口", async () => {

@@ -24,12 +24,16 @@ test("组员和组长都能新增已进群客户", () => {
   assert.match(component, /\{member \? <button[^]*新增已进群客户/);
   assert.match(component, /requestJson\("\/api\/lead\/customer-reporting", \{ method: "POST"/);
   assert.match(component, /新客户号码/);
-  assert.match(component, /先输入客户号码；保存后可在这一行继续选择/);
+  assert.match(component, /maxLength=\{6\}/);
+  assert.match(component, /replace\(\/\\D\/g, ""\)\.slice\(-6\)/);
+  assert.match(component, /自动保留后 6 位/);
   assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
 });
 
 test("共享表按责任人开放下拉选择并由专家逐笔登记资金", () => {
-  for (const action of ["assignGroupOperator", "assignDevice", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
+  for (const action of ["assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
+  assert.match(component, /placeholder="手动填写"/);
+  assert.doesNotMatch(component, /deviceOptions/);
   assert.match(component, /\/api\/customer-orders/);
   assert.match(component, /\/api\/customer-finance/);
   assert.match(component, /\+ 确认本次续充/);

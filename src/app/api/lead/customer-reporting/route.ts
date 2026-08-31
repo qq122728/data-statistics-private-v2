@@ -187,20 +187,11 @@ export async function GET(request: Request) {
     select: { id: true, name: true },
     orderBy: [{ name: "asc" }, { id: "asc" }],
   }) : [];
-  const deviceOptions = isLead || isOwnGroupMember ? await db.device.findMany({
-    where: {
-      groupId: group.id,
-      active: true,
-      ...(isLead ? {} : { memberId: actor.id }),
-    },
-    select: { id: true, code: true, memberId: true, member: { select: { name: true } } },
-    orderBy: [{ code: "asc" }, { id: "asc" }],
-  }) : [];
   return NextResponse.json({
     stage, expertStage, expertCounts, page, pageSize: PAGE_SIZE, total, today, timezone,
     channels: [...new Set(channelRows.map((row) => row.batch.channel.name))].sort((left, right) => left.localeCompare(right, "zh-CN")),
     channelOptions: await db.channel.findMany({ where: { groupId: group.id, active: true }, select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }),
-    memberOptions, expertOptions, deviceOptions,
+    memberOptions, expertOptions,
     summary: {
       customerCount: total,
       orderCount,

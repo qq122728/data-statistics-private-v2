@@ -36,12 +36,10 @@ test("客户进度统一使用真实共享表格", () => {
   assert.doesNotMatch(source, /GroupOperatorWorkbench|ExpertWorkbench|RealReceptionProgress/);
 });
 
-test("组员AI提供资源引导、号码跟进、查询、纠错和遗漏检查", () => {
+test("组员AI当前只保留空白对话框，不连接任何业务操作", () => {
   const source = read("AiSmartAssistant.tsx");
-  for (const task of ["填写资源数据", "更新客户进度", "查询客户", "纠正错误", "老客户新进度", "检查今日遗漏"]) {
-    assert.match(source, new RegExp(task));
-  }
-  assert.match(source, /kind:\s*"customer_event"/);
-  assert.match(source, /syncCustomerEventDailyImpact/);
-  assert.match(source, /有效数据自动计算/);
+  assert.match(source, /AI 对话内容/);
+  assert.match(source, /AI 对话输入框/);
+  assert.match(source, /disabled/);
+  assert.doesNotMatch(source, /requestJson|\/api\/|填写资源数据|更新客户进度|纠正错误|老客户新进度/);
 });

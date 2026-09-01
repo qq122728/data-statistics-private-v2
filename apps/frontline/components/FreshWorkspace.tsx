@@ -54,7 +54,7 @@ export default function FreshWorkspace({ user, onLogout }: { user: BackendUser; 
         <div><h1>{meta.title}</h1><p>{meta.note}</p></div>
         <div className="fresh-user"><span>{user.name.slice(0, 1)}</span><div><strong>{user.name}</strong><small>{isLead ? "组员 · 组长权限" : "组员"}</small></div><button onClick={onLogout}><SignOut size={16} />退出</button></div>
       </header>
-      <AiSmartAssistant user={user} onNavigate={(target) => setView(target)} />
+      <AiSmartAssistant />
       <main className="fresh-content">
         {view === "statistics" ? <UnifiedMemberDataSheet mode="daily" memberName={user.name} /> : null}
         {view === "history" ? <MemberDailyRecords mode="history" /> : null}

@@ -101,3 +101,18 @@ test("组长和各级管理账号的汇总、渠道对比共用智能日期筛�
   const shared = await readFile(new URL("components/SmartDateRangeToolbar.tsx", root), "utf8");
   for (const label of ["今天", "昨天", "近7天", "本周", "近30天", "本月", "上月", "自定义", "当前范围"]) assert.ok(shared.includes(label));
 });
+
+test("组长、部门管理员和公司管理员共用指标纵向矩阵", async () => {
+  const [matrix, lead, department, company, css] = await Promise.all([
+    readFile(new URL("components/MetricMatrixTable.tsx", root), "utf8"),
+    readFile(new URL("components/GroupChannelAnalysis.tsx", root), "utf8"),
+    readFile(new URL("components/DepartmentWorkspace.tsx", root), "utf8"),
+    readFile(new URL("components/CompanyWorkspace.tsx", root), "utf8"),
+    readFile(new URL("app/analysis.css", root), "utf8"),
+  ]);
+  for (const label of ["数据指标", "合计", "渠道", "组员", "首充", "续充", "出金", "净业绩"]) assert.match(matrix, new RegExp(label));
+  assert.match(lead, /<MetricMatrixTable/);
+  assert.match(department, /<OrgGroupMetricMatrix/);
+  assert.match(company, /<OrgGroupMetricMatrix/);
+  assert.match(css, /metric-matrix-scroll/);
+});

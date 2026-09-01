@@ -65,3 +65,43 @@ No extra crop was needed because the 478-pixel-wide comparison makes the complet
 - Browser console contains no warnings or errors.
 
 final result: passed
+
+## Group / department / company data matrix
+
+- Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-51f1875c-b725-4baa-821c-db2b6427f8a2.png`
+- Company implementation screenshot: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/公司管理员-小组矩阵.png`
+- Lead implementation screenshot: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/组长-数据矩阵.png`
+- Normalized side-by-side comparison: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/参考与实现并排对比.jpg`
+- Source pixels: 871 × 752; implementation pixels: 1270 × 1349; browser CSS viewport: 1280 × 720 at density 1. The comparison scales each image into a 1000 × 900 maximum box without changing aspect ratio.
+- State: authenticated company administrator with the group view selected and the group matrix expanded; authenticated group lead on the group summary page.
+
+### Full-view and focused comparison evidence
+
+The combined image shows the source and implementation together. Both use the required spreadsheet orientation: indicators form the left vertical axis, while total and people form horizontal columns. The implementation additionally supports channel columns when the selected group has channel data and preserves the surrounding product navigation and smart date controls. The matrix itself is the focused region; an additional crop was unnecessary because all headings, tinted metric rows and values are readable in the normalized comparison.
+
+### Required fidelity surfaces
+
+- Fonts and typography: the implementation keeps the product's existing Chinese system font, compact table sizing, strong total column, and readable two-line column labels.
+- Spacing and layout rhythm: the matrix uses compact spreadsheet rows, a fixed indicator column, fixed total column, and horizontal overflow for larger channel/member sets.
+- Colors and visual tokens: the source's blue summary cells, green calculated/status rows, red exception rows, and pale grid borders are represented with the existing product tokens.
+- Image quality and assets: this is a data table and has no imagery or decorative bitmap assets to reproduce.
+- Copy and content: the implemented indicator list matches current product rules, including 人工无效、有效数据、回复率、进群率、异常退群率、注册率、开单率 and financial fields through 净业绩. Lawyer groups use their separate metric set.
+
+### Comparison history and findings
+
+- Earlier P1: company and department administrators could only see entities as rows and metrics as columns, so they could not inspect one group in the requested spreadsheet orientation.
+  - Fix: group rows now open a group-scoped matrix containing total, channels and members.
+  - Post-fix evidence: `公司管理员-小组矩阵.png` shows the expanded matrix under the group summary.
+- Earlier P1: the group lead page only offered separate member/channel/day reports and lacked the same shared visual summary.
+  - Fix: the group lead summary now includes the matrix before smart analysis, using the identical component and metric definitions.
+  - Post-fix evidence: `组长-数据矩阵.png` shows the lead matrix and the existing export/report controls on one page.
+- No remaining actionable P0, P1 or P2 visual findings. The demo September state has zero values, but the structural display and real API wiring are verified.
+
+### Interaction and runtime verification
+
+- Logged in as `demo_department`, `demo_company`, and `demo_lead`.
+- Verified group-row matrix expansion, close control, indicator rows, total/member headings, date-range changes, and the lead report export control.
+- Company matrix rendered five horizontal columns in the demo state (indicator, total, and three members).
+- Frontline tests and production build passed.
+
+final result: passed

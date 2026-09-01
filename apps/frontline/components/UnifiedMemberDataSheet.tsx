@@ -371,7 +371,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     <div className="card unified-sheet-toolbar">
       <div>
         <strong>{mode === "finance" ? "我的财务填写" : lawyerGroup ? "我的律师组渠道数据" : "我的渠道数据"}</strong>
-        <span>{numberTracking && mode === "finance" ? "首充、续充和出金已改为按客户号码自动统计" : numberTracking ? "只填写接粉到回复；进群及后续按号码自动统计" : mode === "finance" ? "按渠道填写首充、续充和出金" : "每个渠道单独填写；比例与绿色数据由系统计算"}</span>
+        <span>{mode === "finance" ? "填写公司最终认账的首充、续充和出金；客户明细金额只作跟踪" : numberTracking ? "只填写接粉到回复；进群及后续按号码自动统计" : "每个渠道单独填写；比例与绿色数据由系统计算"}</span>
       </div>
       <label><span>统计日期（北京时间 14:00 换日）</span><input className="field" type="date" max={context.today} value={date} onChange={(event) => setDate(event.target.value)} /></label>
       <span className="unified-save-state" data-state={error ? "error" : dirty.size || saving.size ? "saving" : "saved"}>
@@ -399,7 +399,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
             {context.channels.map((channel) => {
               const values = grid[channel.id]?.values ?? EMPTY_VALUES;
               const value = metric.read(values);
-              const editable = Boolean(metric.write) && !(numberTracking && (mode === "finance" || NUMBER_TRACKED_METRIC_KEYS.has(metric.key)));
+              const editable = Boolean(metric.write) && !(numberTracking && NUMBER_TRACKED_METRIC_KEYS.has(metric.key));
               return <td key={channel.id} data-formula={!editable}>
                 {editable ? <input aria-label={`${channel.name}-${metric.label}`} type="number" min="0" step={metric.kind === "money" ? "0.01" : "1"} value={metric.kind === "money" ? (value / 100).toFixed(2) : Math.round(value)} onChange={(event) => update(channel.id, metric, Number(event.target.value || 0))} /> : <span title={numberTracking ? "由客户号码进度自动统计" : undefined}>{display(value, metric.kind)}</span>}
               </td>;
@@ -409,7 +409,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
       </div>
       <footer>
         <span>切换到没有填写过的日期时，所有数字从 0 开始</span>
-        <span>{numberTracking ? "进群、推专家、注册、开单和资金均以客户号码明细为准" : mode === "finance" ? "净业绩＝首充＋续充－出金" : lawyerGroup ? "未回复＝接粉－回复；添加率＝添加数量÷接粉" : "有效数据＝添加数据－撞粉－低金额－无 WS－人工无效"}</span>
+        <span>{mode === "finance" ? "公司认账净业绩＝首充＋续充－出金" : numberTracking ? "进群、推专家、注册和开单以客户号码明细为准" : lawyerGroup ? "未回复＝接粉－回复；添加率＝添加数量÷接粉" : "有效数据＝添加数据－撞粉－低金额－无 WS－人工无效"}</span>
       </footer>
     </div>
   </section>;

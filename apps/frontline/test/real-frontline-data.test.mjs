@@ -11,6 +11,10 @@ test("组员工作台使用统一日报、财务、客户和设备入口", () =>
   }
   assert.doesNotMatch(source, /<DailyDataWorkbench/);
   assert.doesNotMatch(source, /customerSeed|deviceSeed|historySeed|historicalDailySeeds|localStorage|sessionStorage/);
+  assert.match(source, /每天数据怎么填/);
+  assert.match(source, /进群客户怎么导入/);
+  assert.match(source, /每天资金情况怎么填/);
+  assert.match(source, /公司最终认账/);
 });
 
 test("统一组员表按渠道读取并保存真实每日数据", () => {
@@ -23,6 +27,8 @@ test("统一组员表按渠道读取并保存真实每日数据", () => {
   assert.match(source, /numberTrackingFrom/);
   assert.match(source, /NUMBER_TRACKED_METRIC_KEYS/);
   assert.match(source, /由客户号码进度自动统计/);
+  assert.match(source, /填写公司最终认账的首充、续充和出金/);
+  assert.doesNotMatch(source, /mode === "finance" \|\| NUMBER_TRACKED_METRIC_KEYS/);
 });
 
 test("历史和财务读取真实每日数据接口", () => {

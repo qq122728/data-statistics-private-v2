@@ -178,7 +178,7 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
       <span className={styles.toolbarSpacer} />
       {availableGroups.length > 1 ? <select aria-label="查看小组" value={groupId} onChange={(event) => { setGroupId(event.target.value); setPage(1); }}>{availableGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : null}
       {member ? <button type="button" className={styles.legacyButton} disabled={!groupId || loading} onClick={() => setLegacyMode(true)}>老客户导入</button> : null}
-      {member ? <button className={styles.addButton} disabled={!groupId || loading || adding} onClick={beginAdd}><Plus size={15} weight="bold" />新增已进群客户</button> : null}
+      {member ? <button className={styles.addButton} disabled={!groupId || loading || adding} onClick={beginAdd}><Plus size={15} weight="bold" />新增进群客户</button> : null}
     </section>
 
     {error ? <div className={styles.error}>{error}</div> : null}

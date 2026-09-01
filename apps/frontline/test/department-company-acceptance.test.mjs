@@ -37,7 +37,7 @@ test("公司与部门汇总覆盖各维度、全漏斗并保留表底合计", ()
 test("管理员客户进度是统一只读共享表", () => {
   assert.match(customers, /组内共享客户进度/);
   assert.match(customers, /同组成员共同维护/);
-  assert.match(customers, /\{member \? <button[^]*新增已进群客户/);
+  assert.match(customers, /\{member \? <button[^]*新增进群客户/);
   assert.match(customers, /\/api\/lead\/customer-reporting/);
   assert.match(customers, /const canEdit = Boolean\(member\)/);
   assert.match(customers, /editable=\{canEdit\}/);

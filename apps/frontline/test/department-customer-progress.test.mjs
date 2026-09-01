@@ -37,8 +37,8 @@ test("共享表完整保留已进群客户业务字段", () => {
   for (const action of ["setCustomerName", "setCustomerPlatform", "setLossAmount"]) assert.match(customerPatch, new RegExp(action));
 });
 
-test("组员和组长都能新增已进群客户", () => {
-  assert.match(component, /\{member \? <button[^]*新增已进群客户/);
+test("组员和组长都能新增进群客户", () => {
+  assert.match(component, /\{member \? <button[^]*新增进群客户/);
   assert.match(component, /requestJson\("\/api\/lead\/customer-reporting", \{ method: "POST"/);
   assert.match(component, /新客户号码/);
   assert.match(component, /maxLength=\{6\}/);

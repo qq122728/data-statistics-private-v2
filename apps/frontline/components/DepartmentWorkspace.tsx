@@ -11,6 +11,7 @@ import { WorkspaceNavButton, WorkspaceShell } from "@/components/WorkspaceShell"
 import DepartmentDeviceAccounts from "@/components/DepartmentDeviceAccounts";
 import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import { OrgGroupMetricMatrix } from "@/components/MetricMatrixTable";
+import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 
 type View = "dashboard" | "summary" | "customers" | "groups" | "transfer" | "devices" | "notifications";
 type Metrics = {
@@ -43,6 +44,7 @@ function addMetricRows(rows: Array<{ totals: Metrics }>): Metrics {
 }
 
 export default function DepartmentWorkspace({ user, onLogout }: { user: BackendUser; onLogout: () => void }) {
+  const [aiOpen, setAiOpen] = useState(false);
   const [notificationUnread, setNotificationUnread] = useNotificationUnread();
   const [view, setView] = useState<View>("dashboard");
   const [range, setRange] = useState<SmartDatePreset>("month");
@@ -120,7 +122,7 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
   const title = view === "dashboard" ? "部门工作台" : view === "summary" ? "数据汇总" : view === "customers" ? "客户进度" : view === "groups" ? "小组管理" : view === "transfer" ? "人员调动" : view === "devices" ? "设备账号" : "通知中心";
   const subtitle = view === "dashboard" ? "先看部门整体，再定位需要处理的小组" : view === "summary" ? "按小组、个人和日期查看真实汇总" : view === "groups" ? "先开设小组，再为已存在的小组单独开设组长账号" : "只查看本部门权限范围内的数据";
 
-  return <WorkspaceShell mark="部" workspaceLabel="部门管理员" title={title} subtitle={subtitle} userName={user.name} userLabel="部门管理员" onLogout={onLogout} scope={{ label: "部门管理权限", value: structure?.name ?? user.departmentName ?? "所属部门" }} navigation={<>
+  return <WorkspaceShell mark="部" workspaceLabel="部门管理员" title={title} subtitle={subtitle} userName={user.name} userLabel="部门管理员" onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={{ label: "部门管理权限", value: structure?.name ?? user.departmentName ?? "所属部门" }} navigation={<>
         <WorkspaceNavButton active={view === "dashboard"} icon="dashboard" onClick={() => setView("dashboard")}>部门工作台</WorkspaceNavButton>
         <WorkspaceNavButton active={view === "summary"} icon="summary" onClick={() => setView("summary")}>数据汇总</WorkspaceNavButton>
         <WorkspaceNavButton active={view === "customers"} icon="search" onClick={() => setView("customers")}>客户进度</WorkspaceNavButton>

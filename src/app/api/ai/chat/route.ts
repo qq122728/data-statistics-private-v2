@@ -10,6 +10,7 @@ const messageSchema = z.object({
 
 const inputSchema = z.object({
   messages: z.array(messageSchema).min(1).max(12),
+  contextLabel: z.string().trim().min(1).max(100).optional(),
 }).strict().superRefine((value, context) => {
   const total = value.messages.reduce((sum, message) => sum + message.content.length, 0);
   if (total > 6_000) context.addIssue({ code: "custom", path: ["messages"], message: "对话内容过长，请简化后再发送" });
@@ -24,9 +25,23 @@ const READ_ONLY_SYSTEM_PROMPT = [
   "回答尽量简短、自然、好理解。",
 ].join("\n");
 
+function roleGuide(actor: Awaited<ReturnType<typeof requireUser>>) {
+  const roles = new Set([actor.role, ...(actor.roleAssignments ?? []).map((item) => item.role)]);
+  if (actor.role === "ADMIN" || actor.duty === "HQ_MANAGER") return "当前用户是总公司管理员，可查看全部公司、部门、小组、人员、渠道和日期汇总，并管理组织与管理员账号。";
+  if (actor.duty === "COMPANY_MANAGER") return "当前用户是公司管理员，只能查看和管理所属公司的部门、小组、人员、客户进度与资源。";
+  if (actor.duty === "DEPARTMENT_MANAGER") return "当前用户是部门管理员，只能查看和管理获授权部门内的小组、人员、客户进度和设备。";
+  if (roles.has("LEAD")) return "当前用户有组长权限，可填写本人数据，并查看本组汇总、组员数据、小组管理、客户进度和设备账号。";
+  if (roles.has("RESOURCE_MANAGER")) return "当前用户是资源部管理员，只能查看获授权渠道的数据与渠道表现。";
+  if (roles.has("FINANCE")) return "当前用户是财务账号，只能使用财务与通知范围内的功能。";
+  if (roles.has("HR")) return "当前用户是人事账号，只能使用人员、考勤与通知范围内的功能。";
+  const labels = [roles.has("RECEPTION") ? "接粉" : "", roles.has("GROUP_OPERATOR") ? "炒群" : "", roles.has("EXPERT") ? "专家" : ""].filter(Boolean);
+  return `当前用户是一线组员，岗位权限为${labels.join("、") || "普通组员"}。接粉填写添加至回复；进群后按号码跟进；炒群维护在群阶段；专家维护注册、开单和资金阶段。`;
+}
+
 export async function POST(request: Request) {
+  let actor;
   try {
-    await requireUser();
+    actor = await requireUser();
   } catch (error) {
     if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });
     throw error;
@@ -45,7 +60,11 @@ export async function POST(request: Request) {
         thinking: { type: "disabled" },
         max_tokens: 800,
         stream: false,
-        messages: [{ role: "system", content: READ_ONLY_SYSTEM_PROMPT }, ...input.messages],
+        messages: [
+          { role: "system", content: READ_ONLY_SYSTEM_PROMPT },
+          { role: "system", content: `${roleGuide(actor)}\n当前页面：${input.contextLabel ?? "未知页面"}。只能按照该岗位已有权限讲解，不得暗示可以越权查看或操作。` },
+          ...input.messages,
+        ],
       }),
       signal: AbortSignal.timeout(30_000),
     });

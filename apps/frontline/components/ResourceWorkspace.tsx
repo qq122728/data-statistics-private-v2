@@ -8,6 +8,7 @@ import standard from "./ResourceWorkspaceStandard.module.css";
 import { UnifiedNotificationCenter } from "@/components/UnifiedNotificationCenter";
 import { WorkspaceNavButton, WorkspaceNavGroup, WorkspaceShell, type WorkspaceIcon } from "@/components/WorkspaceShell";
 import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
+import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 
 export type ResourceWorkspaceProps = { user: BackendUser; onLogout: () => void };
 
@@ -59,6 +60,7 @@ const localDate = () => {
 const typeLabel = (type: Channel["channelType"]) => type === "SMS" ? "短信粉" : type === "ADS" ? "投流粉" : "底料返点";
 
 export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceProps) {
+  const [aiOpen, setAiOpen] = useState(false);
   const [view, setView] = useState<View>("dashboard");
   const [range, setRange] = useState<SmartDatePreset>("month");
   const [from, setFrom] = useState(() => `${localDate().slice(0, 8)}01`);
@@ -154,7 +156,7 @@ export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceP
   const showFilters = ["dashboard", "daily", "summary", "comparison", "anomalies", "usage"].includes(view);
   const resourceTypeLabel = channels.length && channels.every((channel) => channel.channelType === "ADS") ? "投流资源" : channels.length && channels.every((channel) => channel.channelType === "SMS") ? "短信资源" : channels.length ? "授权资源" : "未授权资源";
 
-  return <WorkspaceShell mark="资" workspaceLabel="资源部管理员" title={title} subtitle="所有数据均来自已保存的真实业务记录" userName={user.name} userLabel={resourceTypeLabel} onLogout={onLogout} scope={{ label: resourceTypeLabel, value: "仅显示已授权渠道，不可切换资源类型" }} navigation={<>
+  return <WorkspaceShell mark="资" workspaceLabel="资源部管理员" title={title} subtitle="所有数据均来自已保存的真实业务记录" userName={user.name} userLabel={resourceTypeLabel} onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={{ label: resourceTypeLabel, value: "仅显示已授权渠道，不可切换资源类型" }} navigation={<>
       <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon="dashboard">资源工作台</NavButton>
       <NavButton active={view === "daily"} onClick={() => setView("daily")} icon="calendar">每日渠道数据</NavButton>
       <NavButton active={view === "summary"} onClick={() => setView("summary")} icon="sigma">渠道数据汇总</NavButton>

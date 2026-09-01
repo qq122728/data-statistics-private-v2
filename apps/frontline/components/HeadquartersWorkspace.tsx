@@ -11,6 +11,7 @@ import { WorkspaceNavButton, WorkspaceNavGroup, WorkspaceShell, type WorkspaceIc
 import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import { OrgGroupMetricMatrix } from "@/components/MetricMatrixTable";
 import styles from "./HeadquartersWorkspace.module.css";
+import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 
 type View = "dashboard" | "summary" | "customers" | "companies" | "groups" | "admins" | "transfer" | "devices" | "channels" | "notices";
 type SummaryMode = "company" | "department" | "group" | "member" | "channel" | "day";
@@ -57,6 +58,7 @@ function temporaryPassword() {
 }
 
 export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; onLogout: () => void }) {
+  const [aiOpen, setAiOpen] = useState(false);
   const [notificationUnread, setNotificationUnread] = useNotificationUnread();
   const [view, setView] = useState<View>("dashboard");
   const [report, setReport] = useState<Report | null>(null);
@@ -141,7 +143,7 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
   }), [companies, groupTypeFilter, report]);
   const title: Record<View, string> = { dashboard: "总公司工作台", summary: "数据汇总", customers: "客户进度", companies: "公司与部门", groups: "小组管理", admins: "管理员账号", transfer: "人员调动", devices: "设备账号", channels: "渠道与单价", notices: "通知中心" };
 
-  return <WorkspaceShell mark="总" workspaceLabel="总公司管理员" title={title[view]} subtitle="总公司权限 · 所有写操作仍由后端再次核验范围" userName={user.name} userLabel="总公司管理员" onLogout={onLogout} scope={{ label: "管理范围", value: `全部公司 · ${companies.length} 家` }} navigation={<>
+  return <WorkspaceShell mark="总" workspaceLabel="总公司管理员" title={title[view]} subtitle="总公司权限 · 所有写操作仍由后端再次核验范围" userName={user.name} userLabel="总公司管理员" onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title[view]}`} user={user} />} scope={{ label: "管理范围", value: `全部公司 · ${companies.length} 家` }} navigation={<>
         <NavButton active={view === "dashboard"} label="总公司工作台" icon="dashboard" onClick={() => setView("dashboard")} />
         <NavButton active={view === "summary"} label="数据汇总" icon="summary" onClick={() => setView("summary")} />
         <NavButton active={view === "customers"} label="客户进度" icon="search" onClick={() => setView("customers")} />

@@ -39,7 +39,7 @@ test("五个转化率使用统一分母，合计行重新计算", () => {
 });
 
 test("公司页面沿用新版部门工作台的视觉标准并支持窄屏", () => {
-  for (const token of ["WorkspaceShell", "WorkspaceNavButton", "SmartDateRangeToolbar", "fresh-sheet-card"]) assert.ok(source.includes(token));
+  for (const token of ["WorkspaceShell", "WorkspaceNavButton", "SmartDateRangeToolbar", "AiSmartAssistant", "fresh-sheet-card"]) assert.ok(source.includes(token));
   assert.match(css, /background:#fff;border:1px solid #dfe4ec/);
   assert.match(css, /@media\(max-width:760px\)/);
   assert.match(shellCss, /@media \(max-width: 900px\)/);

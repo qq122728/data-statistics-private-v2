@@ -11,6 +11,7 @@ import styles from "./CompanyWorkspace.module.css";
 import flow from "./CompanyOrganizationFlow.module.css";
 import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import { OrgGroupMetricMatrix } from "@/components/MetricMatrixTable";
+import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 
 type View = "dashboard" | "summary" | "customers" | "organization" | "resources" | "notifications";
 type SummaryMode = "department" | "group" | "member" | "channel" | "day";
@@ -56,6 +57,7 @@ function password() { const values = new Uint32Array(3); crypto.getRandomValues(
 function sum(rows: Array<{ totals: Metrics }>): Metrics { const result = { ...EMPTY }; const values = result as unknown as Record<string, number>; for (const row of rows) for (const [key, value] of Object.entries(row.totals)) values[key] = (values[key] ?? 0) + (Number(value) || 0); return result; }
 
 export default function CompanyWorkspace({ user, onLogout }: { user: BackendUser; onLogout: () => void }) {
+  const [aiOpen, setAiOpen] = useState(false);
   const [notificationUnread, setNotificationUnread] = useNotificationUnread();
   const [view, setView] = useState<View>("dashboard");
   const [range, setRange] = useState<SmartDatePreset>("month");
@@ -104,7 +106,7 @@ export default function CompanyWorkspace({ user, onLogout }: { user: BackendUser
           : (report?.days ?? []).map((day) => ({ name: day.date, totals: sum(day.groups.filter((group) => group.groupType === groupTypeFilter)) }));
 
   const title = view === "dashboard" ? "公司工作台" : view === "summary" ? "数据汇总" : view === "customers" ? "客户进度" : view === "organization" ? "组织管理" : view === "resources" ? "资源管理" : "通知中心";
-  return <WorkspaceShell mark="司" workspaceLabel="公司管理员" title={title} subtitle="只显示当前公司范围内的真实数据" userName={user.name} userLabel="公司管理员" onLogout={onLogout} scope={{ label: "公司管理范围", value: company?.name ?? user.companyName ?? "所属公司" }} navigation={<>
+  return <WorkspaceShell mark="司" workspaceLabel="公司管理员" title={title} subtitle="只显示当前公司范围内的真实数据" userName={user.name} userLabel="公司管理员" onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={{ label: "公司管理范围", value: company?.name ?? user.companyName ?? "所属公司" }} navigation={<>
       <Nav active={view === "dashboard"} icon="dashboard" label="公司工作台" onClick={() => setView("dashboard")} />
       <Nav active={view === "summary"} icon="summary" label="数据汇总" onClick={() => setView("summary")} />
       <Nav active={view === "customers"} icon="search" label="客户进度" onClick={() => setView("customers")} />

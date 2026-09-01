@@ -65,7 +65,7 @@ test("组员AI通过自然语言模板预览并保存真实今日数据和客户
   assert.match(source, /AI 不会在你确认前写入数据/);
   assert.match(source, /自然语言填写模板/);
   assert.match(source, /今天 FB-M：添加20/);
-  assert.match(source, /新增客户112233/);
+  assert.match(source, /新增进群客户112233/);
   assert.match(source, /老客户112233/);
   assert.match(source, /客户112233今天注册/);
   assert.match(source, /未提到的指标保持原值/);
@@ -108,6 +108,11 @@ test("组员AI通过自然语言模板预览并保存真实今日数据和客户
   assert.match(source, /sendCasualChat/);
   assert.match(source, /\/api\/ai\/chat/);
   assert.match(source, /READ_ONLY_CHAT/);
+  assert.match(source, /系统使用帮助/);
+  assert.match(source, /\/api\/performance-leaderboard\?range=/);
+  assert.match(source, /谁的数据最好/);
+  assert.match(source, /管理.*sendCasualChat|managementAccount/);
+  assert.match(source, /新增进群客户/);
   assert.match(source, /canUseExpertActions/);
   assert.match(source, /EXPERT_PROGRESS_ACTIONS/);
   assert.match(source, /当前账号没有专家权限/);

@@ -125,14 +125,75 @@ const LAWYER_FIELDS: Field[] = [
     write: (values, value) => ({ ...values, withdrawalCents: Math.round(value * 100) }) },
 ];
 
-const quickActions = ["添加今日数据", "新增客户", "录入老客户进度", "更新客户进度", "查询或纠正数据"];
+const frontlineQuickActions = ["添加今日数据", "新增进群客户", "录入老客户进度", "更新客户进度", "查询或纠正数据", "系统使用帮助", "查看本月排名"];
+const managementQuickActions = ["系统使用帮助", "查看本月排名"];
+
+type LeaderboardPerson = { id: string; name: string; groupName: string; joined: number; orders: number; netCents: number };
+type LeaderboardGroup = { id: string; name: string; departmentName: string; joined: number; orders: number; netCents: number };
+type LeaderboardPayload = {
+  range: { from: string; to: string };
+  groups: LeaderboardGroup[];
+  receptions: LeaderboardPerson[];
+  operators: LeaderboardPerson[];
+  experts: LeaderboardPerson[];
+};
+
+const isManagementUser = (user: BackendUser) => user.role === "ADMIN" || Boolean(user.duty) || user.roles.some((role) => ["ADMIN", "RESOURCE_MANAGER", "FINANCE", "HR"].includes(role));
+const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(cents / 100);
+
+function systemUsageGuide(user: BackendUser, currentPage: string) {
+  const roles = new Set(user.roles);
+  const lines = [`你当前所在：${currentPage}。`];
+  if (user.role === "ADMIN" || user.duty === "HQ_MANAGER") lines.push("你的岗位是总公司管理员：可看全部公司、部门、小组和人员汇总，也可管理公司、部门、小组、管理员账号及公共资源。", "看数据：进入“数据汇总”，再按公司、部门、小组、个人、渠道或日期切换；日期可选今天、本月或自定义。" );
+  else if (user.duty === "COMPANY_MANAGER") lines.push("你的岗位是公司管理员：只能查看和管理当前公司，不能看到其他公司的内部数据。", "看数据：进入“数据汇总”，可按部门、小组、个人、渠道和日期查看；组织及资源入口负责人员调动、设备和渠道。" );
+  else if (user.duty === "DEPARTMENT_MANAGER") lines.push("你的岗位是部门管理员：只能查看和管理获授权部门及其小组。", "看数据：进入“数据汇总”，可按小组、个人、渠道和日期查看；小组管理用于开组和设置组长。" );
+  else if (roles.has("LEAD")) lines.push("你有组长权限：除了填写自己的业务，还能看本组汇总、检查组员数据、管理本组人员和共同维护客户进度。", "看数据：进入“小组数据汇总”；要看某个员工，就在小组管理或汇总中选择对应人员。" );
+  else if (roles.has("RESOURCE_MANAGER")) lines.push("你的岗位是资源部管理员：只查看获授权渠道的下发、有效、回复、进群及业绩表现，并维护渠道资料。", "看数据：使用资源工作台的当日数据、数据汇总、渠道对比和异常入口。" );
+  else if (roles.has("FINANCE")) lines.push("你的岗位是财务：使用财务相关页面和通知核对入金、续充、出金及净业绩；不能通过闲聊修改业务数据。" );
+  else if (roles.has("HR")) lines.push("你的岗位是人事：查看人员、考勤和组织通知；不能查看客户明细或通过闲聊修改业务数据。" );
+  else {
+    const duties = [roles.has("RECEPTION") ? "接粉" : "", roles.has("GROUP_OPERATOR") ? "炒群" : "", roles.has("EXPERT") ? "专家" : ""].filter(Boolean).join("、") || "组员";
+    lines.push(`你的岗位权限：${duties}。`, "接粉数据在“当日数据”填写添加、无效分类和回复；客户进群后改用客户号码持续跟进。" );
+    if (roles.has("GROUP_OPERATOR")) lines.push("炒群工作在“客户进度表”的“在群待推专家”维护炒群负责人、设备号、炒群情况和退群信息。" );
+    if (roles.has("EXPERT")) lines.push("专家工作在“专家进度”维护专家负责人、注册、开单、首充、续充和出金。" );
+  }
+  lines.push("AI 闲聊只负责说明和只读查询；任何新增、更新或纠错仍要走业务模板，并在预览页由你确认。" );
+  return lines.join("\n");
+}
+
+function rankingAnswer(data: LeaderboardPayload, question: string) {
+  const period = `${data.range.from} 至 ${data.range.to}`;
+  const top = <T extends { name: string; groupName?: string }>(rows: T[], read: (row: T) => number) => rows.filter((row) => read(row) !== 0).sort((left, right) => read(right) - read(left))[0];
+  const person = (row: LeaderboardPerson | undefined, value: string) => row ? `${row.name}（${row.groupName}，${value}）` : "暂无数据";
+  const group = (row: LeaderboardGroup | undefined, value: string) => row ? `${row.name}（${row.departmentName}，${value}）` : "暂无数据";
+  const bestGroupPerformance = top(data.groups, (row) => row.netCents);
+  const bestExpertPerformance = top(data.experts, (row) => row.netCents);
+  if (/业绩|入金|金额/.test(question)) return [
+    `统计范围：${period}。`,
+    `小组净业绩最高：${group(bestGroupPerformance, bestGroupPerformance ? usd(bestGroupPerformance.netCents) : "")}`,
+    `专家净业绩最高：${person(bestExpertPerformance, bestExpertPerformance ? usd(bestExpertPerformance.netCents) : "")}`,
+    "净业绩口径为入金减出金；只展示当前账号原本有权限查看的范围。",
+  ].join("\n");
+  const bestReception = top(data.receptions, (row) => row.joined);
+  const bestOperator = top(data.operators, (row) => row.joined);
+  const bestExpertOrders = top(data.experts, (row) => row.orders);
+  const bestGroupOrders = top(data.groups, (row) => row.orders);
+  return [
+    `统计范围：${period}。 “数据最好”没有唯一总分，我按岗位分别列第一：`,
+    `接粉进群最多：${person(bestReception, `${bestReception?.joined ?? 0} 个`)}`,
+    `炒群承接最多：${person(bestOperator, `${bestOperator?.joined ?? 0} 个`)}`,
+    `专家开单最多：${person(bestExpertOrders, `${bestExpertOrders?.orders ?? 0} 单`)}`,
+    `小组开单最多：${group(bestGroupOrders, `${bestGroupOrders?.orders ?? 0} 单`)}`,
+    "这些是只读结果，不会修改任何数据。",
+  ].join("\n");
+}
 type NaturalIntent = "DAILY" | "CUSTOMER" | "LEGACY" | "PROGRESS" | "QUERY";
 const NATURAL_TEMPLATES: Record<NaturalIntent, Array<{ label: string; text: string }>> = {
   DAILY: [
     { label: "今日数据", text: "今天 FB-M：添加20，撞粉1，低金额2，无WS0，人工无效0，回复8，进群3，正常退群0，异常退群0，推专家2，注册1，开单1，首充1000，续充0，出金0" },
   ],
   CUSTOMER: [
-    { label: "新增一个客户", text: "新增客户112233，姓名张三，渠道FB-M，炒群吴天，设备B22" },
+    { label: "新增一个进群客户", text: "新增进群客户112233，姓名张三，渠道FB-M，炒群吴天，设备B22" },
   ],
   LEGACY: [
     { label: "老粉今天进群", text: "老客户112233，8月20日接粉，渠道FB-M，归属演示接粉，今天进群，炒群吴天，设备B22" },
@@ -294,6 +355,8 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
   const conversationRef = useRef<HTMLDivElement>(null);
 
   const lawyer = context?.groupType === "LAWYER";
+  const managementAccount = isManagementUser(user);
+  const quickActions = managementAccount ? managementQuickActions : frontlineQuickActions;
   const canUseExpertActions = user.role === "LEAD" || user.role === "EXPERT" || user.roles.includes("LEAD") || user.roles.includes("EXPERT");
   const fields = lawyer ? LAWYER_FIELDS : HACKER_FIELDS;
   const selectedChannel = context?.channels.find((channel) => channel.id === channelId) ?? null;
@@ -316,7 +379,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     }
     if (naturalIntent === "CUSTOMER" && customerContext?.channelOptions.length) {
       const operator = customerContext.memberOptions[0]?.name ?? "炒群负责人";
-      return customerContext.channelOptions.map((channel) => ({ label: `新增客户 · ${channel.name}`, text: NATURAL_TEMPLATES.CUSTOMER[0].text.replace("FB-M", channel.name).replace("吴天", operator) }));
+      return customerContext.channelOptions.map((channel) => ({ label: `新增进群客户 · ${channel.name}`, text: NATURAL_TEMPLATES.CUSTOMER[0].text.replace("FB-M", channel.name).replace("吴天", operator) }));
     }
     if (naturalIntent === "LEGACY" && legacyContext?.channelOptions.length) {
       const reception = legacyContext.memberOptions.find((item) => item.id === legacyContext.actorId)?.name ?? legacyContext.memberOptions[0]?.name ?? "接粉组员";
@@ -712,7 +775,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
   async function startCustomerFlow() {
     if (phase === "customer-loading" || phase === "customer-saving") return;
     setPhase("customer-loading");
-    setMessages([{ id: 0, role: "user", text: "新增客户" }, { id: 1, role: "assistant", text: "正在读取今天的日期和来源渠道…" }]);
+    setMessages([{ id: 0, role: "user", text: "新增进群客户" }, { id: 1, role: "assistant", text: "正在读取今天的日期和来源渠道…" }]);
     messageIdRef.current = 2;
     setCustomerDraft({ ...EMPTY_CUSTOMER });
     setCustomerMode(null);
@@ -851,7 +914,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
   async function saveCustomerBatch() {
     if (!customerContext || !selectedCustomerChannel || !customerBatchPreview?.validPhones.length) return;
     setPhase("customer-batch-saving");
-    addMessage("assistant", "正在批量新增客户，请稍候…" );
+    addMessage("assistant", "正在批量新增进群客户，请稍候…" );
     try {
       const result = await requestJson<{ created: Array<{ id: string; phone: string }>; duplicates: string[]; invalid: string[] }>("/api/lead/customer-reporting", {
         method: "POST",
@@ -1000,7 +1063,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
   async function saveCustomer() {
     if (!customerContext || !selectedCustomerChannel || !customerDraft.phone) return;
     setPhase("customer-saving");
-    addMessage("assistant", "正在新增客户，请稍候…");
+    addMessage("assistant", "正在新增进群客户，请稍候…");
     try {
       await requestJson("/api/lead/customer-reporting", {
         method: "POST",
@@ -1012,7 +1075,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
       window.dispatchEvent(new Event("ai-data-updated"));
     } catch (caught) {
       setPhase("customer-preview");
-      addMessage("assistant", caught instanceof Error ? `新增失败：${caught.message}` : "新增客户失败，请稍后重试。" );
+      addMessage("assistant", caught instanceof Error ? `新增失败：${caught.message}` : "新增进群客户失败，请稍后重试。" );
     }
   }
 
@@ -1153,8 +1216,18 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
       .map((message) => ({ role: message.role, content: message.text }));
     setPhase("chatting"); addMessage("user", text); setInput("");
     try {
+      if (/(?:系统|页面|岗位|权限|数据).*(?:怎么|如何|哪里|查看|使用)|(?:怎么|如何).*(?:系统|页面|数据)|系统使用帮助/.test(text)) {
+        addMessage("assistant", systemUsageGuide(user, contextLabel));
+        return;
+      }
+      if (/谁.*(?:最好|最高|第一)|(?:排名|排行|榜单|业绩最好|数据最好)/.test(text)) {
+        const range = /昨天|昨日/.test(text) ? "yesterday" : /今天|今日|当天/.test(text) ? "today" : "month";
+        const ranking = await requestJson<LeaderboardPayload>(`/api/performance-leaderboard?range=${range}`);
+        addMessage("assistant", rankingAnswer(ranking, text));
+        return;
+      }
       const result = await requestJson<{ reply: string; mode: "READ_ONLY_CHAT" }>("/api/ai/chat", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: history }),
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: history, contextLabel }),
       });
       addMessage("assistant", result.reply);
     } catch (caught) {
@@ -1165,8 +1238,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
   }
 
   function handleQuickAction(action: string) {
+    if (action === "系统使用帮助") { void sendCasualChat("请根据我的岗位和当前页面，告诉我怎么使用系统和查看数据"); return; }
+    if (action === "查看本月排名") { void sendCasualChat("本月谁的数据最好？谁的业绩最好？"); return; }
     if (action === "添加今日数据") { void openNaturalTemplate("DAILY", action); return; }
-    if (action === "新增客户") { void openNaturalTemplate("CUSTOMER", action); return; }
+    if (action === "新增进群客户") { void openNaturalTemplate("CUSTOMER", action); return; }
     if (action === "录入老客户进度") { void openNaturalTemplate("LEGACY", action); return; }
     if (action === "更新客户进度") { void openNaturalTemplate("PROGRESS", action); return; }
     if (action === "查询或纠正数据") { void openNaturalTemplate("QUERY", action); }
@@ -1183,6 +1258,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     if (phase === "progress-phone") { void acceptProgressPhone(raw); return; }
     if (phase === "progress-text" || phase === "progress-amount") { acceptProgressValue(raw); return; }
     if (["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase)) { acceptLegacyText(raw); return; }
+    if (phase === "idle" && managementAccount) { void sendCasualChat(raw); return; }
     if (phase === "idle" && (/纠正|改成|改为|修改为/.test(raw) || /查询.*(?:客户|号码|渠道|数据|进度|回复|进群|注册|开单|首充|续充|出金|业绩)/.test(raw))) { setNaturalIntent("QUERY"); void parseNaturalQuery(raw); return; }
     if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setNaturalIntent("DAILY"); void parseNaturalDaily(raw); return; }
     if (phase === "idle" && /老客户|老粉/.test(raw)) { setNaturalIntent("LEGACY"); void parseNaturalLegacy(raw); return; }
@@ -1253,7 +1329,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
           <button type="button" onClick={() => chooseLegacyMethod("BANK")}><strong>银行卡</strong><small>BANK</small></button>
         </div> : null}
 
-        {phase === "customer-mode" ? <div className={styles.choiceList} aria-label="选择新增客户方式">
+        {phase === "customer-mode" ? <div className={styles.choiceList} aria-label="选择新增进群客户方式">
           <button type="button" onClick={() => chooseCustomerMode("single")}><strong>单个新增</strong><small>录入 1 个客户</small></button>
           <button type="button" onClick={() => chooseCustomerMode("batch")}><strong>批量新增</strong><small>一次最多 200 个</small></button>
         </div> : null}
@@ -1300,7 +1376,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         {phase === "edit-select" ? <div className={styles.editChoices}>{fields.map((field, index) => <button type="button" key={field.key} onClick={() => beginEdit(index)}>{field.label}</button>)}</div> : null}
 
         {(phase === "customer-preview" || phase === "customer-saving" || phase === "customer-done") && customerContext && selectedCustomerChannel ? <div className={styles.preview}>
-          <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>新增客户预览</strong><small>保存后进入组内共享客户进度表</small></div></header>
+          <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>新增进群客户预览</strong><small>保存后进入组内共享客户进度表</small></div></header>
           <div className={styles.customerPreview}>
             <div><span>客户号码</span><strong>{customerDraft.phone}</strong></div>
             <div><span>客户姓名</span><strong>{customerDraft.customerName || "未填写"}</strong></div>
@@ -1382,11 +1458,11 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         {phase === "edit-select" ? <button type="button" onClick={() => setPhase("preview")}>返回预览</button> : null}
         {phase === "done" ? <><button type="button" onClick={() => void openNaturalTemplate(naturalIntent === "QUERY" ? "QUERY" : "DAILY", naturalIntent === "QUERY" ? "查询或纠正数据" : "添加今日数据")}>{naturalIntent === "QUERY" ? "继续查询或纠正" : "继续填写其他渠道"}</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
         {phase === "query-daily-result" || phase === "query-customer-result" ? <><button type="button" onClick={() => void openNaturalTemplate("QUERY", "查询或纠正数据")}>继续查询</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
-        {phase === "customer-preview" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增客户")}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveCustomer()}>确认新增</button></> : null}
-        {phase === "customer-done" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增客户")}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "customer-preview" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增进群客户")}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveCustomer()}>确认新增</button></> : null}
+        {phase === "customer-done" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增进群客户")}>继续新增进群客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
         {phase === "customer-batch-input" ? <button type="button" data-primary="true" disabled={!customerBatchText.trim()} onClick={acceptCustomerBatch}>下一步：选择渠道</button> : null}
         {phase === "customer-batch-preview" ? <><button type="button" onClick={() => { setPhase("customer-batch-input"); setCustomerBatchPreview(null); addMessage("assistant", "请修改批量号码后重新检查。" ); }}>修改号码</button><button type="button" data-primary="true" disabled={!customerBatchPreview?.validPhones.length} onClick={() => void saveCustomerBatch()}>确认批量新增</button></> : null}
-        {phase === "customer-batch-done" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增客户")}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "customer-batch-done" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增进群客户")}>继续新增进群客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
         {phase === "progress-preview" ? <><button type="button" onClick={() => void openNaturalTemplate("PROGRESS", "更新客户进度")}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveProgressUpdate()}>确认更新</button></> : null}
         {phase === "progress-done" ? <><button type="button" onClick={() => void openNaturalTemplate("PROGRESS", "更新客户进度")}>继续更新其他客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
         {phase === "legacy-preview" ? <><button type="button" onClick={() => void openNaturalTemplate("LEGACY", "录入老客户进度")}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveLegacyCustomer()}>确认导入老客户</button></> : null}

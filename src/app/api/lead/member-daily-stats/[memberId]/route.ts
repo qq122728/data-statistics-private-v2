@@ -90,7 +90,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   const entries = await db.dailyStatEntry.findMany({
     where: {
-      OR: [{ ownerId: member.id }, { sourceReceptionId: member.id }],
+      ownerId: member.id,
       groupId: access.group.id,
       ...(from || to ? { businessDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     },
@@ -128,7 +128,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         where: {
           id: input.entryId,
           groupId: access.group.id,
-          OR: [{ ownerId: member.id }, { sourceReceptionId: member.id }],
+          ownerId: member.id,
         },
         include: { currentRevision: true, revisions: { orderBy: { version: "desc" }, take: 1 } },
       });

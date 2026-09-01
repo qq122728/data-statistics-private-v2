@@ -180,7 +180,7 @@ export async function GET(request: Request) {
   const memberBuckets = new Map<string, { date: string; channelId: string; groupId: string; member: { id: string; name: string; role: string }; totals: ReturnType<typeof aggregate> }>();
   for (const entry of entries) {
     if (!(entry.currentRevision ?? entry.approvedRevision)) continue;
-    const attributionOwner = entry.sourceReception ?? entry.owner;
+    const attributionOwner = entry.owner;
     const attributionOwnerId = dailyStatAttributionOwnerId(entry);
     const key = `${entry.businessDate}\u0000${entry.channelId}\u0000${entry.groupId}\u0000${attributionOwnerId}`;
     const current = memberBuckets.get(key);
@@ -209,7 +209,7 @@ export async function GET(request: Request) {
   }
   const snapshotOwners = new Map<string, { channelId: string; groupId: string; member: { id: string; name: string; role: string }; firstDate: string }>();
   for (const entry of snapshotEntries) {
-    const member = entry.sourceReception ?? entry.owner;
+    const member = entry.owner;
     const key = `${entry.channelId}\u0000${entry.groupId}\u0000${member.id}`;
     const existing = snapshotOwners.get(key);
     if (!existing || entry.businessDate < existing.firstDate)

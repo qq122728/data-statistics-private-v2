@@ -95,7 +95,7 @@ test("表格视觉使用双层信息和清晰的冻结列", () => {
   assert.match(css, /\.table th,\.table td\{height:126px\}/);
 });
 
-test("客户进度提供接粉日期分离且接入统计的老客户入口", () => {
+test("客户进度提供接粉日期分离且不改统计的老客户入口", () => {
   assert.match(component, /老客户导入/);
   assert.match(component, /LegacyCustomerImport/);
   for (const field of ["接粉日期", "客户号码后 6 位", "来源渠道", "接粉归属", "设备号", "炒群负责人", "专家负责人", "启用前最后状态", "实际发生日期", "首充金额", "续充金额", "出金金额"]) {

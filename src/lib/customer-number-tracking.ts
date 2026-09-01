@@ -1,8 +1,8 @@
 /**
- * 从这个北京时间统计日开始，黑客组的进群及后续指标以客户号码事件为准。
- * 旧日期仍保留原来的手工日报，不做反向重算。
+ * 客户进度与公司统计已经确认永久分账。保留这个兼容字段只是为了让旧前端
+ * 安全退出“号码自动统计”模式；任何真实业务日期都不会到达这个日期。
  */
-export const CUSTOMER_NUMBER_TRACKING_FROM = "2026-09-02";
+export const CUSTOMER_NUMBER_TRACKING_FROM = "9999-12-31";
 
 export function usesCustomerNumberTracking(businessDate: string) {
   return businessDate >= CUSTOMER_NUMBER_TRACKING_FROM;

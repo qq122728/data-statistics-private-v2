@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     const to = url.searchParams.get("to")?.trim();
     const attributionEntries = await db.dailyStatEntry.findMany({
       where: {
-        OR: [{ ownerId: actor.id }, { sourceReceptionId: actor.id }],
+        ownerId: actor.id,
         ...(from || to ? { businessDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
       },
       include: dailyStatEntryInclude,
@@ -141,8 +141,6 @@ export async function GET(request: Request) {
     const emptyValues = () => Object.fromEntries(numberFields.map((field) => [field, 0])) as RevisionValues;
     const unifiedByScope = new Map<string, typeof attributionEntries>();
     for (const entry of attributionEntries) {
-      const attributionOwnerId = entry.sourceReceptionId ?? entry.ownerId;
-      if (attributionOwnerId !== actor.id) continue;
       const key = `${entry.businessDate}\0${entry.channelId}`;
       const rows = unifiedByScope.get(key) ?? [];
       rows.push(entry);

@@ -139,8 +139,7 @@ beforeAll(async () => {
     } });
     await db.dailyStatEntry.update({ where: { id: entry.id }, data: { currentRevisionId: revision.id, approvedRevisionId: revision.id } });
   }
-  // A 是永久客户归属人，B/C 只是代为执行炒群和专家环节。
-  // 下游漏斗和资金必须全部回到 A 的个人行，不能被 B/C 抢走。
+  // 三人分别填写正式统计；个人行只归实际填写人，来源关系只用于说明业务线。
   const channelId = id("berlin-channel");
   const operatorEntry = await db.dailyStatEntry.create({ data: {
     identityKey: JSON.stringify([ids.berlinOperatorB, ids.berlinGroup, "2026-09-01", "GROUP_OPERATOR", channelId, ids.berlinReception, null]),
@@ -190,14 +189,14 @@ async function signIn(userId: string) {
 const request = (query = "range=today") => new Request(`http://localhost/api/org/reporting?${query}`);
 
 describe.sequential("新版组织范围真实报表 API", () => {
-  it("按每条炒群业务线延续截止日最近快照，并归回来源接粉人", async () => {
+  it("按每条炒群业务线延续截止日最近快照，并归实际填写人", async () => {
     await signIn(ids.companyManager);
     const response = await getOrgReporting(request("range=custom&sourceDateFrom=2026-08-31&sourceDateTo=2026-08-31"));
     const body = await response.json();
     expect(body.groups.find((group: { id: string }) => group.id === ids.berlinGroup)).toMatchObject({ totals: { inGroup: 17 } });
-    expect(body.members.find((member: { id: string }) => member.id === ids.berlinReception)).toMatchObject({ totals: { inGroup: 17 } });
-    expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorA)).toMatchObject({ totals: { inGroup: 0 } });
-    expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorB)).toMatchObject({ totals: { inGroup: 0 } });
+    expect(body.members.find((member: { id: string }) => member.id === ids.berlinReception)).toMatchObject({ totals: { inGroup: 0 } });
+    expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorA)).toMatchObject({ totals: { inGroup: 6 } });
+    expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorB)).toMatchObject({ totals: { inGroup: 11 } });
   });
 
   it("公司管理员只看到本公司，并按统一北京时间统计日取同一口径的汇总与人员", async () => {
@@ -234,21 +233,21 @@ describe.sequential("新版组织范围真实报表 API", () => {
     });
   });
 
-  it("A 接粉、B 炒群、C 专家时，全漏斗和净业绩只归 A，B/C 不抢归属", async () => {
+  it("A 接粉、B 炒群、C 专家时，个人业绩分别归各自填写人", async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     await signIn(ids.companyManager);
     const response = await getOrgReporting(request("range=today"));
     const body = await response.json();
     expect(body.members.find((member: { id: string }) => member.id === ids.berlinReception)).toMatchObject({
       totals: {
-        added: 3, effective: 2, replied: 1, leftNormal: 1, leftAbnormal: 1,
-        pushed: 2, registered: 2, ordered: 1,
-        initialDepositCents: 10_000, rechargeCents: 5_000,
-        depositCents: 15_000, withdrawalCents: 2_000, netCents: 13_000,
+        added: 3, effective: 2, replied: 1, leftNormal: 0, leftAbnormal: 0,
+        pushed: 0, registered: 0, ordered: 0,
+        initialDepositCents: 0, rechargeCents: 0,
+        depositCents: 0, withdrawalCents: 0, netCents: 0,
       },
     });
-    expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorB)).toMatchObject({ totals: { pushed: 0, registered: 0, ordered: 0, netCents: 0 } });
-    expect(body.members.find((member: { id: string }) => member.id === ids.berlinExpert)).toMatchObject({ totals: { registered: 0, ordered: 0, netCents: 0 } });
+    expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorB)).toMatchObject({ totals: { leftNormal: 1, leftAbnormal: 1, pushed: 2, registered: 0, ordered: 0, netCents: 0 } });
+    expect(body.members.find((member: { id: string }) => member.id === ids.berlinExpert)).toMatchObject({ totals: { registered: 2, ordered: 1, netCents: 13_000 } });
   });
 
   it("部门管理员和组长只能读取自己的范围，伪造其它小组会返回403", async () => {
@@ -273,7 +272,7 @@ describe.sequential("新版组织范围真实报表 API", () => {
 });
 
 describe.sequential("新版组长真实渠道报表 API", () => {
-  it("客户改渠道时漏斗数据一起搬家，但炒群和专家只负责进度，业绩仍归接粉人", async () => {
+  it("客户改渠道和推进进度时，不生成或搬动任何正式统计", async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-02T03:30:00Z"));
     const originalChannelId = id("berlin-channel");
     const correctedChannelId = id("berlin-corrected-channel");
@@ -315,30 +314,20 @@ describe.sequential("新版组长真实渠道报表 API", () => {
       where: { groupId: ids.berlinGroup, businessDate: "2026-09-02", channelId: { in: [originalChannelId, correctedChannelId] } },
       include: { currentRevision: true },
     });
-    const sum = (channelId: string, field: "operatorReceivedCount" | "expertIntroCount" | "expertReceivedCount" | "registrationCount" | "orderCount") =>
-      rows.filter((row) => row.channelId === channelId).reduce((total, row) => total + (row.currentRevision?.[field] ?? 0), 0);
-    for (const field of ["operatorReceivedCount", "expertIntroCount", "expertReceivedCount", "registrationCount", "orderCount"] as const) {
-      expect(sum(correctedChannelId, field), `${field} 旧渠道必须清零`).toBe(0);
-      expect(sum(originalChannelId, field), `${field} 必须搬到新渠道`).toBe(1);
-    }
-    expect(rows.find((row) => row.channelId === originalChannelId && row.position === "GROUP_OPERATOR" && row.ownerId === ids.berlinOperatorA)?.currentRevision)
-      .toMatchObject({ operatorReceivedCount: 1, expertIntroCount: 1 });
-    expect(rows.filter((row) => row.channelId === originalChannelId && row.sourceReceptionId === ids.berlinReception)
-      .reduce((total, row) => total + (row.currentRevision?.operatorReceivedCount ?? 0), 0)).toBe(1);
-    expect(rows.some((row) => row.sourceReceptionId === ids.berlinOperatorA || row.sourceReceptionId === ids.berlinOperatorB || row.sourceReceptionId === ids.berlinExpert)).toBe(false);
+    expect(rows).toHaveLength(0);
 
     await signIn(ids.berlinReception);
     const personalPerformance = await (await import("../../src/app/api/personal-performance/route")).GET(
       new Request("http://localhost/api/personal-performance?role=RECEPTION&range=custom&sourceDateFrom=2026-09-02&sourceDateTo=2026-09-02"),
     );
     expect(personalPerformance.status).toBe(200);
-    expect((await personalPerformance.json()).funnel.summary).toMatchObject({ joined: 1, pushed: 1, registered: 1, ordered: 1 });
+    expect((await personalPerformance.json()).funnel.summary).toMatchObject({ joined: 0, pushed: 0, registered: 0, ordered: 0 });
 
     await signIn(ids.companyManager);
     const leaderboard = await getPerformanceLeaderboard(new Request("http://localhost/api/performance-leaderboard?range=custom&sourceDateFrom=2026-09-02&sourceDateTo=2026-09-02"));
     expect(leaderboard.status).toBe(200);
     const leaderboardBody = await leaderboard.json();
-    expect(leaderboardBody.receptions.find((row: { id: string }) => row.id === ids.berlinReception)).toMatchObject({ joined: 1, orders: 1 });
+    expect(leaderboardBody.receptions.find((row: { id: string }) => row.id === ids.berlinReception)).toBeUndefined();
 
     await signIn(ids.lead);
     vi.spyOn(leadMembers, "requireLeadRequest").mockResolvedValue({
@@ -351,8 +340,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     );
     expect(memberDaily.status).toBe(200);
     const memberDailyBody = await memberDaily.json();
-    expect(memberDailyBody.entries.filter((entry: { sourceReceptionId: string | null }) => entry.sourceReceptionId === ids.berlinReception)
-      .reduce((total: number, entry: { currentRevision?: { operatorReceivedCount: number } | null }) => total + (entry.currentRevision?.operatorReceivedCount ?? 0), 0)).toBe(1);
+    expect(memberDailyBody.entries).toHaveLength(0);
 
     const order = await db.customerOrder.findUnique({ where: { leadId: customer.id } });
     if (order) await db.customerFinanceEvent.deleteMany({ where: { customerOrderId: order.id } });
@@ -416,9 +404,10 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     const response = await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=custom&sourceDateFrom=2026-08-31&sourceDateTo=2026-08-31"));
     const body = await response.json();
     expect(body.rows[0]).toMatchObject({ totals: { inGroup: 17 } });
-    expect(body.members).toEqual([
-      expect.objectContaining({ id: ids.berlinReception, totals: expect.objectContaining({ inGroup: 17 }) }),
-    ]);
+    expect(body.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ids.berlinOperatorA, totals: expect.objectContaining({ inGroup: 6 }) }),
+      expect.objectContaining({ id: ids.berlinOperatorB, totals: expect.objectContaining({ inGroup: 11 }) }),
+    ]));
     expect(body.days).toEqual([]);
   });
 
@@ -498,7 +487,7 @@ describe.sequential("资源部真实报表快照", () => {
     expect(await response.json()).toMatchObject({ rows: [expect.objectContaining({ totals: expect.objectContaining({ inGroup: 17 }) })] });
   });
 
-  it("资源部按人员查看时，下游进度和资金仍归最初接粉组员", async () => {
+  it("资源部按人员查看时，正式数据归实际填写人", async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     await signIn(ids.resource);
     const response = await getResourceReporting(new Request("http://localhost/api/resource/reporting?range=today"));
@@ -510,16 +499,19 @@ describe.sequential("资源部真实报表快照", () => {
       totals: {
         added: 3,
         effective: 2,
-        pushed: 2,
-        registered: 2,
-        ordered: 1,
-        initialDepositCents: 10_000,
-        rechargeCents: 5_000,
-        withdrawalCents: 2_000,
+        pushed: 0,
+        registered: 0,
+        ordered: 0,
+        initialDepositCents: 0,
+        rechargeCents: 0,
+        withdrawalCents: 0,
       },
     });
+    expect(body.memberRows.find((row: { member: { id: string } }) => row.member.id === ids.berlinExpert)).toMatchObject({
+      totals: { registered: 2, ordered: 1, initialDepositCents: 10_000, rechargeCents: 5_000, withdrawalCents: 2_000 },
+    });
     expect(body.memberRows.some((row: { member: { id: string }; totals: { registered: number; ordered: number } }) =>
-      [ids.berlinOperatorB, ids.berlinExpert].includes(row.member.id)
+      row.member.id === ids.berlinOperatorB
       && (row.totals.registered > 0 || row.totals.ordered > 0))).toBe(false);
   });
 });

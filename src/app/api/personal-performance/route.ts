@@ -10,7 +10,6 @@ import { hasOversizedQueryValue } from "../../../lib/request-limits";
 import { getAssignedRoles, hasAssignedRole } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
-import { usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
 
 type Role = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
 const frontlineRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
@@ -46,19 +45,7 @@ type PerformanceEntry = Prisma.DailyStatEntryGetPayload<{
 const rate = (numerator: number, denominator: number) => denominator ? numerator / denominator : null;
 
 function attributionWhere(actorId: string, role: Role): Prisma.DailyStatEntryWhereInput {
-  if (role === "RECEPTION") return {
-    OR: [
-      { ownerId: actorId, position: "RECEPTION" },
-      { sourceReceptionId: actorId, position: { in: ["GROUP_OPERATOR", "EXPERT"] } },
-    ],
-  };
-  if (role === "GROUP_OPERATOR") return {
-    OR: [
-      { ownerId: actorId, position: "GROUP_OPERATOR" },
-      { sourceGroupOperatorId: actorId, position: "EXPERT" },
-    ],
-  };
-  return { ownerId: actorId, position: "EXPERT" };
+  return { ownerId: actorId, position: role };
 }
 
 function addFunnelEntry(target: FunnelRow, entry: PerformanceEntry, viewerRole: Role) {
@@ -73,11 +60,7 @@ function addFunnelEntry(target: FunnelRow, entry: PerformanceEntry, viewerRole: 
     target.replied += value.replyCount;
     target.joined += value.joinCount;
   } else if (entry.position === "GROUP_OPERATOR") {
-    // 接粉自己的“进群”仍以接粉统计为准，不能再把炒群接手数重复加一次。
-    // 号码跟踪切换后，接粉人的进群也来自这条自动事件行；炒群人只是代为维护进度。
-    if (viewerRole === "GROUP_OPERATOR" || (viewerRole === "RECEPTION" && usesCustomerNumberTracking(entry.businessDate))) {
-      target.joined += value.operatorReceivedCount;
-    }
+    if (viewerRole === "GROUP_OPERATOR") target.joined += value.operatorReceivedCount;
     target.leftNormal += value.normalLeaveCount;
     target.leftAbnormal += value.abnormalLeaveCount;
     target.pushed += value.expertIntroCount;
@@ -113,10 +96,10 @@ function buildFunnel(entries: PerformanceEntry[], viewerRole: Role) {
   };
 }
 
-function latestCurrentInGroup(entries: PerformanceEntry[]) {
+function latestCurrentInGroup(entries: PerformanceEntry[], viewerRole: Role) {
   const latestByLine = new Map<string, { date: string; count: number }>();
   for (const entry of entries) {
-    if (entry.position !== "GROUP_OPERATOR" || !entry.approvedRevision) continue;
+    if (entry.position !== viewerRole || viewerRole === "EXPERT" || !entry.approvedRevision) continue;
     const key = `${entry.ownerId}:${entry.sourceReceptionId ?? ""}:${entry.channelId}`;
     const current = latestByLine.get(key);
     if (!current || entry.businessDate > current.date) {
@@ -158,9 +141,8 @@ export async function GET(request: Request) {
     }),
     role === "EXPERT" ? Promise.resolve([] as PerformanceEntry[]) : db.dailyStatEntry.findMany({
       where: {
-        groupId: actor.groupId, position: "GROUP_OPERATOR", approvedRevisionId: { not: null },
+        groupId: actor.groupId, position: role, ownerId: actor.id, approvedRevisionId: { not: null },
         businessDate: { lte: range.to },
-        ...(role === "RECEPTION" ? { sourceReceptionId: actor.id } : { ownerId: actor.id }),
       },
       select,
     }),
@@ -193,7 +175,7 @@ export async function GET(request: Request) {
   }
   totals.netCents = totals.initialDepositCents + totals.rechargeCents - totals.withdrawalCents;
   const funnel = buildFunnel(entries, role);
-  const currentInGroup = latestCurrentInGroup(snapshotEntries);
+  const currentInGroup = latestCurrentInGroup(snapshotEntries, role);
   return NextResponse.json({
     role, today, timezone, range, totals, currentInGroup,
     funnel: { ...funnel, currentInGroup },

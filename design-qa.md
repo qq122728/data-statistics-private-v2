@@ -66,6 +66,45 @@ No extra crop was needed because the 478-pixel-wide comparison makes the complet
 
 final result: passed
 
+## Compact customer progress filters
+
+- Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-31df0dee-15df-4450-8de0-c59076a43ded.png`
+- Browser-rendered implementation: `/tmp/customer-progress-compact.png`
+- Combined comparison input: `/tmp/customer-progress-comparison.png`
+- Source pixels: 1694 × 343. Implementation screenshot: 1270 × 714 from a 1280 × 720 CSS viewport at density 1. The focused implementation content was cropped to the same top-of-page region and proportionally normalized to the source width for the combined comparison.
+- State: authenticated group member, customer progress page, “在群待推专家”, all filters reset.
+
+### Full-view and focused comparison evidence
+
+The combined image places the original expanded customer-import instructions above the implemented compact state. The implementation keeps the approved white-and-blue system but collapses the instructions from 124px to 36px, moves customer status into the toolbar, and adds member and channel selectors. The table header begins immediately below the single-row toolbar and sheet header, materially increasing the visible customer-table area. This top region is the full scope of the requested change, so a separate smaller crop was unnecessary.
+
+### Required fidelity surfaces
+
+- Fonts and typography: existing Chinese system font, title hierarchy and small spreadsheet labels are preserved; filter labels remain readable at the compact size.
+- Spacing and layout rhythm: instructions, toolbar and sheet header now use 36px, 44px and 52px visible heights respectively; controls align on one row at desktop width and wrap at narrow breakpoints.
+- Colors and visual tokens: existing white surfaces, cool-gray borders, blue active state and green live-status token are unchanged.
+- Image quality and assets: this screen contains no raster imagery; the existing Phosphor search and add icons remain intact.
+- Copy and content: customer filters are explicitly named “客户状态”, “归属组员” and “来源渠道”; the full three-step instructions remain available through “展开查看操作说明”.
+
+### Findings and comparison history
+
+- Earlier P1: the permanently expanded three-step guide and separate status-chip row consumed a large part of the usable table viewport.
+  - Fix: the guide now defaults to a one-line disclosure and the status filter moved into the compact toolbar.
+  - Post-fix evidence: the combined comparison shows the customer table header and first data row entering the initial viewport much earlier.
+- Earlier P2: users could not directly isolate customers by attribution member or source channel.
+  - Fix: added native member and channel dropdowns alongside the status selector, each resetting pagination and filtering the visible customer list.
+  - Post-fix evidence: browser checks returned the correct empty state for “演示专家”, 3 rows for “演示短信渠道”, and 2 rows for “已退群”.
+- No remaining actionable P0, P1 or P2 findings.
+
+### Interaction and runtime verification
+
+- Verified guide expand/collapse: 36px collapsed and 118.75px expanded.
+- Verified status, attribution member and source channel selectors, plus the empty-filter state.
+- Browser console contained no errors.
+- Frontline suite: 46 tests passed. Production build and TypeScript checks passed.
+
+final result: passed
+
 ## Headquarters administrator group matrix
 
 - Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-51f1875c-b725-4baa-821c-db2b6427f8a2.png`

@@ -15,6 +15,8 @@ test("组员工作台使用统一日报、财务、客户和设备入口", () =>
   assert.match(source, /进群客户怎么导入/);
   assert.match(source, /每天资金情况怎么填/);
   assert.match(source, /公司最终认账/);
+  assert.match(source, /member-entry-guide--compact/);
+  assert.match(source, /展开查看操作说明/);
 });
 
 test("统一组员表按渠道读取并保存真实每日数据", () => {

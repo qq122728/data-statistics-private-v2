@@ -14,14 +14,16 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /全部进度/);
   assert.match(component, /"已注册"/);
   assert.match(component, /if \(customer\.registeredOn\) return "已注册"/);
-  assert.match(component, /aria-label="按客户状态筛选"/);
+  assert.match(component, /aria-label="客户状态筛选"/);
+  assert.match(component, /aria-label="归属组员筛选"/);
+  assert.match(component, /aria-label="来源渠道筛选"/);
   assert.match(component, /aria-label="客户跟进入口"/);
   assert.match(component, /在群待推专家/);
   assert.match(component, /专家进度/);
   assert.match(component, /stage: viewMode === "group" \? "pending-expert" : "expert"/);
   assert.match(component, /!customer\.expertIntroducedOn/);
-  assert.match(component, /aria-pressed=\{progress === item\}/);
-  assert.doesNotMatch(component, /<select aria-label="进度筛选"/);
+  assert.match(component, /setMemberFilter/);
+  assert.match(component, /setChannelFilter/);
   assert.doesNotMatch(component, /className=\{styles\.summary\}/);
   assert.doesNotMatch(component, /shared-sheet__detail/);
 });
@@ -78,7 +80,8 @@ test("炒群和专家单元格双击编辑并自动保存", () => {
 });
 
 test("表格视觉使用双层信息和清晰的冻结列", () => {
-  assert.match(css, /\.sheetCard\{[^}]*max-height:calc\(100vh - 164px\)/);
+  assert.match(css, /\.sheetCard\{[^}]*max-height:calc\(100vh - 142px\)/);
+  assert.match(css, /\.filterField\{/);
   assert.match(css, /\.table\[data-view="group"\]\{min-width:1260px\}/);
   assert.match(css, /\.table\[data-view="expert"\]\{min-width:1510px\}/);
   assert.match(css, /\.viewTabs button\[data-active="true"\]/);

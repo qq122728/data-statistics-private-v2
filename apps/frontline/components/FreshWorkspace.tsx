@@ -90,7 +90,11 @@ export default function FreshWorkspace({ user, onLogout }: { user: BackendUser; 
         </div>
       </header>
       <main className="fresh-content">
-        {guide ? <section className="member-entry-guide" aria-label={guide.title}>
+        {guide && view === "customers" ? <details className="member-entry-guide member-entry-guide--compact">
+          <summary><strong>{guide.title}</strong><span>展开查看操作说明</span></summary>
+          <div>{guide.steps.map((step) => <p key={step.label}><b>{step.label}</b><span>{step.text}</span></p>)}</div>
+          <footer>{guide.foot}</footer>
+        </details> : guide ? <section className="member-entry-guide" aria-label={guide.title}>
           <header><strong>{guide.title}</strong><span>照这 3 步填写</span></header>
           <div>{guide.steps.map((step) => <p key={step.label}><b>{step.label}</b><span>{step.text}</span></p>)}</div>
           <footer>{guide.foot}</footer>

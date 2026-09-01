@@ -24,6 +24,15 @@ describe("lead date ranges", () => {
     expect(resolveLeadDateRange({ range: "all" }, today)).toMatchObject({ preset: "all", from: "", to: "" });
   });
 
+  it("supports a whole month from the month dropdown", () => {
+    expect(resolveLeadDateRange({ month: "2026-07" }, today)).toMatchObject({ preset: "custom", from: "2026-07-01", to: "2026-07-31" });
+    expect(resolveLeadDateRange({ month: "2026-08" }, today)).toMatchObject({ preset: "custom", from: "2026-08-01", to: today });
+  });
+
+  it("supports one day from the month and day dropdowns", () => {
+    expect(resolveLeadDateRange({ month: "2026-08", day: "10" }, today)).toMatchObject({ preset: "custom", from: "2026-08-10", to: "2026-08-10" });
+  });
+
   it("lets analysis pages choose a consistent thirty-day default without overriding an explicit range", () => {
     expect(resolveDateRangeWithDefault({}, today)).toMatchObject({ preset: "30d", from: "2026-07-17", to: today });
     expect(resolveDateRangeWithDefault({ range: "today" }, today)).toMatchObject({ preset: "today", from: today, to: today });

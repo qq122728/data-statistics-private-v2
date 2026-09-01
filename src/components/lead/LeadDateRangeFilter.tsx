@@ -25,8 +25,21 @@ function hrefFor(pathname: string, range: LeadDateRange, preserve: Record<string
   return `${pathname}?${params.toString()}`;
 }
 
+function monthOptions(today: string, count = 36) {
+  const [year, month] = today.slice(0, 7).split("-").map(Number);
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(Date.UTC(year, month - 1 - index, 1));
+    const value = date.toISOString().slice(0, 7);
+    return { value, label: `${date.getUTCFullYear()}年${date.getUTCMonth() + 1}月` };
+  });
+}
+
 export function LeadDateRangeFilter({ pathname, range, today, ariaLabel = "时间范围", preserve = {}, allowAll = false }: { pathname: string; range: LeadDateRange; today: string; ariaLabel?: string; preserve?: Record<string, PreservedValue>; allowAll?: boolean }) {
   const presets = allowAll ? [{ value: "all" as const, label: "全部" }, ...leadDatePresets] : leadDatePresets;
+  const selectedMonth = range.from?.slice(0, 7) || today.slice(0, 7);
+  const selectedDay = range.from && range.from === range.to ? String(Number(range.from.slice(8, 10))) : "";
+  const [selectedYear, selectedMonthNumber] = selectedMonth.split("-").map(Number);
+  const dayCount = new Date(Date.UTC(selectedYear, selectedMonthNumber, 0)).getUTCDate();
   // <details> 的开关状态由浏览器自己保存。页面做局部跳转后，即使时间范围
   // 已切回“当月／近 7 天”，旧节点也可能仍保持展开。用当前筛选生成 key，
   // 每次查询条件变化时重建节点，让非自定义范围一定从关闭状态开始。
@@ -45,6 +58,16 @@ export function LeadDateRangeFilter({ pathname, range, today, ariaLabel = "时�
             return <Link key={preset.value} href={hrefFor(pathname, target, preserve)} data-active={active} aria-current={active ? "page" : undefined}>{preset.label}</Link>;
           })}
       </div>
+      <form className="lead-month-day-filter" action={pathname}>
+        {Object.entries(preserve).flatMap(([name, value]) => {
+          if (name === "range" || name === "sourceDateFrom" || name === "sourceDateTo" || name === "month" || name === "day" || value === undefined || value === false || value === "") return [];
+          if (Array.isArray(value)) return value.filter(Boolean).map((item) => <input key={`${name}:${item}`} type="hidden" name={name} value={item} />);
+          return [<input key={name} type="hidden" name={name} value={value === true ? "1" : value} />];
+        })}
+        <label><span>月份</span><select name="month" defaultValue={selectedMonth}>{monthOptions(today).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label><span>日期</span><select name="day" defaultValue={selectedDay}><option value="">整月</option>{Array.from({ length: dayCount }, (_, index) => index + 1).map((day) => <option key={day} value={day} disabled={`${selectedMonth}-${String(day).padStart(2, "0")}` > today}>{day}日</option>)}</select></label>
+        <button type="submit">查询</button>
+      </form>
       <details key={customPanelKey} className="lead-date-custom" open={range.preset === "custom"}>
         <summary>自定义</summary>
         <form action={pathname}>

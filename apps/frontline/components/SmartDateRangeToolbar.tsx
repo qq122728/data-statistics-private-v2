@@ -12,6 +12,22 @@ const presets: Array<{ value: Exclude<SmartDatePreset, "custom">; label: string 
   { value: "lastMonth", label: "上月" },
 ];
 
+function monthOptions(today: string, count = 36) {
+  const [year, month] = today.slice(0, 7).split("-").map(Number);
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(Date.UTC(year, month - 1 - index, 1));
+    const value = date.toISOString().slice(0, 7);
+    return { value, label: `${date.getUTCFullYear()}年${date.getUTCMonth() + 1}月` };
+  });
+}
+
+function monthBounds(month: string, today: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const naturalTo = `${month}-${String(lastDay).padStart(2, "0")}`;
+  return { from: `${month}-01`, to: naturalTo > today ? today : naturalTo, dayCount: lastDay };
+}
+
 export function localCalendarDate() {
   const now = new Date();
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -42,6 +58,26 @@ export function SmartDateRangeToolbar({
   onRefresh: () => void;
 }) {
   const today = localCalendarDate();
+  const selectedMonth = /^\d{4}-\d{2}-\d{2}$/.test(from) ? from.slice(0, 7) : today.slice(0, 7);
+  const selectedDay = range === "custom" && from === to ? String(Number(from.slice(8, 10))) : "";
+  const selectedBounds = monthBounds(selectedMonth, today);
+  const selectMonth = (month: string) => {
+    const bounds = monthBounds(month, today);
+    onRange("custom");
+    onFrom(bounds.from);
+    onTo(bounds.to);
+  };
+  const selectDay = (day: string) => {
+    onRange("custom");
+    if (!day) {
+      onFrom(selectedBounds.from);
+      onTo(selectedBounds.to);
+      return;
+    }
+    const date = `${selectedMonth}-${day.padStart(2, "0")}`;
+    onFrom(date);
+    onTo(date);
+  };
   const current = range === "custom" && from && to
     ? (from === to ? from : `${from} 至 ${to}`)
     : currentLabel || presets.find((item) => item.value === range)?.label || "当前区间";
@@ -50,6 +86,11 @@ export function SmartDateRangeToolbar({
     <div className="analysis-date-presets" aria-label="快捷日期筛选">
       {presets.map((preset) => <button key={preset.value} type="button" data-active={range === preset.value} onClick={() => onRange(preset.value)}>{preset.label}</button>)}
       <button type="button" data-active={range === "custom"} onClick={() => onRange("custom")}>自定义</button>
+    </div>
+    <div className="analysis-month-day" aria-label="按月份和日期筛选">
+      <label><span>月份</span><select value={selectedMonth} onChange={(event) => selectMonth(event.target.value)}>{monthOptions(today).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+      <label><span>日期</span><select value={selectedDay} onChange={(event) => selectDay(event.target.value)}><option value="">整月</option>{Array.from({ length: selectedBounds.dayCount }, (_, index) => index + 1).map((day) => <option key={day} value={day} disabled={`${selectedMonth}-${String(day).padStart(2, "0")}` > today}>{day}日</option>)}</select></label>
+      <button type="button" className="fresh-primary" disabled={loading} onClick={onRefresh}>查询</button>
     </div>
     {range === "custom" ? <div className="analysis-custom-range">
       <label><span>开始</span><input type="date" max={today} value={from} onChange={(event) => onFrom(event.target.value)} /></label>

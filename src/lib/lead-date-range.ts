@@ -25,6 +25,29 @@ function validDate(value: string | undefined): value is string {
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+function validMonth(value: string | undefined): value is string {
+  return Boolean(value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value));
+}
+
+function monthDayRange(month: string, rawDay: string | undefined, today: string): LeadDateRange {
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDayNumber = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  const requestedDay = rawDay && /^\d{1,2}$/.test(rawDay) ? Number(rawDay) : 0;
+  if (requestedDay >= 1 && requestedDay <= lastDayNumber) {
+    const requestedDate = `${month}-${String(requestedDay).padStart(2, "0")}`;
+    const date = requestedDate > today ? today : requestedDate;
+    return { preset: "custom", from: date, to: date, label: `${month}月${requestedDay}日` };
+  }
+  const requestedFrom = `${month}-01`;
+  const naturalTo = `${month}-${String(lastDayNumber).padStart(2, "0")}`;
+  return {
+    preset: "custom",
+    from: requestedFrom > today ? today : requestedFrom,
+    to: naturalTo > today ? today : naturalTo,
+    label: `${month}整月`,
+  };
+}
+
 export function addDateDays(value: string, days: number): string {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
@@ -58,6 +81,7 @@ export function leadDateRangeForPreset(preset: LeadDatePreset, today: string, cu
 }
 
 export function resolveLeadDateRange(values: Record<string, string | undefined>, today: string): LeadDateRange {
+  if (validMonth(values.month)) return monthDayRange(values.month, values.day, today);
   const rawPreset = values.range;
   const hasExplicitDates = validDate(values.sourceDateFrom) || validDate(values.sourceDateTo);
   const preset: LeadDatePreset = rawPreset === "all" || rawPreset === "today" || rawPreset === "yesterday" || rawPreset === "7d" || rawPreset === "week" || rawPreset === "30d" || rawPreset === "month" || rawPreset === "lastMonth" || rawPreset === "custom" ? rawPreset : hasExplicitDates ? "custom" : "7d";
@@ -70,7 +94,7 @@ export function resolveDateRangeWithDefault(
   defaultPreset: Exclude<LeadDatePreset, "custom" | "all"> = "30d",
 ): LeadDateRange {
   return resolveLeadDateRange(
-    values.range || values.sourceDateFrom || values.sourceDateTo
+    values.range || values.sourceDateFrom || values.sourceDateTo || values.month || values.day
       ? values
       : { ...values, range: defaultPreset },
     today,

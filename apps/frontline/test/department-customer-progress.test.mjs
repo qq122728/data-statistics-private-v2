@@ -15,6 +15,8 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /"已注册"/);
   assert.match(component, /if \(customer\.registeredOn\) return "已注册"/);
   assert.match(component, /aria-label="客户状态筛选"/);
+  assert.match(component, /className=\{styles\.viewControls\}/);
+  assert.match(component, /进度状态/);
   assert.match(component, /aria-label="归属组员筛选"/);
   assert.match(component, /aria-label="来源渠道筛选"/);
   assert.match(component, /aria-label="客户跟进入口"/);

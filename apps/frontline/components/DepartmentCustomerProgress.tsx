@@ -181,7 +181,6 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   return <div className={styles.sheetWorkspace}>
     <section className={styles.toolbar}>
       <label className={styles.search}><MagnifyingGlass size={14} /><input aria-label="搜索客户" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索号码、组员、渠道或进度" /></label>
-      <label className={styles.filterField}><span>客户状态</span><select aria-label="客户状态筛选" value={progress} onChange={(event) => { setProgress(event.target.value as ProgressFilter); setPage(1); }}>{progressFilters.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <label className={styles.filterField}><span>归属组员</span><select aria-label="归属组员筛选" value={memberFilter} onChange={(event) => { setMemberFilter(event.target.value); setPage(1); }}><option value="">全部组员</option>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label className={styles.filterField}><span>来源渠道</span><select aria-label="来源渠道筛选" value={channelFilter} onChange={(event) => { setChannelFilter(event.target.value); setPage(1); }}><option value="">全部渠道</option>{payload?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
       <span className={styles.toolbarSpacer} />
@@ -194,10 +193,13 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
     <section className={styles.sheetCard}>
       <header className={styles.sheetHeader}>
         <div className={styles.titleBlock}><h2>组内共享客户进度</h2><p>一位客户一行 · 同组成员共同维护 · 修改后自动保存{viewMode === "expert" && member && !canEditExpert ? <em className={styles.permissionHint}>只读 · 需专家权限才能编辑</em> : null}</p></div>
-        <nav className={styles.viewTabs} aria-label="客户跟进入口">
-          <button type="button" data-active={viewMode === "group"} aria-pressed={viewMode === "group"} onClick={() => switchView("group")}>在群待推专家</button>
-          <button type="button" data-active={viewMode === "expert"} aria-pressed={viewMode === "expert"} onClick={() => switchView("expert")}>专家进度</button>
-        </nav>
+        <div className={styles.viewControls}>
+          <nav className={styles.viewTabs} aria-label="客户跟进入口">
+            <button type="button" data-active={viewMode === "group"} aria-pressed={viewMode === "group"} onClick={() => switchView("group")}>在群待推专家</button>
+            <button type="button" data-active={viewMode === "expert"} aria-pressed={viewMode === "expert"} onClick={() => switchView("expert")}>专家进度</button>
+          </nav>
+          <label className={styles.stageFilter}><span>进度状态</span><select aria-label="客户状态筛选" value={progress} onChange={(event) => { setProgress(event.target.value as ProgressFilter); setPage(1); }}>{progressFilters.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        </div>
         <span className={styles.liveState}><i />实时共享</span>
       </header>
       <div className={styles.tableWrap}>

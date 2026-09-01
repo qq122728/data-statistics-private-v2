@@ -66,6 +66,32 @@ No extra crop was needed because the 478-pixel-wide comparison makes the complet
 
 final result: passed
 
+## Stage-aware customer progress selector
+
+- Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-db5f5eb2-9cfc-40ce-b63c-783a01ee06a4.png`
+- Browser-rendered implementation: `/tmp/customer-progress-expert-status-filter.png`
+- Focused combined comparison: `/tmp/customer-progress-stage-filter-comparison.png`
+- Source pixels: 444 × 63. Implementation pixels: 1270 × 714 from a 1280 × 720 CSS viewport at density 1. The implementation control region was cropped and proportionally normalized beside the source.
+- State: authenticated group member, customer progress page, “专家进度”, status “已注册”.
+
+### Comparison evidence and required fidelity surfaces
+
+- Layout and spacing: the original two-button segmented control remains centered; the new 35px status selector sits directly to its right without adding another row.
+- Typography and colors: existing compact Chinese system typography, blue active state, pale-blue inactive surface and gray border tokens are preserved.
+- Image quality and assets: no raster or decorative assets are involved in this control.
+- Copy and content: the selector is named “进度状态” and changes its options with the selected entry.
+- Interaction: “在群待推专家” exposes 全部进度、群内维护、已退群; “专家进度” exposes 全部进度、已推专家、已注册、已开单、已退群. Selecting 已注册 was verified in the browser.
+- Responsiveness: the combined controls wrap as one centered group under 900px instead of colliding with the title or live indicator.
+
+### Findings and comparison history
+
+- Earlier P2: status filtering existed in the upper toolbar, visually separated from the two workflow stages it controlled.
+  - Fix: moved the status selector beside the workflow tabs and retained member/channel filters in the upper toolbar.
+  - Post-fix evidence: the combined comparison shows the requested control placement and browser verification confirms stage-specific options.
+- No remaining actionable P0, P1 or P2 findings. Fresh-browser console check had no errors.
+
+final result: passed
+
 ## Compact customer progress filters
 
 - Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-31df0dee-15df-4450-8de0-c59076a43ded.png`

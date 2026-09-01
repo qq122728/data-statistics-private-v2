@@ -540,5 +540,16 @@ describe.sequential("新版客户进度 API", () => {
       batch: { sourceDate: "2026-07-02" },
     });
     expect(await db.auditLog.count({ where: { entityId: leadId, action: { startsWith: "SHARED_CUSTOMER_" } } })).toBe(7);
+
+    expect((await patch({ action: "setLeave", leaveType: "NORMAL", occurredOn: "2026-07-10" })).status).toBe(200);
+    expect((await patch({ action: "setLeave", leaveType: "ABNORMAL", occurredOn: "2026-07-11" })).status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: leadId } })).resolves.toMatchObject({
+      groupStatus: "LEFT", leftWithOrder: false, leftOn: "2026-07-11",
+    });
+    expect((await patch({ action: "setLeave", leaveType: "NONE" })).status).toBe(200);
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: leadId } })).resolves.toMatchObject({
+      groupStatus: "JOINED", leftWithOrder: null, leftOn: null,
+    });
+    await expect(db.leadActivity.findFirst({ where: { leadId, note: { contains: "撤销退群记录" } } })).resolves.not.toBeNull();
   });
 });

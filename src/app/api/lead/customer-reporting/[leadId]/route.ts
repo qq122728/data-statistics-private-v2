@@ -23,7 +23,7 @@ const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("setSourceDate"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   z.object({ action: z.literal("setJoinedOn"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   z.object({ action: z.literal("setRegistration"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
-  z.object({ action: z.literal("setLeave"), leaveType: z.enum(["NORMAL", "ABNORMAL"]), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+  z.object({ action: z.literal("setLeave"), leaveType: z.enum(["NORMAL", "ABNORMAL", "NONE"]), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }),
 ]);
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ leadId: string }> }) {
@@ -136,13 +136,27 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
         update.expertStageChangedAt = new Date();
         activity = { kind: "REGISTERED", note: "专家在共享表登记客户注册", occurredOn: input.occurredOn };
       } else {
-        if (lead.groupStatus === "LEFT" || lead.leftOn) return { status: 400 as const, error: `该客户已经在 ${lead.leftOn ?? "之前"} 退群` };
-        if (lead.joinedOn && input.occurredOn < lead.joinedOn) return { status: 400 as const, error: "退群日期不能早于进群日期" };
-        update.groupStatus = "LEFT";
-        update.leftOn = input.occurredOn;
-        update.leftWithOrder = input.leaveType === "NORMAL";
-        update.leftAutomatically = false;
-        activity = { kind: "LEFT_GROUP", note: input.leaveType === "NORMAL" ? "标记正常退群" : "标记异常退群", occurredOn: input.occurredOn };
+        if (input.leaveType === "NONE") {
+          if (!lead.leftOn) return { status: 400 as const, error: "该客户当前没有退群记录" };
+          update.groupStatus = "JOINED";
+          update.leftOn = null;
+          update.leftWithOrder = null;
+          update.leftNote = null;
+          update.leftAutomatically = false;
+          if (lead.isHistoricalRecord) update.historicalLeaveCounted = false;
+          activity = { kind: "PLAN_UPDATED", note: "纠错：撤销退群记录", occurredOn: today };
+        } else {
+          if (!input.occurredOn) return { status: 400 as const, error: "请填写退群日期" };
+          const dateError = entryDateError(input.occurredOn, today, "退群日期");
+          if (dateError) return { status: 400 as const, error: dateError };
+          if (lead.joinedOn && input.occurredOn < lead.joinedOn) return { status: 400 as const, error: "退群日期不能早于进群日期" };
+          update.groupStatus = "LEFT";
+          update.leftOn = input.occurredOn;
+          update.leftWithOrder = input.leaveType === "NORMAL";
+          update.leftAutomatically = false;
+          if (lead.isHistoricalRecord) update.historicalLeaveCounted = true;
+          activity = { kind: "LEFT_GROUP", note: lead.leftOn ? `纠错：退群调整为${input.leaveType === "NORMAL" ? "正常" : "异常"}退群，日期 ${input.occurredOn}` : input.leaveType === "NORMAL" ? "标记正常退群" : "标记异常退群", occurredOn: input.occurredOn };
+        }
       }
 
       await transaction.leadCustomer.update({ where: { id: lead.id }, data: update });
@@ -157,7 +171,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       } else if (input.action === "setRegistration") {
         await syncCustomerRegistrationEvent(transaction, trackedLead, input.occurredOn);
       } else if (input.action === "setLeave") {
-        await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: input.occurredOn, kind: input.leaveType === "NORMAL" ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE" });
+        if (lead.leftOn) await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: lead.leftOn, kind: lead.leftWithOrder ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE", delta: -1 });
+        if (input.leaveType !== "NONE" && input.occurredOn) await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: input.occurredOn, kind: input.leaveType === "NORMAL" ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE" });
       }
       await recordAudit(transaction, { actorId: actor.id, action: `SHARED_CUSTOMER_${input.action}`, entityType: "LeadCustomer", entityId: lead.id, summary: { input, before: { customerName: lead.customerName, customerPlatform: lead.customerPlatform, lossAmountCents: lead.lossAmountCents, ownerId: lead.ownerId, attributionOwnerId: lead.attributionOwnerId, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId, deviceId: lead.deviceId, batchId: lead.batchId, sourceDate: lead.batch.sourceDate, joinedOn: lead.joinedOn, registeredOn: lead.registeredOn, leftOn: lead.leftOn }, update } });
       return { status: 200 as const };

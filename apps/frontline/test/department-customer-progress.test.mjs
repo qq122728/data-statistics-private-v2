@@ -56,6 +56,10 @@ test("共享表开放接粉和炒群列，专家列需要专家权限", () => {
   assert.match(component, /需专家权限才能编辑/);
   assert.doesNotMatch(component, /const canOwner|const canOperator|const canExpert/);
   for (const action of ["setSourceDate", "setJoinedOn", "assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
+  assert.match(component, /撤销退群/);
+  assert.match(component, /退群日期已纠正/);
+  assert.match(customerPatch, /leaveType:\s*z\.enum\(\["NORMAL", "ABNORMAL", "NONE"\]\)/);
+  assert.match(customerPatch, /delta:\s*-1/);
   assert.match(component, /placeholder="手动填写"/);
   assert.doesNotMatch(component, /deviceOptions/);
   assert.match(component, /\/api\/customer-orders/);

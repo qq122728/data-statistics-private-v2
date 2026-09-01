@@ -36,13 +36,16 @@ test("客户进度统一使用真实共享表格", () => {
   assert.doesNotMatch(source, /GroupOperatorWorkbench|ExpertWorkbench|RealReceptionProgress/);
 });
 
-test("组员AI使用右侧对话抽屉和快捷入口，但暂不连接业务写入", () => {
+test("组员AI通过右侧引导对话预览并保存真实今日数据", () => {
   const source = read("AiSmartAssistant.tsx");
   assert.match(source, /AI 对话内容/);
   assert.match(source, /AI 对话输入框/);
   assert.match(source, /添加今日数据/);
   assert.match(source, /更新客户进度/);
   assert.match(source, /收起 AI 助手/);
-  assert.match(source, /disabled/);
-  assert.doesNotMatch(source, /requestJson|\/api\//);
+  assert.match(source, /requestJson<DailyContext>\("\/api\/daily-stats"\)/);
+  assert.match(source, /method: "POST"/);
+  assert.match(source, /AI 不会在你确认前写入数据/);
+  assert.match(source, /确认保存/);
+  assert.match(source, /ai-data-updated/);
 });

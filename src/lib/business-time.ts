@@ -1,7 +1,7 @@
 import type { User } from "@prisma/client";
 import { db } from "./db";
 import { resolveGroupBusinessTime } from "./business-time-config";
-import { localDateYYYYMMDD } from "./dates";
+import { statisticsDate } from "./statistics-date";
 
 export * from "./business-time-config";
 
@@ -50,5 +50,8 @@ export async function resolveGroupBusinessDate(
   now = new Date(),
   client: BusinessTimeClient = db,
 ): Promise<string> {
-  return localDateYYYYMMDD(now, await resolveGroupBusinessTimezone(groupId, fallbackTimezone, client));
+  void groupId;
+  void fallbackTimezone;
+  void client;
+  return statisticsDate(now);
 }

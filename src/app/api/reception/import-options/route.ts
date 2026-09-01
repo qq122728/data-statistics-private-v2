@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { db } from "../../../../lib/db";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
@@ -38,7 +38,7 @@ export async function GET() {
   ]);
 
   return NextResponse.json({
-    today: localDateYYYYMMDD(new Date(), timezone),
+    today: statisticsDate(),
     timezone,
     channels,
     attributionOwners,

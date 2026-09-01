@@ -6,7 +6,7 @@ import { customerDeleteRoles, hasAnyRole, isFrontlineGroupMember } from "../../.
 import { customerWorkflowInputSchema } from "../../../../lib/customer-workflow/input";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { deleteCustomerWorkflow, executeCustomerWorkflow } from "../../../../lib/customer-workflow/service";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { getSystemSettings } from "../../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
 import { entryDateError } from "../../../../lib/entry-date-validation";
@@ -28,7 +28,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
     if (leadId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "客户参数过长" }, { status: 400 });
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
-    const today = localDateYYYYMMDD(new Date(), timezone);
+    const today = statisticsDate();
     const occurredOn = input.occurredOn ?? today;
     const dateError = entryDateError(occurredOn, today, "业务日期");
     if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });

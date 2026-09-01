@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import {
   loadMemberEvidence,
   MemberEvidenceAccessError,
@@ -27,7 +27,7 @@ export async function GET(_request: Request, context: RouteContext) {
   if (memberId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "成员参数过长" }, { status: 400 });
   const settings = await getSystemSettings();
   try {
-    const evidence = await loadMemberEvidence(actor, memberId, localDateYYYYMMDD(new Date(), settings.timezone));
+    const evidence = await loadMemberEvidence(actor, memberId, statisticsDate());
     return NextResponse.json(evidence);
   } catch (error) {
     if (error instanceof MemberEvidenceAccessError) return authorizationDenied(actor, "无权查看该成员");

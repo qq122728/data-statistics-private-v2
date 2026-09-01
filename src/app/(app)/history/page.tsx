@@ -10,7 +10,7 @@ import { AnalysisFilterNotice } from "../../../components/analytics/AnalysisStat
 import { CustomerOrderHistory } from "../../../components/history/CustomerOrderHistory";
 import { ReceptionPerformanceTable, type ReceptionMemberPerformance } from "../../../components/lead/ReceptionPerformanceTable";
 import { LeadDateRangeFilter } from "../../../components/lead/LeadDateRangeFilter";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { resolveLeadDateRange } from "../../../lib/lead-date-range";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
@@ -33,7 +33,7 @@ export default async function HistoryPage({ searchParams = Promise.resolve({}) }
   const raw = await searchParams;
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : []));
   const settings = await getSystemSettings();
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const leadRange = resolveLeadDateRange(user.role === "LEAD" && !rawValues.range && !rawValues.sourceDateFrom && !rawValues.sourceDateTo ? { ...rawValues, range: "all" } : rawValues, today);
   const parsedFilters = parseAnalysisFilters(new URLSearchParams(rawValues));
   const filters = user.role === "LEAD" ? { ...parsedFilters, sourceDateFrom: leadRange.from, sourceDateTo: leadRange.to } : parsedFilters;

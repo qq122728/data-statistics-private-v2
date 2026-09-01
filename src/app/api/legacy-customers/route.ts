@@ -5,7 +5,8 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { recordAudit } from "../../../lib/audit";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { db } from "../../../lib/db";
-import { isCalendarDate, localDateYYYYMMDD } from "../../../lib/dates";
+import { isCalendarDate } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { entryDateError } from "../../../lib/entry-date-validation";
 import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
 import { API_LIMITS } from "../../../lib/request-limits";
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
     const input = inputSchema.parse(rawInput);
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
-    const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(sessionUser, settings.timezone));
+    const today = statisticsDate();
     for (const [label, value] of [["启用前状态日期", input.baselineOn], ["本次进度日期", input.occurredOn]] as const) {
       if (!value) continue; const error = entryDateError(value, today, label); if (error) return NextResponse.json({ error }, { status: 400 });
     }

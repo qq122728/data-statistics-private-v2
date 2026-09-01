@@ -184,7 +184,7 @@ describe.sequential("新版组织范围真实报表 API", () => {
     expect(body.members.find((member: { id: string }) => member.id === ids.berlinOperatorB)).toMatchObject({ totals: { inGroup: 0 } });
   });
 
-  it("公司管理员只看到本公司，并按每个小组当地今天取同一口径的汇总与人员", async () => {
+  it("公司管理员只看到本公司，并按统一北京时间统计日取同一口径的汇总与人员", async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     await signIn(ids.companyManager);
     const response = await getOrgReporting(request());
@@ -196,8 +196,8 @@ describe.sequential("新版组织范围真实报表 API", () => {
       totals: { added: 3, effective: 2, replied: 1 },
     });
     expect(body.groups.find((group: { id: string }) => group.id === ids.newYorkGroup)).toMatchObject({
-      period: { today: "2026-08-31", from: "2026-08-31", to: "2026-08-31" },
-      totals: { added: 4 },
+      period: { today: "2026-09-01", from: "2026-09-01", to: "2026-09-01" },
+      totals: { added: 0 },
     });
     expect(new Set(body.members.map((member: { id: string }) => member.id))).toEqual(new Set([
       ids.berlinReception, ids.berlinOperatorA, ids.berlinOperatorB, ids.berlinExpert, ids.newYorkReception,

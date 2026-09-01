@@ -11,6 +11,7 @@ import {
 } from "../../../lib/daily-stats";
 import { localDateYYYYMMDD } from "../../../lib/dates";
 import { db } from "../../../lib/db";
+import { statisticsDateContext } from "../../../lib/statistics-date";
 import { frontlineMemberRoles, isFrontlineGroupMember } from "../../../lib/role-access";
 import { authorizationDenied, type SecurityEventActor } from "../../../lib/security-events";
 
@@ -237,11 +238,14 @@ export async function GET(request: Request) {
         values,
       };
     }).sort((left, right) => right.businessDate.localeCompare(left.businessDate) || left.channel.name.localeCompare(right.channel.name, "zh-CN"));
+    const dateContext = statisticsDateContext();
     return NextResponse.json({
       actorId: actor.id,
       groupType: group.groupType,
-      today: localDateYYYYMMDD(new Date(), timezone),
-      timezone,
+      today: dateContext.today,
+      timezone: dateContext.timezone,
+      rolloverHour: dateContext.rolloverHour,
+      rolloverLabel: dateContext.rolloverLabel,
       // 旧前端仍需要这三个存储分类；对所有组员都返回，不再绑定账号岗位。
       positions: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"],
       channels,

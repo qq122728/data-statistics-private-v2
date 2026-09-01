@@ -5,7 +5,7 @@ import { AnalysisFilterNotice } from "../../../../components/analytics/AnalysisS
 import { loadBatchDetail } from "../../../../lib/analytics/batch-tracking";
 import { buildAnalysisHref, parseAnalysisFilters, resolveAnalysisScope } from "../../../../lib/analytics/scope";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { db } from "../../../../lib/db";
 import { resolveReadableReportGroups } from "../../../../lib/report-scope";
 import { getSystemSettings } from "../../../../lib/settings";
@@ -19,7 +19,7 @@ export default async function BatchDetailPage({ params, searchParams }: { params
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : []));
   const contextFilters = parseAnalysisFilters(new URLSearchParams(rawValues));
   const memberId = contextFilters.memberId;
-  const today = localDateYYYYMMDD(new Date(), settings.timezone);
+  const today = statisticsDate();
   const readableGroups = resolveReadableReportGroups(user, groups);
   const permissionScope = resolveAnalysisScope(user, { includeInactive: contextFilters.includeInactive }, today, readableGroups.map((group) => group.id));
   const detail = await loadBatchDetail(permissionScope, batchId, memberId, today);

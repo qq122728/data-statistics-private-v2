@@ -5,7 +5,7 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { canWriteCustomerFinance, financeScopeError, financeWriteRoles } from "../../../lib/customer-finance-access";
 import { parseCustomerFinanceInput, type CustomerFinanceInput } from "../../../lib/validation";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     const validRows = rows.flatMap((row, index) => row ? [{ row, index }] : []);
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(sessionUser, settings.timezone);
-    const today = localDateYYYYMMDD(new Date(), timezone);
+    const today = statisticsDate();
     validRows.forEach(({ row, index }) => {
       const error = entryDateError(row.occurredOn, today, "流水日期");
       if (error) fields[`rows.${index}.occurredOn`] = [error];

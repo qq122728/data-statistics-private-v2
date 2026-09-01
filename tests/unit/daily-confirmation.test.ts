@@ -101,12 +101,12 @@ describe.sequential("daily entry confirmations API", () => {
     expect((await POST(confirmRequest({ businessDate: "2026-08-12" }))).status).toBe(403);
   });
 
-  it("allows only the member group's local today and preserves an existing confirmation across refreshes", async () => {
+  it("allows only the shared China-time statistical day and preserves an existing confirmation across refreshes", async () => {
     vi.spyOn(auth, "requireUser").mockResolvedValue(lead);
 
     const future = await POST(confirmRequest({ businessDate: "2026-08-13" }));
     expect(future.status).toBe(400);
-    expect(await future.json()).toMatchObject({ error: "只能确认所在小组当地时间的今天" });
+    expect(await future.json()).toMatchObject({ error: "只能确认当前北京时间统计日的数据（每天 14:00 换日）" });
 
     const current = await POST(confirmRequest({ businessDate: "2026-08-12" }));
     expect(current.status).toBe(200);

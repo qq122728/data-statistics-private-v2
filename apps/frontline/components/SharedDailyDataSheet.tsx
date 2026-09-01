@@ -59,7 +59,16 @@ const BASE_VALUES: Record<DailyPosition, number[][]> = {
 };
 
 function localToday() {
-  return new Intl.DateTimeFormat("en-CA").format(new Date());
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || "";
+  const base = `${part("year")}-${part("month")}-${part("day")}`;
+  if (Number(part("hour")) < 14) return base;
+  const next = new Date(`${base}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
 }
 
 function withCurrentMember(position: DailyPosition, currentName: string) {

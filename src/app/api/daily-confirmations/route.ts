@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
-import { localDateYYYYMMDD } from "../../../lib/dates";
-import { getSystemSettings } from "../../../lib/settings";
-import { resolveUserBusinessTimezone } from "../../../lib/business-time";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { hasAssignedRole } from "../../../lib/role-access";
 import { hasOversizedQueryValue } from "../../../lib/request-limits";
 import { authorizationDenied } from "../../../lib/security-events";
@@ -32,10 +30,8 @@ export async function POST(request: Request) {
   try { body = await request.json(); }
   catch { return NextResponse.json({ error: "请求内容不是有效 JSON" }, { status: 400 }); }
   if (!isBusinessDate(body.businessDate)) return NextResponse.json({ error: "businessDate 必须是 YYYY-MM-DD" }, { status: 400 });
-  const settings = await getSystemSettings();
-  const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
-  if (body.businessDate !== localDateYYYYMMDD(new Date(), timezone)) {
-    return NextResponse.json({ error: "只能确认所在小组当地时间的今天" }, { status: 400 });
+  if (body.businessDate !== statisticsDate()) {
+    return NextResponse.json({ error: "只能确认当前北京时间统计日的数据（每天 14:00 换日）" }, { status: 400 });
   }
 
   const existing = await db.dailyEntryConfirmation.findUnique({

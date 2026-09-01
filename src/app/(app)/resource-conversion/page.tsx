@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { getSystemSettings } from "../../../lib/settings";
 import { LeadDateRangeFilter } from "../../../components/lead/LeadDateRangeFilter";
@@ -51,7 +51,7 @@ export default async function ResourceConversionPage({ searchParams }: { searchP
     db.teamGroup.findMany({ where: { active: true }, select: { id: true, name: true, departmentId: true, department: { select: { name: true } } }, orderBy: [{ department: { name: "asc" } }, { name: "asc" }] }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
-  const today = localDateYYYYMMDD(new Date(), settings.timezone);
+  const today = statisticsDate();
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => {
     const current = first(value);
     return current ? [[key, current]] : [];

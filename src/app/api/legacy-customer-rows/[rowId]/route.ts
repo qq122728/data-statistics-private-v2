@@ -4,7 +4,8 @@ import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { recordAudit } from "../../../../lib/audit";
 import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
 import { db } from "../../../../lib/db";
-import { isCalendarDate, localDateYYYYMMDD } from "../../../../lib/dates";
+import { isCalendarDate } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { isFrontlineGroupMember } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { getSystemSettings } from "../../../../lib/settings";
@@ -74,7 +75,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ rowId
       ? await getSystemSettings()
       : null;
     const today = settings
-      ? localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(actor, settings.timezone))
+      ? statisticsDate()
       : null;
     const data = {
       ...(input.joinedOn !== undefined ? { joinedOn: input.joinedOn || null } : {}),

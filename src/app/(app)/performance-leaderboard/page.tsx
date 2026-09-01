@@ -4,7 +4,7 @@ import { LeadDateRangeFilter } from "../../../components/lead/LeadDateRangeFilte
 import { loadPerformanceLeaderboard } from "../../../lib/analytics/performance-leaderboard-query";
 import { resolveAnalysisScope } from "../../../lib/analytics/scope";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { resolveLeadDateRange } from "../../../lib/lead-date-range";
 import { getSystemSettings } from "../../../lib/settings";
@@ -30,7 +30,7 @@ export default async function PerformanceLeaderboardPage({ searchParams }: { sea
   ]);
   const userTimezone = await resolveUserBusinessTimezone(user, settings.timezone);
   const now = new Date();
-  const today = localDateYYYYMMDD(now, userTimezone);
+  const today = statisticsDate(now);
   const updatedAtLabel = new Intl.DateTimeFormat("zh-CN", { timeZone: userTimezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(now);
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => {
     const current = first(value);

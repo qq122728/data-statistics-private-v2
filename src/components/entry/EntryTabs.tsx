@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { EntryChannel } from "./ChannelCombobox";
 import { entryError } from "./errors";
-import { localDateYYYYMMDD } from "../../lib/dates";
+import { statisticsDate } from "../../lib/statistics-date";
 import {
   WorkflowConfirmationDialog,
   type WorkflowConfirmation,
@@ -108,7 +108,7 @@ export function EntryTabs({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const today = localDateYYYYMMDD(new Date(), timezone);
+  const today = statisticsDate();
   const workspace = searchParams.get("workspace") === "handoff" || searchParams.get("tab") === "group"
     ? "handoff"
     : "intake";

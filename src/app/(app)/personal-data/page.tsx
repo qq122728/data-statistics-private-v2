@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { db } from "../../../lib/db";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { getSystemSettings } from "../../../lib/settings";
 import { LeadDateRangeFilter } from "../../../components/lead/LeadDateRangeFilter";
 import { resolveDateRangeWithDefault, type LeadDateRange } from "../../../lib/lead-date-range";
@@ -173,7 +173,7 @@ export default async function PersonalDataPage({ searchParams }: { searchParams:
   const role = user.role as FrontlineRole;
   const [params, settings] = await Promise.all([searchParams, getSystemSettings()]);
   const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
-  const today = localDateYYYYMMDD(new Date(), timezone);
+  const today = statisticsDate();
   const raw = Object.fromEntries(Object.entries(params).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : []));
   const dateRange = resolveDateRangeWithDefault(raw, today, "month");
   const leads = await db.leadCustomer.findMany({

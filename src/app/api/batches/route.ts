@@ -6,7 +6,7 @@ import { ChannelResolutionError, isConcurrentChannelCreateError, isRetryableSqli
 import { parseNewFansInput, type NewFansInput } from "../../../lib/validation";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
 import { recordMetricEvent } from "../../../lib/metric-events";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
     if (Object.keys(fields).length) return errorResponse(fields);
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
-    const today = localDateYYYYMMDD(new Date(), timezone);
+    const today = statisticsDate();
     inputs.forEach((input, index) => {
       if (!input) return;
       const error = entryDateError(input.sourceDate, today, "来源日期");

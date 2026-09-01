@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { businessTimezoneOption, localClockMinutes, resolveGroupBusinessTime } from "../business-time-config";
-import { localDateYYYYMMDD } from "../dates";
+import { statisticsDate } from "../statistics-date";
 import { formatUsd } from "../money";
 import { loadDailyBossBrief } from "./data";
 import type { BossAiAnalysis, DailyBossBrief } from "./types";
@@ -246,7 +246,7 @@ export function formatRegionalExpertBrief(brief: RegionalExpertBrief) {
   return lines.join("\n");
 }
 
-export async function prepareRegionalBossBriefs(region: BossBriefRegion, reportDate = localDateYYYYMMDD(new Date(), region.timezone), now = new Date()) {
+export async function prepareRegionalBossBriefs(region: BossBriefRegion, reportDate = statisticsDate(), now = new Date()) {
   const [operating, experts] = await Promise.all([
     loadDailyBossBrief(reportDate, { groupIds: region.groupIds }),
     loadRegionalExpertBrief(region, reportDate, now),

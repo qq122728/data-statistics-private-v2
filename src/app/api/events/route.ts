@@ -5,7 +5,7 @@ import { db } from "../../../lib/db";
 import { touchDailyEntryConfirmations } from "../../../lib/daily-confirmations";
 import { recordMetricEvent } from "../../../lib/metric-events";
 import { parseMetricInput, type MetricInput } from "../../../lib/validation";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     const validInputs = inputs.flatMap((input, index) => input ? [{ input, index }] : []);
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
-    const today = localDateYYYYMMDD(new Date(), timezone);
+    const today = statisticsDate();
     validInputs.forEach(({ input, index }) => {
       const error = entryDateError(input.occurredOn, today, "业务日期");
       if (error) fields[`rows.${index}.occurredOn`] = [error];

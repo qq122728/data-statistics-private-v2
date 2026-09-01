@@ -12,7 +12,7 @@ import {
   type HistoryMetricTotals,
 } from "../../../lib/history-groups";
 import { parseHistoryGroupUpdate } from "../../../lib/validation";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
@@ -145,7 +145,7 @@ export async function PATCH(request: Request) {
     const input = parseHistoryGroupUpdate(await readLimitedJson(request, API_LIMITS.historyBodyBytes));
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(sessionUser, settings.timezone);
-    const dateError = entryDateError(input.occurredOn, localDateYYYYMMDD(new Date(), timezone), "业务日期");
+    const dateError = entryDateError(input.occurredOn, statisticsDate(), "业务日期");
     if (dateError) return NextResponse.json({ error: "请检查填写内容", fields: { occurredOn: [dateError] } }, { status: 400 });
     const result = await db.$transaction(async (transaction) => {
       const actor = await transaction.user.findUnique({

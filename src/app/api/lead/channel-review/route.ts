@@ -6,7 +6,8 @@ import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { recordAudit } from "../../../../lib/audit";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
 import { normalizeChannelName } from "../../../../lib/channel-names";
-import { isCalendarDate, localDateYYYYMMDD } from "../../../../lib/dates";
+import { isCalendarDate } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { db } from "../../../../lib/db";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
       });
       if (!channel) return { status: 404 as const, error: "未找到本组这个渠道" };
 
-      const today = localDateYYYYMMDD(new Date(), resolveGroupBusinessTime(group).timezone);
+      const today = statisticsDate();
       if (input.reviewDate > today) return { status: 400 as const, error: "不能核对未来日期的数据" };
 
       const scope: AnalysisScope = {

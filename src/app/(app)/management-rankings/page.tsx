@@ -4,7 +4,7 @@ import { LeadDateRangeFilter } from "../../../components/lead/LeadDateRangeFilte
 import { loadPerformanceLeaderboard } from "../../../lib/analytics/performance-leaderboard-query";
 import { resolveAnalysisScope } from "../../../lib/analytics/scope";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { resolveLeadDateRange } from "../../../lib/lead-date-range";
 import { getSystemSettings } from "../../../lib/settings";
@@ -23,7 +23,7 @@ export default async function ManagementRankingsPage({ searchParams }: { searchP
   if (user.role !== "ADMIN" && user.role !== "COMPANY_MANAGER") redirect("/dashboard");
   const [raw, settings, groups] = await Promise.all([searchParams, getSystemSettings(), db.teamGroup.findMany({ select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } } })]);
   const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
-  const today = localDateYYYYMMDD(new Date(), timezone);
+  const today = statisticsDate();
   const values = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => {
     const current = first(value);
     return current === undefined ? [] : [[key, current]];

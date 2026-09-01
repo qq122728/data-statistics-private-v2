@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../lib/lead-date-range";
 import { hasOversizedQueryValue } from "../../../lib/request-limits";
@@ -52,7 +52,7 @@ export async function GET(request: Request) {
       orderBy: { name: "asc" },
     });
   const timezone = await resolveUserBusinessTimezone(actor, settings.timezone);
-  const today = localDateYYYYMMDD(new Date(), timezone);
+  const today = statisticsDate();
   const range = resolveDateRangeWithDefault(Object.fromEntries(params), today, "month");
 
   // 精英榜是公开的小组榜；普通一线和组长看全局公开排名，不会获得客户明细。

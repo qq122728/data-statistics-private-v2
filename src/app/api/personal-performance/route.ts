@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../lib/lead-date-range";
 import { hasOversizedQueryValue } from "../../../lib/request-limits";
@@ -140,7 +140,7 @@ export async function GET(request: Request) {
 
   const settings = await getSystemSettings();
   const timezone = await resolveUserBusinessTimezone(actor, settings.timezone);
-  const today = localDateYYYYMMDD(new Date(), timezone);
+  const today = statisticsDate();
   const range = resolveDateRangeWithDefault(Object.fromEntries(params), today, "month");
   const scope = attributionWhere(actor.id, role);
   const select = {

@@ -8,7 +8,7 @@ import { loadRoleRankings } from "../../../lib/analytics/role-rankings";
 import { parseAnalysisFilters, resolveAnalysisScope } from "../../../lib/analytics/scope";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../lib/lead-date-range";
 import { resolveReadableReportGroups } from "../../../lib/report-scope";
@@ -38,7 +38,7 @@ export default async function RoleRankingsPage({ searchParams }: { searchParams:
     }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => first(value) === undefined ? [] : [[key, first(value)!]]));
   const dateRange = resolveDateRangeWithDefault(rawValues, today, "month");
   const parsed = parseAnalysisFilters(new URLSearchParams(rawValues));

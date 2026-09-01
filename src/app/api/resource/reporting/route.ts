@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { sumLatestCurrentInGroup } from "../../../../lib/daily-stat-snapshots";
 import { db } from "../../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
   const preset = ranges.has(requestedRange) ? requestedRange : "month";
   const channelPeriods = channels.map((channel) => {
     const timezone = resolveGroupBusinessTime(channel.group).timezone;
-    const today = localDateYYYYMMDD(new Date(), timezone);
+    const today = statisticsDate();
     const range = resolveDateRangeWithDefault({
       range: preset,
       sourceDateFrom: params.get("sourceDateFrom") ?? undefined,

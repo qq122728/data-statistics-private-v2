@@ -46,6 +46,9 @@ type Context = {
   actorId: string;
   groupType: "HACKER" | "LAWYER";
   today: string;
+  timezone: string;
+  rolloverHour: number;
+  rolloverLabel: string;
   channels: Array<{ id: string; name: string; channelType: string }>;
   entries: Entry[];
   unifiedEntries: Array<{
@@ -216,8 +219,12 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const gridRef = useRef(grid);
+  const dirtyRef = useRef(dirty);
+  const savingRef = useRef(saving);
   const editVersionRef = useRef<Record<string, number>>({});
   gridRef.current = grid;
+  dirtyRef.current = dirty;
+  savingRef.current = saving;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -234,6 +241,24 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const timer = window.setInterval(async () => {
+      if (dirtyRef.current.size || savingRef.current.size) return;
+      try {
+        const next = await requestJson<Context>("/api/daily-stats");
+        setContext((current) => {
+          if (!current || current.today === next.today) return current ?? next;
+          setDate(next.today);
+          setSavedAt("");
+          return next;
+        });
+      } catch {
+        // 短暂网络错误不打断当前填写；下一轮会自动重试。
+      }
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (!context || !date) return;
@@ -289,6 +314,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
         body: JSON.stringify({
           ...(current.entryId ? { entryId: current.entryId } : {}),
           businessDate: date,
+          expectedStatisticsDate: context.today,
           position: "RECEPTION",
           channelId,
           sourceReceptionId: null,
@@ -337,7 +363,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
         <strong>{mode === "finance" ? "我的财务填写" : lawyerGroup ? "我的律师组渠道数据" : "我的渠道数据"}</strong>
         <span>{mode === "finance" ? "按渠道填写首充、续充和出金" : "每个渠道单独填写；比例与绿色数据由系统计算"}</span>
       </div>
-      <label><span>统计日期</span><input className="field" type="date" max={context.today} value={date} onChange={(event) => setDate(event.target.value)} /></label>
+      <label><span>统计日期（北京时间 14:00 换日）</span><input className="field" type="date" max={context.today} value={date} onChange={(event) => setDate(event.target.value)} /></label>
       <span className="unified-save-state" data-state={error ? "error" : dirty.size || saving.size ? "saving" : "saved"}>
         {error ? "保存失败" : dirty.size || saving.size ? "正在自动保存…" : savedAt ? `${savedAt} 已保存` : "已同步"}
       </span>

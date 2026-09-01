@@ -7,7 +7,8 @@ import { normalizeChannelName } from "../../../../lib/channel-names";
 import { db } from "../../../../lib/db";
 import { entryDateError } from "../../../../lib/entry-date-validation";
 import { normalizeCustomerPhone } from "../../../../lib/entry-ledger";
-import { isCalendarDate, localDateYYYYMMDD } from "../../../../lib/dates";
+import { isCalendarDate } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { getSystemSettings } from "../../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
 import { hasAssignedRole } from "../../../../lib/role-access";
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(sessionUser, settings.timezone);
-    const today = localDateYYYYMMDD(new Date(), timezone);
+    const today = statisticsDate();
     for (const [label, value] of [
       ["接粉日期", input.contactedOn], ["入群日期", input.joinedOn], ["推专家日期", input.expertIntroducedOn],
       ["阶段更新日期", input.stageChangedOn], ["注册日期", input.registeredOn], ["开单日期", input.openedOn],

@@ -5,7 +5,7 @@ import { TeamPerformanceTable } from "../../../components/analytics/team/TeamPer
 import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { parseAnalysisFilters, resolveAnalysisScope } from "../../../lib/analytics/scope";
 import { loadTeamPerformance } from "../../../lib/analytics/team-performance";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { resolveReadableReportGroups } from "../../../lib/report-scope";
 import { getSystemSettings } from "../../../lib/settings";
@@ -35,7 +35,7 @@ export default async function TeamPerformancePage({ searchParams }: { searchPara
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
   const now = new Date();
-  const today = localDateYYYYMMDD(now, await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate(now);
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => first(value) === undefined ? [] : [[key, first(value)!]]));
   const parsedFilters = parseAnalysisFilters(new URLSearchParams(rawValues));
   // 各角色的经营统计统一默认看当月，避免不同岗位打开同一指标却看到不同周期。

@@ -1,14 +1,14 @@
-import { localDateYYYYMMDD } from "../dates";
 import { leadDateRangeForPreset, type LeadDateRange } from "../lead-date-range";
-import { resolveGroupBusinessTime, type InheritableBusinessTime } from "../business-time";
+import type { InheritableBusinessTime } from "../business-time";
+import { statisticsDate } from "../statistics-date";
 
 type GroupWithBusinessTime = InheritableBusinessTime & { id: string };
 
-/** 同一个“今日/近7天/当月”筛选，对每个小组按各自当地今天换算。 */
+/** 所有小组共用北京时间 14:00 换日后的同一个统计日期。 */
 export function buildGroupBusinessPeriods(groups: GroupWithBusinessTime[], now: Date, range: LeadDateRange) {
+  const today = statisticsDate(now);
+  const sharedRange = leadDateRangeForPreset(range.preset, today, range.from, range.to);
   return Object.fromEntries(groups.map((group) => {
-    const today = localDateYYYYMMDD(now, resolveGroupBusinessTime(group).timezone);
-    const localRange = leadDateRangeForPreset(range.preset, today, range.from, range.to);
-    return [group.id, { today, from: localRange.from, to: localRange.to }];
+    return [group.id, { today, from: sharedRange.from, to: sharedRange.to }];
   }));
 }

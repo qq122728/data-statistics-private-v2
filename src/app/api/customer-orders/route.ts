@@ -7,7 +7,7 @@ import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
 import { parseCustomerOrderInput, type CustomerOrderInput } from "../../../lib/validation";
 import { customerOrderWriteRoles, getAssignedRoles, hasAnyRole, isFrontlineGroupMember } from "../../../lib/role-access";
 import { canWriteCustomerRevenue } from "../../../lib/permissions";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
     const validRows = rows.flatMap((row, index) => row ? [{ row, index }] : []);
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(sessionUser, settings.timezone);
-    const today = localDateYYYYMMDD(new Date(), timezone);
+    const today = statisticsDate();
     validRows.forEach(({ row, index }) => {
       const error = entryDateError(row.openedOn, today, "开单日期");
       if (error) fields[`rows.${index}.openedOn`] = [error];

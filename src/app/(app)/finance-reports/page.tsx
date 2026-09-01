@@ -4,7 +4,7 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { EmploymentSourcePanel } from "../../../components/finance/EmploymentSourcePanel";
 import { resolveReadableReportGroups } from "../../../lib/report-scope";
 
@@ -38,7 +38,7 @@ export default async function FinanceReportsPage({ searchParams }: { searchParam
       : Promise.resolve([]),
   ]);
   const readableGroups = resolveReadableReportGroups(user, groups);
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const selectedMonth = monthOnly.test(first(raw.month)) ? first(raw.month) : today.slice(0, 7);
   const range = monthRange(selectedMonth);
   const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(first(raw.date)) ? first(raw.date) : today;

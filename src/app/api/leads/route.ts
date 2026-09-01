@@ -5,7 +5,8 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { db, getOrCreateSourceBatch } from "../../../lib/db";
 import { ChannelResolutionError, resolveOrCreateChannel } from "../../../lib/channels";
 import { customerCodePrefixForChannel, parsePhoneImport, splitPhoneTokens } from "../../../lib/phone-import";
-import { isCalendarDate, localDateYYYYMMDD } from "../../../lib/dates";
+import { isCalendarDate } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
@@ -68,7 +69,7 @@ export async function POST(request: Request) {
     }
     const settings = await getSystemSettings();
     const timezone = await resolveUserBusinessTimezone(user, settings.timezone);
-    const sourceDateError = entryDateError(input.sourceDate, localDateYYYYMMDD(new Date(), timezone), "导入日期");
+    const sourceDateError = entryDateError(input.sourceDate, statisticsDate(), "导入日期");
     if (sourceDateError) return NextResponse.json({ error: sourceDateError }, { status: 400 });
     const result = await db.$transaction(async (transaction) => {
       const channel = await resolveOrCreateChannel(transaction, {

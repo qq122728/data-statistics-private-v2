@@ -6,7 +6,7 @@ import { ChannelQualityTable } from "../../../components/analytics/channel/Chann
 import { loadChannelAnalysis } from "../../../lib/analytics/channel-analysis";
 import { parseAnalysisFilters, resolveAnalysisScope } from "../../../lib/analytics/scope";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { resolveReadableReportGroups } from "../../../lib/report-scope";
 import { getSystemSettings } from "../../../lib/settings";
@@ -29,7 +29,7 @@ export default async function ChannelAnalysisPage({ searchParams }: { searchPara
     db.teamGroup.findMany({ select: { id: true, name: true, active: true, departmentId: true, countryCode: true, department: { select: { name: true, countryCode: true, companyId: true } } }, orderBy: { name: "asc" } }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const allReadableGroups = resolveReadableReportGroups(user, groups);
   const rawValues = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => first(value) === undefined ? [] : [[key, first(value)!]]));
   const parsedFilters = parseAnalysisFilters(new URLSearchParams(rawValues));

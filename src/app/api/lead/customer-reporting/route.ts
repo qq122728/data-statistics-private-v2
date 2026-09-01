@@ -7,7 +7,7 @@ import { hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-ac
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { canViewOrgScope } from "../../../../lib/org-permissions";
 import { resolveExpertWorkflowStage, type ExpertWorkflowStage } from "../../../../lib/expert-workflow-stage";
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
   const query = (params.get("q") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
   const channel = (params.get("channel") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
   const timezone = resolveGroupBusinessTime(group).timezone;
-  const today = localDateYYYYMMDD(new Date(), timezone);
+  const today = statisticsDate();
   const baseWhere: Prisma.LeadCustomerWhereInput = {
     AND: [customerCurrentGroupWhere(group.id)],
     invalid: false,
@@ -239,7 +239,7 @@ export async function POST(request: Request) {
       select: { id: true, timezone: true, countryCode: true, workStartMinutes: true, workEndMinutes: true, department: { select: { timezone: true, countryCode: true, workStartMinutes: true, workEndMinutes: true } } },
     });
     if (!group) return authorizationDenied(actor, "当前小组不存在或已停用");
-    const today = localDateYYYYMMDD(new Date(), resolveGroupBusinessTime(group).timezone);
+    const today = statisticsDate();
     const dateError = entryDateError(input.joinedOn, today, "进群日期");
     if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
     let phone: string;

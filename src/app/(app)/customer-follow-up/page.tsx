@@ -10,7 +10,7 @@ import {
   isFollowUpPlanOverdue,
   suggestedCustomerNextPlan,
 } from "../../../lib/customer-follow-up";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { getSystemSettings } from "../../../lib/settings";
 
@@ -139,7 +139,7 @@ export default async function CustomerFollowUpPage() {
     }),
   ]);
 
-  const today = localDateYYYYMMDD(new Date(), settings.timezone);
+  const today = statisticsDate();
   const rows: AdminCustomerFollowUpRow[] = leads.map((lead) => {
     const stage = deriveCustomerFollowUpStage({
       invalid: lead.invalid,

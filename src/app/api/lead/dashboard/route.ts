@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { loadRoleRankings } from "../../../../lib/analytics/role-rankings";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { hasAssignedRole } from "../../../../lib/role-access";
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   if (hasOversizedQueryValue(params)) return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
   const settings = await getSystemSettings();
   const timezone = await resolveUserBusinessTimezone(actor, settings.timezone);
-  const today = localDateYYYYMMDD(new Date(), timezone);
+  const today = statisticsDate();
   const range = resolveDateRangeWithDefault(Object.fromEntries(params), today, "month");
   const rows = await loadRoleRankings({ groupIds: [actor.groupId], sourceDateFrom: range.from, sourceDateTo: range.to, today });
   const mine = rows.experts.find((row) => row.id === actor.id);

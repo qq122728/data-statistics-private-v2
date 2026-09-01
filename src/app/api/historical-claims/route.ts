@@ -5,7 +5,8 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { recordAudit } from "../../../lib/audit";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { db } from "../../../lib/db";
-import { isCalendarDate, localDateYYYYMMDD } from "../../../lib/dates";
+import { isCalendarDate } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { entryDateError } from "../../../lib/entry-date-validation";
 import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
 import { API_LIMITS } from "../../../lib/request-limits";
@@ -170,7 +171,7 @@ export async function GET(request: Request) {
   if (!actor.groupId) return authorizationDenied(actor, "当前账号未绑定小组");
 
   const settings = await getSystemSettings();
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(actor, settings.timezone));
+  const today = statisticsDate();
   const requestedOn = new URL(request.url).searchParams.get("baselineOn") || today;
   const baselineOn = isCalendarDate(requestedOn) && requestedOn <= today ? requestedOn : today;
   const allowedStages = claimStages.filter((stage) => hasAssignedRole(actor, "LEAD") || claimRolesFor(stage).some((role) => hasAssignedRole(actor, role)));
@@ -231,7 +232,7 @@ export async function PATCH(request: Request) {
     const input = resubmitSchema.parse(await request.json());
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
-    const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(sessionUser, settings.timezone));
+    const today = statisticsDate();
     const dateError = entryDateError(input.baselineOn, today, "客户状态日期");
     if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
 
@@ -357,7 +358,7 @@ export async function POST(request: Request) {
     const input = inputSchema.parse(await request.json());
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
-    const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(sessionUser, settings.timezone));
+    const today = statisticsDate();
     const dateError = entryDateError(input.baselineOn, today, "历史状态日期");
     if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
 

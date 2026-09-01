@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prepareDueRegionalBossBriefs, sendDueRegionalBossBriefs } from "../../../../lib/boss-report/service";
 import { autoMarkExpiredGroupMemberships } from "../../../../lib/group-lifecycle";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { getSystemSettings } from "../../../../lib/settings";
 
 const inputSchema = z.object({
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   try {
     const body = inputSchema.parse(await request.json().catch(() => ({})));
     const settings = await getSystemSettings();
-    const lifecycleDate = body.date ?? localDateYYYYMMDD(new Date(), settings.timezone);
+    const lifecycleDate = body.date ?? statisticsDate();
     const lifecycle = await autoMarkExpiredGroupMemberships({ today: lifecycleDate });
     if (body.dryRun) {
       const reports = await prepareDueRegionalBossBriefs({ reportDate: body.date, force: body.force });

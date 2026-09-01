@@ -13,12 +13,20 @@ const presets: Array<{ value: Exclude<SmartDatePreset, "custom">; label: string 
 ];
 
 export function localCalendarDate() {
-  const date = new Date();
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || "";
+  const base = `${part("year")}-${part("month")}-${part("day")}`;
+  if (Number(part("hour")) < 14) return base;
+  const next = new Date(`${base}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
 }
 
 export function SmartDateRangeToolbar({
-  range, from, to, currentLabel, loading, title = "统计日期", note = "快捷选择常用周期，也可以精确指定开始和结束日期",
+  range, from, to, currentLabel, loading, title = "统计日期", note = "统一按北京时间统计，每天 14:00 切换到下一统计日",
   onRange, onFrom, onTo, onRefresh,
 }: {
   range: string;

@@ -13,7 +13,7 @@ import {
   type RoleTaskQueue,
 } from "../../../components/dashboard/RoleTaskDashboard";
 import { AuthenticationError, requireUser, type SessionUser } from "../../../lib/auth";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { loadManagementOverview } from "../../../lib/analytics/overview";
 import {
@@ -80,7 +80,7 @@ async function renderManagementDashboard(user: User, raw: SearchParams) {
     }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const allReadableGroups = resolveReadableReportGroups(user, allGroups);
   const rawValues = Object.fromEntries(
     Object.entries(raw).flatMap(([key, value]) => {
@@ -224,7 +224,7 @@ async function renderManagementDashboard(user: User, raw: SearchParams) {
 
 async function renderGroupOperatorDashboard(user: SessionUser) {
   const settings = await getSystemSettings();
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const pairedReceptionistIds = (
     await db.groupOperatorReception.findMany({
       where: { groupOperatorId: user.id },
@@ -284,7 +284,7 @@ async function renderGroupOperatorDashboard(user: SessionUser) {
 
 async function renderExpertDashboard(user: User) {
   const settings = await getSystemSettings();
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const leads = await db.leadCustomer.findMany({
     where: {
       expertOwnerId: user.id,
@@ -441,7 +441,7 @@ async function loadLeadManagementSnapshot(user: User, today: string, filters: { 
 
 async function renderMemberDashboard(user: User, _raw: SearchParams) {
   const settings = await getSystemSettings();
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const [leads, todayActivities] = await Promise.all([
     db.leadCustomer.findMany({
       where: { ownerId: user.id },

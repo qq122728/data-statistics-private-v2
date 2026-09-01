@@ -1,6 +1,6 @@
 import { AuthorizationError, requireRole } from "../../../lib/auth";
 import { db } from "../../../lib/db";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { resolveEmployeeStage } from "../../../lib/employee-stage";
 import { getRiskSettings, getSystemSettings } from "../../../lib/settings";
 import { AdminSectionNav, type AdminSection } from "../../../components/admin/AdminSectionNav";
@@ -40,7 +40,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     const businessTime = resolveGroupBusinessTime({ ...group, department });
     return { ...group, departmentName: department.name, inheritedTimezone: group.timezone === null, effectiveCountryCode: businessTime.countryCode, effectiveTimezone: businessTime.timezone, effectiveWorkStartMinutes: businessTime.workStartMinutes, effectiveWorkEndMinutes: businessTime.workEndMinutes, ...businessWorkStatus(businessTime), memberCount: _count.members, channelCount: _count.channels };
   });
-  const businessDate = localDateYYYYMMDD(new Date(), settings.timezone);
+  const businessDate = statisticsDate();
   const members = membersRaw.map((member) => {
     const resolved = resolveEmployeeStage({ onDate: businessDate, hireDate: member.hireDate, override: member.stageOverride, trainingDays: riskSettings.trainingDays, observationDays: riskSettings.observationDays });
     return { ...member, stage: resolved.stage, employmentDay: resolved.employmentDay, stageSource: resolved.source, stageOverrideAt: member.stageOverrideAt?.toISOString() ?? null, lastLoginAt: member.lastLoginAt?.toISOString() ?? null };

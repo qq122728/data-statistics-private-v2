@@ -17,7 +17,7 @@ import {
   resolveAnalysisScope,
 } from "../../../lib/analytics/scope";
 import { AuthenticationError, requireUser } from "../../../lib/auth";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { db } from "../../../lib/db";
 import { resolveReadableReportGroups } from "../../../lib/report-scope";
 import { getRiskSettings, getSystemSettings } from "../../../lib/settings";
@@ -58,7 +58,7 @@ export default async function MemberOverviewPage({
     }),
     db.department.findMany({ where: { active: true }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } }),
   ]);
-  const today = localDateYYYYMMDD(new Date(), settings.timezone);
+  const today = statisticsDate();
   const readableGroups = resolveReadableReportGroups(user, allGroups);
   const rawValues = Object.fromEntries(
     Object.entries(raw).flatMap(([key, value]) =>

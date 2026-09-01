@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { AuthenticationError, AuthorizationError, requireUser } from "../../../../lib/auth";
 import { buildGroupBusinessPeriods } from "../../../../lib/analytics/group-business-periods";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { sumLatestCurrentInGroup } from "../../../../lib/daily-stat-snapshots";
 import { db } from "../../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
@@ -118,7 +118,7 @@ export async function GET(request: Request) {
 
   const now = new Date();
   const settings = await getSystemSettings();
-  const fallbackToday = localDateYYYYMMDD(now, settings.timezone);
+  const fallbackToday = statisticsDate(now);
   const rawRange = params.get("range") ?? undefined;
   const range = resolveDateRangeWithDefault({
     range: rawRange && allowedRanges.has(rawRange) ? rawRange : undefined,

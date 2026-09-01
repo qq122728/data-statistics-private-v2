@@ -418,7 +418,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
         values: expect.objectContaining({ dispatchCount: 20, currentInGroupCount: 23, expertIntroCount: 5, registrationCount: 2, orderCount: 1, cryptoInitialDepositCents: 114800 }),
       })],
     });
-    const receptionPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=RECEPTION&range=month"));
+    const receptionPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=RECEPTION&range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     await expect(receptionPerformance.json()).resolves.toMatchObject({
       totals: { added: 20, joined: 12, introduced: 0, registered: 0, orders: 0 },
       funnel: {
@@ -429,14 +429,14 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     });
 
     signInAs(data.operator);
-    const operatorPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=GROUP_OPERATOR&range=month"));
+    const operatorPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=GROUP_OPERATOR&range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     await expect(operatorPerformance.json()).resolves.toMatchObject({
       totals: { joined: 12, introduced: 5, registered: 0, orders: 0 },
       funnel: { summary: { joined: 12, pushed: 5, registered: 2, ordered: 1, depositCents: 114800 }, currentInGroup: 23 },
     });
 
     signInAs(data.expert);
-    const expertPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=EXPERT&range=month"));
+    const expertPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=EXPERT&range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     await expect(expertPerformance.json()).resolves.toMatchObject({
       totals: { registered: 2, orders: 1, initialDepositCents: 114800 },
       funnel: { summary: { pushed: 5, registered: 2, ordered: 1, depositCents: 114800 }, currentInGroup: 0 },

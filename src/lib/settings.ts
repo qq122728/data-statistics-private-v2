@@ -1,6 +1,7 @@
 import { recordAudit } from "./audit";
 import { db } from "./db";
 import { localDateYYYYMMDD } from "./dates";
+import { statisticsDate } from "./statistics-date";
 import {
   defaultRiskSettings,
   parseRiskSettings,
@@ -180,7 +181,7 @@ export function resolveReportView(
 
   if (mode === "cumulative") return { ...rest, mode };
 
-  const today = localDateYYYYMMDD(now, settings.timezone);
+  const today = statisticsDate(now);
   return {
     ...rest,
     mode,

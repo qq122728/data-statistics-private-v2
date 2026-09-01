@@ -7,7 +7,7 @@ import { AuthenticationError, requireUser } from "../../../lib/auth";
 import { LeadWorkspaceTabs } from "../../../components/lead/LeadWorkspaceTabs";
 import { GroupOperatorPerformanceTable, type GroupOperatorPerformance } from "../../../components/lead/GroupOperatorPerformanceTable";
 import { LeadDateRangeFilter } from "../../../components/lead/LeadDateRangeFilter";
-import { localDateYYYYMMDD } from "../../../lib/dates";
+import { statisticsDate } from "../../../lib/statistics-date";
 import { resolveLeadDateRange } from "../../../lib/lead-date-range";
 import { getSystemSettings } from "../../../lib/settings";
 import { resolveUserBusinessTimezone } from "../../../lib/business-time";
@@ -53,7 +53,7 @@ export default async function GroupCustomersPage({ searchParams = Promise.resolv
       orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
     }) : Promise.resolve([]),
   ]);
-  const today = localDateYYYYMMDD(new Date(), await resolveUserBusinessTimezone(user, settings.timezone));
+  const today = statisticsDate();
   const values = Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => typeof value === "string" ? [[key, value]] : []));
   const leadRange = resolveLeadDateRange(values.range || values.sourceDateFrom || values.sourceDateTo ? values : { ...values, range: "all" }, today);
   const pagination = parsePage(values.page);

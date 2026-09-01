@@ -1,6 +1,6 @@
 import type { DailyStatEntry, Position, Prisma } from "@prisma/client";
 import { z } from "zod";
-import { localDateYYYYMMDD } from "./dates";
+import { STATISTICS_TIMEZONE, statisticsDate } from "./statistics-date";
 import { getAssignedRoles, isFrontlineGroupMember } from "./role-access";
 
 const nonNegativeInt = z.number().int().min(0).max(2_147_483_647).default(0);
@@ -43,6 +43,7 @@ export const saveDailyStatSchema = z.object({
   sourceReceptionId: optionalId,
   sourceGroupOperatorId: optionalId,
   changeReason: z.string().trim().max(500).nullable().optional(),
+  expectedStatisticsDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   values: dailyStatValuesSchema,
 });
 
@@ -271,8 +272,11 @@ export async function saveDailyStat(
     select: { id: true, active: true, groupType: true, department: { select: { timezone: true } } },
   });
   if (!group?.active) throw new DailyStatError("当前小组不可用", 403);
-  const timezone = group.department?.timezone || "Asia/Shanghai";
-  if (input.businessDate > localDateYYYYMMDD(new Date(), timezone)) throw new DailyStatError("不能填写当地时间未来日期的数据");
+  const currentStatisticsDate = statisticsDate();
+  if (input.businessDate > currentStatisticsDate) throw new DailyStatError("不能填写北京时间统计日之后的数据");
+  if (input.expectedStatisticsDate && input.expectedStatisticsDate !== currentStatisticsDate) {
+    throw new DailyStatError("统计日已在北京时间 14:00 切换，请刷新后填写新日期", 409);
+  }
 
   const channel = await tx.channel.findFirst({
     where: { id: input.channelId, groupId: actor.groupId, active: true },
@@ -362,7 +366,7 @@ export async function saveDailyStat(
         groupId: actor.groupId,
         channelId: input.channelId,
         businessDate: input.businessDate,
-        timezone,
+        timezone: STATISTICS_TIMEZONE,
         position: input.position,
         ...sources,
       },

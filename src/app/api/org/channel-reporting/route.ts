@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AuthenticationError, AuthorizationError, requireUser } from "../../../../lib/auth";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { sumLatestCurrentInGroup } from "../../../../lib/daily-stat-snapshots";
 import { db } from "../../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   if (!inScope) return authorizationDenied(actor, "没有权限查看这个小组的渠道数据");
 
   const timezone = resolveGroupBusinessTime(group).timezone;
-  const today = localDateYYYYMMDD(new Date(), timezone);
+  const today = statisticsDate();
   const rawRange = params.get("range") ?? undefined;
   const range = resolveDateRangeWithDefault({
     range: rawRange && allowedRanges.has(rawRange) ? rawRange : undefined,

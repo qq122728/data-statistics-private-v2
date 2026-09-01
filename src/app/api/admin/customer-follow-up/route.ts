@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { recordAudit } from "../../../../lib/audit";
-import { localDateYYYYMMDD } from "../../../../lib/dates";
+import { statisticsDate } from "../../../../lib/statistics-date";
 import { db } from "../../../../lib/db";
 import { getSystemSettings } from "../../../../lib/settings";
 import { requireAdminRequest } from "../_auth";
@@ -29,7 +29,7 @@ export async function PATCH(request: Request) {
   const nextPlan = parsed.data.nextPlan?.trim() || null;
   const nextFollowUpOn = parsed.data.nextFollowUpOn || null;
   const settings = await getSystemSettings();
-  const occurredOn = localDateYYYYMMDD(new Date(), settings.timezone);
+  const occurredOn = statisticsDate();
 
   const result = await db.$transaction(async (client) => {
     const existing = await client.leadCustomer.findUnique({

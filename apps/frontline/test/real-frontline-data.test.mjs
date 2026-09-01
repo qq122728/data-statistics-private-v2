@@ -90,6 +90,13 @@ test("组员AI通过自然语言模板预览并保存真实今日数据和客户
   assert.match(source, /新增续充/);
   assert.match(source, /登记出金/);
   assert.match(source, /确认更新/);
+  assert.match(source, /查询客户112233的全部进度/);
+  assert.match(source, /把今天FB-M的回复从10改成8/);
+  assert.match(source, /query-customer-result/);
+  assert.match(source, /query-daily-result/);
+  assert.match(source, /AI纠正/);
+  assert.match(source, /为防止覆盖别人的新数据/);
+  assert.doesNotMatch(source, /稍后接入/);
   assert.match(source, /\/api\/customer-orders/);
   assert.match(source, /\/api\/customer-finance/);
   assert.match(source, /ai-data-updated/);

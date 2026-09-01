@@ -48,7 +48,7 @@ type DailyContext = {
 };
 
 type Message = { id: number; role: "assistant" | "user"; text: string };
-type Phase = "idle" | "template" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done"
+type Phase = "idle" | "template" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done" | "query-daily-result" | "query-customer-result"
   | "customer-loading" | "customer-mode" | "customer-phone" | "customer-name" | "customer-channel" | "customer-operator" | "customer-device" | "customer-preview" | "customer-saving" | "customer-done"
   | "customer-batch-input" | "customer-batch-preview" | "customer-batch-saving" | "customer-batch-done"
   | "progress-loading" | "progress-phone" | "progress-action" | "progress-text" | "progress-person" | "progress-amount" | "progress-method" | "progress-preview" | "progress-saving" | "progress-done"
@@ -125,7 +125,7 @@ const LAWYER_FIELDS: Field[] = [
 ];
 
 const quickActions = ["添加今日数据", "新增客户", "录入老客户进度", "更新客户进度", "查询或纠正数据"];
-type NaturalIntent = "DAILY" | "CUSTOMER" | "LEGACY" | "PROGRESS";
+type NaturalIntent = "DAILY" | "CUSTOMER" | "LEGACY" | "PROGRESS" | "QUERY";
 const NATURAL_TEMPLATES: Record<NaturalIntent, Array<{ label: string; text: string }>> = {
   DAILY: [
     { label: "今日数据", text: "今天 FB-M：添加20，撞粉1，低金额2，无WS0，人工无效0，回复8，进群3，正常退群0，异常退群0，推专家2，注册1，开单1，首充1000，续充0，出金0" },
@@ -143,6 +143,11 @@ const NATURAL_TEMPLATES: Record<NaturalIntent, Array<{ label: string; text: stri
     { label: "登记开单", text: "客户112233今天开单，首充1000，加密货币" },
     { label: "新增续充", text: "客户112233今天续充500，银行卡" },
     { label: "登记出金", text: "客户112233今天出金100" },
+  ],
+  QUERY: [
+    { label: "查询客户进度", text: "查询客户112233的全部进度" },
+    { label: "查询今日渠道数据", text: "查询今天FB-M的数据" },
+    { label: "纠正今日数据", text: "把今天FB-M的回复从10改成8" },
   ],
 };
 
@@ -259,6 +264,7 @@ type AiSmartAssistantProps = {
 export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAssistantProps) {
   const [input, setInput] = useState("");
   const [naturalIntent, setNaturalIntent] = useState<NaturalIntent | null>(null);
+  const [naturalChangeReason, setNaturalChangeReason] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [messages, setMessages] = useState<Message[]>([]);
   const [context, setContext] = useState<DailyContext | null>(null);
@@ -311,6 +317,15 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       const channel = legacyContext.channelOptions[0].name;
       return NATURAL_TEMPLATES.LEGACY.map((template) => ({ ...template, text: template.text.replace("FB-M", channel).replace("演示接粉", reception).replace("吴天", operator).replace("西瓜", expert) }));
     }
+    if (naturalIntent === "QUERY" && context?.channels.length) {
+      return [
+        NATURAL_TEMPLATES.QUERY[0],
+        ...context.channels.flatMap((channel) => [
+          { label: `查询今日数据 · ${channel.name}`, text: `查询今天${channel.name}的数据` },
+          { label: `纠正今日数据 · ${channel.name}`, text: `把今天${channel.name}的回复从10改成8` },
+        ]),
+      ];
+    }
     return NATURAL_TEMPLATES[naturalIntent];
   }, [naturalIntent, context, customerContext, legacyContext]);
 
@@ -325,7 +340,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   }
 
   function reset() {
-    setInput(""); setNaturalIntent(null); setPhase("idle"); setMessages([]); setContext(null); setChannelId(""); setEntryId(null);
+    setInput(""); setNaturalIntent(null); setNaturalChangeReason(""); setPhase("idle"); setMessages([]); setContext(null); setChannelId(""); setEntryId(null);
     setDraft({ ...EMPTY_VALUES }); setFieldIndex(0); setEditingIndex(null); setValidationError("");
     setCustomerContext(null); setCustomerDraft({ ...EMPTY_CUSTOMER });
     setCustomerMode(null); setCustomerBatchText(""); setCustomerBatchPreview(null); setCustomerBatchCreated(0);
@@ -335,13 +350,20 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   }
 
   async function openNaturalTemplate(intent: NaturalIntent, title: string) {
-    setNaturalIntent(intent); setPhase("loading"); setInput("");
+    setNaturalIntent(intent); setNaturalChangeReason(""); setPhase("loading"); setInput("");
     setMessages([{ id: 0, role: "user", text: title }, { id: 1, role: "assistant", text: "正在读取本组真实渠道和人员，为你生成可直接使用的模板…" }]);
     messageIdRef.current = 2;
     try {
       if (intent === "DAILY") setContext(await requestJson<DailyContext>("/api/daily-stats"));
       if (intent === "CUSTOMER") setCustomerContext(await requestJson<CustomerContext>("/api/lead/customer-reporting?stage=group&page=1"));
       if (intent === "LEGACY") setLegacyContext(await requestJson<LegacyContext>("/api/lead/customer-reporting?stage=group&page=1"));
+      if (intent === "QUERY") {
+        const [daily, customers] = await Promise.all([
+          requestJson<DailyContext>("/api/daily-stats"),
+          requestJson<ProgressContext>("/api/lead/customer-reporting?stage=group&page=1"),
+        ]);
+        setContext(daily); setProgressContext(customers);
+      }
       addMessage("assistant", "模板已经换成本组真实名称。点击模板后，只需要修改号码和数字，再发送即可；我会先生成预览，不会直接保存。");
       setPhase("template");
     } catch (caught) {
@@ -381,6 +403,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   }
 
   async function parseNaturalDaily(text: string) {
+    setNaturalChangeReason("");
     setPhase("loading"); addMessage("user", text); addMessage("assistant", "正在识别渠道和指标…"); setInput("");
     try {
       const next = await requestJson<DailyContext>("/api/daily-stats");
@@ -456,11 +479,62 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     } catch (caught) { addMessage("assistant", caught instanceof Error ? caught.message : "客户进度识别失败。"); setPhase("template"); }
   }
 
+  async function parseNaturalQuery(text: string) {
+    setPhase("loading"); addMessage("user", text); setInput("");
+    const isCorrection = /纠正|改成|改为|修改为/.test(text);
+    addMessage("assistant", isCorrection ? "正在读取当前真实数据，准备修改前后对比…" : "正在查询真实数据…");
+    try {
+      if (!isCorrection) {
+        const phone = phoneIn(text);
+        if (phone) {
+          const result = await requestJson<ProgressContext>(`/api/lead/customer-reporting?stage=group&page=1&q=${encodeURIComponent(phone)}`);
+          const customer = result.customers.find((item) => item.phone === phone) ?? result.customers[0] ?? null;
+          if (!customer) { setProgressContext(result); addMessage("assistant", `本组共享客户表没有找到号码 ${phone}。`); setPhase("template"); return; }
+          setProgressContext(result); setProgressCustomer(customer); setPhase("query-customer-result");
+          addMessage("assistant", `已找到 ${customer.phone} 的当前客户进度。`); return;
+        }
+      }
+
+      const next = await requestJson<DailyContext>("/api/daily-stats");
+      const channel = optionInText(text, next.channels) ?? (next.channels.length === 1 ? next.channels[0] : null);
+      if (!channel) { setContext(next); addMessage("assistant", `没有识别出渠道。可选：${next.channels.map((item) => item.name).join("、")}`); setPhase("template"); return; }
+      const existing = next.unifiedEntries.find((item) => item.businessDate === next.today && item.channel.id === channel.id) ?? null;
+      if (!existing) { setContext(next); addMessage("assistant", `${next.today} 的 ${channel.name} 还没有填写数据。`); setPhase("template"); return; }
+      const values = { ...EMPTY_VALUES, ...existing.values };
+      setContext(next); setChannelId(channel.id); setEntryId(existing.entryId); setDraft(values);
+
+      if (!isCorrection) {
+        setNaturalChangeReason(""); setValidationError(""); setPhase("query-daily-result");
+        addMessage("assistant", `已读取 ${next.today} · ${channel.name} 的真实数据。`); return;
+      }
+
+      const candidateFields = next.groupType === "LAWYER" ? LAWYER_FIELDS : HACKER_FIELDS;
+      const normalizedText = text.replace(/\s/g, "");
+      const field = [...candidateFields].sort((a, b) => b.label.length - a.label.length).find((item) => normalizedText.includes(item.label.replace(/\s|金额|数量|号码/g, "")));
+      const newMatch = text.replace(/,/g, "").match(/(?:改成|改为|修改为)\s*\$?([\d]+(?:\.\d+)?)/);
+      if (!field || !newMatch) { addMessage("assistant", "没有识别出要纠正的指标或新数字。请点击纠正模板后修改。"); setPhase("template"); return; }
+      const parsed = parseAnswer(newMatch[1], Boolean(field.money));
+      if (parsed.error || parsed.value === undefined) { addMessage("assistant", parsed.error ?? "新数字不正确。"); setPhase("template"); return; }
+      const currentValue = field.read(values);
+      const oldMatch = text.replace(/,/g, "").match(/从\s*\$?([\d]+(?:\.\d+)?)\s*(?:改成|改为|修改为)/);
+      if (oldMatch) {
+        const statedOld = Number(oldMatch[1]);
+        const actualOld = field.money ? currentValue / 100 : currentValue;
+        if (statedOld !== actualOld) { addMessage("assistant", `为防止覆盖别人的新数据，已停止修改：你说的原值是 ${statedOld}，系统当前真实值是 ${actualOld}。请按真实值重新发送。`); setPhase("template"); return; }
+      }
+      const changed = field.write(values, parsed.value);
+      const error = validate(changed, next.groupType === "LAWYER");
+      setDraft(changed); setValidationError(error); setNaturalChangeReason(`AI纠正：${text.slice(0, 200)}`); setPhase("preview");
+      addMessage("assistant", `已生成纠正预览：${field.label} ${field.money ? amount(currentValue) : currentValue} → ${field.money ? amount(field.read(changed)) : field.read(changed)}。确认前不会保存。`);
+    } catch (caught) { addMessage("assistant", caught instanceof Error ? caught.message : "查询失败，请稍后重试。"); setPhase("template"); }
+  }
+
   function parseNaturalEntry(text: string) {
     if (naturalIntent === "DAILY") { void parseNaturalDaily(text); return; }
     if (naturalIntent === "CUSTOMER") { void parseNaturalCustomer(text); return; }
     if (naturalIntent === "LEGACY") { void parseNaturalLegacy(text); return; }
     if (naturalIntent === "PROGRESS") { void parseNaturalProgress(text); }
+    if (naturalIntent === "QUERY") { void parseNaturalQuery(text); }
   }
 
   async function startLegacyFlow() {
@@ -1009,7 +1083,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
           channelId: selectedChannel.id,
           sourceReceptionId: null,
           sourceGroupOperatorId: null,
-          changeReason: null,
+          changeReason: naturalChangeReason || null,
           values: {
             ...draft,
             effectiveCount: typeof computed.effective === "number" ? computed.effective : draft.effectiveCount,
@@ -1039,8 +1113,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     if (action === "新增客户") { void openNaturalTemplate("CUSTOMER", action); return; }
     if (action === "录入老客户进度") { void openNaturalTemplate("LEGACY", action); return; }
     if (action === "更新客户进度") { void openNaturalTemplate("PROGRESS", action); return; }
-    addMessage("user", action);
-    addMessage("assistant", "这个入口会在下一步接入。目前可以使用“添加今日数据”“新增客户”和“更新客户进度”。");
+    if (action === "查询或纠正数据") { void openNaturalTemplate("QUERY", action); }
   }
 
   function submit() {
@@ -1054,12 +1127,13 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     if (phase === "progress-phone") { void acceptProgressPhone(raw); return; }
     if (phase === "progress-text" || phase === "progress-amount") { acceptProgressValue(raw); return; }
     if (["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase)) { acceptLegacyText(raw); return; }
+    if (phase === "idle" && /查询|纠正|改成|改为|修改为/.test(raw)) { setNaturalIntent("QUERY"); void parseNaturalQuery(raw); return; }
     if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setNaturalIntent("DAILY"); void parseNaturalDaily(raw); return; }
     if (phase === "idle" && /老客户|老粉/.test(raw)) { setNaturalIntent("LEGACY"); void parseNaturalLegacy(raw); return; }
     if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setNaturalIntent("CUSTOMER"); void parseNaturalCustomer(raw); return; }
-    addMessage("user", raw);
     if (phase === "idle" && /更新.*客户|客户.*进度|跟进.*客户|客户\d+.*(?:注册|开单|首充|续充|出金|退群)/.test(raw)) { setNaturalIntent("PROGRESS"); void parseNaturalProgress(raw); return; }
-    addMessage("assistant", "目前支持添加今日数据、新增客户和更新客户进度，请点击对应入口开始。" );
+    addMessage("user", raw);
+    addMessage("assistant", "目前支持添加今日数据、新增客户、更新客户进度，以及查询或纠正数据。" );
     setInput("");
   }
 
@@ -1083,7 +1157,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         {!messages.length
           ? <div className={styles.welcome}><span><MagicWand size={22} weight="fill" /></span><strong>需要处理什么？</strong><p>选择一个入口，或者直接在下方输入。</p></div>
           : <div className={styles.messages}>{messages.map((message) => <div key={message.id} className={styles.message} data-role={message.role}>{message.text}</div>)}</div>}
-        {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action) => <button key={action} type="button" data-ready={action !== "查询或纠正数据"} onClick={() => handleQuickAction(action)}>{action}{action === "查询或纠正数据" ? <small>稍后接入</small> : null}</button>)}</div> : null}
+        {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action) => <button key={action} type="button" data-ready="true" onClick={() => handleQuickAction(action)}>{action}</button>)}</div> : null}
 
         {phase === "template" && naturalIntent ? <div className={styles.templateList} aria-label="自然语言填写模板">
           <strong>选择一个模板</strong>
@@ -1147,11 +1221,25 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
           {customerContext.memberOptions.map((member) => <button type="button" key={member.id} onClick={() => chooseCustomerOperator(member.id)}><strong>{member.name}</strong><small>本组在职成员</small></button>)}
         </div> : null}
 
-        {(phase === "preview" || phase === "saving" || phase === "done" || phase === "edit-select") && context && selectedChannel ? <div className={styles.preview}>
-          <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>保存预览</strong><small>{context.today} · {selectedChannel.name}</small></div></header>
+        {(phase === "preview" || phase === "saving" || phase === "done" || phase === "edit-select" || phase === "query-daily-result") && context && selectedChannel ? <div className={styles.preview}>
+          <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>{phase === "query-daily-result" ? "今日渠道数据" : naturalIntent === "QUERY" ? "纠正数据预览" : "保存预览"}</strong><small>{context.today} · {selectedChannel.name}</small></div></header>
           {validationError ? <div className={styles.previewError}>{validationError}</div> : null}
           <div className={styles.previewGrid}>{fields.map((field) => <div key={field.key}><span>{field.label}</span><strong>{field.money ? amount(field.read(draft)) : field.read(draft)}</strong></div>)}</div>
           <div className={styles.calculated}><strong>系统自动计算</strong>{lawyer ? <><span>未回复：{Math.max(0, draft.dispatchCount - draft.replyCount)}</span><span>回复率：{summary.replyRate}</span><span>添加律师率：{summary.registrationRate}</span><span>添加专家率：{summary.orderRate}</span></> : <><span>有效数据：{summary.effective}</span><span>回复率：{summary.replyRate}</span><span>进群率：{summary.joinRate}</span><span>异常退群率：{summary.abnormalRate}</span><span>当前在群：{summary.current}</span><span>注册率：{summary.registrationRate}</span><span>开单率：{summary.orderRate}</span></>}<span>净业绩：{amount(summary.net)}</span></div>
+        </div> : null}
+
+        {phase === "query-customer-result" && progressCustomer ? <div className={styles.preview}>
+          <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>客户当前进度</strong><small>{progressCustomer.phone} · {progressCustomer.customerName || "未填写姓名"}</small></div></header>
+          <div className={styles.customerPreview}>
+            <div><span>来源渠道</span><strong>{progressCustomer.batch.channel.name}</strong></div>
+            <div><span>进群日期</span><strong>{progressCustomer.joinedOn || "未进群"}</strong></div>
+            <div><span>炒群负责人</span><strong>{progressCustomer.groupOperatorOwner?.name || "未分配"}</strong></div>
+            <div><span>设备账号</span><strong>{progressCustomer.device?.code || "未填写"}</strong></div>
+            <div><span>炒群状态</span><strong>{progressCustomer.groupStatus || "未填写"}</strong></div>
+            <div><span>专家负责人</span><strong>{progressCustomer.expertOwner?.name || "未分配"}</strong></div>
+            <div><span>注册日期</span><strong>{progressCustomer.registeredOn || "未注册"}</strong></div>
+            <div><span>开单状态</span><strong>{progressCustomer.order ? "已开单" : "未开单"}</strong></div>
+          </div>
         </div> : null}
 
         {phase === "edit-select" ? <div className={styles.editChoices}>{fields.map((field, index) => <button type="button" key={field.key} onClick={() => beginEdit(index)}>{field.label}</button>)}</div> : null}
@@ -1235,9 +1323,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       </div>
 
       <div className={styles.flowActions}>
-        {phase === "preview" ? <><button type="button" onClick={() => void openNaturalTemplate("DAILY", "添加今日数据")}>重新填写</button><button type="button" data-primary="true" disabled={Boolean(validationError)} onClick={() => void save()}>确认保存</button></> : null}
+        {phase === "preview" ? <><button type="button" onClick={() => void openNaturalTemplate(naturalIntent === "QUERY" ? "QUERY" : "DAILY", naturalIntent === "QUERY" ? "查询或纠正数据" : "添加今日数据")}>重新填写</button><button type="button" data-primary="true" disabled={Boolean(validationError)} onClick={() => void save()}>确认保存</button></> : null}
         {phase === "edit-select" ? <button type="button" onClick={() => setPhase("preview")}>返回预览</button> : null}
-        {phase === "done" ? <><button type="button" onClick={() => void openNaturalTemplate("DAILY", "添加今日数据")}>继续填写其他渠道</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "done" ? <><button type="button" onClick={() => void openNaturalTemplate(naturalIntent === "QUERY" ? "QUERY" : "DAILY", naturalIntent === "QUERY" ? "查询或纠正数据" : "添加今日数据")}>{naturalIntent === "QUERY" ? "继续查询或纠正" : "继续填写其他渠道"}</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "query-daily-result" || phase === "query-customer-result" ? <><button type="button" onClick={() => void openNaturalTemplate("QUERY", "查询或纠正数据")}>继续查询</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
         {phase === "customer-preview" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增客户")}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveCustomer()}>确认新增</button></> : null}
         {phase === "customer-done" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增客户")}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
         {phase === "customer-batch-input" ? <button type="button" data-primary="true" disabled={!customerBatchText.trim()} onClick={acceptCustomerBatch}>下一步：选择渠道</button> : null}

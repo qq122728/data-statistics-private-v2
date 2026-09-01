@@ -66,6 +66,41 @@ No extra crop was needed because the 478-pixel-wide comparison makes the complet
 
 final result: passed
 
+## Headquarters administrator group matrix
+
+- Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-51f1875c-b725-4baa-821c-db2b6427f8a2.png`
+- Browser-rendered implementation: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/总公司管理员-小组矩阵.png`
+- Combined comparison: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/总公司参考与实现并排对比.jpg`
+- Source pixels: 871 × 752; implementation pixels: 1270 × 1372; browser viewport: 1280 × 720 at density 1. Both images were proportionally fitted into 1000 × 900 boxes for comparison.
+- State: authenticated `demo_hq`, 数据汇总 → 按小组 → 系统演示组 → 查看矩阵.
+
+### Full-view and focused comparison evidence
+
+The side-by-side image confirms the headquarters view now has the requested spreadsheet orientation: metrics run vertically, while total and members run horizontally. The group-scoped API also inserts channel columns whenever the selected group has channel data. The entire matrix is readable in the full comparison, so no additional focused crop was required.
+
+### Required fidelity surfaces
+
+- Fonts and typography: matches the existing management workbench system font, compact table hierarchy, bold total column and two-line column headings.
+- Spacing and layout rhythm: preserves the headquarters filters and summary table, then expands the matrix directly below the selected group without disrupting navigation.
+- Colors and visual tokens: reuses the approved blue total column, green calculated rows, red exception rows and neutral grid borders.
+- Image quality and assets: the interface is data-only and introduces no raster assets or substitute icons.
+- Copy and content: the group row exposes a clear “查看矩阵” action; the expanded card explains “左侧是指标，横向同时对比合计、渠道和组员”.
+
+### Findings and comparison history
+
+- Earlier P1: the headquarters administrator could only see the old horizontal group summary and had no path into the group matrix.
+  - Fix: the 按小组 table now makes each group row actionable and expands the shared `OrgGroupMetricMatrix` below it.
+  - Post-fix evidence: `总公司管理员-小组矩阵.png` shows the explicit action, expanded matrix and working 收起明细 control.
+- No remaining actionable P0, P1 or P2 findings.
+
+### Interaction and runtime verification
+
+- Verified company/department/group filters, 按小组 tab, 查看矩阵, group-scoped API response, matrix headings and 收起明细.
+- The demo matrix rendered indicator, total and three member columns.
+- Frontline tests: 44 passed. Production build and TypeScript checks passed.
+
+final result: passed
+
 ## Group / department / company data matrix
 
 - Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-51f1875c-b725-4baa-821c-db2b6427f8a2.png`

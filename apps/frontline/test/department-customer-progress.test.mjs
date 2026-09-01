@@ -14,6 +14,11 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /"已注册"/);
   assert.match(component, /if \(customer\.registeredOn\) return "已注册"/);
   assert.match(component, /aria-label="按客户状态筛选"/);
+  assert.match(component, /aria-label="客户跟进入口"/);
+  assert.match(component, /在群待推专家/);
+  assert.match(component, /专家进度/);
+  assert.match(component, /stage: viewMode === "group" \? "pending-expert" : "expert"/);
+  assert.match(component, /!customer\.expertIntroducedOn/);
   assert.match(component, /aria-pressed=\{progress === item\}/);
   assert.doesNotMatch(component, /<select aria-label="进度筛选"/);
   assert.doesNotMatch(component, /className=\{styles\.summary\}/);
@@ -63,7 +68,9 @@ test("炒群和专家单元格双击编辑并自动保存", () => {
 
 test("表格视觉匹配目标截图的紧凑大表", () => {
   assert.match(css, /\.sheetCard\{[^}]*height:calc\(100vh - 164px\)/);
-  assert.match(css, /\.table\{[^}]*min-width:2240px/);
+  assert.match(css, /\.table\[data-view="group"\]\{min-width:1540px\}/);
+  assert.match(css, /\.table\[data-view="expert"\]\{min-width:1840px\}/);
+  assert.match(css, /\.viewTabs button\[data-active="true"\]/);
   assert.match(css, /\.dayCell\{[^}]*background:#edf8f1/);
   assert.match(css, /\.progressCell\{[^}]*width:240px/);
 });

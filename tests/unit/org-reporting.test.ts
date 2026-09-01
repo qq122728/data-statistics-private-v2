@@ -470,6 +470,7 @@ describe.sequential("新版客户进度 API", () => {
     await signIn(ids.lead);
     const reception = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=reception"))).json();
     const group = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=group"))).json();
+    const pendingExpert = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=pending-expert"))).json();
     const expert = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=expert"))).json();
     const orderedExperts = await (await getLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting?stage=expert&expertStage=ORDERED"))).json();
     expect(reception.counts).toMatchObject({ reception: 2, group: 2, expert: 1 });
@@ -477,6 +478,8 @@ describe.sequential("新版客户进度 API", () => {
     expect(reception.customers.map((customer: { id: string }) => customer.id)).toContain(id("customer-reception"));
     expect(reception.customers.map((customer: { id: string }) => customer.id)).not.toContain(id("customer-archived"));
     expect(group.customers.map((customer: { id: string }) => customer.id)).toEqual(expect.arrayContaining([id("customer-group"), id("customer-expert")]));
+    expect(pendingExpert.customers.map((customer: { id: string }) => customer.id)).toContain(id("customer-group"));
+    expect(pendingExpert.customers.map((customer: { id: string }) => customer.id)).not.toContain(id("customer-expert"));
     expect(group.customers.find((customer: { id: string }) => customer.id === id("customer-group")).device).toEqual({ id: device.id, code: "B-22" });
     expect(group.channels).toContain("柏林渠道");
     expect(group.summary).toMatchObject({ customerCount: 2, orderCount: 1, initialDepositCents: 10_000, rechargeCents: 2_500, withdrawalCents: 500 });

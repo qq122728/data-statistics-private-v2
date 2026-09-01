@@ -16,7 +16,7 @@ import { entryDateError } from "../../../../lib/entry-date-validation";
 import { recordAudit } from "../../../../lib/audit";
 import { syncCustomerGroupEvent } from "../../../../lib/customer-number-event-sync";
 
-const stages = new Set(["reception", "group", "expert"]);
+const stages = new Set(["reception", "group", "pending-expert", "expert"]);
 const expertStages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
 const PAGE_SIZE = 50;
 const createSchema = z.object({
@@ -40,6 +40,7 @@ const batchCreateSchema = z.object({
 
 function stageWhere(stage: string): Prisma.LeadCustomerWhereInput {
   if (stage === "reception") return { groupStatus: "NOT_JOINED", receptionArchivedAt: null };
+  if (stage === "pending-expert") return { groupStatus: { in: ["JOINED", "LEFT"] }, expertIntroducedOn: null };
   if (stage === "expert") return { expertIntroducedOn: { not: null } };
   return { groupStatus: { in: ["JOINED", "LEFT"] } };
 }

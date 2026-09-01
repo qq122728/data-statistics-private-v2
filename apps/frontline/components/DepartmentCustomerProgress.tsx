@@ -27,11 +27,13 @@ type Payload = {
 };
 type ReportingPayload = { groups: DepartmentCustomerGroup[] };
 type ProgressFilter = "全部进度" | "群内维护" | "已推专家" | "已注册" | "已开单" | "已退群";
+type ViewMode = "group" | "expert";
 type FinanceKind = "INITIAL" | "RECHARGE" | "WITHDRAWAL";
 
 const money = (cents = 0) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
 const expertLabels: Record<string, string> = { QUEUED: "待专家接待", MATERIALS: "已经交资料，等待进一步沟通", TRACKING: "专家跟进中", PENDING_REGISTRATION: "待注册", PENDING_ORDER: "待开单", DECLINED_DEPOSIT: "暂不首充", ORDERED: "已开单，等待客户后续维护", STALLED: "停止维护" };
-const progressFilters: ProgressFilter[] = ["全部进度", "群内维护", "已推专家", "已注册", "已开单", "已退群"];
+const groupProgressFilters: ProgressFilter[] = ["全部进度", "群内维护", "已退群"];
+const expertProgressFilters: ProgressFilter[] = ["全部进度", "已推专家", "已注册", "已开单", "已退群"];
 
 function latestGroupText(customer: Customer) {
   return customer.activities.find((item) => item.kind === "GROUP_PROGRESS_UPDATED")?.note?.trim()
@@ -75,6 +77,7 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState("");
   const [page, setPage] = useState(1); const [reloadKey, setReloadKey] = useState(0);
+  const [viewMode, setViewMode] = useState<ViewMode>("group");
   const [query, setQuery] = useState(""); const [progress, setProgress] = useState<ProgressFilter>("全部进度");
   const [savingCell, setSavingCell] = useState(""); const [savedMessage, setSavedMessage] = useState("");
   const [adding, setAdding] = useState(false); const [creating, setCreating] = useState(false);
@@ -97,10 +100,10 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   useEffect(() => {
     if (!groupId) { setPayload(null); setLoading(false); return; }
     let cancelled = false; setLoading(true); setError("");
-    const params = new URLSearchParams({ groupId, stage: "group", page: String(page) });
+    const params = new URLSearchParams({ groupId, stage: viewMode === "group" ? "pending-expert" : "expert", page: String(page) });
     void requestJson<Payload>(`/api/lead/customer-reporting?${params}`).then((result) => { if (!cancelled) setPayload(result); }).catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "客户进度读取失败"); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [groupId, page, reloadKey]);
+  }, [groupId, page, reloadKey, viewMode]);
   useEffect(() => { if (adding) phoneInput.current?.focus(); }, [adding]);
   useEffect(() => {
     const refresh = () => setReloadKey((value) => value + 1);
@@ -110,11 +113,15 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
 
   const customers = useMemo(() => (payload?.customers ?? []).filter((customer) => {
     const haystack = `${customer.phone} ${customer.customerName ?? ""} ${customer.attributionOwner?.name ?? customer.owner?.name ?? ""} ${customer.batch.channel.name} ${customer.groupOperatorOwner?.name ?? ""} ${customer.expertOwner?.name ?? ""} ${latestGroupText(customer)} ${latestExpertText(customer)}`.toLowerCase();
-    return (!query.trim() || haystack.includes(query.trim().toLowerCase())) && (progress === "全部进度" || progressOf(customer) === progress);
-  }), [payload?.customers, progress, query]);
+    const belongsToView = viewMode === "group" ? !customer.expertIntroducedOn : Boolean(customer.expertIntroducedOn);
+    return belongsToView && (!query.trim() || haystack.includes(query.trim().toLowerCase())) && (progress === "全部进度" || progressOf(customer) === progress);
+  }), [payload?.customers, progress, query, viewMode]);
+  const progressFilters = viewMode === "group" ? groupProgressFilters : expertProgressFilters;
+  const tableColumns = viewMode === "group" ? 13 : 16;
   const pageCount = Math.max(1, Math.ceil((payload?.total ?? 0) / (payload?.pageSize ?? 50)));
   function showSaved(message: string) { setSavedMessage(message); window.dispatchEvent(new Event("ai-data-updated")); window.setTimeout(() => setSavedMessage(""), 2400); }
-  function beginAdd() { const today = localToday(); setAdding(true); setError(""); setDraft({ phone: "", channelId: payload?.channelOptions[0]?.id ?? "", sourceDate: today, joinedOn: today }); }
+  function switchView(next: ViewMode) { setViewMode(next); setProgress("全部进度"); setPage(1); setAdding(false); }
+  function beginAdd() { const today = localToday(); setViewMode("group"); setProgress("全部进度"); setPage(1); setAdding(true); setError(""); setDraft({ phone: "", channelId: payload?.channelOptions[0]?.id ?? "", sourceDate: today, joinedOn: today }); }
   async function createCustomer() {
     if (!adding || creating || !draft.phone.trim()) return;
     setCreating(true); setError("");
@@ -175,17 +182,21 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
     <section className={styles.sheetCard}>
       <header className={styles.sheetHeader}>
         <div><h2>组内共享客户进度</h2><p>一位客户一行；同组组员和组长都可编辑，修改后自动保存并记录操作人</p></div>
+        <nav className={styles.viewTabs} aria-label="客户跟进入口">
+          <button type="button" data-active={viewMode === "group"} aria-pressed={viewMode === "group"} onClick={() => switchView("group")}>在群待推专家</button>
+          <button type="button" data-active={viewMode === "expert"} aria-pressed={viewMode === "expert"} onClick={() => switchView("expert")}>专家进度</button>
+        </nav>
         <nav className={styles.statusFilters} aria-label="按客户状态筛选">
           {progressFilters.map((item) => <button type="button" key={item} data-active={progress === item} aria-pressed={progress === item} onClick={() => setProgress(item)}>{item}</button>)}
         </nav>
         <span><i />实时共享</span>
       </header>
       <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead><tr><th>接粉日期</th><th>进群日期</th><th>客户号码</th><th>归属组员</th><th>来源渠道</th><th>炒群负责人</th><th>设备号</th><th>群内天数</th><th>炒群情况</th><th>退群类型</th><th>退群日期（自动）</th><th>专家负责人</th><th>专家情况</th><th>注册</th><th>注册日期</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>最后修改</th></tr></thead>
+        <table className={styles.table} data-view={viewMode}>
+          <thead><tr><th>接粉日期</th><th>进群日期</th><th>客户号码</th><th>归属组员</th><th>来源渠道</th>{viewMode === "group" ? <><th>炒群负责人</th><th>设备号</th><th>群内天数</th><th>炒群情况</th></> : null}<th>退群类型</th><th>退群日期（自动）</th><th>专家负责人</th>{viewMode === "expert" ? <><th>专家情况</th><th>注册</th><th>注册日期</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th></> : null}<th>最后修改</th></tr></thead>
           <tbody>
-            {adding && member ? <tr className={styles.draftRow}><td><input aria-label="新客户接粉日期" className={styles.dateInput} type="date" value={draft.sourceDate} max={draft.joinedOn} disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, sourceDate: event.target.value }))} /></td><td><input aria-label="新客户进群日期" className={styles.dateInput} type="date" value={draft.joinedOn} min={draft.sourceDate} max={localToday()} disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, joinedOn: event.target.value }))} /></td><td><div className={styles.draftPhone}><input ref={phoneInput} aria-label="新客户号码" value={draft.phone} inputMode="numeric" maxLength={6} placeholder="号码后 6 位" disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value.replace(/\D/g, "").slice(-6) }))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void createCustomer(); } }} /><button type="button" title="确认新增" disabled={creating || draft.phone.length < 6} onClick={() => void createCustomer()}><Plus size={13} /></button><button type="button" title="取消新增" onClick={() => setAdding(false)}><X size={13} /></button></div></td><td>{member.name}</td><td><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))}>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td><td className={styles.draftHint} colSpan={15}>{creating ? "正在保存…" : "完整号码自动保留后 6 位；两个日期默认今天，可自行修改；按回车或点＋保存"}</td></tr> : null}
-            {loading ? <tr><td colSpan={20} className={styles.empty}>正在读取组内共享数据…</td></tr> : customers.map((customer) => {
+            {adding && member && viewMode === "group" ? <tr className={styles.draftRow}><td><input aria-label="新客户接粉日期" className={styles.dateInput} type="date" value={draft.sourceDate} max={draft.joinedOn} disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, sourceDate: event.target.value }))} /></td><td><input aria-label="新客户进群日期" className={styles.dateInput} type="date" value={draft.joinedOn} min={draft.sourceDate} max={localToday()} disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, joinedOn: event.target.value }))} /></td><td><div className={styles.draftPhone}><input ref={phoneInput} aria-label="新客户号码" value={draft.phone} inputMode="numeric" maxLength={6} placeholder="号码后 6 位" disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value.replace(/\D/g, "").slice(-6) }))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void createCustomer(); } }} /><button type="button" title="确认新增" disabled={creating || draft.phone.length < 6} onClick={() => void createCustomer()}><Plus size={13} /></button><button type="button" title="取消新增" onClick={() => setAdding(false)}><X size={13} /></button></div></td><td>{member.name}</td><td><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))}>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td><td className={styles.draftHint} colSpan={8}>{creating ? "正在保存…" : "完整号码自动保留后 6 位；两个日期默认今天，可自行修改；按回车或点＋保存"}</td></tr> : null}
+            {loading ? <tr><td colSpan={tableColumns} className={styles.empty}>正在读取组内共享数据…</td></tr> : customers.map((customer) => {
               const attributedOwner = customer.attributionOwner ?? customer.owner;
               const net = (customer.order?.initialDepositCents ?? 0) + (customer.order?.rechargeCents ?? 0) - (customer.order?.withdrawalCents ?? 0);
               const rechargeCount = customer.order?.financeEvents.filter((event) => event.kind === "RECHARGE").length ?? 0;
@@ -196,23 +207,28 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
                 <td className={styles.phone}><strong>{customer.phone}</strong>{customer.customerName?.trim() ? <small>{customer.customerName}</small> : null}</td>
                 <td>{canEdit ? <select className={styles.cellSelect} value={attributedOwner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setOwner", userId: event.target.value }, "owner", "接粉及业绩归属已保存")}>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : attributedOwner?.name ?? "未分配"}</td>
                 <td>{canEdit ? <select className={styles.cellSelect} value={payload?.channelOptions.find((item) => item.name === customer.batch.channel.name)?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setChannel", channelId: event.target.value }, "channel", "来源渠道已保存")}>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : customer.batch.channel.name}</td>
+                {viewMode === "group" ? <>
                 <td>{canEdit ? <select className={styles.cellSelect} value={customer.groupOperatorOwner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "assignGroupOperator", userId: event.target.value }, "operator", "炒群负责人已保存")}><option value="" disabled>点击选择</option>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : customer.groupOperatorOwner?.name ?? "待分配"}</td>
                 <td>{canEdit ? <input key={customer.device?.code ?? "empty"} className={styles.deviceInput} defaultValue={customer.device?.code ?? ""} maxLength={100} placeholder="手动填写" disabled={Boolean(savingCell)} onBlur={(event) => { const code = event.target.value.trim(); if (code !== (customer.device?.code ?? "")) void patchCell(customer, { action: "setDeviceCode", code }, "device", "设备号已保存"); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} /> : customer.device?.code ?? "—"}</td>
                 <td className={styles.dayCell}>{daysInGroup(customer.joinedOn, customer.leftOn)}</td>
                 <td className={styles.progressCell}><EditableCell label="炒群情况" value={latestGroupText(customer)} editable={canEdit} saving={savingCell === `${customer.id}:group`} onSave={(note) => saveSituation(customer, "group", note)} /></td>
+                </> : null}
                 <td>{canEdit && customer.groupStatus !== "LEFT" ? <select className={styles.cellSelect} value="" disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setLeave", leaveType: event.target.value, occurredOn: localToday() }, "leave", "退群类型和日期已保存")}><option value="">—</option><option value="NORMAL">正常退群</option><option value="ABNORMAL">异常退群</option></select> : customer.groupStatus === "LEFT" ? (customer.leftWithOrder ? "正常退群" : "异常退群") : "—"}</td>
                 <td>{customer.leftOn ?? "—"}</td>
                 <td>{canEdit ? <select className={styles.cellSelect} value={customer.expertOwner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "assignExpert", userId: event.target.value }, "expert", "专家负责人已保存")}><option value="" disabled>点击选择</option>{payload?.expertOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : customer.expertOwner?.name ?? "未分配"}</td>
+                {viewMode === "expert" ? <>
                 <td className={styles.progressCell}><EditableCell label="专家情况" value={latestExpertText(customer)} editable={canEdit} saving={savingCell === `${customer.id}:expert`} onSave={(note) => saveSituation(customer, "expert", note)} /></td>
                 <td><span className={styles.registrationStatus} data-registered={Boolean(customer.registeredOn)}>{customer.registeredOn ? "已注册" : "未注册"}</span></td>
                 <td>{canEdit ? <input key={customer.registeredOn ?? "empty"} className={styles.dateInput} type="date" defaultValue={customer.registeredOn ?? ""} min={customer.joinedOn ?? undefined} disabled={Boolean(savingCell)} onChange={(event) => event.target.value && void patchCell(customer, { action: "setRegistration", occurredOn: event.target.value }, "registration", "注册日期已保存")} /> : customer.registeredOn ?? "—"}</td>
                 <td className={styles.money}>{customer.order ? <button className={styles.financeCell} onClick={() => canEdit && openFinance("INITIAL", customer)} disabled={!canEdit}>{money(customer.order.initialDepositCents)}</button> : <button className={styles.financeAdd} disabled={!canEdit || !customer.registeredOn} title={!customer.registeredOn ? "请先填写注册日期" : "登记首充"} onClick={() => openFinance("INITIAL", customer)}>+ 首充</button>}</td>
                 <td className={styles.money}><button className={styles.financeCell} disabled={!canEdit || !customer.order} onClick={() => openFinance("RECHARGE", customer)}>{money(customer.order?.rechargeCents)}{rechargeCount ? <small>{rechargeCount}笔</small> : null}</button></td>
                 <td><button className={styles.financeCell} disabled={!canEdit || !customer.order} onClick={() => openFinance("WITHDRAWAL", customer)}>{money(customer.order?.withdrawalCents)}{withdrawalCount ? <small>{withdrawalCount}笔</small> : null}</button></td>
-                <td className={styles.net}>{money(net)}</td><td className={styles.updated}>{customer.activities[0]?.actor?.name ?? "系统"}<small>{customer.activities[0]?.occurredOn ?? "—"}</small></td>
+                <td className={styles.net}>{money(net)}</td>
+                </> : null}
+                <td className={styles.updated}>{customer.activities[0]?.actor?.name ?? "系统"}<small>{customer.activities[0]?.occurredOn ?? "—"}</small></td>
               </tr>;
             })}
-            {!loading && customers.length === 0 && !adding ? <tr><td colSpan={20} className={styles.empty}>没有符合当前条件的已进群客户</td></tr> : null}
+            {!loading && customers.length === 0 && !adding ? <tr><td colSpan={tableColumns} className={styles.empty}>{viewMode === "group" ? "没有待推专家的客户" : "还没有已推专家的客户"}</td></tr> : null}
           </tbody>
         </table>
       </div>

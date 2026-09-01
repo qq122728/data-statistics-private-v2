@@ -29,6 +29,7 @@ const viewMeta: Record<View, { title: string; note: string }> = {
 export default function FreshWorkspace({ user, onLogout }: { user: BackendUser; onLogout: () => void }) {
   const [view, setView] = useState<View>("statistics");
   const [inspectionMember, setInspectionMember] = useState<InspectorMember | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
   const [notificationUnread, setNotificationUnread] = useNotificationUnread();
   const isLead = user.roles.includes("LEAD");
   const meta = viewMeta[view];
@@ -49,12 +50,14 @@ export default function FreshWorkspace({ user, onLogout }: { user: BackendUser; 
       <div className="fresh-sidebar-note"><strong>{isLead ? "组长管理权限" : "统一组员权限"}</strong><span>{isLead ? "本人工作台＋本组管理" : "每日数据、资金和客户进度都在同一个账号处理"}</span></div>
     </aside>
 
-    <section className="fresh-main">
+    <section className="fresh-main" data-ai-open={aiOpen}>
       <header className="fresh-header">
         <div><h1>{meta.title}</h1><p>{meta.note}</p></div>
-        <div className="fresh-user"><span>{user.name.slice(0, 1)}</span><div><strong>{user.name}</strong><small>{isLead ? "组员 · 组长权限" : "组员"}</small></div><button onClick={onLogout}><SignOut size={16} />退出</button></div>
+        <div className="fresh-header-actions">
+          <AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${meta.title}`} />
+          <div className="fresh-user"><span>{user.name.slice(0, 1)}</span><div><strong>{user.name}</strong><small>{isLead ? "组员 · 组长权限" : "组员"}</small></div><button onClick={onLogout}><SignOut size={16} />退出</button></div>
+        </div>
       </header>
-      <AiSmartAssistant />
       <main className="fresh-content">
         {view === "statistics" ? <UnifiedMemberDataSheet mode="daily" memberName={user.name} /> : null}
         {view === "history" ? <MemberDailyRecords mode="history" /> : null}

@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import type { GroupDailyBusinessReport } from "./group-daily-report";
 
 type Totals = {
   added: number; collision: number; lowAmount: number; noWs: number; manualInvalid: number;
@@ -133,7 +134,79 @@ function setWidths(sheet: ExcelJS.Worksheet, leadingWidths: number[], columns: M
   columns.forEach((column, index) => { sheet.getColumn(leadingWidths.length + index + 1).width = column.format === "money" ? 16 : column.format === "percent" ? 12 : 12; });
 }
 
-export async function buildLeadChannelReportWorkbook(payload: LeadChannelReportPayload) {
+function addOverviewSheet(
+  workbook: ExcelJS.Workbook,
+  payload: LeadChannelReportPayload,
+  columns: MetricColumn[],
+  report?: GroupDailyBusinessReport,
+) {
+  const sheet = workbook.addWorksheet("最新日报");
+  const endColumn = Math.max(8, columns.length + 1);
+  const period = payload.range.from === payload.range.to ? payload.range.from : `${payload.range.from} 至 ${payload.range.to}`;
+  styleTitle(sheet, `${payload.group.name}｜业务日报｜${period}`, endColumn);
+  sheet.mergeCells(2, 1, 2, endColumn);
+  sheet.getCell(2, 1).value = report
+    ? `部门：${report.departmentName}｜国家：${report.countryName}｜日报日期：${report.reportDate}`
+    : `统计范围：${period}`;
+  sheet.getCell(2, 1).font = { color: { argb: "FF64748B" }, italic: true };
+
+  if (report) {
+    const people = (names: string[]) => names.length ? names.join("、") : "—";
+    sheet.getCell("A4").value = "前台人员";
+    sheet.getCell("B4").value = `${report.personnel.frontDesk.length} 人：${people(report.personnel.frontDesk)}`;
+    sheet.getCell("A5").value = "专家 / 组长 / 客服";
+    sheet.getCell("B5").value = `${people(report.personnel.experts)} / ${people(report.personnel.leads)} / ${people(report.personnel.customerService)}`;
+    sheet.getCell("A6").value = "炒群";
+    sheet.getCell("B6").value = people(report.personnel.operators);
+    sheet.getCell("D4").value = "昨日在群余量";
+    sheet.getCell("E4").value = report.yesterdayRemaining;
+    sheet.getCell("D5").value = "当日渠道下发";
+    sheet.getCell("E5").value = report.channelDispatch.length
+      ? report.channelDispatch.map((row) => `${row.count}（${row.name}）`).join("，")
+      : "0";
+  }
+
+  const startRow = report ? 8 : 4;
+  const dailySlice = report ? { name: "当日", totals: report.daily, derivedRates: payload.summary.derivedRates } : payload.summary;
+  const monthSlice = report ? { name: "当月", totals: report.month, derivedRates: payload.summary.derivedRates } : payload.summary;
+  addMetricTable({
+    sheet,
+    startRow,
+    leadingHeaders: ["统计口径"],
+    rows: [
+      { leading: [report ? "当日" : "当前范围"], slice: dailySlice },
+      ...(report ? [{ leading: ["当月"], slice: monthSlice }] : []),
+    ],
+    columns,
+  });
+  setWidths(sheet, [16], columns);
+
+  const rankingStart = (sheet.lastRow?.number ?? startRow) + 3;
+  const ranked = [...payload.members].sort((left, right) => right.totals.netCents - left.totals.netCents || right.totals.added - left.totals.added);
+  sheet.getRow(rankingStart).values = ["个人业绩排名", "归属成员", "添加数据", "有效数据", "进群", "开单", "入金（美元）", "出金（美元）", "净业绩（美元）"];
+  styleHeader(sheet.getRow(rankingStart));
+  ranked.forEach((member, index) => {
+    sheet.addRow([
+      index + 1,
+      member.name,
+      member.totals.added,
+      member.totals.effective,
+      member.totals.joined,
+      member.totals.ordered,
+      money(member.totals.initialDepositCents + member.totals.rechargeCents),
+      money(member.totals.withdrawalCents),
+      money(member.totals.netCents),
+    ]);
+  });
+  [7, 8, 9].forEach((column) => { sheet.getColumn(column).numFmt = '$#,##0.00;[Red]-$#,##0.00'; });
+  sheet.getColumn(2).width = 18;
+  return sheet;
+}
+
+export async function buildLeadChannelReportWorkbook(
+  payload: LeadChannelReportPayload,
+  options: { dailyReport?: GroupDailyBusinessReport } = {},
+) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "数据统计";
   workbook.created = new Date();
@@ -141,13 +214,70 @@ export async function buildLeadChannelReportWorkbook(payload: LeadChannelReportP
   const columns = payload.group.groupType === "LAWYER" ? lawyerColumns : hackerColumns;
   const period = payload.range.from === payload.range.to ? payload.range.from : `${payload.range.from} 至 ${payload.range.to}`;
 
-  const summary = workbook.addWorksheet("数据汇总");
-  styleTitle(summary, `${payload.group.name}｜数据汇总｜${period}`, 1 + columns.length);
+  addOverviewSheet(workbook, payload, columns, options.dailyReport);
+
+  const dailyEntries = workbook.addWorksheet("每日数据");
+  styleTitle(dailyEntries, `${payload.group.name}｜每日人员渠道数据｜${period}`, 3 + columns.length);
+  dailyEntries.mergeCells(2, 1, 2, 3 + columns.length);
+  dailyEntries.getCell(2, 1).value = "一行代表某位成员在某一天、某个渠道的数据；用于追查个人数据归属。";
+  dailyEntries.getCell(2, 1).font = { italic: true, color: { argb: "FF64748B" } };
+  addMetricTable({
+    sheet: dailyEntries,
+    startRow: 4,
+    leadingHeaders: ["统计日期", "归属成员", "来源渠道"],
+    rows: payload.days.flatMap((day) => day.rows.flatMap((channel) => channel.members.map((member) => ({
+      leading: [day.date, member.name, channel.name],
+      slice: member,
+    })))),
+    total: payload.summary,
+    columns,
+  });
+  setWidths(dailyEntries, [14, 18, 20], columns);
+
+  const dailySummary = workbook.addWorksheet("日数据汇总");
+  styleTitle(dailySummary, `${payload.group.name}｜日数据汇总｜${period}`, 1 + columns.length);
+  addMetricTable({
+    sheet: dailySummary,
+    startRow: 3,
+    leadingHeaders: ["统计日期"],
+    rows: payload.days.map((day) => ({ leading: [day.date], slice: day.summary })),
+    total: payload.summary,
+    columns,
+  });
+  setWidths(dailySummary, [14], columns);
+
+  const summary = workbook.addWorksheet("个人月度汇总");
+  styleTitle(summary, `${payload.group.name}｜个人月度汇总｜${period}`, 1 + columns.length);
   summary.mergeCells(2, 1, 2, 1 + columns.length);
   summary.getCell(2, 1).value = "说明：个人数据永久归最初接粉成员；渠道、人员、每日和财务使用同一统计口径。";
   summary.getCell(2, 1).font = { italic: true, color: { argb: "FF64748B" } };
   addMetricTable({ sheet: summary, startRow: 4, leadingHeaders: ["归属成员"], rows: payload.members.map((row) => ({ leading: [row.name], slice: row })), total: payload.summary, columns });
   setWidths(summary, [18], columns);
+
+  const team = workbook.addWorksheet("团队月度汇总");
+  const teamColumns: MetricColumn[] = [
+    { label: "添加数据", value: (row) => row.totals.added },
+    { label: "无效数据", value: (row) => Math.max(0, row.totals.added - row.totals.effective) },
+    { label: "有效数据", value: (row) => row.totals.effective },
+    { label: "首充（美元）", value: (row) => money(row.totals.initialDepositCents), format: "money" },
+    { label: "续充（美元）", value: (row) => money(row.totals.rechargeCents), format: "money" },
+    { label: "入金合计（美元）", value: (row) => money(row.totals.initialDepositCents + row.totals.rechargeCents), format: "money" },
+    { label: "出金（美元）", value: (row) => money(row.totals.withdrawalCents), format: "money" },
+    { label: "净业绩（美元）", value: (row) => money(row.totals.netCents), format: "money" },
+  ];
+  styleTitle(team, `${payload.group.name}｜团队月度汇总｜${period}`, 1 + teamColumns.length);
+  team.mergeCells(2, 1, 2, 1 + teamColumns.length);
+  team.getCell(2, 1).value = "按日汇总业务与财务；资金数据与渠道、成员使用同一统计口径。";
+  team.getCell(2, 1).font = { italic: true, color: { argb: "FF64748B" } };
+  addMetricTable({
+    sheet: team,
+    startRow: 4,
+    leadingHeaders: ["统计日期"],
+    rows: payload.days.map((day) => ({ leading: [day.date], slice: day.summary })),
+    total: payload.summary,
+    columns: teamColumns,
+  });
+  setWidths(team, [14], teamColumns);
 
   const channels = workbook.addWorksheet("渠道统计");
   styleTitle(channels, `${payload.group.name}｜渠道统计｜${period}`, 1 + columns.length);

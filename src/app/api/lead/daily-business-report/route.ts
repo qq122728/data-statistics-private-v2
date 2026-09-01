@@ -15,7 +15,6 @@ import { getAssignedRoles, hasAssignedRole } from "../../../../lib/role-access";
 import {
   sendBossTelegramDocument,
   sendBossTelegramMessage,
-  sendBossTelegramPhoto,
   TelegramMessageRejectedError,
 } from "../../../../lib/boss-report/telegram";
 import { authorizationDenied } from "../../../../lib/security-events";
@@ -99,7 +98,7 @@ export async function GET(request: Request) {
       return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": "image/png", "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`${prepared.group.name}-业务日报-${date}.png`)}`, "Cache-Control": "private, no-store" } });
     }
     if (format === "xlsx") {
-      const workbook = await buildLeadChannelReportWorkbook(prepared.monthPayload);
+      const workbook = await buildLeadChannelReportWorkbook(prepared.monthPayload, { dailyReport: prepared.report });
       const bytes = await workbook.xlsx.writeBuffer();
       return new NextResponse(Buffer.from(bytes), { headers: { "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`${prepared.group.name}-业务报表-${date.slice(0, 7)}.xlsx`)}`, "Cache-Control": "private, no-store" } });
     }
@@ -150,15 +149,11 @@ export async function POST(request: Request) {
     const url = new URL(request.url);
     url.searchParams.set("date", date);
     const prepared = await prepareReport(new Request(url, { headers: request.headers }), date);
-    const [png, workbook] = await Promise.all([
-      buildGroupDailyReportPng(prepared.report),
-      buildLeadChannelReportWorkbook(prepared.monthPayload),
-    ]);
+    const workbook = await buildLeadChannelReportWorkbook(prepared.monthPayload, { dailyReport: prepared.report });
     const xlsx = Buffer.from(await workbook.xlsx.writeBuffer());
     const prefix = `groupDaily:${prepared.group.id}:${date}`;
     const sent = [] as string[];
     if (await sendPart(`${prefix}:text`, prepared.text, () => sendBossTelegramMessage(prepared.text))) sent.push("文字");
-    if (await sendPart(`${prefix}:image`, png, () => sendBossTelegramPhoto(png, `${prepared.group.name} ${date} 业务日报图`))) sent.push("图片");
     if (await sendPart(`${prefix}:excel`, xlsx, () => sendBossTelegramDocument(xlsx, `${prepared.group.name}-业务报表-${date.slice(0, 7)}.xlsx`, `${prepared.group.name} ${date.slice(0, 7)} 月详细报表`))) sent.push("Excel");
     return NextResponse.json({ ok: true, sent, message: sent.length ? `已推送${sent.join("、")}` : "该日报已经推送过，没有重复发送" });
   } catch (error) {

@@ -25,9 +25,14 @@ describe("group leader channel report workbook", () => {
       members: [member], rows: [channel], days: [{ date: "2026-08-30", summary: { name: "当日", totals, derivedRates: rates }, rows: [channel] }],
     };
     const workbook = await buildLeadChannelReportWorkbook(payload);
-    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["数据汇总", "渠道统计", "每日渠道明细", "渠道成员明细"]);
+    expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual([
+      "最新日报", "每日数据", "日数据汇总", "个人月度汇总", "团队月度汇总", "渠道统计", "每日渠道明细", "渠道成员明细",
+    ]);
     expect(workbook.getWorksheet("渠道统计")?.getCell("A5").value).toBe("FB-M");
     expect(workbook.getWorksheet("渠道统计")?.getCell("Y5").value).toBe(130);
     expect(workbook.getWorksheet("每日渠道明细")?.getCell("A4").value).toBe("2026-08-30");
+    expect(workbook.getWorksheet("每日数据")?.getCell("A5").value).toBe("2026-08-30");
+    expect(workbook.getWorksheet("个人月度汇总")?.getCell("A5").value).toBe("西瓜");
+    expect(workbook.getWorksheet("团队月度汇总")?.getCell("I5").value).toBe(130);
   });
 });

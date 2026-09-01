@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prepareDueRegionalBossBriefs, sendDueRegionalBossBriefs } from "../../../../lib/boss-report/service";
 import { resolveGroupBusinessTime } from "../../../../lib/business-time-config";
 import { db } from "../../../../lib/db";
-import { dueGroupDailySchedules } from "../../../../lib/group-daily-schedule";
+import { dueGroupDailySchedules, groupDailyReportDate } from "../../../../lib/group-daily-schedule";
 import { autoMarkExpiredGroupMemberships } from "../../../../lib/group-lifecycle";
 import { hasValidDailyJobSecret } from "../../../../lib/internal-job-auth";
 import { statisticsDate } from "../../../../lib/statistics-date";
@@ -31,11 +31,20 @@ async function groupDailyTargets(now: Date, all = false) {
 
 async function sendDueGroupDailyReports(request: Request, options: { now: Date; reportDate?: string; force?: boolean; dryRun?: boolean }) {
   const targets = await groupDailyTargets(options.now, Boolean(options.reportDate || options.force));
-  const reportDate = options.reportDate ?? statisticsDate(options.now);
-  if (options.dryRun) return { reportDate, targets: targets.map(({ id, name, timezone, workEndMinutes }) => ({ id, name, timezone, workEndMinutes })) };
+  if (options.dryRun) return {
+    requestedReportDate: options.reportDate ?? null,
+    targets: targets.map((group) => ({
+      id: group.id,
+      name: group.name,
+      timezone: group.timezone,
+      workEndMinutes: group.workEndMinutes,
+      reportDate: options.reportDate ?? groupDailyReportDate(group, options.now),
+    })),
+  };
   const secret = request.headers.get("x-daily-job-secret")!;
-  const results: Array<{ groupId: string; groupName: string; ok: boolean; message: string }> = [];
+  const results: Array<{ groupId: string; groupName: string; reportDate: string; ok: boolean; message: string }> = [];
   for (const group of targets) {
+    const reportDate = options.reportDate ?? groupDailyReportDate(group, options.now);
     const url = new URL("/api/lead/daily-business-report", request.url);
     const response = await sendGroupDailyReport(new Request(url, {
       method: "POST",
@@ -43,9 +52,9 @@ async function sendDueGroupDailyReports(request: Request, options: { now: Date; 
       body: JSON.stringify({ date: reportDate, groupId: group.id }),
     }));
     const payload = await response.json() as { message?: string; error?: string };
-    results.push({ groupId: group.id, groupName: group.name, ok: response.ok, message: payload.message ?? payload.error ?? "未知结果" });
+    results.push({ groupId: group.id, groupName: group.name, reportDate, ok: response.ok, message: payload.message ?? payload.error ?? "未知结果" });
   }
-  return { reportDate, sentCount: results.filter((row) => row.ok && row.message.startsWith("已推送")).length, results };
+  return { requestedReportDate: options.reportDate ?? null, sentCount: results.filter((row) => row.ok && row.message.startsWith("已推送")).length, results };
 }
 
 export async function POST(request: Request) {

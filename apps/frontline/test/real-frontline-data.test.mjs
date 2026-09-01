@@ -55,5 +55,7 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /一次最多 200 个/);
   assert.match(source, /确认批量新增/);
   assert.match(source, /dryRun: true/);
+  assert.match(source, /选择炒群负责人/);
+  assert.match(source, /输入设备账号或设备号/);
   assert.match(source, /ai-data-updated/);
 });

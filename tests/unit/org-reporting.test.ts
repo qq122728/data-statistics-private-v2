@@ -421,6 +421,8 @@ describe.sequential("新版客户进度 API", () => {
       phones: ["+1 725 830001", "830002", "830002", "12"],
       channelId: id("berlin-channel"),
       joinedOn: "2026-08-01",
+      groupOperatorOwnerId: ids.berlinOperatorA,
+      deviceCode: "批量设备-B08",
     };
     const call = (dryRun: boolean) => postLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting", {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, dryRun }),
@@ -433,7 +435,10 @@ describe.sequential("新版客户进度 API", () => {
     const saved = await call(false);
     expect(saved.status).toBe(201);
     expect(await saved.json()).toMatchObject({ created: [{ phone: "830001" }, { phone: "830002" }], duplicates: ["830002"], invalid: ["12"] });
-    expect(await db.leadCustomer.count({ where: { phone: { in: ["830001", "830002"] }, ownerId: ids.berlinReception, attributionOwnerId: ids.berlinReception, groupStatus: "JOINED" } })).toBe(2);
+    expect(await db.leadCustomer.count({ where: {
+      phone: { in: ["830001", "830002"] }, ownerId: ids.berlinReception, attributionOwnerId: ids.berlinReception,
+      groupStatus: "JOINED", groupOperatorOwnerId: ids.berlinOperatorA, device: { code: "批量设备-B08" },
+    } })).toBe(2);
 
     const repeatedPreview = await call(true);
     expect(await repeatedPreview.json()).toMatchObject({ validPhones: [], duplicates: expect.arrayContaining(["830001", "830002"]), invalid: ["12"] });

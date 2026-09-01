@@ -23,11 +23,15 @@ const createSchema = z.object({
   customerName: z.string().trim().max(80, "客户姓名不能超过 80 个字").optional(),
   channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
   joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
+  groupOperatorOwnerId: z.string().trim().min(1).max(API_LIMITS.identifierCharacters).optional(),
+  deviceCode: z.string().trim().min(1, "请输入设备账号").max(100, "设备账号不能超过 100 个字").optional(),
 });
 const batchCreateSchema = z.object({
   phones: z.array(z.string().trim().max(80, "单个客户号码不能超过 80 个字")).min(1, "请至少输入一个客户号码").max(200, "一次最多新增 200 个客户"),
   channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
   joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
+  groupOperatorOwnerId: z.string().trim().min(1, "请选择炒群负责人").max(API_LIMITS.identifierCharacters),
+  deviceCode: z.string().trim().min(1, "请输入设备账号").max(100, "设备账号不能超过 100 个字"),
   dryRun: z.boolean().optional().default(false),
 });
 
@@ -270,11 +274,13 @@ export async function POST(request: Request) {
         }
       }
 
-      const [channel, existing] = await Promise.all([
+      const [channel, operator, existing] = await Promise.all([
         db.channel.findUnique({ where: { id_groupId: { id: input.channelId, groupId: group.id } }, select: { id: true, active: true } }),
+        db.user.findFirst({ where: { id: input.groupOperatorOwnerId, groupId: group.id, active: true }, select: { id: true, name: true } }),
         uniquePhones.length ? db.leadCustomer.findMany({ where: { phone: { in: uniquePhones } }, select: { phone: true } }) : Promise.resolve([]),
       ]);
       if (!channel?.active) return NextResponse.json({ error: "来源渠道不存在或已停用" }, { status: 400 });
+      if (!operator) return NextResponse.json({ error: "炒群负责人只能选择本组在职成员" }, { status: 400 });
       const existingPhones = new Set(existing.map((customer) => customer.phone));
       const validPhones = uniquePhones.filter((phone) => !existingPhones.has(phone));
       const duplicates = [...new Set([...repeated, ...existing.map((customer) => customer.phone)])];
@@ -285,14 +291,22 @@ export async function POST(request: Request) {
 
       const created = await db.$transaction(async (transaction) => {
         const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate: input.joinedOn }, transaction);
+        const device = await transaction.device.upsert({
+          where: { groupId_code: { groupId: group.id, code: input.deviceCode } },
+          update: {}, create: { groupId: group.id, code: input.deviceCode, memberId: actor.id }, select: { id: true },
+        });
         const rows: Array<{ id: string; phone: string }> = [];
         for (const phone of validPhones) {
           const customer = await transaction.leadCustomer.create({
             data: {
               phone, customerName: null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
-              groupOperatorOwnerId: null, deviceId: null, receptionCategory: "VALID", invalid: false,
+              groupOperatorOwnerId: operator.id, deviceId: device.id, receptionCategory: "VALID", invalid: false,
               replyStatus: "REPLIED", repliedOn: input.joinedOn, groupStatus: "JOINED", joinedOn: input.joinedOn,
-              activities: { create: { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从 AI 助手批量新增到组内共享客户进度表" } },
+              activities: { create: [
+                { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从 AI 助手批量新增到组内共享客户进度表" },
+                { actorId: actor.id, kind: "PLAN_UPDATED", occurredOn: input.joinedOn, note: `炒群负责人设置为 ${operator.name}` },
+                { actorId: actor.id, kind: "DEVICE_ASSIGNED", occurredOn: input.joinedOn, note: `设备号设置为 ${input.deviceCode}` },
+              ] },
             },
             select: { id: true, phone: true },
           });
@@ -301,7 +315,7 @@ export async function POST(request: Request) {
             action: "SHARED_CUSTOMER_CREATE",
             entityType: "LeadCustomer",
             entityId: customer.id,
-            summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id, batchCreate: true },
+            summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator.id, deviceCode: input.deviceCode, batchCreate: true },
           });
           rows.push(customer);
         }
@@ -323,18 +337,26 @@ export async function POST(request: Request) {
     try { phone = normalizeCustomerPhone(input.phone); }
     catch { return NextResponse.json({ error: "客户号码必须包含数字" }, { status: 400 }); }
     const result = await db.$transaction(async (transaction) => {
-      const [channel, existing] = await Promise.all([
+      const [channel, operator, existing] = await Promise.all([
         transaction.channel.findUnique({ where: { id_groupId: { id: input.channelId, groupId: group.id } }, select: { id: true, active: true } }),
+        input.groupOperatorOwnerId
+          ? transaction.user.findFirst({ where: { id: input.groupOperatorOwnerId, groupId: group.id, active: true }, select: { id: true } })
+          : Promise.resolve(null),
         transaction.leadCustomer.findUnique({ where: { phone }, select: { id: true } }),
       ]);
       if (!channel?.active) return { status: 400 as const, error: "来源渠道不存在或已停用" };
+      if (input.groupOperatorOwnerId && !operator) return { status: 400 as const, error: "炒群负责人只能选择本组在职成员" };
       if (existing) return { status: 409 as const, error: "该客户号码已经存在，不能重复新增" };
       const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate: input.joinedOn }, transaction);
+      const device = input.deviceCode ? await transaction.device.upsert({
+        where: { groupId_code: { groupId: group.id, code: input.deviceCode } },
+        update: {}, create: { groupId: group.id, code: input.deviceCode, memberId: actor.id }, select: { id: true },
+      }) : null;
       const customer = await transaction.leadCustomer.create({
         data: {
           phone, customerName: input.customerName || null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
-          groupOperatorOwnerId: null,
-          deviceId: null, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: input.joinedOn,
+          groupOperatorOwnerId: operator?.id ?? null,
+          deviceId: device?.id ?? null, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: input.joinedOn,
           groupStatus: "JOINED", joinedOn: input.joinedOn,
           activities: { create: { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从组内共享客户进度表新增" } },
         }, select: { id: true, phone: true },
@@ -344,7 +366,7 @@ export async function POST(request: Request) {
         action: "SHARED_CUSTOMER_CREATE",
         entityType: "LeadCustomer",
         entityId: customer.id,
-        summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id },
+        summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator?.id ?? null, deviceCode: input.deviceCode ?? null },
       });
       return { status: 201 as const, customer };
     });

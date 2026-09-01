@@ -49,7 +49,7 @@ type DailyContext = {
 
 type Message = { id: number; role: "assistant" | "user"; text: string };
 type Phase = "idle" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done"
-  | "customer-loading" | "customer-mode" | "customer-phone" | "customer-name" | "customer-channel" | "customer-preview" | "customer-saving" | "customer-done"
+  | "customer-loading" | "customer-mode" | "customer-phone" | "customer-name" | "customer-channel" | "customer-operator" | "customer-device" | "customer-preview" | "customer-saving" | "customer-done"
   | "customer-batch-input" | "customer-batch-preview" | "customer-batch-saving" | "customer-batch-done";
 type Field = {
   key: string;
@@ -127,11 +127,12 @@ const quickActions = ["添加今日数据", "新增客户", "更新客户进度"
 type CustomerContext = {
   today: string;
   channelOptions: Array<{ id: string; name: string }>;
+  memberOptions: Array<{ id: string; name: string }>;
 };
 
-type CustomerDraft = { phone: string; customerName: string; channelId: string; joinedOn: string };
+type CustomerDraft = { phone: string; customerName: string; channelId: string; joinedOn: string; groupOperatorOwnerId: string; deviceCode: string };
 type CustomerBatchPreview = { validPhones: string[]; duplicates: string[]; invalid: string[]; totalInput: number };
-const EMPTY_CUSTOMER: CustomerDraft = { phone: "", customerName: "", channelId: "", joinedOn: "" };
+const EMPTY_CUSTOMER: CustomerDraft = { phone: "", customerName: "", channelId: "", joinedOn: "", groupOperatorOwnerId: "", deviceCode: "" };
 
 function amount(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value / 100);
@@ -225,6 +226,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   const fields = lawyer ? LAWYER_FIELDS : HACKER_FIELDS;
   const selectedChannel = context?.channels.find((channel) => channel.id === channelId) ?? null;
   const selectedCustomerChannel = customerContext?.channelOptions.find((channel) => channel.id === customerDraft.channelId) ?? null;
+  const selectedCustomerOperator = customerContext?.memberOptions.find((member) => member.id === customerDraft.groupOperatorOwnerId) ?? null;
   const summary = useMemo(() => calculated(draft, Boolean(lawyer)), [draft, lawyer]);
 
   useEffect(() => {
@@ -330,31 +332,58 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     setPhase("customer-channel");
   }
 
-  async function chooseCustomerChannel(nextChannelId: string) {
+  function chooseCustomerChannel(nextChannelId: string) {
     const channel = customerContext?.channelOptions.find((item) => item.id === nextChannelId);
     if (!channel) return;
     setCustomerDraft((current) => ({ ...current, channelId: channel.id }));
     addMessage("user", channel.name);
-    if (customerMode === "batch") {
-      setPhase("customer-loading");
-      addMessage("assistant", "正在整理号码并检查重复客户…" );
-      try {
-        const preview = await requestJson<CustomerBatchPreview>("/api/lead/customer-reporting", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ phones: customerBatchPhones(), channelId: channel.id, joinedOn: customerDraft.joinedOn, dryRun: true }),
-        });
-        setCustomerBatchPreview(preview);
-        addMessage("assistant", `检查完成：可新增 ${preview.validPhones.length} 个，重复 ${preview.duplicates.length} 个，格式错误 ${preview.invalid.length} 个。请核对后确认。`);
-        setPhase("customer-batch-preview");
-      } catch (caught) {
-        addMessage("assistant", caught instanceof Error ? `检查失败：${caught.message}` : "号码检查失败，请稍后重试。" );
-        setPhase("customer-channel");
-      }
+    addMessage("assistant", "请选择这些客户的炒群负责人。可选择本组任意在职成员。" );
+    setPhase("customer-operator");
+  }
+
+  function chooseCustomerOperator(userId: string) {
+    const member = customerContext?.memberOptions.find((item) => item.id === userId);
+    if (!member) return;
+    setCustomerDraft((current) => ({ ...current, groupOperatorOwnerId: member.id }));
+    addMessage("user", member.name);
+    addMessage("assistant", "请输入这些客户使用的设备账号或设备号。" );
+    setPhase("customer-device");
+  }
+
+  async function acceptCustomerDevice(raw: string) {
+    const deviceCode = raw.trim();
+    if (!deviceCode) {
+      addMessage("assistant", "设备账号不能为空，请重新输入。" );
       return;
     }
-    addMessage("assistant", "资料已经整理完成，请确认后再保存到组内共享客户进度表。" );
-    setPhase("customer-preview");
+    if (deviceCode.length > 100) {
+      addMessage("assistant", "设备账号不能超过 100 个字。" );
+      return;
+    }
+    const nextDraft = { ...customerDraft, deviceCode };
+    setCustomerDraft(nextDraft);
+    addMessage("user", deviceCode);
+    setInput("");
+    if (customerMode !== "batch") {
+      addMessage("assistant", "资料已经整理完成，请确认后再保存到组内共享客户进度表。" );
+      setPhase("customer-preview");
+      return;
+    }
+    setPhase("customer-loading");
+    addMessage("assistant", "正在整理号码并检查重复客户…" );
+    try {
+      const preview = await requestJson<CustomerBatchPreview>("/api/lead/customer-reporting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ phones: customerBatchPhones(), ...nextDraft, dryRun: true }),
+      });
+      setCustomerBatchPreview(preview);
+      addMessage("assistant", `检查完成：可新增 ${preview.validPhones.length} 个，重复 ${preview.duplicates.length} 个，格式错误 ${preview.invalid.length} 个。请核对后确认。`);
+      setPhase("customer-batch-preview");
+    } catch (caught) {
+      addMessage("assistant", caught instanceof Error ? `检查失败：${caught.message}` : "号码检查失败，请稍后重试。" );
+      setPhase("customer-device");
+    }
   }
 
   async function saveCustomerBatch() {
@@ -365,7 +394,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       const result = await requestJson<{ created: Array<{ id: string; phone: string }>; duplicates: string[]; invalid: string[] }>("/api/lead/customer-reporting", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ phones: customerBatchPhones(), channelId: selectedCustomerChannel.id, joinedOn: customerDraft.joinedOn, dryRun: false }),
+        body: JSON.stringify({ phones: customerBatchPhones(), ...customerDraft, channelId: selectedCustomerChannel.id, dryRun: false }),
       });
       setCustomerBatchCreated(result.created.length);
       setCustomerBatchPreview((current) => current ? { ...current, validPhones: result.created.map((customer) => customer.phone), duplicates: result.duplicates, invalid: result.invalid } : current);
@@ -541,6 +570,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     if (phase === "metrics" || phase === "editing") { acceptMetric(raw); return; }
     if (phase === "customer-phone") { acceptCustomerPhone(raw); return; }
     if (phase === "customer-name") { acceptCustomerName(raw); return; }
+    if (phase === "customer-device") { void acceptCustomerDevice(raw); return; }
     if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setInput(""); void startDailyFlow(); return; }
     if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setInput(""); void startCustomerFlow(); return; }
     addMessage("user", raw);
@@ -548,7 +578,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     setInput("");
   }
 
-  const inputEnabled = phase === "idle" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name";
+  const inputEnabled = phase === "idle" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name" || phase === "customer-device";
 
   return <section className={styles.assistant} data-open={open}>
     <button type="button" className={styles.trigger} onClick={() => onOpenChange(!open)} aria-label="AI 智能助手" aria-expanded={open} aria-controls="ai-assistant-drawer">
@@ -589,6 +619,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
           {customerContext.channelOptions.map((channel) => <button type="button" key={channel.id} onClick={() => chooseCustomerChannel(channel.id)}><strong>{channel.name}</strong><small>来源渠道</small></button>)}
         </div> : null}
 
+        {phase === "customer-operator" && customerContext ? <div className={styles.choiceList} aria-label="选择炒群负责人">
+          {customerContext.memberOptions.map((member) => <button type="button" key={member.id} onClick={() => chooseCustomerOperator(member.id)}><strong>{member.name}</strong><small>本组在职成员</small></button>)}
+        </div> : null}
+
         {(phase === "preview" || phase === "saving" || phase === "done" || phase === "edit-select") && context && selectedChannel ? <div className={styles.preview}>
           <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>保存预览</strong><small>{context.today} · {selectedChannel.name}</small></div></header>
           {validationError ? <div className={styles.previewError}>{validationError}</div> : null}
@@ -605,6 +639,8 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
             <div><span>客户姓名</span><strong>{customerDraft.customerName || "未填写"}</strong></div>
             <div><span>来源渠道</span><strong>{selectedCustomerChannel.name}</strong></div>
             <div><span>进群日期</span><strong>{customerDraft.joinedOn}</strong></div>
+            <div><span>炒群负责人</span><strong>{selectedCustomerOperator?.name ?? "未选择"}</strong></div>
+            <div><span>设备账号</span><strong>{customerDraft.deviceCode}</strong></div>
             <div><span>归属组员</span><strong>当前账号本人</strong></div>
             <div><span>初始状态</span><strong>已进群</strong></div>
           </div>
@@ -617,6 +653,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
             <div data-kind="valid"><strong>{phase === "customer-batch-done" ? customerBatchCreated : customerBatchPreview.validPhones.length}</strong><span>{phase === "customer-batch-done" ? "成功新增" : "可以新增"}</span></div>
             <div data-kind="duplicate"><strong>{customerBatchPreview.duplicates.length}</strong><span>重复跳过</span></div>
             <div data-kind="invalid"><strong>{customerBatchPreview.invalid.length}</strong><span>格式错误</span></div>
+          </div>
+          <div className={styles.customerPreview}>
+            <div><span>炒群负责人</span><strong>{selectedCustomerOperator?.name ?? "未选择"}</strong></div>
+            <div><span>设备账号</span><strong>{customerDraft.deviceCode}</strong></div>
           </div>
           {customerBatchPreview.validPhones.length ? <div className={styles.phoneList}><strong>有效号码</strong><div>{customerBatchPreview.validPhones.map((phone) => <span key={phone}>{phone}</span>)}</div></div> : null}
           {customerBatchPreview.duplicates.length ? <div className={styles.batchWarning}>重复号码：{customerBatchPreview.duplicates.join("、")}</div> : null}
@@ -636,7 +676,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         {phase === "customer-batch-done" ? <><button type="button" onClick={() => void startCustomerFlow()}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
       </div>
       <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" ? "输入姓名或回复“跳过”" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />
+        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" ? "输入设备账号或设备号" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />
         <button type="submit" aria-label="发送" disabled={!input.trim() || !inputEnabled}><PaperPlaneTilt size={16} weight="fill" /></button>
       </form>
     </aside> : null}

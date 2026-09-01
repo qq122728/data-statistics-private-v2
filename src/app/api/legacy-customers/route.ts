@@ -74,13 +74,7 @@ export async function POST(request: Request) {
   if (!mayCreate(sessionUser)) return authorizationDenied(sessionUser, "当前岗位不能录入老客户");
   if (!sessionUser.groupId) return authorizationDenied(sessionUser, "当前账号未绑定小组");
   try {
-    const rawInput = await request.json();
-    if (rawInput && typeof rawInput === "object" && (
-      (rawInput as { currentEvent?: unknown }).currentEvent === "ORDERED"
-      || Boolean((rawInput as { initialDepositCents?: unknown }).initialDepositCents)
-      || Boolean((rawInput as { initialDepositMethod?: unknown }).initialDepositMethod)
-    )) return NextResponse.json({ error: "历史已开单和历史资金补录入口已关闭；请只记录客户当前进度，统计数字在“每日数据填写”中单独填写" }, { status: 410 });
-    const input = inputSchema.parse(rawInput);
+    const input = inputSchema.parse(await request.json());
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
     const today = statisticsDate();

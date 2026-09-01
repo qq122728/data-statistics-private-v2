@@ -41,6 +41,7 @@ export type AssistantIntent =
   | { kind: "daily"; correction: boolean; updates: MetricUpdate[] }
   | { kind: "customer_query"; phoneTail: string }
   | { kind: "customer_note"; phoneTail: string; noteKind: "group" | "expert"; note: string }
+  | { kind: "legacy_event"; phoneTail: string; event: "JOINED" | "ORDERED" | "RECHARGE"; sourceDate: string; amountCents?: number; channelName?: string; receptionOwnerName?: string; groupOperatorName?: string; expertName?: string }
   | { kind: "unknown" };
 
 const metricPatterns: Array<{ key: keyof DailyValues; label: string; money?: boolean; patterns: string[] }> = [
@@ -74,6 +75,13 @@ function phoneTail(message: string) {
 export function interpretAssistantMessage(message: string): AssistantIntent {
   const compact = message.replace(/[,，:：=＝]/g, " ").replace(/\s+/g, " ").trim();
   const tail = phoneTail(compact);
+  const sourceDateMatch = compact.match(/(?:(20\d{2})[年/.-])?(\d{1,2})[月/.-](\d{1,2})日?/);
+  if (tail && sourceDateMatch && /老客户|老粉|历史|的粉/.test(compact) && /进群|开单|续充/.test(compact)) {
+    const sourceDate = `${sourceDateMatch[1] ?? new Date().getFullYear()}-${sourceDateMatch[2].padStart(2, "0")}-${sourceDateMatch[3].padStart(2, "0")}`;
+    const event = /续充/.test(compact) ? "RECHARGE" as const : /开单/.test(compact) ? "ORDERED" as const : "JOINED" as const;
+    const amountMatch = event === "JOINED" ? null : compact.match(/(?:开单|首充|续充|金额)[^\d]{0,12}(\d+(?:\.\d+)?)/);
+    return { kind: "legacy_event", phoneTail: tail, event, sourceDate, ...(amountMatch ? { amountCents: Math.round(Number(amountMatch[1]) * 100) } : {}) };
+  }
   const groupMatch = compact.match(/(?:炒群情况|群内情况|炒群进度)(?:写错了|改成|修改为|更新为|是|为)?\s*(.+)$/);
   if (tail && groupMatch?.[1]?.trim()) return { kind: "customer_note", phoneTail: tail, noteKind: "group", note: groupMatch[1].trim() };
   const expertMatch = compact.match(/(?:专家情况|专家进度)(?:写错了|改成|修改为|更新为|是|为)?\s*(.+)$/);

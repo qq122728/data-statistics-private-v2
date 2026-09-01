@@ -92,6 +92,36 @@ describe.sequential("legacy customer entry", () => {
     expect(expert.id).toBeTruthy();
   });
 
+  it("records an old customer's order today without backfilling its earlier funnel", async () => {
+    const suffix = randomUUID();
+    const departmentId = `${prefix}department-${suffix}`;
+    const groupId = `${prefix}group-${suffix}`;
+    const channelId = `${prefix}channel-${suffix}`;
+    await db.department.create({ data: { id: departmentId, name: `${prefix}公司-${suffix}`, timezone: "America/Los_Angeles" } });
+    await db.teamGroup.create({ data: { id: groupId, name: `${prefix}小组-${suffix}`, departmentId } });
+    const createUser = (role: "LEAD" | "RECEPTION" | "GROUP_OPERATOR" | "EXPERT", name: string) => db.user.create({ data: { id: `${prefix}${role}-${suffix}`, username: `${prefix}${role}-${suffix}`, name, role, groupId, passwordHash: hashPassword("Legacy@56790") } });
+    const [reception, operator, expert] = await Promise.all([
+      createUser("RECEPTION", "接粉员"), createUser("GROUP_OPERATOR", "炒群员"), createUser("EXPERT", "专家"),
+    ]);
+    await db.channel.create({ data: { id: channelId, groupId, name: "历史渠道", normalizedName: `history-order-${suffix}` } });
+    vi.spyOn(auth, "requireUser").mockResolvedValue(reception);
+
+    const phone = `17${suffix.replace(/\D/g, "").padEnd(9, "0").slice(0, 9)}`;
+    const response = await POST(new Request("http://localhost/api/legacy-customers", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        phone, channelId, receptionOwnerId: reception.id, groupOperatorOwnerId: operator.id, expertOwnerId: expert.id,
+        baselineStage: "REGISTERED", baselineOn: "2026-08-18", currentEvent: "ORDERED", occurredOn: "2026-08-26",
+        initialDepositCents: 100_000, initialDepositMethod: "CRYPTO",
+      }),
+    }));
+    expect(response.status).toBe(201);
+
+    const facts = await loadCanonicalMetricEvents({ groupIds: [groupId] });
+    expect(facts.filter((fact) => ["NEW_FANS", "EFFECTIVE_FANS", "REPLIES", "GROUP_JOIN", "EXPERT_INTRO", "REGISTRATION"].includes(fact.kind))).toHaveLength(0);
+    expect(facts.filter((fact) => fact.kind === "ORDER")).toMatchObject([{ occurredOn: "2026-08-26", quantity: 1 }]);
+    expect(facts.filter((fact) => fact.kind === "RECHARGE")).toMatchObject([{ occurredOn: "2026-08-26", amountCents: 100_000 }]);
+  });
+
   it("keeps cross-team duplicate lookup generic", async () => {
     const suffix = randomUUID();
     const departmentId = `${prefix}department-${suffix}`;

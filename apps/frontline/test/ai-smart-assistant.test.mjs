@@ -27,3 +27,13 @@ test("重新计算有效数据和当前在群", () => {
   assert.equal(values.effectiveCount, 18);
   assert.equal(values.currentInGroupCount, 5);
 });
+
+test("识别老粉今天开单且历史来源日期不当作今天", () => {
+  const result = interpretAssistantMessage("客户000004是8月20日的老粉，今天开单首充1000");
+  assert.deepEqual(result, { kind: "legacy_event", phoneTail: "000004", event: "ORDERED", sourceDate: "2026-08-20", amountCents: 100000 });
+});
+
+test("识别历史已开单客户今天续充", () => {
+  const result = interpretAssistantMessage("客户000008是8月19日的粉，已经开单，今天续充500");
+  assert.deepEqual(result, { kind: "legacy_event", phoneTail: "000008", event: "RECHARGE", sourceDate: "2026-08-19", amountCents: 50000 });
+});

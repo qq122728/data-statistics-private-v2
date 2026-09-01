@@ -26,6 +26,10 @@
 .changes del, .noteChange del { color: #a04b55; }
 .changes b, .noteChange b { color: #087a4f; }
 .noteChange { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; background: #fff; padding: 9px; border-radius: 8px; font-size: 12px; }
+.legacyPreview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.legacyPreview > span { display: grid; gap: 2px; padding: 8px 9px; border: 1px solid #e2eaf5; border-radius: 8px; background: #fff; color: #728097; font-size: 11px; }
+.legacyPreview b { color: #26364c; font-size: 12px; }
+.legacyPreview small { color: #168157; }
 .preview footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .preview footer button { border: 1px solid #ccd5e2; background: #fff; border-radius: 8px; padding: 7px 12px; cursor: pointer; }
 .preview footer .confirm { display: flex; align-items: center; gap: 5px; background: #176fe8; border-color: #176fe8; color: #fff; }

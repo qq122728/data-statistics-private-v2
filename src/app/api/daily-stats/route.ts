@@ -183,11 +183,14 @@ export async function GET(request: Request) {
         }
       }
       const primaryCoversCompanions = primaryRevision
-        ? activeCompanions.length === 0
+        ? !activeCompanions.some((entry) => {
+            const revision = entry.currentRevision ?? entry.approvedRevision;
+            return revision?.changeReason?.startsWith("AI客户事件同步：");
+          }) && (activeCompanions.length === 0
           || Boolean(primaryRevision.changeReason)
           || Object.entries(companionTotals).every(([field, value]) =>
               primaryRevision[field as keyof typeof companionTotals] === value,
-            )
+            ))
         : false;
       const values = emptyValues();
       if (primary && isUnifiedDailyStatIdentity(primary.identityKey) && primaryRevision && primaryCoversCompanions) {
@@ -196,6 +199,13 @@ export async function GET(request: Request) {
         const receptionRows = rows.filter((entry) => entry.position === "RECEPTION");
         const operatorRows = activeCompanions.filter((entry) => entry.position === "GROUP_OPERATOR");
         const expertRows = activeCompanions.filter((entry) => entry.position === "EXPERT");
+        const isAiCustomerEvent = (entry: (typeof activeCompanions)[number]) => {
+          const revision = entry.currentRevision ?? entry.approvedRevision;
+          return revision?.changeReason?.startsWith("AI客户事件同步：") ?? false;
+        };
+        const legacyOperatorRows = operatorRows.filter((entry) => !isAiCustomerEvent(entry));
+        const aiOperatorRows = operatorRows.filter(isAiCustomerEvent);
+        const legacyExpertRows = expertRows.filter((entry) => !isAiCustomerEvent(entry));
         for (const entry of receptionRows) {
           const revision = entry.currentRevision ?? entry.approvedRevision;
           if (!revision) continue;
@@ -203,7 +213,7 @@ export async function GET(request: Request) {
             values[field] += revision[field];
         }
         // 仍有旧岗位行时，由旧岗位行提供其负责的字段，不能再叠加新版接粉行中的同名值。
-        if (operatorRows.length) {
+        if (legacyOperatorRows.length) {
           for (const field of ["operatorReceivedCount", "normalLeaveCount", "abnormalLeaveCount", "currentInGroupCount", "expertIntroCount"] as const)
             values[field] = 0;
         }
@@ -216,9 +226,18 @@ export async function GET(request: Request) {
           values.currentInGroupCount += revision.currentInGroupCount;
           values.expertIntroCount += revision.expertIntroCount;
         }
-        // 旧接粉行如果没有进群数，才用旧炒群“接手”数补齐，防止同一批客户算两次。
-        if (values.joinCount === 0) values.joinCount = values.operatorReceivedCount;
-        if (expertRows.length) {
+        // 旧岗位行只在接粉行没有进群数时补齐；AI 客户事件是刚发生的新事实，必须额外加到当天进群。
+        const legacyOperatorReceived = legacyOperatorRows.reduce((total, entry) => {
+          const revision = entry.currentRevision ?? entry.approvedRevision;
+          return total + (revision?.operatorReceivedCount ?? 0);
+        }, 0);
+        const aiOperatorReceived = aiOperatorRows.reduce((total, entry) => {
+          const revision = entry.currentRevision ?? entry.approvedRevision;
+          return total + (revision?.operatorReceivedCount ?? 0);
+        }, 0);
+        if (values.joinCount === 0) values.joinCount = legacyOperatorReceived;
+        values.joinCount += aiOperatorReceived;
+        if (legacyExpertRows.length) {
           for (const field of ["expertReceivedCount", "expertContactedCount", "registrationCount", "orderCount", "cryptoInitialDepositCents", "bankInitialDepositCents", "cryptoRechargeCents", "bankRechargeCents", "withdrawalCents"] as const)
             values[field] = 0;
         }

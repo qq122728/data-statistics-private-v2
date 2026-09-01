@@ -88,7 +88,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       await incrementCustomerEventDailyStat(tx, {
         ownerId: data.operator.id, groupId: data.groupId, channelId: data.channelId,
         businessDate: "2026-09-02", position: "GROUP_OPERATOR", sourceReceptionId: data.reception.id,
-        reason: "老客户今天进群", increment: { operatorReceivedCount: 1 }, currentInGroupSnapshot: 1,
+        reason: "老客户今天进群并推专家", increment: { operatorReceivedCount: 1, expertIntroCount: 1 }, currentInGroupSnapshot: 1,
       });
       await incrementCustomerEventDailyStat(tx, {
         ownerId: data.expert.id, groupId: data.groupId, channelId: data.channelId,
@@ -108,7 +108,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     });
     expect(entries).toHaveLength(2);
     expect(entries.find((entry) => entry.position === "GROUP_OPERATOR")?.currentRevision).toMatchObject({
-      dispatchCount: 0, operatorReceivedCount: 1, currentInGroupCount: 1,
+      dispatchCount: 0, operatorReceivedCount: 1, currentInGroupCount: 1, expertIntroCount: 1,
     });
     expect(entries.find((entry) => entry.position === "EXPERT")?.currentRevision).toMatchObject({
       dispatchCount: 0, registrationCount: 1, orderCount: 1,

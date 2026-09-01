@@ -100,6 +100,11 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
     return () => { cancelled = true; };
   }, [groupId, page, reloadKey]);
   useEffect(() => { if (adding) phoneInput.current?.focus(); }, [adding]);
+  useEffect(() => {
+    const refresh = () => setReloadKey((value) => value + 1);
+    window.addEventListener("ai-data-updated", refresh);
+    return () => window.removeEventListener("ai-data-updated", refresh);
+  }, []);
 
   const customers = useMemo(() => (payload?.customers ?? []).filter((customer) => {
     const haystack = `${customer.phone} ${customer.customerName ?? ""} ${customer.attributionOwner?.name ?? customer.owner?.name ?? ""} ${customer.batch.channel.name} ${customer.groupOperatorOwner?.name ?? ""} ${customer.expertOwner?.name ?? ""} ${latestGroupText(customer)} ${latestExpertText(customer)}`.toLowerCase();

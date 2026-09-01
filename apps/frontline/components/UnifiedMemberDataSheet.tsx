@@ -243,6 +243,12 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    const refresh = () => { if (!dirtyRef.current.size && !savingRef.current.size) void load(); };
+    window.addEventListener("ai-data-updated", refresh);
+    return () => window.removeEventListener("ai-data-updated", refresh);
+  }, [load]);
+
+  useEffect(() => {
     const timer = window.setInterval(async () => {
       if (dirtyRef.current.size || savingRef.current.size) return;
       try {

@@ -164,15 +164,21 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   return <div className={styles.sheetWorkspace}>
     <section className={styles.toolbar}>
       <label className={styles.search}><MagnifyingGlass size={14} /><input aria-label="搜索客户" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索号码、组员、渠道或进度" /></label>
+      <span className={styles.toolbarSpacer} />
       {availableGroups.length > 1 ? <select aria-label="查看小组" value={groupId} onChange={(event) => { setGroupId(event.target.value); setPage(1); }}>{availableGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select> : null}
-      <select aria-label="进度筛选" value={progress} onChange={(event) => setProgress(event.target.value as ProgressFilter)}>{progressFilters.map((item) => <option key={item}>{item}</option>)}</select>
       {member ? <button type="button" className={styles.legacyButton} disabled={!groupId || loading} onClick={() => setLegacyMode(true)}>老客户导入</button> : null}
       {member ? <button className={styles.addButton} disabled={!groupId || loading || adding} onClick={beginAdd}><Plus size={15} weight="bold" />新增已进群客户</button> : null}
     </section>
 
     {error ? <div className={styles.error}>{error}</div> : null}
     <section className={styles.sheetCard}>
-      <header className={styles.sheetHeader}><div><h2>组内共享客户进度</h2><p>一位客户一行；同组组员和组长都可编辑，修改后自动保存并记录操作人</p></div><span><i />实时共享</span></header>
+      <header className={styles.sheetHeader}>
+        <div><h2>组内共享客户进度</h2><p>一位客户一行；同组组员和组长都可编辑，修改后自动保存并记录操作人</p></div>
+        <nav className={styles.statusFilters} aria-label="按客户状态筛选">
+          {progressFilters.map((item) => <button type="button" key={item} data-active={progress === item} aria-pressed={progress === item} onClick={() => setProgress(item)}>{item}</button>)}
+        </nav>
+        <span><i />实时共享</span>
+      </header>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead><tr><th>进群日期（自动）</th><th>客户号码</th><th>归属组员</th><th>来源渠道</th><th>炒群负责人</th><th>设备号</th><th>群内天数</th><th>炒群情况</th><th>退群类型</th><th>退群日期（自动）</th><th>专家负责人</th><th>专家情况</th><th>注册</th><th>注册日期</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>最后修改</th></tr></thead>

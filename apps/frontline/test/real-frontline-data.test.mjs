@@ -49,6 +49,8 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /接粉日期只留作历史底账/);
   assert.match(source, /同接粉日/);
   assert.match(source, /客户进度不能发生在接粉之前/);
+  assert.match(source, /8月20日/);
+  assert.match(source, /8\/20/);
   assert.match(source, /\/api\/legacy-customers/);
   assert.match(source, /收起 AI 助手/);
   assert.match(source, /requestJson<DailyContext>\("\/api\/daily-stats"\)/);

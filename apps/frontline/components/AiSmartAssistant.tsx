@@ -321,18 +321,27 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     setPhase("legacy-source-date");
   }
 
-  function aiDate(raw: string) {
+  function aiDate(raw: string, today: string) {
     const value = raw.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) return null;
-    return value;
+    if (value === "今天") return today;
+    const currentYear = today.slice(0, 4);
+    const chinese = value.match(/^(?:(\d{4})年)?(\d{1,2})月(\d{1,2})(?:日|号)?$/);
+    const separated = value.match(/^(?:(\d{4})[-/.])?(\d{1,2})[-/.](\d{1,2})$/);
+    const matched = chinese ?? separated;
+    if (!matched) return null;
+    const year = Number(matched[1] ?? currentYear); const month = Number(matched[2]); const day = Number(matched[3]);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() + 1 !== month || parsed.getUTCDate() !== day) return null;
+    return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
 
   function acceptLegacyText(raw: string) {
     if (!legacyContext || !legacyDraft.scenario) return;
     const value = raw.trim();
     if (phase === "legacy-source-date") {
-      const date = value === "今天" ? legacyContext.today : aiDate(value); if (!date || date > legacyContext.today) { addMessage("assistant", `接粉日期格式不正确。请填写 YYYY-MM-DD，并且不能晚于今天 ${legacyContext.today}。`); return; }
-      setLegacyDraft((current) => ({ ...current, sourceDate: date })); addMessage("user", date);
+      addMessage("user", value);
+      const date = aiDate(value, legacyContext.today); if (!date || date > legacyContext.today) { addMessage("assistant", `没有识别出这个接粉日期。可以输入“8月20日”“8/20”或“2026-08-20”，并且不能晚于今天 ${legacyContext.today}。`); setInput(""); return; }
+      setLegacyDraft((current) => ({ ...current, sourceDate: date }));
       addMessage("assistant", "请输入客户完整号码或号码后 6 位。完整号码保存时只保留最后 6 位。"); setInput(""); setPhase("legacy-phone"); return;
     }
     if (phase === "legacy-phone") {
@@ -351,19 +360,21 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       addMessage("assistant", `请填写系统启用前最后状态的发生日期。不能早于接粉日期 ${legacyDraft.sourceDate}；如果是同一天，直接点击或回复“同接粉日”。该日期只留历史，不计入新统计。`); setInput(""); setPhase("legacy-baseline-date"); return;
     }
     if (phase === "legacy-baseline-date") {
-      const date = /^(同接粉日|接粉日|同一天)$/.test(value) ? legacyDraft.sourceDate : value === "今天" ? legacyContext.today : aiDate(value);
-      if (!date) { addMessage("assistant", "日期格式不正确。请填写 YYYY-MM-DD，或直接回复“同接粉日”。"); return; }
-      if (date < legacyDraft.sourceDate) { addMessage("assistant", `你填的是 ${date}，但接粉日期是 ${legacyDraft.sourceDate}。客户进度不能发生在接粉之前；请填写 ${legacyDraft.sourceDate} 至 ${legacyContext.today}，或回复“同接粉日”。`); return; }
-      if (date > legacyContext.today) { addMessage("assistant", `你填的是未来日期。请填写不晚于今天 ${legacyContext.today} 的日期。`); return; }
-      setLegacyDraft((current) => ({ ...current, baselineOn: date })); addMessage("user", date);
+      addMessage("user", value);
+      const date = /^(同接粉日|接粉日|同一天)$/.test(value) ? legacyDraft.sourceDate : aiDate(value, legacyContext.today);
+      if (!date) { addMessage("assistant", "没有识别出这个日期。可以输入“8月20日”“8/20”或“2026-08-20”，也可以直接回复“同接粉日”。"); setInput(""); return; }
+      if (date < legacyDraft.sourceDate) { addMessage("assistant", `你填的是 ${date}，但接粉日期是 ${legacyDraft.sourceDate}。客户进度不能发生在接粉之前；请填写 ${legacyDraft.sourceDate} 至 ${legacyContext.today}，或回复“同接粉日”。`); setInput(""); return; }
+      if (date > legacyContext.today) { addMessage("assistant", `你填的是未来日期。请填写不晚于今天 ${legacyContext.today} 的日期。`); setInput(""); return; }
+      setLegacyDraft((current) => ({ ...current, baselineOn: date }));
       addMessage("assistant", "请选择负责这位客户的炒群负责人。"); setInput(""); setPhase("legacy-operator"); return;
     }
     if (phase === "legacy-occurred-date") {
-      const date = value === "今天" ? legacyContext.today : aiDate(value);
-      if (!date) { addMessage("assistant", "日期格式不正确。请填写 YYYY-MM-DD，或直接回复“今天”。"); return; }
-      if (date < legacyDraft.baselineOn) { addMessage("assistant", `你填的是 ${date}，但历史最后状态日期是 ${legacyDraft.baselineOn}。本次新进度不能发生在历史状态之前。`); return; }
-      if (date > legacyContext.today) { addMessage("assistant", `你填的是未来日期。请填写不晚于今天 ${legacyContext.today} 的日期。`); return; }
-      setLegacyDraft((current) => ({ ...current, occurredOn: date })); addMessage("user", date); setInput("");
+      addMessage("user", value);
+      const date = aiDate(value, legacyContext.today);
+      if (!date) { addMessage("assistant", "没有识别出这个日期。可以输入“今天”“9月2日”“9/2”或完整日期。"); setInput(""); return; }
+      if (date < legacyDraft.baselineOn) { addMessage("assistant", `你填的是 ${date}，但历史最后状态日期是 ${legacyDraft.baselineOn}。本次新进度不能发生在历史状态之前。`); setInput(""); return; }
+      if (date > legacyContext.today) { addMessage("assistant", `你填的是未来日期。请填写不晚于今天 ${legacyContext.today} 的日期。`); setInput(""); return; }
+      setLegacyDraft((current) => ({ ...current, occurredOn: date })); setInput("");
       if (legacyDraft.scenario === "JOIN") { addMessage("assistant", "资料已经整理完成，请核对后确认保存。"); setPhase("legacy-preview"); return; }
       addMessage("assistant", `请输入本次${legacyDraft.scenario === "ORDER" ? "首充" : "续充"}金额，例如 1000。`); setPhase("legacy-amount"); return;
     }

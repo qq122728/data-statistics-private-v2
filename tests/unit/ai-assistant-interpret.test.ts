@@ -3,11 +3,14 @@ import { interpretWithServerModel } from "../../src/lib/ai-assistant/interpret";
 
 describe("服务器 AI 数据助手", () => {
   it("使用服务器模型解析每日数据并把金额换成美分", async () => {
-    const fetchImplementation = vi.fn(async () => new Response(JSON.stringify({
+    const fetchImplementation = vi.fn(async (_url, init) => {
+      expect(String(init?.body)).toContain("进群/拉群→joinCount");
+      return new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ kind: "daily", correction: false, updates: [
         { key: "dispatchCount", value: 20 }, { key: "cryptoInitialDepositCents", value: 100000 },
       ] }) } }],
-    }), { status: 200 })) as unknown as typeof fetch;
+      }), { status: 200 });
+    }) as unknown as typeof fetch;
     const result = await interpretWithServerModel("今天添加20，首充1000", { apiKey: "test-only", fetchImplementation });
     expect(result).toEqual({ kind: "daily", correction: false, updates: [
       { key: "dispatchCount", value: 20, label: "添加数据" },

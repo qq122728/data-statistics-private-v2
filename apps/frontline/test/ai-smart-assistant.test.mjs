@@ -9,6 +9,19 @@ test("识别同一句里的多项每日数据", () => {
   assert.equal(result.updates.find((item) => item.key === "cryptoInitialDepositCents").value, 100000);
 });
 
+test("把员工口语中的拉群识别为进群", () => {
+  const result = interpretAssistantMessage("今天演示投流渠道添加20回复8拉群2");
+  assert.deepEqual(result, {
+    kind: "daily",
+    correction: false,
+    updates: [
+      { key: "dispatchCount", label: "添加数据", value: 20, money: undefined },
+      { key: "replyCount", label: "回复", value: 8, money: undefined },
+      { key: "joinCount", label: "进群", value: 2, money: undefined },
+    ],
+  });
+});
+
 test("识别纠错语句", () => {
   const result = interpretAssistantMessage("JH 回复写错了，改成8");
   assert.equal(result.kind, "daily");

@@ -51,7 +51,7 @@ const metricPatterns: Array<{ key: keyof DailyValues; label: string; money?: boo
   { key: "noWsCount", label: "无 WS 号码", patterns: ["无WS号码", "无WS", "无号码"] },
   { key: "manualInvalidCount", label: "人工无效", patterns: ["人工无效", "无效"] },
   { key: "replyCount", label: "回复", patterns: ["回复数据", "回复"] },
-  { key: "joinCount", label: "进群", patterns: ["进群数据", "进群"] },
+  { key: "joinCount", label: "进群", patterns: ["进群数据", "拉群数据", "进群", "拉群"] },
   { key: "normalLeaveCount", label: "正常退群", patterns: ["正常退群"] },
   { key: "abnormalLeaveCount", label: "异常退群", patterns: ["异常退群"] },
   { key: "expertIntroCount", label: "推专家", patterns: ["推专家", "引导专家"] },
@@ -76,7 +76,7 @@ export function interpretAssistantMessage(message: string): AssistantIntent {
   const compact = message.replace(/[,，:：=＝]/g, " ").replace(/\s+/g, " ").trim();
   const tail = phoneTail(compact);
   const sourceDateMatch = compact.match(/(?:(20\d{2})[年/.-])?(\d{1,2})[月/.-](\d{1,2})日?/);
-  if (tail && sourceDateMatch && /老客户|老粉|历史|的粉/.test(compact) && /进群|开单|续充/.test(compact)) {
+  if (tail && sourceDateMatch && /老客户|老粉|历史|的粉/.test(compact) && /进群|拉群|开单|续充/.test(compact)) {
     const sourceDate = `${sourceDateMatch[1] ?? new Date().getFullYear()}-${sourceDateMatch[2].padStart(2, "0")}-${sourceDateMatch[3].padStart(2, "0")}`;
     const event = /续充/.test(compact) ? "RECHARGE" as const : /开单/.test(compact) ? "ORDERED" as const : "JOINED" as const;
     const amountMatch = event === "JOINED" ? null : compact.match(/(?:开单|首充|续充|金额)[^\d]{0,12}(\d+(?:\.\d+)?)/);

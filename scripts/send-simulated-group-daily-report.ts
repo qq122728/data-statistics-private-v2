@@ -48,11 +48,17 @@ const report = buildGroupDailyBusinessReport({
   personnel: { frontDesk: people, experts: ["西瓜"], leads: ["西瓜"], customerService: ["西瓜"], operators: ["阿水", "锦麟"] },
   simulated: true,
 });
-const text = formatGroupDailyBusinessReport(report);
-const [png, workbook] = await Promise.all([buildGroupDailyReportPng(report), buildLeadChannelReportWorkbook(dailyPayload)]);
-const xlsx = Buffer.from(await workbook.xlsx.writeBuffer());
+async function main() {
+  const text = formatGroupDailyBusinessReport(report);
+  const [png, workbook] = await Promise.all([buildGroupDailyReportPng(report), buildLeadChannelReportWorkbook(dailyPayload)]);
+  const xlsx = Buffer.from(await workbook.xlsx.writeBuffer());
+  await sendBossTelegramMessage(text);
+  await sendBossTelegramPhoto(png, "【模拟小组测试】日报图片｜不计入正式数据");
+  await sendBossTelegramDocument(xlsx, "模拟-西瓜组-业务报表-2026-09.xlsx", "【模拟小组测试】Excel详细报表｜不计入正式数据");
+  console.log("模拟日报已发送：文字、图片、Excel；未写入数据库。", { pngBytes: png.length, xlsxBytes: xlsx.length });
+}
 
-await sendBossTelegramMessage(text);
-await sendBossTelegramPhoto(png, "【模拟小组测试】日报图片｜不计入正式数据");
-await sendBossTelegramDocument(xlsx, "模拟-西瓜组-业务报表-2026-09.xlsx", "【模拟小组测试】Excel详细报表｜不计入正式数据");
-console.log("模拟日报已发送：文字、图片、Excel；未写入数据库。", { pngBytes: png.length, xlsxBytes: xlsx.length });
+void main().catch((error) => {
+  console.error(error instanceof Error ? error.message : "模拟日报发送失败");
+  process.exitCode = 1;
+});

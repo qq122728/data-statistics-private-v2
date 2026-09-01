@@ -9,6 +9,7 @@ import { authorizationDenied } from "../../../../../lib/security-events";
 import { leadCurrentGroupId } from "../../../../../lib/customer-current-group";
 import { statisticsDate } from "../../../../../lib/statistics-date";
 import { syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerRegistrationEvent } from "../../../../../lib/customer-number-event-sync";
+import { entryDateError } from "../../../../../lib/entry-date-validation";
 
 const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assignGroupOperator"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
@@ -16,6 +17,8 @@ const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assignExpert"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
   z.object({ action: z.literal("setChannel"), channelId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
   z.object({ action: z.literal("setOwner"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
+  z.object({ action: z.literal("setSourceDate"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
+  z.object({ action: z.literal("setJoinedOn"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   z.object({ action: z.literal("setRegistration"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   z.object({ action: z.literal("setLeave"), leaveType: z.enum(["NORMAL", "ABNORMAL"]), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
 ]);
@@ -84,7 +87,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       } else if (input.action === "setChannel") {
         const channel = await transaction.channel.findUnique({ where: { id_groupId: { id: input.channelId, groupId: actor.groupId } }, select: { id: true, name: true, active: true } });
         if (!channel?.active) return { status: 400 as const, error: "来源渠道不存在或已停用" };
-        const batch = await getOrCreateSourceBatch({ groupId: actor.groupId, channelId: channel.id, sourceDate: lead.joinedOn ?? lead.batch.sourceDate }, transaction);
+        const batch = await getOrCreateSourceBatch({ groupId: actor.groupId, channelId: channel.id, sourceDate: lead.batch.sourceDate }, transaction);
         update.batchId = batch.id;
         activity = { kind: "PLAN_UPDATED", note: `来源渠道调整为 ${channel.name}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
       } else if (input.action === "setOwner") {
@@ -93,6 +96,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
         update.ownerId = target.id;
         update.attributionOwnerId = target.id;
         activity = { kind: "PLAN_UPDATED", note: `接粉及业绩归属纠正为 ${target.name}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
+      } else if (input.action === "setSourceDate") {
+        const dateError = entryDateError(input.occurredOn, today, "接粉日期");
+        if (dateError) return { status: 400 as const, error: dateError };
+        if (lead.joinedOn && input.occurredOn > lead.joinedOn) return { status: 400 as const, error: "接粉日期不能晚于进群日期" };
+        const batch = await getOrCreateSourceBatch({ groupId: actor.groupId, channelId: lead.batch.channelId, sourceDate: input.occurredOn }, transaction);
+        update.batchId = batch.id;
+        activity = { kind: "PLAN_UPDATED", note: `接粉日期调整为 ${input.occurredOn}`, occurredOn: today };
+      } else if (input.action === "setJoinedOn") {
+        const dateError = entryDateError(input.occurredOn, today, "进群日期");
+        if (dateError) return { status: 400 as const, error: dateError };
+        if (input.occurredOn < lead.batch.sourceDate) return { status: 400 as const, error: "进群日期不能早于接粉日期" };
+        if (lead.leftOn && input.occurredOn > lead.leftOn) return { status: 400 as const, error: "进群日期不能晚于退群日期" };
+        if (lead.expertIntroducedOn && input.occurredOn > lead.expertIntroducedOn) return { status: 400 as const, error: "进群日期不能晚于推专家日期" };
+        if (lead.registeredOn && input.occurredOn > lead.registeredOn) return { status: 400 as const, error: "进群日期不能晚于注册日期" };
+        update.joinedOn = input.occurredOn;
+        activity = { kind: "PLAN_UPDATED", note: `进群日期调整为 ${input.occurredOn}`, occurredOn: today };
       } else if (input.action === "setRegistration") {
         if (!lead.expertOwnerId) return { status: 400 as const, error: "请先选择专家负责人" };
         if (lead.registeredOn) return { status: 400 as const, error: `该客户已经在 ${lead.registeredOn} 登记注册` };
@@ -114,7 +133,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       await transaction.leadCustomer.update({ where: { id: lead.id }, data: update });
       if (activity) await transaction.leadActivity.create({ data: { leadId: lead.id, actorId: actor.id, ...activity } });
       const trackedLead = { ...lead, expertOwnerId: trackedExpertOwnerId, batch: { groupId: actor.groupId, channelId: lead.batch.channelId } };
-      if (input.action === "assignExpert" && !lead.expertIntroducedOn) {
+      if (input.action === "setJoinedOn" && lead.joinedOn !== input.occurredOn) {
+        if (lead.joinedOn) await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: lead.joinedOn, kind: "JOIN", delta: -1 });
+        await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: input.occurredOn, kind: "JOIN" });
+      } else if (input.action === "assignExpert" && !lead.expertIntroducedOn) {
         await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: today, kind: "EXPERT_INTRO" });
         await syncCustomerExpertEvent(transaction, trackedLead, { businessDate: today, kind: "RECEIVED" });
       } else if (input.action === "setRegistration") {
@@ -122,7 +144,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       } else if (input.action === "setLeave") {
         await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: input.occurredOn, kind: input.leaveType === "NORMAL" ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE" });
       }
-      await recordAudit(transaction, { actorId: actor.id, action: `SHARED_CUSTOMER_${input.action}`, entityType: "LeadCustomer", entityId: lead.id, summary: { input, before: { ownerId: lead.ownerId, attributionOwnerId: lead.attributionOwnerId, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId, deviceId: lead.deviceId, batchId: lead.batchId, registeredOn: lead.registeredOn, leftOn: lead.leftOn }, update } });
+      await recordAudit(transaction, { actorId: actor.id, action: `SHARED_CUSTOMER_${input.action}`, entityType: "LeadCustomer", entityId: lead.id, summary: { input, before: { ownerId: lead.ownerId, attributionOwnerId: lead.attributionOwnerId, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId, deviceId: lead.deviceId, batchId: lead.batchId, sourceDate: lead.batch.sourceDate, joinedOn: lead.joinedOn, registeredOn: lead.registeredOn, leftOn: lead.leftOn }, update } });
       return { status: 200 as const };
     });
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });

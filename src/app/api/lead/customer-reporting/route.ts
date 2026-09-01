@@ -23,6 +23,7 @@ const createSchema = z.object({
   phone: z.string().trim().min(1, "请输入客户号码").max(80, "客户号码不能超过 80 个字"),
   customerName: z.string().trim().max(80, "客户姓名不能超过 80 个字").optional(),
   channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
+  sourceDate: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择接粉日期").optional(),
   joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
   groupOperatorOwnerId: z.string().trim().min(1).max(API_LIMITS.identifierCharacters).optional(),
   deviceCode: z.string().trim().min(1, "请输入设备账号").max(100, "设备账号不能超过 100 个字").optional(),
@@ -30,6 +31,7 @@ const createSchema = z.object({
 const batchCreateSchema = z.object({
   phones: z.array(z.string().trim().max(80, "单个客户号码不能超过 80 个字")).min(1, "请至少输入一个客户号码").max(200, "一次最多新增 200 个客户"),
   channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
+  sourceDate: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择接粉日期").optional(),
   joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
   groupOperatorOwnerId: z.string().trim().min(1, "请选择炒群负责人").max(API_LIMITS.identifierCharacters),
   deviceCode: z.string().trim().min(1, "请输入设备账号").max(100, "设备账号不能超过 100 个字"),
@@ -255,8 +257,12 @@ export async function POST(request: Request) {
       });
       if (!group) return authorizationDenied(actor, "当前小组不存在或已停用");
       const today = statisticsDate();
+      const sourceDate = input.sourceDate ?? input.joinedOn;
       const dateError = entryDateError(input.joinedOn, today, "进群日期");
       if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
+      const sourceDateError = entryDateError(sourceDate, today, "接粉日期");
+      if (sourceDateError) return NextResponse.json({ error: sourceDateError }, { status: 400 });
+      if (sourceDate > input.joinedOn) return NextResponse.json({ error: "接粉日期不能晚于进群日期" }, { status: 400 });
 
       const uniquePhones: string[] = [];
       const seen = new Set<string>();
@@ -292,7 +298,7 @@ export async function POST(request: Request) {
       }
 
       const created = await db.$transaction(async (transaction) => {
-        const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate: input.joinedOn }, transaction);
+        const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate }, transaction);
         const device = await transaction.device.upsert({
           where: { groupId_code: { groupId: group.id, code: input.deviceCode } },
           update: {}, create: { groupId: group.id, code: input.deviceCode, memberId: actor.id }, select: { id: true },
@@ -303,7 +309,7 @@ export async function POST(request: Request) {
             data: {
               phone, customerName: null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
               groupOperatorOwnerId: operator.id, deviceId: device.id, receptionCategory: "VALID", invalid: false,
-              replyStatus: "REPLIED", repliedOn: input.joinedOn, groupStatus: "JOINED", joinedOn: input.joinedOn,
+              replyStatus: "REPLIED", repliedOn: sourceDate, groupStatus: "JOINED", joinedOn: input.joinedOn,
               activities: { create: [
                 { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从 AI 助手批量新增到组内共享客户进度表" },
                 { actorId: actor.id, kind: "PLAN_UPDATED", occurredOn: input.joinedOn, note: `炒群负责人设置为 ${operator.name}` },
@@ -317,7 +323,7 @@ export async function POST(request: Request) {
             action: "SHARED_CUSTOMER_CREATE",
             entityType: "LeadCustomer",
             entityId: customer.id,
-            summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator.id, deviceCode: input.deviceCode, batchCreate: true },
+            summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, sourceDate, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator.id, deviceCode: input.deviceCode, batchCreate: true },
           });
           rows.push(customer);
         }
@@ -340,8 +346,12 @@ export async function POST(request: Request) {
     });
     if (!group) return authorizationDenied(actor, "当前小组不存在或已停用");
     const today = statisticsDate();
+    const sourceDate = input.sourceDate ?? input.joinedOn;
     const dateError = entryDateError(input.joinedOn, today, "进群日期");
     if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
+    const sourceDateError = entryDateError(sourceDate, today, "接粉日期");
+    if (sourceDateError) return NextResponse.json({ error: sourceDateError }, { status: 400 });
+    if (sourceDate > input.joinedOn) return NextResponse.json({ error: "接粉日期不能晚于进群日期" }, { status: 400 });
     let phone: string;
     try { phone = normalizeCustomerPhone(input.phone); }
     catch { return NextResponse.json({ error: "客户号码必须包含数字" }, { status: 400 }); }
@@ -356,7 +366,7 @@ export async function POST(request: Request) {
       if (!channel?.active) return { status: 400 as const, error: "来源渠道不存在或已停用" };
       if (input.groupOperatorOwnerId && !operator) return { status: 400 as const, error: "炒群负责人只能选择本组在职成员" };
       if (existing) return { status: 409 as const, error: "该客户号码已经存在，不能重复新增" };
-      const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate: input.joinedOn }, transaction);
+      const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate }, transaction);
       const device = input.deviceCode ? await transaction.device.upsert({
         where: { groupId_code: { groupId: group.id, code: input.deviceCode } },
         update: {}, create: { groupId: group.id, code: input.deviceCode, memberId: actor.id }, select: { id: true },
@@ -365,7 +375,7 @@ export async function POST(request: Request) {
         data: {
           phone, customerName: input.customerName || null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
           groupOperatorOwnerId: operator?.id ?? actor.id,
-          deviceId: device?.id ?? null, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: input.joinedOn,
+          deviceId: device?.id ?? null, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: sourceDate,
           groupStatus: "JOINED", joinedOn: input.joinedOn,
           activities: { create: { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从组内共享客户进度表新增" } },
         }, select: { id: true, phone: true },
@@ -375,7 +385,7 @@ export async function POST(request: Request) {
         action: "SHARED_CUSTOMER_CREATE",
         entityType: "LeadCustomer",
         entityId: customer.id,
-        summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator?.id ?? actor.id, deviceCode: input.deviceCode ?? null },
+        summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, sourceDate, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator?.id ?? actor.id, deviceCode: input.deviceCode ?? null },
       });
       await syncCustomerGroupEvent(transaction, {
         phone: customer.phone, ownerId: actor.id, attributionOwnerId: actor.id,

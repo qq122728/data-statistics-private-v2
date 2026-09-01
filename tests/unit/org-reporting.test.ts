@@ -420,6 +420,7 @@ describe.sequential("新版客户进度 API", () => {
     const body = {
       phones: ["+1 725 830001", "830002", "830002", "12"],
       channelId: id("berlin-channel"),
+      sourceDate: "2026-07-31",
       joinedOn: "2026-08-01",
       groupOperatorOwnerId: ids.berlinOperatorA,
       deviceCode: "批量设备-B08",
@@ -437,7 +438,7 @@ describe.sequential("新版客户进度 API", () => {
     expect(await saved.json()).toMatchObject({ created: [{ phone: "830001" }, { phone: "830002" }], duplicates: ["830002"], invalid: ["12"] });
     expect(await db.leadCustomer.count({ where: {
       phone: { in: ["830001", "830002"] }, ownerId: ids.berlinReception, attributionOwnerId: ids.berlinReception,
-      groupStatus: "JOINED", groupOperatorOwnerId: ids.berlinOperatorA, device: { code: "批量设备-B08" },
+      groupStatus: "JOINED", groupOperatorOwnerId: ids.berlinOperatorA, device: { code: "批量设备-B08" }, batch: { sourceDate: "2026-07-31" },
     } })).toBe(2);
 
     const repeatedPreview = await call(true);
@@ -514,6 +515,8 @@ describe.sequential("新版客户进度 API", () => {
     await signIn(ids.berlinExpert);
     expect((await patch({ action: "assignGroupOperator", userId: ids.berlinOperatorA })).status).toBe(200);
     expect((await patch({ action: "setDeviceCode", code: "B-手填-08" })).status).toBe(200);
+    expect((await patch({ action: "setSourceDate", occurredOn: "2026-07-02" })).status).toBe(200);
+    expect((await patch({ action: "setJoinedOn", occurredOn: "2026-07-04" })).status).toBe(200);
 
     await signIn(ids.berlinReception);
     expect((await patch({ action: "assignExpert", userId: ids.berlinExpert })).status).toBe(200);
@@ -522,12 +525,14 @@ describe.sequential("新版客户进度 API", () => {
     expect((await patch({ action: "setRegistration", occurredOn: "2026-07-09" })).status).toBe(200);
     expect((await patch({ action: "setOwner", userId: ids.berlinReception })).status).toBe(200);
 
-    expect(await db.leadCustomer.findUniqueOrThrow({ where: { id: leadId }, select: { groupOperatorOwnerId: true, expertOwnerId: true, registeredOn: true, device: { select: { code: true } } } })).toEqual({
+    expect(await db.leadCustomer.findUniqueOrThrow({ where: { id: leadId }, select: { joinedOn: true, groupOperatorOwnerId: true, expertOwnerId: true, registeredOn: true, device: { select: { code: true } }, batch: { select: { sourceDate: true } } } })).toEqual({
+      joinedOn: "2026-07-04",
       groupOperatorOwnerId: ids.berlinOperatorA,
       expertOwnerId: ids.berlinExpert,
       registeredOn: "2026-07-09",
       device: { code: "B-手填-08" },
+      batch: { sourceDate: "2026-07-02" },
     });
-    expect(await db.auditLog.count({ where: { entityId: leadId, action: { startsWith: "SHARED_CUSTOMER_" } } })).toBe(5);
+    expect(await db.auditLog.count({ where: { entityId: leadId, action: { startsWith: "SHARED_CUSTOMER_" } } })).toBe(7);
   });
 });

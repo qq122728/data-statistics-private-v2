@@ -21,7 +21,7 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
 });
 
 test("共享表完整保留已进群客户业务字段", () => {
-  for (const field of ["进群日期（自动）", "客户号码", "归属组员", "来源渠道", "炒群负责人", "设备号", "群内天数", "炒群情况", "退群类型", "退群日期（自动）", "专家负责人", "专家情况", "注册", "注册日期", "首充", "续充", "出金", "净业绩", "最后修改"]) {
+  for (const field of ["接粉日期", "进群日期", "客户号码", "归属组员", "来源渠道", "炒群负责人", "设备号", "群内天数", "炒群情况", "退群类型", "退群日期（自动）", "专家负责人", "专家情况", "注册", "注册日期", "首充", "续充", "出金", "净业绩", "最后修改"]) {
     assert.match(component, new RegExp(field));
   }
   assert.match(component, /<th>注册<\/th><th>注册日期<\/th>/);
@@ -35,13 +35,16 @@ test("组员和组长都能新增已进群客户", () => {
   assert.match(component, /maxLength=\{6\}/);
   assert.match(component, /replace\(\/\\D\/g, ""\)\.slice\(-6\)/);
   assert.match(component, /自动保留后 6 位/);
+  assert.match(component, /新客户接粉日期/);
+  assert.match(component, /新客户进群日期/);
+  assert.match(component, /sourceDate: localToday()/);
   assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
 });
 
 test("共享表向同组成员开放全部业务列并逐笔登记资金", () => {
   assert.match(component, /const canEdit = Boolean\(member\)/);
   assert.doesNotMatch(component, /const canOwner|const canOperator|const canExpert/);
-  for (const action of ["assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
+  for (const action of ["setSourceDate", "setJoinedOn", "assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
   assert.match(component, /placeholder="手动填写"/);
   assert.doesNotMatch(component, /deviceOptions/);
   assert.match(component, /\/api\/customer-orders/);

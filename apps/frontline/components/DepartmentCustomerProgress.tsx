@@ -78,7 +78,7 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   const [query, setQuery] = useState(""); const [progress, setProgress] = useState<ProgressFilter>("全部进度");
   const [savingCell, setSavingCell] = useState(""); const [savedMessage, setSavedMessage] = useState("");
   const [adding, setAdding] = useState(false); const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState({ phone: "", channelId: "", joinedOn: localToday() });
+  const [draft, setDraft] = useState({ phone: "", channelId: "", sourceDate: localToday(), joinedOn: localToday() });
   const [finance, setFinance] = useState<{ kind: FinanceKind; customer: Customer } | null>(null);
   const [financeDraft, setFinanceDraft] = useState({ occurredOn: localToday(), amount: "", depositMethod: "CRYPTO" as "CRYPTO" | "BANK" });
   const [savingFinance, setSavingFinance] = useState(false);
@@ -114,7 +114,7 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   }), [payload?.customers, progress, query]);
   const pageCount = Math.max(1, Math.ceil((payload?.total ?? 0) / (payload?.pageSize ?? 50)));
   function showSaved(message: string) { setSavedMessage(message); window.dispatchEvent(new Event("ai-data-updated")); window.setTimeout(() => setSavedMessage(""), 2400); }
-  function beginAdd() { setAdding(true); setError(""); setDraft({ phone: "", channelId: payload?.channelOptions[0]?.id ?? "", joinedOn: localToday() }); }
+  function beginAdd() { const today = localToday(); setAdding(true); setError(""); setDraft({ phone: "", channelId: payload?.channelOptions[0]?.id ?? "", sourceDate: today, joinedOn: today }); }
   async function createCustomer() {
     if (!adding || creating || !draft.phone.trim()) return;
     setCreating(true); setError("");
@@ -182,16 +182,17 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
       </header>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
-          <thead><tr><th>进群日期（自动）</th><th>客户号码</th><th>归属组员</th><th>来源渠道</th><th>炒群负责人</th><th>设备号</th><th>群内天数</th><th>炒群情况</th><th>退群类型</th><th>退群日期（自动）</th><th>专家负责人</th><th>专家情况</th><th>注册</th><th>注册日期</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>最后修改</th></tr></thead>
+          <thead><tr><th>接粉日期</th><th>进群日期</th><th>客户号码</th><th>归属组员</th><th>来源渠道</th><th>炒群负责人</th><th>设备号</th><th>群内天数</th><th>炒群情况</th><th>退群类型</th><th>退群日期（自动）</th><th>专家负责人</th><th>专家情况</th><th>注册</th><th>注册日期</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>最后修改</th></tr></thead>
           <tbody>
-            {adding && member ? <tr className={styles.draftRow}><td>{draft.joinedOn}</td><td><div className={styles.draftPhone}><input ref={phoneInput} aria-label="新客户号码" value={draft.phone} inputMode="numeric" maxLength={6} placeholder="号码后 6 位" disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value.replace(/\D/g, "").slice(-6) }))} onBlur={() => void createCustomer()} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void createCustomer(); } }} /><button type="button" title="取消新增" onMouseDown={(event) => event.preventDefault()} onClick={() => setAdding(false)}><X size={13} /></button></div></td><td>{member.name}</td><td><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))}>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td><td className={styles.draftHint} colSpan={15}>{creating ? "正在保存…" : "输入或粘贴完整号码都会自动保留后 6 位；保存后可继续选择负责人、设备和专家"}</td></tr> : null}
-            {loading ? <tr><td colSpan={19} className={styles.empty}>正在读取组内共享数据…</td></tr> : customers.map((customer) => {
+            {adding && member ? <tr className={styles.draftRow}><td><input aria-label="新客户接粉日期" className={styles.dateInput} type="date" value={draft.sourceDate} max={draft.joinedOn} disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, sourceDate: event.target.value }))} /></td><td><input aria-label="新客户进群日期" className={styles.dateInput} type="date" value={draft.joinedOn} min={draft.sourceDate} max={localToday()} disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, joinedOn: event.target.value }))} /></td><td><div className={styles.draftPhone}><input ref={phoneInput} aria-label="新客户号码" value={draft.phone} inputMode="numeric" maxLength={6} placeholder="号码后 6 位" disabled={creating} onChange={(event) => setDraft((value) => ({ ...value, phone: event.target.value.replace(/\D/g, "").slice(-6) }))} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void createCustomer(); } }} /><button type="button" title="确认新增" disabled={creating || draft.phone.length < 6} onClick={() => void createCustomer()}><Plus size={13} /></button><button type="button" title="取消新增" onClick={() => setAdding(false)}><X size={13} /></button></div></td><td>{member.name}</td><td><select value={draft.channelId} onChange={(event) => setDraft((value) => ({ ...value, channelId: event.target.value }))}>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></td><td className={styles.draftHint} colSpan={15}>{creating ? "正在保存…" : "完整号码自动保留后 6 位；两个日期默认今天，可自行修改；按回车或点＋保存"}</td></tr> : null}
+            {loading ? <tr><td colSpan={20} className={styles.empty}>正在读取组内共享数据…</td></tr> : customers.map((customer) => {
               const attributedOwner = customer.attributionOwner ?? customer.owner;
               const net = (customer.order?.initialDepositCents ?? 0) + (customer.order?.rechargeCents ?? 0) - (customer.order?.withdrawalCents ?? 0);
               const rechargeCount = customer.order?.financeEvents.filter((event) => event.kind === "RECHARGE").length ?? 0;
               const withdrawalCount = customer.order?.financeEvents.filter((event) => event.kind === "WITHDRAWAL").length ?? 0;
               return <tr key={customer.id}>
-                <td>{customer.joinedOn ?? "—"}</td>
+                <td>{canEdit ? <input key={customer.batch.sourceDate} className={styles.dateInput} type="date" defaultValue={customer.batch.sourceDate} max={customer.joinedOn ?? localToday()} disabled={Boolean(savingCell)} onChange={(event) => event.target.value && event.target.value !== customer.batch.sourceDate && void patchCell(customer, { action: "setSourceDate", occurredOn: event.target.value }, "sourceDate", "接粉日期已保存")} /> : customer.batch.sourceDate}</td>
+                <td>{canEdit ? <input key={customer.joinedOn ?? "empty"} className={styles.dateInput} type="date" defaultValue={customer.joinedOn ?? ""} min={customer.batch.sourceDate} max={customer.leftOn ?? localToday()} disabled={Boolean(savingCell)} onChange={(event) => event.target.value && event.target.value !== customer.joinedOn && void patchCell(customer, { action: "setJoinedOn", occurredOn: event.target.value }, "joinedOn", "进群日期已保存")} /> : customer.joinedOn ?? "—"}</td>
                 <td className={styles.phone}><strong>{customer.phone}</strong>{customer.customerName?.trim() ? <small>{customer.customerName}</small> : null}</td>
                 <td>{canEdit ? <select className={styles.cellSelect} value={attributedOwner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setOwner", userId: event.target.value }, "owner", "接粉及业绩归属已保存")}>{payload?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : attributedOwner?.name ?? "未分配"}</td>
                 <td>{canEdit ? <select className={styles.cellSelect} value={payload?.channelOptions.find((item) => item.name === customer.batch.channel.name)?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setChannel", channelId: event.target.value }, "channel", "来源渠道已保存")}>{payload?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : customer.batch.channel.name}</td>
@@ -211,7 +212,7 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
                 <td className={styles.net}>{money(net)}</td><td className={styles.updated}>{customer.activities[0]?.actor?.name ?? "系统"}<small>{customer.activities[0]?.occurredOn ?? "—"}</small></td>
               </tr>;
             })}
-            {!loading && customers.length === 0 && !adding ? <tr><td colSpan={19} className={styles.empty}>没有符合当前条件的已进群客户</td></tr> : null}
+            {!loading && customers.length === 0 && !adding ? <tr><td colSpan={20} className={styles.empty}>没有符合当前条件的已进群客户</td></tr> : null}
           </tbody>
         </table>
       </div>

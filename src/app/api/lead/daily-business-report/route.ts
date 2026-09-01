@@ -61,10 +61,11 @@ async function prepareReport(request: Request, date: string) {
     loadReport(request, previousDate(date), previousDate(date)),
   ]);
   const roles = group.members.map((member) => ({ member, roles: getAssignedRoles(member) }));
-  const namesWith = (role: "LEAD" | "EXPERT" | "GROUP_OPERATOR") => roles.filter((row) => row.roles.includes(role)).map((row) => row.member.name);
+  const uniqueNames = (names: string[]) => [...new Set(names)];
+  const namesWith = (role: "LEAD" | "EXPERT" | "GROUP_OPERATOR") => uniqueNames(roles.filter((row) => row.roles.includes(role)).map((row) => row.member.name));
   const leadNames = namesWith("LEAD");
   const personnel: GroupDailyReportPersonnel = {
-    frontDesk: group.members.map((member) => member.name),
+    frontDesk: uniqueNames(group.members.map((member) => member.name)),
     experts: namesWith("EXPERT"),
     leads: leadNames,
     customerService: leadNames,

@@ -32,6 +32,22 @@ export type LeadChannelReportPayload = {
 type MetricColumn = { label: string; value: (row: Slice) => number | null; format?: "percent" | "money" };
 const money = (cents: number) => cents / 100;
 const normalLeave = (row: Slice) => Math.max(0, row.totals.left - row.totals.leftAbnormal);
+const ratio = (numerator: number, denominator: number) => denominator > 0 ? numerator / denominator : null;
+
+function ratesForTotals(totals: Totals): Rates {
+  const normalLeft = Math.max(0, totals.left - totals.leftAbnormal);
+  return {
+    effectiveRate: ratio(totals.effective, totals.added),
+    replyRate: ratio(totals.replied, totals.effective),
+    joinRate: ratio(totals.joined, totals.effective),
+    registrationRate: ratio(totals.registered, totals.pushed),
+    orderRate: ratio(totals.ordered, totals.registered),
+    abnormalLeaveRate: ratio(totals.leftAbnormal, totals.joined - normalLeft),
+    lawyerReplyRate: ratio(totals.replied, totals.added),
+    lawyerAddedRate: ratio(totals.lawyerAdded, totals.added),
+    lawyerExpertAddedRate: ratio(totals.lawyerExpertAdded, totals.added),
+  };
+}
 
 const hackerColumns: MetricColumn[] = [
   { label: "添加数据", value: (row) => row.totals.added },
@@ -167,8 +183,8 @@ function addOverviewSheet(
   }
 
   const startRow = report ? 8 : 4;
-  const dailySlice = report ? { name: "当日", totals: report.daily, derivedRates: payload.summary.derivedRates } : payload.summary;
-  const monthSlice = report ? { name: "当月", totals: report.month, derivedRates: payload.summary.derivedRates } : payload.summary;
+  const dailySlice = report ? { name: "当日", totals: report.daily, derivedRates: ratesForTotals(report.daily) } : payload.summary;
+  const monthSlice = report ? { name: "当月", totals: report.month, derivedRates: ratesForTotals(report.month) } : payload.summary;
   addMetricTable({
     sheet,
     startRow,

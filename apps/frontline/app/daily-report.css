@@ -1,0 +1,15 @@
+.daily-report-card { overflow: hidden; }
+.daily-report-card .fresh-sheet-title > div:last-child { align-items: center; }
+.daily-report-body { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; padding: 16px; }
+.daily-report-preview { max-height: 430px; overflow: auto; border: 1px solid #dfe6f0; border-radius: 9px; background: #f8fafc; padding: 16px; }
+.daily-report-preview pre { margin: 0; white-space: pre-wrap; font: 12px/1.65 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; color: #344054; }
+.daily-report-actions { display: grid; align-content: start; gap: 9px; }
+.daily-report-actions button, .daily-report-actions a { min-height: 38px; border: 1px solid #cfd7e3; border-radius: 7px; background: #fff; color: #3f4c60; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; font-size: 12px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.daily-report-actions [data-primary="true"] { background: #1769d2; border-color: #1769d2; color: #fff; }
+.daily-report-actions button:disabled { opacity: .6; cursor: not-allowed; }
+.daily-report-empty { padding: 28px; text-align: center; color: #7c8799; font-size: 12px; }
+.daily-report-message { border-top: 1px solid #e7ebf1; background: #f3f8ff; color: #315b93; padding: 10px 16px; font-size: 12px; font-weight: 650; }
+@media (max-width: 800px) {
+  .daily-report-body { grid-template-columns: 1fr; }
+  .daily-report-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -52,3 +52,35 @@ export async function sendBossTelegramMessage(text: string): Promise<void> {
     await sendBossTelegramChunk(part);
   }
 }
+
+async function sendTelegramAttachment(input: {
+  method: "sendPhoto" | "sendDocument";
+  field: "photo" | "document";
+  bytes: Buffer;
+  fileName: string;
+  contentType: string;
+  caption?: string;
+}) {
+  const { token, chatId } = telegramConfig();
+  const form = new FormData();
+  form.set("chat_id", chatId);
+  if (input.caption) form.set("caption", input.caption);
+  form.set(input.field, new Blob([new Uint8Array(input.bytes)], { type: input.contentType }), input.fileName);
+  const response = await fetch(`https://api.telegram.org/bot${token}/${input.method}`, {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(60_000),
+  });
+  const payload = await response.json() as TelegramResponse;
+  if (!response.ok || !payload.ok) {
+    throw new TelegramMessageRejectedError(payload.description || `电报附件发送失败（HTTP ${response.status}）`);
+  }
+}
+
+export async function sendBossTelegramPhoto(bytes: Buffer, caption?: string) {
+  await sendTelegramAttachment({ method: "sendPhoto", field: "photo", bytes, fileName: "group-daily-report.png", contentType: "image/png", caption });
+}
+
+export async function sendBossTelegramDocument(bytes: Buffer, fileName: string, caption?: string) {
+  await sendTelegramAttachment({ method: "sendDocument", field: "document", bytes, fileName, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", caption });
+}

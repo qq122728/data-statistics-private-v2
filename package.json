@@ -34,6 +34,7 @@
     "boss:brief": "node scripts/trigger-boss-daily-brief.mjs",
     "boss:backup": "node scripts/send-daily-backup.mjs",
     "boss:daily": "node scripts/run-daily-boss-job.mjs",
+    "telegram:test-group-report": "tsx scripts/send-simulated-group-daily-report.ts",
     "dr:validate": "node scripts/dr/validate-dr-config.mjs",
     "seed:local-demo": "node scripts/seed-local-demo.mjs",
     "db:backfill:department-manager-duty": "node scripts/backfill-department-manager-duty.mjs"
@@ -49,6 +50,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "recharts": "^3.10.1",
+    "sharp": "^0.35.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -59,6 +61,7 @@
     "@types/react-dom": "^19.1.9",
     "prisma": "^6.16.2",
     "tailwindcss": "^4.1.13",
+    "tsx": "^4.23.13",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },

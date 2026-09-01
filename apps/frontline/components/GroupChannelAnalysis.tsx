@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { requestJson } from "@/lib/backend";
 import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
-import { DownloadSimple } from "@phosphor-icons/react";
+import { Copy, DownloadSimple, ImageSquare, PaperPlaneTilt } from "@phosphor-icons/react";
 import { MetricMatrixTable } from "@/components/MetricMatrixTable";
 
 type Totals = { added: number; collision: number; lowAmount: number; noWs: number; manualInvalid: number; lawyerRealCase: number; lawyerAdded: number; lawyerExpertAdded: number; customerServicePush: number; effective: number; replied: number; joined: number; left: number; leftAbnormal: number; inGroup: number; pushed: number; registered: number; ordered: number; initialDepositCents: number; rechargeCents: number; withdrawalCents: number; netCents: number; cryptoDepositCents: number; bankDepositCents: number };
@@ -15,6 +15,7 @@ type Day = { date: string; summary: Slice; rows: Channel[] };
 type Payload = { group: { name: string; groupType: "HACKER" | "LAWYER" }; range: { today: string; from: string; to: string; label: string }; summary: Slice; rows: Channel[]; members: Member[]; days: Day[]; review: { pending: number; approved: number; returned: number }; analysis: Array<{ tone: "good" | "warn" | "info"; title: string; detail: string }> };
 type Mode = "member" | "channel" | "day";
 type ViewRow = Slice & { key: string; children: Slice[] };
+type DailyReportPayload = { text: string; report: { groupName: string; reportDate: string } };
 
 function percent(value: number | null) { return value === null ? "—" : `${(value * 100).toFixed(1)}%`; }
 function money(cents: number) { return `$${(cents / 100).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`; }
@@ -59,8 +60,11 @@ export function GroupChannelAnalysis() {
   const [expanded, setExpanded] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [dailyReport, setDailyReport] = useState<DailyReportPayload | null>(null);
+  const [reportBusy, setReportBusy] = useState<"generate" | "push" | "">("");
+  const [reportMessage, setReportMessage] = useState("");
   async function load() {
-    setLoading(true); setError("");
+    setLoading(true); setError(""); setDailyReport(null); setReportMessage("");
     const params = new URLSearchParams({ range });
     if (range === "custom") {
       params.set("sourceDateFrom", customFrom || payload?.range.from || "");
@@ -75,6 +79,30 @@ export function GroupChannelAnalysis() {
     finally { setLoading(false); }
   }
   useEffect(() => { if (range !== "custom") void load(); }, [range]);
+  async function generateDailyReport() {
+    if (!payload) return;
+    setReportBusy("generate"); setReportMessage("");
+    try {
+      const next = await requestJson<DailyReportPayload>(`/api/lead/daily-business-report?date=${encodeURIComponent(payload.range.to)}`);
+      setDailyReport(next);
+    } catch (caught) { setReportMessage(caught instanceof Error ? caught.message : "日报生成失败"); }
+    finally { setReportBusy(""); }
+  }
+  async function copyDailyReport() {
+    if (!dailyReport) return;
+    await navigator.clipboard.writeText(dailyReport.text);
+    setReportMessage("日报文字已复制");
+  }
+  async function pushDailyReport() {
+    if (!payload || !dailyReport) return;
+    if (!window.confirm(`确认把 ${dailyReport.report.groupName} ${dailyReport.report.reportDate} 的文字、图片和 Excel 推送到 Telegram？`)) return;
+    setReportBusy("push"); setReportMessage("");
+    try {
+      const result = await requestJson<{ message: string }>("/api/lead/daily-business-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: payload.range.to }) });
+      setReportMessage(result.message);
+    } catch (caught) { setReportMessage(caught instanceof Error ? caught.message : "Telegram 推送失败"); }
+    finally { setReportBusy(""); }
+  }
   const rows = useMemo<ViewRow[]>(() => {
     if (!payload) return [];
     if (mode === "member") return payload.members.map((row) => ({ ...row, key: row.id, children: row.channels }));
@@ -93,10 +121,15 @@ export function GroupChannelAnalysis() {
     : "";
 
   return <div className="analysis-page">
-    <SmartDateRangeToolbar range={range} from={customFrom || payload?.range.from || ""} to={customTo || payload?.range.to || ""} currentLabel={payload ? payload.range.from === payload.range.to ? payload.range.from : `${payload.range.from} 至 ${payload.range.to}` : undefined} loading={loading} title="小组渠道数据汇总＋智能分析" note="保存后立即进入组长汇总；资源部核对状态单独标记，不再挡住数据" onRange={setRange} onFrom={setCustomFrom} onTo={setCustomTo} onRefresh={() => void load()} />
+    <SmartDateRangeToolbar range={range} from={customFrom || payload?.range.from || ""} to={customTo || payload?.range.to || ""} currentLabel={payload ? payload.range.from === payload.range.to ? payload.range.from : `${payload.range.from} 至 ${payload.range.to}` : undefined} loading={loading} title="小组日报＋渠道数据汇总" note="选择日期后，可生成同一口径的日报文字、图片和 Excel，并推送到 Telegram" onRange={setRange} onFrom={setCustomFrom} onTo={setCustomTo} onRefresh={() => void load()} />
     {error ? <div className="team-management__notice"><span>!</span>{error}</div> : null}
     {loading && !payload ? <section className="fresh-sheet-card analysis-loading">正在生成真实分析报告…</section> : payload ? <>
       {payload.review.pending > 0 ? <section className="analysis-review-note"><strong>{payload.review.pending} 条数据待资源部核对</strong><span>这些数据已经显示在本页并计入汇总，不会再出现“填了但组长看不到”。</span></section> : null}
+      <section className="fresh-sheet-card daily-report-card">
+        <div className="fresh-sheet-title"><div><h2>小组业务日报</h2><p>生成日期取当前筛选范围的最后一天；文字、图片和 Excel 使用完全相同的数据。</p></div><button className="fresh-primary" disabled={Boolean(reportBusy)} onClick={() => void generateDailyReport()}>{reportBusy === "generate" ? "生成中…" : dailyReport ? "重新生成" : "生成日报"}</button></div>
+        {dailyReport ? <div className="daily-report-body"><div className="daily-report-preview"><pre>{dailyReport.text}</pre></div><div className="daily-report-actions"><button onClick={() => void copyDailyReport()}><Copy size={17} weight="bold" />复制文字</button><a href={`/api/lead/daily-business-report?date=${encodeURIComponent(dailyReport.report.reportDate)}&format=png`}><ImageSquare size={17} weight="bold" />下载日报图片</a><a href={`/api/lead/daily-business-report?date=${encodeURIComponent(dailyReport.report.reportDate)}&format=xlsx`}><DownloadSimple size={17} weight="bold" />下载 Excel</a><button data-primary="true" disabled={reportBusy === "push"} onClick={() => void pushDailyReport()}><PaperPlaneTilt size={17} weight="bold" />{reportBusy === "push" ? "正在推送…" : "推送到 Telegram"}</button></div></div> : <div className="daily-report-empty">先选好日期，再点“生成日报”。系统会自动整理人员、渠道、当日和当月数据。</div>}
+        {reportMessage ? <div className="daily-report-message">{reportMessage}</div> : null}
+      </section>
       <section className="analysis-kpis">{lawyerGroup ? <><article><span>接粉</span><strong>{payload.summary.totals.added}</strong><small>回复率 {percent(payload.summary.derivedRates.lawyerReplyRate)}</small></article><article><span>真实案件</span><strong>{payload.summary.totals.lawyerRealCase}</strong><small>小金额 {payload.summary.totals.lowAmount}</small></article><article><span>添加律师</span><strong>{payload.summary.totals.lawyerAdded}</strong><small>添加率 {percent(payload.summary.derivedRates.lawyerAddedRate)}</small></article><article><span>总开单</span><strong>{payload.summary.totals.ordered}</strong><small>总注册 {payload.summary.totals.registered}</small></article></> : <><article><span>添加数据</span><strong>{payload.summary.totals.added}</strong><small>有效 {payload.summary.totals.effective} · {percent(payload.summary.derivedRates.effectiveRate)}</small></article><article><span>进群</span><strong>{payload.summary.totals.joined}</strong><small>进群率 {percent(payload.summary.derivedRates.joinRate)}</small></article><article><span>开单</span><strong>{payload.summary.totals.ordered}</strong><small>开单率 {percent(payload.summary.derivedRates.orderRate)}</small></article><article><span>净业绩</span><strong>{money(payload.summary.totals.netCents)}</strong><small>首充 {money(payload.summary.totals.initialDepositCents)} · 续充 {money(payload.summary.totals.rechargeCents)}</small></article></>}</section>
       <MetricMatrixTable title={`${payload.group.name} · 组内数据矩阵`} groupType={payload.group.groupType} total={payload.summary.totals} channels={payload.rows.map((row) => ({ id: row.id ?? row.name, name: row.name, totals: row.totals }))} members={payload.members.map((row) => ({ id: row.id, name: row.name, totals: row.totals }))} />
       <section className="analysis-insights"><header><div><h2>智能分析结论</h2><p>{payload.group.name} · {payload.range.from} 至 {payload.range.to} · 每条结论都能回到下面表格核对</p></div></header><div>{payload.analysis.length ? payload.analysis.map((item, index) => <article key={`${item.title}-${index}`} data-tone={item.tone}><i>{item.tone === "good" ? "✓" : item.tone === "warn" ? "!" : "i"}</i><div><strong>{item.title}</strong><p>{item.detail}</p></div></article>) : <article data-tone="info"><i>i</i><div><strong>当前样本还不足</strong><p>继续填写每日数据后，系统会自动生成渠道和人员对比。</p></div></article>}</div></section>

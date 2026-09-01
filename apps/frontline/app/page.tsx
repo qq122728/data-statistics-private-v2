@@ -7,6 +7,7 @@ import { resolveFrontlineEntry } from "@/lib/frontline-entry";
 import "./fresh.css";
 import "./inspector.css";
 import "./analysis.css";
+import "./daily-report.css";
 import "./department.css";
 import "./department-management.css";
 import "./ui-polish.css";

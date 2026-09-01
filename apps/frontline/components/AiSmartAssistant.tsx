@@ -1258,12 +1258,8 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     if (phase === "progress-phone") { void acceptProgressPhone(raw); return; }
     if (phase === "progress-text" || phase === "progress-amount") { acceptProgressValue(raw); return; }
     if (["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase)) { acceptLegacyText(raw); return; }
-    if (phase === "idle" && managementAccount) { void sendCasualChat(raw); return; }
-    if (phase === "idle" && (/纠正|改成|改为|修改为/.test(raw) || /查询.*(?:客户|号码|渠道|数据|进度|回复|进群|注册|开单|首充|续充|出金|业绩)/.test(raw))) { setNaturalIntent("QUERY"); void parseNaturalQuery(raw); return; }
-    if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setNaturalIntent("DAILY"); void parseNaturalDaily(raw); return; }
-    if (phase === "idle" && /老客户|老粉/.test(raw)) { setNaturalIntent("LEGACY"); void parseNaturalLegacy(raw); return; }
-    if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setNaturalIntent("CUSTOMER"); void parseNaturalCustomer(raw); return; }
-    if (phase === "idle" && /更新.*客户|客户.*进度|跟进.*客户|客户\d+.*(?:注册|开单|首充|续充|出金|退群)/.test(raw)) { setNaturalIntent("PROGRESS"); void parseNaturalProgress(raw); return; }
+    // The free-form input is always read-only chat. Data writes are only reachable
+    // after the user deliberately opens one of the formal quick-action workflows.
     void sendCasualChat(raw);
   }
 

@@ -1,0 +1,19 @@
+[Unit]
+Description=Check and send due per-group Telegram reports
+After=network-online.target data-statistics-v2-backend.service
+Wants=network-online.target
+Requires=data-statistics-v2-backend.service
+
+[Service]
+Type=oneshot
+User=data-statistics
+Group=data-statistics
+WorkingDirectory=/opt/data-statistics-v2/current/backend
+EnvironmentFile=/etc/data-statistics/app.env
+ExecStart=/usr/local/bin/npm run boss:brief
+TimeoutStartSec=4min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+UMask=0077

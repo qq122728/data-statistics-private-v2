@@ -48,7 +48,7 @@ test("客户进度统一使用真实共享表格", () => {
   assert.doesNotMatch(source, /GroupOperatorWorkbench|ExpertWorkbench|RealReceptionProgress/);
 });
 
-test("组员AI通过自然语言模板预览并保存真实今日数据和客户进度", () => {
+test("组员AI仅从正式按钮进入写入流程，空白输入框保持只读闲聊", () => {
   const source = read("AiSmartAssistant.tsx");
   const workspace = read("FreshWorkspace.tsx");
   assert.match(source, /AI 对话内容/);
@@ -117,7 +117,8 @@ test("组员AI通过自然语言模板预览并保存真实今日数据和客户
   assert.match(source, /系统使用帮助/);
   assert.match(source, /\/api\/performance-leaderboard\?range=/);
   assert.match(source, /谁的数据最好/);
-  assert.match(source, /管理.*sendCasualChat|managementAccount/);
+  assert.match(source, /free-form input is always read-only chat/);
+  assert.doesNotMatch(source, /phase === "idle" && \/今日\|当天/);
   assert.match(source, /新增进群客户/);
   assert.match(source, /canUseExpertActions/);
   assert.match(source, /EXPERT_PROGRESS_ACTIONS/);

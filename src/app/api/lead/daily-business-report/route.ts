@@ -18,6 +18,7 @@ import {
   TelegramMessageRejectedError,
 } from "../../../../lib/boss-report/telegram";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { hasValidDailyJobSecret } from "../../../../lib/internal-job-auth";
 import { GET as loadChannelReporting } from "../channel-reporting/route";
 
 export const runtime = "nodejs";
@@ -29,21 +30,23 @@ function previousDate(date: string) {
   return value.toISOString().slice(0, 10);
 }
 
-async function loadReport(request: Request, from: string, to: string) {
+async function loadReport(request: Request, from: string, to: string, groupId?: string) {
   const url = new URL("/api/lead/channel-reporting", request.url);
   url.searchParams.set("range", "custom");
   url.searchParams.set("sourceDateFrom", from);
   url.searchParams.set("sourceDateTo", to);
+  if (groupId) url.searchParams.set("groupId", groupId);
   const response = await loadChannelReporting(new Request(url, { headers: request.headers }));
   if (!response.ok) throw new Error((await response.json().catch(() => ({})) as { error?: string }).error ?? "日报数据读取失败");
   return response.json() as Promise<LeadChannelReportPayload>;
 }
 
-async function prepareReport(request: Request, date: string) {
-  const actor = await requireUser();
-  if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "LEAD")) throw new AuthenticationError("只有在职组长可以生成本组日报");
+async function prepareReport(request: Request, date: string, automatedGroupId?: string) {
+  const actor = automatedGroupId ? null : await requireUser();
+  if (!automatedGroupId && (!actor?.active || !actor.groupId || !hasAssignedRole(actor, "LEAD"))) throw new AuthenticationError("只有在职组长可以生成本组日报");
+  const groupId = automatedGroupId ?? actor!.groupId!;
   const group = await db.teamGroup.findFirst({
-    where: { id: actor.groupId, active: true },
+    where: { id: groupId, active: true },
     select: {
       id: true, name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true,
       department: { select: { name: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
@@ -56,9 +59,9 @@ async function prepareReport(request: Request, date: string) {
   });
   if (!group) throw new Error("当前账号没有可生成日报的小组");
   const [dailyPayload, monthPayload, yesterdayPayload] = await Promise.all([
-    loadReport(request, date, date),
-    loadReport(request, `${date.slice(0, 7)}-01`, date),
-    loadReport(request, previousDate(date), previousDate(date)),
+    loadReport(request, date, date, automatedGroupId),
+    loadReport(request, `${date.slice(0, 7)}-01`, date, automatedGroupId),
+    loadReport(request, previousDate(date), previousDate(date), automatedGroupId),
   ]);
   const roles = group.members.map((member) => ({ member, roles: getAssignedRoles(member) }));
   const uniqueNames = (names: string[]) => [...new Set(names)];
@@ -140,16 +143,19 @@ async function sendPart(key: string, content: Buffer | string, sender: () => Pro
 }
 
 export async function POST(request: Request) {
-  let actor;
   try {
-    actor = await requireUser();
-    if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "LEAD")) return authorizationDenied(actor, "只有在职组长可以推送本组日报");
-    const body = await request.json() as { date?: string };
+    const body = await request.json() as { date?: string; groupId?: string };
+    const internal = hasValidDailyJobSecret(request);
+    if (body.groupId && !internal) return NextResponse.json({ error: "自动推送任务密钥不正确" }, { status: 401 });
+    if (!internal) {
+      const actor = await requireUser();
+      if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "LEAD")) return authorizationDenied(actor, "只有在职组长可以推送本组日报");
+    }
     const date = body.date ?? "";
     if (!datePattern.test(date)) return NextResponse.json({ error: "请选择正确的日报日期" }, { status: 400 });
     const url = new URL(request.url);
     url.searchParams.set("date", date);
-    const prepared = await prepareReport(new Request(url, { headers: request.headers }), date);
+    const prepared = await prepareReport(new Request(url, { headers: request.headers }), date, internal ? body.groupId : undefined);
     const workbook = await buildLeadChannelReportWorkbook(prepared.monthPayload, { dailyReport: prepared.report });
     const xlsx = Buffer.from(await workbook.xlsx.writeBuffer());
     const prefix = `groupDaily:${prepared.group.id}:${date}`;

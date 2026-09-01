@@ -22,11 +22,13 @@ describe("老板日报安全边界", () => {
 
   it("内部任务需要独立密钥且支持防重复发送", () => {
     const route = read("src/app/api/internal/boss-daily-brief/route.ts");
+    const internalAuth = read("src/lib/internal-job-auth.ts");
     const service = read("src/lib/boss-report/service.ts");
     const proxy = read("src/proxy.ts");
     const trigger = read("scripts/trigger-boss-daily-brief.mjs");
     expect(route).toContain("x-daily-job-secret");
-    expect(route).toContain("timingSafeEqual");
+    expect(route).toContain("hasValidDailyJobSecret");
+    expect(internalAuth).toContain("timingSafeEqual");
     expect(service).toContain("bossBrief:lastSentDate");
     expect(service).toContain("bossBrief:audit:");
     expect(service).toContain('status: "prepared"');

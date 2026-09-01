@@ -177,7 +177,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       await recordAudit(transaction, { actorId: actor.id, action: `SHARED_CUSTOMER_${input.action}`, entityType: "LeadCustomer", entityId: lead.id, summary: { input, before: { customerName: lead.customerName, customerPlatform: lead.customerPlatform, lossAmountCents: lead.lossAmountCents, ownerId: lead.ownerId, attributionOwnerId: lead.attributionOwnerId, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId, deviceId: lead.deviceId, batchId: lead.batchId, sourceDate: lead.batch.sourceDate, joinedOn: lead.joinedOn, registeredOn: lead.registeredOn, leftOn: lead.leftOn }, update } });
       return { status: 200 as const };
     });
-    if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
+    if ("error" in result) {
+      if (result.status === 403) return authorizationDenied(sessionUser, result.error);
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
     return NextResponse.json({ saved: true });
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues[0]?.message ?? "请检查填写内容" }, { status: 400 });

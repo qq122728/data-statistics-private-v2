@@ -26,12 +26,12 @@ type Payload = {
   channelOptions: Option[]; memberOptions: Option[]; expertOptions: Option[];
 };
 type ReportingPayload = { groups: DepartmentCustomerGroup[] };
-type ProgressFilter = "全部进度" | "群内维护" | "已推专家" | "已开单" | "已退群";
+type ProgressFilter = "全部进度" | "群内维护" | "已推专家" | "已注册" | "已开单" | "已退群";
 type FinanceKind = "INITIAL" | "RECHARGE" | "WITHDRAWAL";
 
 const money = (cents = 0) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(cents / 100);
 const expertLabels: Record<string, string> = { QUEUED: "待专家接待", MATERIALS: "已经交资料，等待进一步沟通", TRACKING: "专家跟进中", PENDING_REGISTRATION: "待注册", PENDING_ORDER: "待开单", DECLINED_DEPOSIT: "暂不首充", ORDERED: "已开单，等待客户后续维护", STALLED: "停止维护" };
-const progressFilters: ProgressFilter[] = ["全部进度", "群内维护", "已推专家", "已开单", "已退群"];
+const progressFilters: ProgressFilter[] = ["全部进度", "群内维护", "已推专家", "已注册", "已开单", "已退群"];
 
 function latestGroupText(customer: Customer) {
   return customer.activities.find((item) => item.kind === "GROUP_PROGRESS_UPDATED")?.note?.trim()
@@ -44,6 +44,7 @@ function latestExpertText(customer: Customer) {
 function progressOf(customer: Customer): Exclude<ProgressFilter, "全部进度"> {
   if (customer.groupStatus === "LEFT") return "已退群";
   if (customer.order) return "已开单";
+  if (customer.registeredOn) return "已注册";
   if (customer.expertIntroducedOn) return "已推专家";
   return "群内维护";
 }

@@ -11,6 +11,8 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /实时共享/);
   assert.match(component, /搜索号码、组员、渠道或进度/);
   assert.match(component, /全部进度/);
+  assert.match(component, /"已注册"/);
+  assert.match(component, /if \(customer\.registeredOn\) return "已注册"/);
   assert.doesNotMatch(component, /className=\{styles\.summary\}/);
   assert.doesNotMatch(component, /shared-sheet__detail/);
 });

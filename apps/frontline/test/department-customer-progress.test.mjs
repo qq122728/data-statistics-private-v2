@@ -5,6 +5,7 @@ import test from "node:test";
 const component = readFileSync(new URL("../components/DepartmentCustomerProgress.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../components/DepartmentCustomerProgress.module.css", import.meta.url), "utf8");
 const legacy = readFileSync(new URL("../components/LegacyCustomerImport.tsx", import.meta.url), "utf8");
+const customerPatch = readFileSync(new URL("../../../src/app/api/lead/customer-reporting/[leadId]/route.ts", import.meta.url), "utf8");
 
 test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /组内共享客户进度/);
@@ -26,11 +27,14 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
 });
 
 test("共享表完整保留已进群客户业务字段", () => {
-  for (const field of ["接粉日期", "进群日期", "客户号码", "归属组员", "来源渠道", "炒群负责人", "设备号", "群内天数", "炒群情况", "退群类型", "退群日期（自动）", "专家负责人", "专家情况", "注册", "注册日期", "首充", "续充", "出金", "净业绩", "最后修改"]) {
+  for (const field of ["客户日期", "客户信息", "客户归属", "群维护", "设备号", "群内天数", "炒群情况", "退群信息", "专家负责人", "专家情况", "注册信息", "首充", "续充", "出金", "净业绩", "最后修改"]) {
     assert.match(component, new RegExp(field));
   }
-  assert.match(component, /<th>注册<\/th><th>注册日期<\/th>/);
+  assert.match(component, /注册信息<small>状态 \/ 日期<\/small>/);
   assert.match(component, /customer\.registeredOn \? "已注册" : "未注册"/);
+  assert.match(component, /客户信息<small>号码 \/ 姓名 \/ 平台 \/ 金额<\/small>/);
+  assert.match(component, /action: "setCustomerName"/);
+  for (const action of ["setCustomerName", "setCustomerPlatform", "setLossAmount"]) assert.match(customerPatch, new RegExp(action));
 });
 
 test("组员和组长都能新增已进群客户", () => {
@@ -39,7 +43,7 @@ test("组员和组长都能新增已进群客户", () => {
   assert.match(component, /新客户号码/);
   assert.match(component, /maxLength=\{6\}/);
   assert.match(component, /replace\(\/\\D\/g, ""\)\.slice\(-6\)/);
-  assert.match(component, /自动保留后 6 位/);
+  assert.match(component, /placeholder="号码后 6 位"/);
   assert.match(component, /新客户接粉日期/);
   assert.match(component, /新客户进群日期/);
   assert.match(component, /sourceDate: localToday()/);
@@ -63,16 +67,20 @@ test("炒群和专家单元格双击编辑并自动保存", () => {
   assert.match(component, /updateGroupProgress/);
   assert.match(component, /updateExpertDetails/);
   assert.match(component, /已自动保存/);
-  assert.match(component, /每次修改都记录账号和时间/);
+  assert.match(component, /自动保存并记录操作人/);
 });
 
-test("表格视觉匹配目标截图的紧凑大表", () => {
-  assert.match(css, /\.sheetCard\{[^}]*height:calc\(100vh - 164px\)/);
-  assert.match(css, /\.table\[data-view="group"\]\{min-width:1540px\}/);
-  assert.match(css, /\.table\[data-view="expert"\]\{min-width:1840px\}/);
+test("表格视觉使用双层信息和清晰的冻结列", () => {
+  assert.match(css, /\.sheetCard\{[^}]*max-height:calc\(100vh - 164px\)/);
+  assert.match(css, /\.table\[data-view="group"\]\{min-width:1260px\}/);
+  assert.match(css, /\.table\[data-view="expert"\]\{min-width:1510px\}/);
   assert.match(css, /\.viewTabs button\[data-active="true"\]/);
   assert.match(css, /\.dayCell\{[^}]*background:#edf8f1/);
-  assert.match(css, /\.progressCell\{[^}]*width:240px/);
+  assert.match(css, /\.progressCell\{[^}]*width:230px/);
+  assert.match(css, /\.stackedCell\{display:grid;gap:5px\}/);
+  assert.match(css, /\.table th:nth-child\(2\),\.table td:nth-child\(2\)\{[^}]*position:sticky/);
+  assert.match(css, /\.table th\{text-align:center\}/);
+  assert.match(css, /\.table th,\.table td\{height:126px\}/);
 });
 
 test("客户进度提供接粉日期分离且接入统计的老客户入口", () => {

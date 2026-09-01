@@ -22,6 +22,8 @@ const PAGE_SIZE = 50;
 const createSchema = z.object({
   phone: z.string().trim().min(1, "请输入客户号码").max(80, "客户号码不能超过 80 个字"),
   customerName: z.string().trim().max(80, "客户姓名不能超过 80 个字").optional(),
+  customerPlatform: z.string().trim().max(100, "平台名称不能超过 100 个字").optional(),
+  lossAmountCents: z.number().int().min(0, "被骗金额不能小于 0").max(999_999_999_999, "被骗金额过大").nullable().optional(),
   channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
   sourceDate: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择接粉日期").optional(),
   joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
@@ -374,7 +376,7 @@ export async function POST(request: Request) {
       }) : null;
       const customer = await transaction.leadCustomer.create({
         data: {
-          phone, customerName: input.customerName || null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
+          phone, customerName: input.customerName || null, customerPlatform: input.customerPlatform || null, lossAmountCents: input.lossAmountCents ?? null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
           groupOperatorOwnerId: operator?.id ?? actor.id,
           deviceId: device?.id ?? null, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: sourceDate,
           groupStatus: "JOINED", joinedOn: input.joinedOn,
@@ -386,7 +388,7 @@ export async function POST(request: Request) {
         action: "SHARED_CUSTOMER_CREATE",
         entityType: "LeadCustomer",
         entityId: customer.id,
-        summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, sourceDate, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator?.id ?? actor.id, deviceCode: input.deviceCode ?? null },
+        summary: { phone: customer.phone, customerName: input.customerName || null, customerPlatform: input.customerPlatform || null, lossAmountCents: input.lossAmountCents ?? null, groupId: group.id, channelId: channel.id, sourceDate, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator?.id ?? actor.id, deviceCode: input.deviceCode ?? null },
       });
       await syncCustomerGroupEvent(transaction, {
         phone: customer.phone, ownerId: actor.id, attributionOwnerId: actor.id,

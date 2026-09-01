@@ -17,6 +17,9 @@ const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assignExpert"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
   z.object({ action: z.literal("setChannel"), channelId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
   z.object({ action: z.literal("setOwner"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
+  z.object({ action: z.literal("setCustomerName"), customerName: z.string().trim().max(80, "客户姓名不能超过 80 个字") }),
+  z.object({ action: z.literal("setCustomerPlatform"), customerPlatform: z.string().trim().max(100, "平台名称不能超过 100 个字") }),
+  z.object({ action: z.literal("setLossAmount"), amountCents: z.number().int().min(0, "被骗金额不能小于 0").max(999_999_999_999, "被骗金额过大").nullable() }),
   z.object({ action: z.literal("setSourceDate"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   z.object({ action: z.literal("setJoinedOn"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
   z.object({ action: z.literal("setRegistration"), occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }),
@@ -96,6 +99,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
         update.ownerId = target.id;
         update.attributionOwnerId = target.id;
         activity = { kind: "PLAN_UPDATED", note: `接粉及业绩归属纠正为 ${target.name}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
+      } else if (input.action === "setCustomerName") {
+        update.customerName = input.customerName || null;
+        activity = { kind: "PLAN_UPDATED", note: input.customerName ? `客户姓名调整为 ${input.customerName}` : "客户姓名已清空", occurredOn: today };
+      } else if (input.action === "setCustomerPlatform") {
+        update.customerPlatform = input.customerPlatform || null;
+        activity = { kind: "PLAN_UPDATED", note: input.customerPlatform ? `客户平台调整为 ${input.customerPlatform}` : "客户平台已清空", occurredOn: today };
+      } else if (input.action === "setLossAmount") {
+        update.lossAmountCents = input.amountCents;
+        activity = { kind: "PLAN_UPDATED", note: input.amountCents === null ? "被骗金额已清空" : `被骗金额调整为 $${(input.amountCents / 100).toFixed(2)}`, occurredOn: today };
       } else if (input.action === "setSourceDate") {
         const dateError = entryDateError(input.occurredOn, today, "接粉日期");
         if (dateError) return { status: 400 as const, error: dateError };
@@ -144,7 +156,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       } else if (input.action === "setLeave") {
         await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: input.occurredOn, kind: input.leaveType === "NORMAL" ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE" });
       }
-      await recordAudit(transaction, { actorId: actor.id, action: `SHARED_CUSTOMER_${input.action}`, entityType: "LeadCustomer", entityId: lead.id, summary: { input, before: { ownerId: lead.ownerId, attributionOwnerId: lead.attributionOwnerId, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId, deviceId: lead.deviceId, batchId: lead.batchId, sourceDate: lead.batch.sourceDate, joinedOn: lead.joinedOn, registeredOn: lead.registeredOn, leftOn: lead.leftOn }, update } });
+      await recordAudit(transaction, { actorId: actor.id, action: `SHARED_CUSTOMER_${input.action}`, entityType: "LeadCustomer", entityId: lead.id, summary: { input, before: { customerName: lead.customerName, customerPlatform: lead.customerPlatform, lossAmountCents: lead.lossAmountCents, ownerId: lead.ownerId, attributionOwnerId: lead.attributionOwnerId, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId, deviceId: lead.deviceId, batchId: lead.batchId, sourceDate: lead.batch.sourceDate, joinedOn: lead.joinedOn, registeredOn: lead.registeredOn, leftOn: lead.leftOn }, update } });
       return { status: 200 as const };
     });
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });

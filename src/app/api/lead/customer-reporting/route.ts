@@ -24,6 +24,12 @@ const createSchema = z.object({
   channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
   joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
 });
+const batchCreateSchema = z.object({
+  phones: z.array(z.string().trim().max(80, "单个客户号码不能超过 80 个字")).min(1, "请至少输入一个客户号码").max(200, "一次最多新增 200 个客户"),
+  channelId: z.string().trim().min(1, "请选择来源渠道").max(API_LIMITS.identifierCharacters),
+  joinedOn: z.string().refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择进群日期"),
+  dryRun: z.boolean().optional().default(false),
+});
 
 function stageWhere(stage: string): Prisma.LeadCustomerWhereInput {
   if (stage === "reception") return { groupStatus: "NOT_JOINED", receptionArchivedAt: null };
@@ -233,7 +239,78 @@ export async function POST(request: Request) {
   if (!actor.active || !actor.groupId || !isFrontlineGroupMember(actor))
     return authorizationDenied(actor, "只有在职组员和组长可以新增已进群客户");
   try {
-    const input = createSchema.parse(await request.json());
+    const payload: unknown = await request.json();
+    const isBatch = typeof payload === "object" && payload !== null && Array.isArray((payload as { phones?: unknown }).phones);
+    if (isBatch) {
+      const input = batchCreateSchema.parse(payload);
+      const group = await db.teamGroup.findFirst({
+        where: { id: actor.groupId, active: true },
+        select: { id: true },
+      });
+      if (!group) return authorizationDenied(actor, "当前小组不存在或已停用");
+      const today = statisticsDate();
+      const dateError = entryDateError(input.joinedOn, today, "进群日期");
+      if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
+
+      const uniquePhones: string[] = [];
+      const seen = new Set<string>();
+      const invalid: string[] = [];
+      const repeated: string[] = [];
+      for (const raw of input.phones) {
+        const digits = raw.replace(/\D/g, "");
+        if (digits.length < 6) {
+          invalid.push(raw || "空号码");
+          continue;
+        }
+        const phone = digits.slice(-6);
+        if (seen.has(phone)) repeated.push(phone);
+        else {
+          seen.add(phone);
+          uniquePhones.push(phone);
+        }
+      }
+
+      const [channel, existing] = await Promise.all([
+        db.channel.findUnique({ where: { id_groupId: { id: input.channelId, groupId: group.id } }, select: { id: true, active: true } }),
+        uniquePhones.length ? db.leadCustomer.findMany({ where: { phone: { in: uniquePhones } }, select: { phone: true } }) : Promise.resolve([]),
+      ]);
+      if (!channel?.active) return NextResponse.json({ error: "来源渠道不存在或已停用" }, { status: 400 });
+      const existingPhones = new Set(existing.map((customer) => customer.phone));
+      const validPhones = uniquePhones.filter((phone) => !existingPhones.has(phone));
+      const duplicates = [...new Set([...repeated, ...existing.map((customer) => customer.phone)])];
+
+      if (input.dryRun) {
+        return NextResponse.json({ validPhones, duplicates, invalid, totalInput: input.phones.length });
+      }
+
+      const created = await db.$transaction(async (transaction) => {
+        const batch = await getOrCreateSourceBatch({ groupId: group.id, channelId: channel.id, sourceDate: input.joinedOn }, transaction);
+        const rows: Array<{ id: string; phone: string }> = [];
+        for (const phone of validPhones) {
+          const customer = await transaction.leadCustomer.create({
+            data: {
+              phone, customerName: null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
+              groupOperatorOwnerId: null, deviceId: null, receptionCategory: "VALID", invalid: false,
+              replyStatus: "REPLIED", repliedOn: input.joinedOn, groupStatus: "JOINED", joinedOn: input.joinedOn,
+              activities: { create: { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从 AI 助手批量新增到组内共享客户进度表" } },
+            },
+            select: { id: true, phone: true },
+          });
+          await recordAudit(transaction, {
+            actorId: actor.id,
+            action: "SHARED_CUSTOMER_CREATE",
+            entityType: "LeadCustomer",
+            entityId: customer.id,
+            summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id, batchCreate: true },
+          });
+          rows.push(customer);
+        }
+        return rows;
+      });
+      return NextResponse.json({ created, duplicates, invalid, totalInput: input.phones.length }, { status: 201 });
+    }
+
+    const input = createSchema.parse(payload);
     const group = await db.teamGroup.findFirst({
       where: { id: actor.groupId, active: true },
       select: { id: true, timezone: true, countryCode: true, workStartMinutes: true, workEndMinutes: true, department: { select: { timezone: true, countryCode: true, workStartMinutes: true, workEndMinutes: true } } },

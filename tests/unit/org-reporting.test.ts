@@ -5,7 +5,7 @@ import { db } from "../../src/lib/db";
 import { GET as getOrgReporting } from "../../src/app/api/org/reporting/route";
 import { GET as getOrgChannelReporting } from "../../src/app/api/org/channel-reporting/route";
 import { GET as getLeadChannelReporting } from "../../src/app/api/lead/channel-reporting/route";
-import { GET as getLeadCustomerReporting } from "../../src/app/api/lead/customer-reporting/route";
+import { GET as getLeadCustomerReporting, POST as postLeadCustomerReporting } from "../../src/app/api/lead/customer-reporting/route";
 import { PATCH as patchSharedCustomer } from "../../src/app/api/lead/customer-reporting/[leadId]/route";
 import { GET as getResourceReporting } from "../../src/app/api/resource/reporting/route";
 
@@ -23,7 +23,19 @@ vi.mock("../../src/lib/db", async () => {
     cwd: process.cwd(), env: { ...process.env, DATABASE_URL: `file:${databasePath}` },
   });
   isolatedDatabase.directory = directory;
-  return { db: new PrismaClient({ datasourceUrl: `file:${databasePath}` }) };
+  const db = new PrismaClient({ datasourceUrl: `file:${databasePath}` });
+  return {
+    db,
+    getOrCreateSourceBatch: async (key: { groupId: string; channelId: string; sourceDate: string }, client = db) => {
+      const channel = await client.channel.findUniqueOrThrow({
+        where: { id_groupId: { id: key.channelId, groupId: key.groupId } }, select: { channelType: true },
+      });
+      return client.sourceBatch.upsert({
+        where: { groupId_channelId_sourceDate: key }, update: {},
+        create: { ...key, channelTypeSnapshot: channel.channelType },
+      });
+    },
+  };
 });
 
 const suffix = randomUUID();
@@ -403,6 +415,31 @@ describe.sequential("资源部真实报表快照", () => {
 });
 
 describe.sequential("新版客户进度 API", () => {
+  it("批量新增先预检号码，再统一保存有效客户并跳过重复和错误号码", async () => {
+    await signIn(ids.berlinReception);
+    const body = {
+      phones: ["+1 725 830001", "830002", "830002", "12"],
+      channelId: id("berlin-channel"),
+      joinedOn: "2026-08-01",
+    };
+    const call = (dryRun: boolean) => postLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, dryRun }),
+    }));
+
+    const preview = await call(true);
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({ validPhones: ["830001", "830002"], duplicates: ["830002"], invalid: ["12"], totalInput: 4 });
+
+    const saved = await call(false);
+    expect(saved.status).toBe(201);
+    expect(await saved.json()).toMatchObject({ created: [{ phone: "830001" }, { phone: "830002" }], duplicates: ["830002"], invalid: ["12"] });
+    expect(await db.leadCustomer.count({ where: { phone: { in: ["830001", "830002"] }, ownerId: ids.berlinReception, attributionOwnerId: ids.berlinReception, groupStatus: "JOINED" } })).toBe(2);
+
+    const repeatedPreview = await call(true);
+    expect(await repeatedPreview.json()).toMatchObject({ validPhones: [], duplicates: expect.arrayContaining(["830001", "830002"]), invalid: ["12"] });
+    await db.leadCustomer.deleteMany({ where: { phone: { in: ["830001", "830002"] } } });
+  });
+
   it("按接粉、炒群、专家阶段读取本组真实客户并返回分页数量", async () => {
     const device = await db.device.create({ data: {
       id: id("customer-device"), code: "B-22", groupId: ids.berlinGroup, memberId: ids.berlinReception,

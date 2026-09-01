@@ -123,7 +123,7 @@ const LAWYER_FIELDS: Field[] = [
     write: (values, value) => ({ ...values, withdrawalCents: Math.round(value * 100) }) },
 ];
 
-const quickActions = ["添加今日数据", "新增客户", "更新客户进度", "查询或纠正数据"];
+const quickActions = ["添加今日数据", "新增客户", "录入老客户进度", "更新客户进度", "查询或纠正数据"];
 
 type CustomerContext = {
   today: string;
@@ -217,10 +217,11 @@ function parseAnswer(raw: string, money = false) {
 type AiSmartAssistantProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenLegacyCustomer: () => void;
   contextLabel: string;
 };
 
-export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAssistantProps) {
+export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, contextLabel }: AiSmartAssistantProps) {
   const [input, setInput] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -702,6 +703,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   function handleQuickAction(action: string) {
     if (action === "添加今日数据") { void startDailyFlow(); return; }
     if (action === "新增客户") { void startCustomerFlow(); return; }
+    if (action === "录入老客户进度") { reset(); onOpenLegacyCustomer(); return; }
     if (action === "更新客户进度") { startProgressFlow(); return; }
     addMessage("user", action);
     addMessage("assistant", "这个入口会在下一步接入。目前可以使用“添加今日数据”“新增客户”和“更新客户进度”。");
@@ -744,7 +746,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         {!messages.length
           ? <div className={styles.welcome}><span><MagicWand size={22} weight="fill" /></span><strong>需要处理什么？</strong><p>选择一个入口，或者直接在下方输入。</p></div>
           : <div className={styles.messages}>{messages.map((message) => <div key={message.id} className={styles.message} data-role={message.role}>{message.text}</div>)}</div>}
-        {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action, index) => <button key={action} type="button" data-ready={index <= 2} onClick={() => handleQuickAction(action)}>{action}{index > 2 ? <small>稍后接入</small> : null}</button>)}</div> : null}
+        {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action) => <button key={action} type="button" data-ready={action !== "查询或纠正数据"} onClick={() => handleQuickAction(action)}>{action}{action === "查询或纠正数据" ? <small>稍后接入</small> : null}</button>)}</div> : null}
 
         {phase === "customer-mode" ? <div className={styles.choiceList} aria-label="选择新增客户方式">
           <button type="button" onClick={() => chooseCustomerMode("single")}><strong>单个新增</strong><small>录入 1 个客户</small></button>

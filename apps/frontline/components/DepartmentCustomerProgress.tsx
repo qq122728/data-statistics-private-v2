@@ -68,7 +68,7 @@ function EditableCell({ label, value, editable, saving, onSave }: { label: strin
   return <button type="button" className={styles.editableCell} data-editable={editable} disabled={!editable || saving} onDoubleClick={() => setEditing(true)} title={editable ? `双击修改${label}` : `${label}只读`}><span>{value || "—"}</span>{saving ? <small>保存中…</small> : null}</button>;
 }
 
-export function DepartmentCustomerProgress({ groups, member }: { groups?: DepartmentCustomerGroup[]; member?: BackendUser }) {
+export function DepartmentCustomerProgress({ groups, member, openLegacyImportRequest = 0 }: { groups?: DepartmentCustomerGroup[]; member?: BackendUser; openLegacyImportRequest?: number }) {
   const [legacyMode, setLegacyMode] = useState(false);
   const [availableGroups, setAvailableGroups] = useState(groups ?? []);
   const [groupId, setGroupId] = useState(groups?.[0]?.id ?? "");
@@ -85,6 +85,10 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   const phoneInput = useRef<HTMLInputElement>(null);
   // 传入 member 代表当前是本组在职成员；管理员不传 member，继续只读。
   const canEdit = Boolean(member);
+
+  useEffect(() => {
+    if (member && openLegacyImportRequest > 0) setLegacyMode(true);
+  }, [member, openLegacyImportRequest]);
 
   useEffect(() => {
     if (groups) { setAvailableGroups(groups); setGroupId((current) => groups.some((group) => group.id === current) ? current : groups[0]?.id ?? ""); return; }

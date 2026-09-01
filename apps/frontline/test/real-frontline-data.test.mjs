@@ -42,6 +42,8 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /AI 对话输入框/);
   assert.match(source, /添加今日数据/);
   assert.match(source, /更新客户进度/);
+  assert.match(source, /录入老客户进度/);
+  assert.match(source, /onOpenLegacyCustomer/);
   assert.match(source, /收起 AI 助手/);
   assert.match(source, /requestJson<DailyContext>\("\/api\/daily-stats"\)/);
   assert.match(source, /method: "POST"/);

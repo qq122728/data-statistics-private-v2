@@ -57,5 +57,15 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /dryRun: true/);
   assert.match(source, /选择炒群负责人/);
   assert.match(source, /输入设备账号或设备号/);
+  assert.match(source, /stage=group&page=1&q=/);
+  assert.match(source, /更新炒群情况/);
+  assert.match(source, /推专家/);
+  assert.match(source, /登记注册/);
+  assert.match(source, /登记首充/);
+  assert.match(source, /新增续充/);
+  assert.match(source, /登记出金/);
+  assert.match(source, /确认更新/);
+  assert.match(source, /\/api\/customer-orders/);
+  assert.match(source, /\/api\/customer-finance/);
   assert.match(source, /ai-data-updated/);
 });

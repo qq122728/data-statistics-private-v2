@@ -50,7 +50,8 @@ type DailyContext = {
 type Message = { id: number; role: "assistant" | "user"; text: string };
 type Phase = "idle" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done"
   | "customer-loading" | "customer-mode" | "customer-phone" | "customer-name" | "customer-channel" | "customer-operator" | "customer-device" | "customer-preview" | "customer-saving" | "customer-done"
-  | "customer-batch-input" | "customer-batch-preview" | "customer-batch-saving" | "customer-batch-done";
+  | "customer-batch-input" | "customer-batch-preview" | "customer-batch-saving" | "customer-batch-done"
+  | "progress-loading" | "progress-phone" | "progress-action" | "progress-text" | "progress-person" | "progress-amount" | "progress-method" | "progress-preview" | "progress-saving" | "progress-done";
 type Field = {
   key: string;
   label: string;
@@ -133,6 +134,22 @@ type CustomerContext = {
 type CustomerDraft = { phone: string; customerName: string; channelId: string; joinedOn: string; groupOperatorOwnerId: string; deviceCode: string };
 type CustomerBatchPreview = { validPhones: string[]; duplicates: string[]; invalid: string[]; totalInput: number };
 const EMPTY_CUSTOMER: CustomerDraft = { phone: "", customerName: "", channelId: "", joinedOn: "", groupOperatorOwnerId: "", deviceCode: "" };
+
+type ProgressCustomer = {
+  id: string; phone: string; customerName: string | null; joinedOn: string | null; groupStatus: string;
+  groupOperatorOwner: { id: string; name: string } | null; expertOwner: { id: string; name: string } | null;
+  device: { id: string; code: string } | null; batch: { id: string; channel: { name: string } };
+  order: { id: string; nextContinuationNumber: number } | null;
+};
+type ProgressContext = CustomerContext & { customers: ProgressCustomer[]; expertOptions: Array<{ id: string; name: string }> };
+type ProgressAction = "groupNote" | "assignOperator" | "device" | "assignExpert" | "expertNote" | "register" | "normalLeave" | "abnormalLeave" | "initial" | "recharge" | "withdrawal";
+type ProgressDraft = { action: ProgressAction | null; text: string; userId: string; amountCents: number; depositMethod: "CRYPTO" | "BANK" };
+const EMPTY_PROGRESS: ProgressDraft = { action: null, text: "", userId: "", amountCents: 0, depositMethod: "CRYPTO" };
+const PROGRESS_LABELS: Record<ProgressAction, string> = {
+  groupNote: "更新炒群情况", assignOperator: "更换炒群负责人", device: "更换设备账号", assignExpert: "推专家",
+  expertNote: "更新专家情况", register: "登记注册", normalLeave: "正常退群", abnormalLeave: "异常退群",
+  initial: "登记首充", recharge: "新增续充", withdrawal: "登记出金",
+};
 
 function amount(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value / 100);
@@ -219,6 +236,9 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   const [customerBatchText, setCustomerBatchText] = useState("");
   const [customerBatchPreview, setCustomerBatchPreview] = useState<CustomerBatchPreview | null>(null);
   const [customerBatchCreated, setCustomerBatchCreated] = useState(0);
+  const [progressContext, setProgressContext] = useState<ProgressContext | null>(null);
+  const [progressCustomer, setProgressCustomer] = useState<ProgressCustomer | null>(null);
+  const [progressDraft, setProgressDraft] = useState<ProgressDraft>({ ...EMPTY_PROGRESS });
   const messageIdRef = useRef(1);
   const conversationRef = useRef<HTMLDivElement>(null);
 
@@ -244,6 +264,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     setDraft({ ...EMPTY_VALUES }); setFieldIndex(0); setEditingIndex(null); setValidationError("");
     setCustomerContext(null); setCustomerDraft({ ...EMPTY_CUSTOMER });
     setCustomerMode(null); setCustomerBatchText(""); setCustomerBatchPreview(null); setCustomerBatchCreated(0);
+    setProgressContext(null); setProgressCustomer(null); setProgressDraft({ ...EMPTY_PROGRESS });
     messageIdRef.current = 1;
   }
 
@@ -407,6 +428,120 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     }
   }
 
+  function startProgressFlow() {
+    setMessages([{ id: 0, role: "user", text: "更新客户进度" }, { id: 1, role: "assistant", text: "请输入客户完整号码或号码后 6 位，我会先找到客户再让你选择更新内容。" }]);
+    messageIdRef.current = 2;
+    setProgressContext(null); setProgressCustomer(null); setProgressDraft({ ...EMPTY_PROGRESS }); setInput("");
+    setPhase("progress-phone");
+  }
+
+  async function acceptProgressPhone(raw: string) {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length < 6) { addMessage("assistant", "客户号码至少需要 6 位数字。" ); return; }
+    const phone = digits.slice(-6);
+    addMessage("user", raw.trim()); setInput(""); setPhase("progress-loading");
+    addMessage("assistant", `正在查找号码 ${phone}…`);
+    try {
+      const result = await requestJson<ProgressContext>(`/api/lead/customer-reporting?stage=group&page=1&q=${encodeURIComponent(phone)}`);
+      const customer = result.customers.find((item) => item.phone === phone) ?? null;
+      if (!customer) {
+        addMessage("assistant", "没有在本组共享客户表中找到这个号码，请核对后重新输入。" );
+        setPhase("progress-phone"); return;
+      }
+      setProgressContext(result); setProgressCustomer(customer);
+      addMessage("assistant", `已找到 ${customer.phone}${customer.customerName ? `（${customer.customerName}）` : ""}，请选择需要更新的进度。`);
+      setPhase("progress-action");
+    } catch (caught) {
+      addMessage("assistant", caught instanceof Error ? `查找失败：${caught.message}` : "查找客户失败，请稍后重试。" );
+      setPhase("progress-phone");
+    }
+  }
+
+  function progressReady(next: ProgressDraft, message: string) {
+    setProgressDraft(next); addMessage("assistant", message); setPhase("progress-preview");
+  }
+
+  function chooseProgressAction(action: ProgressAction) {
+    if (!progressCustomer || !progressContext) return;
+    if ((action === "expertNote" || action === "register" || action === "initial") && !progressCustomer.expertOwner) {
+      addMessage("assistant", "这个客户还没有专家负责人，请先选择“推专家”。" ); return;
+    }
+    if ((action === "recharge" || action === "withdrawal") && !progressCustomer.order) {
+      addMessage("assistant", "这个客户还没有首充记录，请先登记首充。" ); return;
+    }
+    if (action === "initial" && progressCustomer.order) {
+      addMessage("assistant", "这个客户已经登记过首充，不能重复开单；可以选择新增续充。" ); return;
+    }
+    const next = { ...EMPTY_PROGRESS, action };
+    setProgressDraft(next); addMessage("user", PROGRESS_LABELS[action]);
+    if (action === "groupNote" || action === "expertNote") {
+      addMessage("assistant", `请输入新的${action === "groupNote" ? "炒群" : "专家"}情况。`); setPhase("progress-text"); return;
+    }
+    if (action === "device") { addMessage("assistant", "请输入新的设备账号或设备号。" ); setPhase("progress-text"); return; }
+    if (action === "assignOperator" || action === "assignExpert") {
+      addMessage("assistant", `请选择${action === "assignOperator" ? "炒群负责人" : "专家负责人"}。`); setPhase("progress-person"); return;
+    }
+    if (action === "register" || action === "normalLeave" || action === "abnormalLeave") {
+      progressReady(next, `将按统计日期 ${progressContext.today} 登记“${PROGRESS_LABELS[action]}”，请确认。`); return;
+    }
+    addMessage("assistant", `请输入本次${PROGRESS_LABELS[action].replace("登记", "").replace("新增", "")}金额。`); setPhase("progress-amount");
+  }
+
+  function acceptProgressValue(raw: string) {
+    if (!progressDraft.action) return;
+    if (phase === "progress-text") {
+      const textValue = raw.trim();
+      if (!textValue) { addMessage("assistant", "内容不能为空。" ); return; }
+      if (textValue.length > 300) { addMessage("assistant", "内容不能超过 300 个字。" ); return; }
+      addMessage("user", textValue); setInput("");
+      progressReady({ ...progressDraft, text: textValue }, "内容已整理，请确认后保存。" ); return;
+    }
+    const parsed = parseAnswer(raw, true);
+    if (parsed.error || parsed.value === undefined || parsed.value <= 0) { addMessage("assistant", parsed.error ?? "金额必须大于 0。" ); return; }
+    const next = { ...progressDraft, amountCents: Math.round(parsed.value * 100) };
+    addMessage("user", raw.trim()); setInput(""); setProgressDraft(next);
+    if (progressDraft.action === "withdrawal") { progressReady(next, "出金金额已整理，请确认后保存。" ); return; }
+    addMessage("assistant", "请选择入金方式。" ); setPhase("progress-method");
+  }
+
+  function chooseProgressPerson(userId: string) {
+    if (!progressDraft.action || !progressContext) return;
+    const options = progressDraft.action === "assignExpert" ? progressContext.expertOptions : progressContext.memberOptions;
+    const person = options.find((item) => item.id === userId);
+    if (!person) return;
+    addMessage("user", person.name);
+    progressReady({ ...progressDraft, userId }, `${PROGRESS_LABELS[progressDraft.action]}将设置为 ${person.name}，请确认。`);
+  }
+
+  function chooseProgressMethod(method: "CRYPTO" | "BANK") {
+    addMessage("user", method === "CRYPTO" ? "加密货币" : "银行卡");
+    progressReady({ ...progressDraft, depositMethod: method }, "金额和入金方式已经整理，请确认后保存。" );
+  }
+
+  async function saveProgressUpdate() {
+    if (!progressCustomer || !progressContext || !progressDraft.action) return;
+    const action = progressDraft.action; setPhase("progress-saving"); addMessage("assistant", "正在更新客户进度…" );
+    try {
+      if (action === "groupNote" || action === "expertNote") {
+        await requestJson(`/api/leads/${progressCustomer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(action === "groupNote" ? { action: "updateGroupProgress", progressNote: progressDraft.text, occurredOn: progressContext.today } : { action: "updateExpertDetails", expertNotes: progressDraft.text, occurredOn: progressContext.today }) });
+      } else if (action === "assignOperator" || action === "assignExpert" || action === "device" || action === "register" || action === "normalLeave" || action === "abnormalLeave") {
+        const body = action === "assignOperator" ? { action: "assignGroupOperator", userId: progressDraft.userId }
+          : action === "assignExpert" ? { action: "assignExpert", userId: progressDraft.userId }
+          : action === "device" ? { action: "setDeviceCode", code: progressDraft.text }
+          : action === "register" ? { action: "setRegistration", occurredOn: progressContext.today }
+          : { action: "setLeave", leaveType: action === "normalLeave" ? "NORMAL" : "ABNORMAL", occurredOn: progressContext.today };
+        await requestJson(`/api/lead/customer-reporting/${progressCustomer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      } else if (action === "initial") {
+        await requestJson("/api/customer-orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batchId: progressCustomer.batch.id, leadId: progressCustomer.id, phone: progressCustomer.phone, openedOn: progressContext.today, initialDepositCents: progressDraft.amountCents, initialDepositMethod: progressDraft.depositMethod }) });
+      } else {
+        await requestJson("/api/customer-finance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ customerOrderId: progressCustomer.order!.id, occurredOn: progressContext.today, kind: action === "recharge" ? "RECHARGE" : "WITHDRAWAL", amountCents: progressDraft.amountCents, ...(action === "recharge" ? { depositMethod: progressDraft.depositMethod, continuationNumber: progressCustomer.order!.nextContinuationNumber } : {}) }) });
+      }
+      setPhase("progress-done"); addMessage("assistant", `${progressCustomer.phone} 的“${PROGRESS_LABELS[action]}”已保存成功。`); window.dispatchEvent(new Event("ai-data-updated"));
+    } catch (caught) {
+      setPhase("progress-preview"); addMessage("assistant", caught instanceof Error ? `更新失败：${caught.message}` : "客户进度更新失败。" );
+    }
+  }
+
   async function saveCustomer() {
     if (!customerContext || !selectedCustomerChannel || !customerDraft.phone) return;
     setPhase("customer-saving");
@@ -560,8 +695,9 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   function handleQuickAction(action: string) {
     if (action === "添加今日数据") { void startDailyFlow(); return; }
     if (action === "新增客户") { void startCustomerFlow(); return; }
+    if (action === "更新客户进度") { startProgressFlow(); return; }
     addMessage("user", action);
-    addMessage("assistant", "这个入口会在下一步接入。目前可以使用“添加今日数据”和“新增客户”。");
+    addMessage("assistant", "这个入口会在下一步接入。目前可以使用“添加今日数据”“新增客户”和“更新客户进度”。");
   }
 
   function submit() {
@@ -571,14 +707,17 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     if (phase === "customer-phone") { acceptCustomerPhone(raw); return; }
     if (phase === "customer-name") { acceptCustomerName(raw); return; }
     if (phase === "customer-device") { void acceptCustomerDevice(raw); return; }
+    if (phase === "progress-phone") { void acceptProgressPhone(raw); return; }
+    if (phase === "progress-text" || phase === "progress-amount") { acceptProgressValue(raw); return; }
     if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setInput(""); void startDailyFlow(); return; }
     if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setInput(""); void startCustomerFlow(); return; }
     addMessage("user", raw);
-    addMessage("assistant", "目前支持“添加今日数据”和“新增客户”，请点击对应入口开始。" );
+    if (phase === "idle" && /更新.*客户|客户.*进度|跟进.*客户/.test(raw)) { setInput(""); startProgressFlow(); return; }
+    addMessage("assistant", "目前支持添加今日数据、新增客户和更新客户进度，请点击对应入口开始。" );
     setInput("");
   }
 
-  const inputEnabled = phase === "idle" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name" || phase === "customer-device";
+  const inputEnabled = phase === "idle" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name" || phase === "customer-device" || phase === "progress-phone" || phase === "progress-text" || phase === "progress-amount";
 
   return <section className={styles.assistant} data-open={open}>
     <button type="button" className={styles.trigger} onClick={() => onOpenChange(!open)} aria-label="AI 智能助手" aria-expanded={open} aria-controls="ai-assistant-drawer">
@@ -598,7 +737,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         {!messages.length
           ? <div className={styles.welcome}><span><MagicWand size={22} weight="fill" /></span><strong>需要处理什么？</strong><p>选择一个入口，或者直接在下方输入。</p></div>
           : <div className={styles.messages}>{messages.map((message) => <div key={message.id} className={styles.message} data-role={message.role}>{message.text}</div>)}</div>}
-        {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action, index) => <button key={action} type="button" data-ready={index <= 1} onClick={() => handleQuickAction(action)}>{action}{index > 1 ? <small>稍后接入</small> : null}</button>)}</div> : null}
+        {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action, index) => <button key={action} type="button" data-ready={index <= 2} onClick={() => handleQuickAction(action)}>{action}{index > 2 ? <small>稍后接入</small> : null}</button>)}</div> : null}
 
         {phase === "customer-mode" ? <div className={styles.choiceList} aria-label="选择新增客户方式">
           <button type="button" onClick={() => chooseCustomerMode("single")}><strong>单个新增</strong><small>录入 1 个客户</small></button>
@@ -663,6 +802,32 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
           {customerBatchPreview.invalid.length ? <div className={styles.batchWarning}>格式错误：{customerBatchPreview.invalid.join("、")}</div> : null}
           <div className={styles.customerNotice}>所有成功新增的客户都归属当前账号本人，初始状态统一为“已进群”。重复号码和错误号码不会写入。</div>
         </div> : null}
+
+        {phase === "progress-action" && progressCustomer ? <div className={styles.choiceList} aria-label="选择客户进度动作">
+          {(Object.keys(PROGRESS_LABELS) as ProgressAction[]).map((action) => <button type="button" key={action} onClick={() => chooseProgressAction(action)}><strong>{PROGRESS_LABELS[action]}</strong><small>{action === "recharge" && progressCustomer.order ? `第 ${progressCustomer.order.nextContinuationNumber} 笔续充` : "客户进度"}</small></button>)}
+        </div> : null}
+
+        {phase === "progress-person" && progressContext && progressDraft.action ? <div className={styles.choiceList} aria-label="选择客户负责人">
+          {(progressDraft.action === "assignExpert" ? progressContext.expertOptions : progressContext.memberOptions).map((person) => <button type="button" key={person.id} onClick={() => chooseProgressPerson(person.id)}><strong>{person.name}</strong><small>{progressDraft.action === "assignExpert" ? "专家/组长" : "本组在职成员"}</small></button>)}
+        </div> : null}
+
+        {phase === "progress-method" ? <div className={styles.choiceList} aria-label="选择入金方式">
+          <button type="button" onClick={() => chooseProgressMethod("CRYPTO")}><strong>加密货币</strong><small>CRYPTO</small></button>
+          <button type="button" onClick={() => chooseProgressMethod("BANK")}><strong>银行卡</strong><small>BANK</small></button>
+        </div> : null}
+
+        {(phase === "progress-preview" || phase === "progress-saving" || phase === "progress-done") && progressCustomer && progressContext && progressDraft.action ? <div className={styles.preview}>
+          <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>客户进度更新预览</strong><small>{progressCustomer.phone} · {progressCustomer.customerName || "未填写姓名"}</small></div></header>
+          <div className={styles.customerPreview}>
+            <div><span>更新项目</span><strong>{PROGRESS_LABELS[progressDraft.action]}</strong></div>
+            <div><span>发生日期</span><strong>{progressContext.today}</strong></div>
+            {progressDraft.text ? <div><span>填写内容</span><strong>{progressDraft.text}</strong></div> : null}
+            {progressDraft.userId ? <div><span>选择人员</span><strong>{[...progressContext.memberOptions, ...progressContext.expertOptions].find((item) => item.id === progressDraft.userId)?.name ?? "—"}</strong></div> : null}
+            {progressDraft.amountCents ? <div><span>金额</span><strong>{amount(progressDraft.amountCents)}</strong></div> : null}
+            {(progressDraft.action === "initial" || progressDraft.action === "recharge") ? <div><span>入金方式</span><strong>{progressDraft.depositMethod === "CRYPTO" ? "加密货币" : "银行卡"}</strong></div> : null}
+          </div>
+          <div className={styles.customerNotice}>确认前不会修改客户数据；保存后会同步刷新共享客户进度表。</div>
+        </div> : null}
       </div>
 
       <div className={styles.flowActions}>
@@ -674,9 +839,11 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         {phase === "customer-batch-input" ? <button type="button" data-primary="true" disabled={!customerBatchText.trim()} onClick={acceptCustomerBatch}>下一步：选择渠道</button> : null}
         {phase === "customer-batch-preview" ? <><button type="button" onClick={() => { setPhase("customer-batch-input"); setCustomerBatchPreview(null); addMessage("assistant", "请修改批量号码后重新检查。" ); }}>修改号码</button><button type="button" data-primary="true" disabled={!customerBatchPreview?.validPhones.length} onClick={() => void saveCustomerBatch()}>确认批量新增</button></> : null}
         {phase === "customer-batch-done" ? <><button type="button" onClick={() => void startCustomerFlow()}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "progress-preview" ? <><button type="button" onClick={() => { setPhase("progress-action"); setProgressDraft({ ...EMPTY_PROGRESS }); addMessage("assistant", "请重新选择需要更新的项目。" ); }}>重新选择</button><button type="button" data-primary="true" onClick={() => void saveProgressUpdate()}>确认更新</button></> : null}
+        {phase === "progress-done" ? <><button type="button" onClick={startProgressFlow}>继续更新其他客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
       </div>
       <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" ? "输入设备账号或设备号" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />
+        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" || phase === "progress-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" ? "输入设备账号或设备号" : phase === "progress-text" ? "输入新的进度内容" : phase === "progress-amount" ? "输入金额，例如 1000" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />
         <button type="submit" aria-label="发送" disabled={!input.trim() || !inputEnabled}><PaperPlaneTilt size={16} weight="fill" /></button>
       </form>
     </aside> : null}

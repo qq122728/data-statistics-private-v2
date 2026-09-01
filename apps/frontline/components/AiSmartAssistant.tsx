@@ -48,7 +48,8 @@ type DailyContext = {
 };
 
 type Message = { id: number; role: "assistant" | "user"; text: string };
-type Phase = "idle" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done";
+type Phase = "idle" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done"
+  | "customer-loading" | "customer-phone" | "customer-name" | "customer-channel" | "customer-preview" | "customer-saving" | "customer-done";
 type Field = {
   key: string;
   label: string;
@@ -121,6 +122,14 @@ const LAWYER_FIELDS: Field[] = [
 ];
 
 const quickActions = ["添加今日数据", "新增客户", "更新客户进度", "查询或纠正数据"];
+
+type CustomerContext = {
+  today: string;
+  channelOptions: Array<{ id: string; name: string }>;
+};
+
+type CustomerDraft = { phone: string; customerName: string; channelId: string; joinedOn: string };
+const EMPTY_CUSTOMER: CustomerDraft = { phone: "", customerName: "", channelId: "", joinedOn: "" };
 
 function amount(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value / 100);
@@ -201,12 +210,15 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   const [fieldIndex, setFieldIndex] = useState(0);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [validationError, setValidationError] = useState("");
+  const [customerContext, setCustomerContext] = useState<CustomerContext | null>(null);
+  const [customerDraft, setCustomerDraft] = useState<CustomerDraft>({ ...EMPTY_CUSTOMER });
   const messageIdRef = useRef(1);
   const conversationRef = useRef<HTMLDivElement>(null);
 
   const lawyer = context?.groupType === "LAWYER";
   const fields = lawyer ? LAWYER_FIELDS : HACKER_FIELDS;
   const selectedChannel = context?.channels.find((channel) => channel.id === channelId) ?? null;
+  const selectedCustomerChannel = customerContext?.channelOptions.find((channel) => channel.id === customerDraft.channelId) ?? null;
   const summary = useMemo(() => calculated(draft, Boolean(lawyer)), [draft, lawyer]);
 
   useEffect(() => {
@@ -222,7 +234,86 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   function reset() {
     setInput(""); setPhase("idle"); setMessages([]); setContext(null); setChannelId(""); setEntryId(null);
     setDraft({ ...EMPTY_VALUES }); setFieldIndex(0); setEditingIndex(null); setValidationError("");
+    setCustomerContext(null); setCustomerDraft({ ...EMPTY_CUSTOMER });
     messageIdRef.current = 1;
+  }
+
+  async function startCustomerFlow() {
+    if (phase === "customer-loading" || phase === "customer-saving") return;
+    setPhase("customer-loading");
+    setMessages([{ id: 0, role: "user", text: "新增客户" }, { id: 1, role: "assistant", text: "正在读取今天的日期和来源渠道…" }]);
+    messageIdRef.current = 2;
+    setCustomerDraft({ ...EMPTY_CUSTOMER });
+    try {
+      const next = await requestJson<CustomerContext>("/api/lead/customer-reporting?stage=group&page=1");
+      setCustomerContext(next);
+      if (!next.channelOptions.length) {
+        setMessages((current) => [...current, { id: 2, role: "assistant", text: "当前小组还没有可用渠道，请先联系组长或管理员开设渠道。" }]);
+        messageIdRef.current = 3;
+        setPhase("idle");
+        return;
+      }
+      setCustomerDraft({ ...EMPTY_CUSTOMER, joinedOn: next.today });
+      setMessages((current) => [...current, { id: 2, role: "assistant", text: `这里新增的是“已进群客户”，进群日期自动记为 ${next.today}。请输入客户完整号码或号码后 6 位。` }]);
+      messageIdRef.current = 3;
+      setPhase("customer-phone");
+    } catch (caught) {
+      setMessages((current) => [...current, { id: 2, role: "assistant", text: caught instanceof Error ? caught.message : "客户资料读取失败，请稍后重试。" }]);
+      messageIdRef.current = 3;
+      setPhase("idle");
+    }
+  }
+
+  function acceptCustomerPhone(raw: string) {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length < 6) {
+      addMessage("assistant", "客户号码至少需要 6 位数字。可以输入完整号码，系统只保留最后 6 位。" );
+      return;
+    }
+    const phone = digits.slice(-6);
+    addMessage("user", raw.trim());
+    setCustomerDraft((current) => ({ ...current, phone }));
+    addMessage("assistant", `号码将保存为 ${phone}。请输入客户姓名；如果不需要填写，直接回复“跳过”。`);
+    setInput("");
+    setPhase("customer-name");
+  }
+
+  function acceptCustomerName(raw: string) {
+    const skip = /^(跳过|没有|无|不填|-)$/.test(raw.trim());
+    const name = skip ? "" : raw.trim().slice(0, 80);
+    addMessage("user", raw.trim());
+    setCustomerDraft((current) => ({ ...current, customerName: name }));
+    addMessage("assistant", "请选择客户的来源渠道。" );
+    setInput("");
+    setPhase("customer-channel");
+  }
+
+  function chooseCustomerChannel(nextChannelId: string) {
+    const channel = customerContext?.channelOptions.find((item) => item.id === nextChannelId);
+    if (!channel) return;
+    setCustomerDraft((current) => ({ ...current, channelId: channel.id }));
+    addMessage("user", channel.name);
+    addMessage("assistant", "资料已经整理完成，请确认后再保存到组内共享客户进度表。" );
+    setPhase("customer-preview");
+  }
+
+  async function saveCustomer() {
+    if (!customerContext || !selectedCustomerChannel || !customerDraft.phone) return;
+    setPhase("customer-saving");
+    addMessage("assistant", "正在新增客户，请稍候…");
+    try {
+      await requestJson("/api/lead/customer-reporting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(customerDraft),
+      });
+      setPhase("customer-done");
+      addMessage("assistant", `客户 ${customerDraft.phone} 已加入组内共享客户进度表，进群日期为 ${customerDraft.joinedOn}。`);
+      window.dispatchEvent(new Event("ai-data-updated"));
+    } catch (caught) {
+      setPhase("customer-preview");
+      addMessage("assistant", caught instanceof Error ? `新增失败：${caught.message}` : "新增客户失败，请稍后重试。" );
+    }
   }
 
   async function startDailyFlow() {
@@ -358,19 +449,25 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
 
   function handleQuickAction(action: string) {
     if (action === "添加今日数据") { void startDailyFlow(); return; }
+    if (action === "新增客户") { void startCustomerFlow(); return; }
     addMessage("user", action);
-    addMessage("assistant", "这个入口会在下一步接入。目前已经可以使用“添加今日数据”。");
+    addMessage("assistant", "这个入口会在下一步接入。目前可以使用“添加今日数据”和“新增客户”。");
   }
 
   function submit() {
     const raw = input.trim();
-    if (!raw || phase === "loading" || phase === "saving") return;
+    if (!raw || phase === "loading" || phase === "saving" || phase === "customer-loading" || phase === "customer-saving") return;
     if (phase === "metrics" || phase === "editing") { acceptMetric(raw); return; }
+    if (phase === "customer-phone") { acceptCustomerPhone(raw); return; }
+    if (phase === "customer-name") { acceptCustomerName(raw); return; }
     if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setInput(""); void startDailyFlow(); return; }
+    if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setInput(""); void startCustomerFlow(); return; }
     addMessage("user", raw);
-    addMessage("assistant", "当前第一版先支持“添加今日数据”，请点击对应入口开始。" );
+    addMessage("assistant", "目前支持“添加今日数据”和“新增客户”，请点击对应入口开始。" );
     setInput("");
   }
+
+  const inputEnabled = phase === "idle" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name";
 
   return <section className={styles.assistant} data-open={open}>
     <button type="button" className={styles.trigger} onClick={() => onOpenChange(!open)} aria-label="AI 智能助手" aria-expanded={open} aria-controls="ai-assistant-drawer">
@@ -390,10 +487,14 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         {!messages.length
           ? <div className={styles.welcome}><span><MagicWand size={22} weight="fill" /></span><strong>需要处理什么？</strong><p>选择一个入口，或者直接在下方输入。</p></div>
           : <div className={styles.messages}>{messages.map((message) => <div key={message.id} className={styles.message} data-role={message.role}>{message.text}</div>)}</div>}
-        {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action, index) => <button key={action} type="button" data-ready={index === 0} onClick={() => handleQuickAction(action)}>{action}{index ? <small>稍后接入</small> : null}</button>)}</div> : null}
+        {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action, index) => <button key={action} type="button" data-ready={index <= 1} onClick={() => handleQuickAction(action)}>{action}{index > 1 ? <small>稍后接入</small> : null}</button>)}</div> : null}
 
         {phase === "channel" && context ? <div className={styles.choiceList} aria-label="选择来源渠道">
           {context.channels.map((channel) => <button type="button" key={channel.id} onClick={() => chooseChannel(channel.id)}><strong>{channel.name}</strong><small>{channel.channelType}</small></button>)}
+        </div> : null}
+
+        {phase === "customer-channel" && customerContext ? <div className={styles.choiceList} aria-label="选择客户来源渠道">
+          {customerContext.channelOptions.map((channel) => <button type="button" key={channel.id} onClick={() => chooseCustomerChannel(channel.id)}><strong>{channel.name}</strong><small>来源渠道</small></button>)}
         </div> : null}
 
         {(phase === "preview" || phase === "saving" || phase === "done" || phase === "edit-select") && context && selectedChannel ? <div className={styles.preview}>
@@ -404,16 +505,31 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         </div> : null}
 
         {phase === "edit-select" ? <div className={styles.editChoices}>{fields.map((field, index) => <button type="button" key={field.key} onClick={() => beginEdit(index)}>{field.label}</button>)}</div> : null}
+
+        {(phase === "customer-preview" || phase === "customer-saving" || phase === "customer-done") && customerContext && selectedCustomerChannel ? <div className={styles.preview}>
+          <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>新增客户预览</strong><small>保存后进入组内共享客户进度表</small></div></header>
+          <div className={styles.customerPreview}>
+            <div><span>客户号码</span><strong>{customerDraft.phone}</strong></div>
+            <div><span>客户姓名</span><strong>{customerDraft.customerName || "未填写"}</strong></div>
+            <div><span>来源渠道</span><strong>{selectedCustomerChannel.name}</strong></div>
+            <div><span>进群日期</span><strong>{customerDraft.joinedOn}</strong></div>
+            <div><span>归属组员</span><strong>当前账号本人</strong></div>
+            <div><span>初始状态</span><strong>已进群</strong></div>
+          </div>
+          <div className={styles.customerNotice}>完整号码只保留最后 6 位；保存后同组成员可以继续填写负责人、设备号、炒群和专家进度。</div>
+        </div> : null}
       </div>
 
       <div className={styles.flowActions}>
         {phase === "preview" ? <><button type="button" onClick={() => setPhase("edit-select")}>修改数据</button><button type="button" data-primary="true" disabled={Boolean(validationError)} onClick={() => void save()}>确认保存</button></> : null}
         {phase === "edit-select" ? <button type="button" onClick={() => setPhase("preview")}>返回预览</button> : null}
         {phase === "done" ? <><button type="button" onClick={() => { setPhase("channel"); setChannelId(""); setEntryId(null); addMessage("assistant", "请选择下一个需要填写的来源渠道。" ); }}>继续填写其他渠道</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "customer-preview" ? <><button type="button" onClick={() => { setPhase("customer-phone"); addMessage("assistant", "请重新输入客户完整号码或号码后 6 位。" ); }}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveCustomer()}>确认新增</button></> : null}
+        {phase === "customer-done" ? <><button type="button" onClick={() => void startCustomerFlow()}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
       </div>
       <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={phase === "loading" || phase === "saving" || phase === "channel" || phase === "preview" || phase === "edit-select" || phase === "done"} />
-        <button type="submit" aria-label="发送" disabled={!input.trim() || phase === "loading" || phase === "saving" || phase === "channel" || phase === "preview" || phase === "edit-select" || phase === "done"}><PaperPlaneTilt size={16} weight="fill" /></button>
+        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" ? "输入姓名或回复“跳过”" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />
+        <button type="submit" aria-label="发送" disabled={!input.trim() || !inputEnabled}><PaperPlaneTilt size={16} weight="fill" /></button>
       </form>
     </aside> : null}
   </section>;

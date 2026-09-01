@@ -36,7 +36,7 @@ test("客户进度统一使用真实共享表格", () => {
   assert.doesNotMatch(source, /GroupOperatorWorkbench|ExpertWorkbench|RealReceptionProgress/);
 });
 
-test("组员AI通过右侧引导对话预览并保存真实今日数据", () => {
+test("组员AI通过右侧引导对话预览并保存真实今日数据和已进群客户", () => {
   const source = read("AiSmartAssistant.tsx");
   assert.match(source, /AI 对话内容/);
   assert.match(source, /AI 对话输入框/);
@@ -47,5 +47,9 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据", () => 
   assert.match(source, /method: "POST"/);
   assert.match(source, /AI 不会在你确认前写入数据/);
   assert.match(source, /确认保存/);
+  assert.match(source, /requestJson<CustomerContext>\("\/api\/lead\/customer-reporting\?stage=group&page=1"\)/);
+  assert.match(source, /客户号码至少需要 6 位/);
+  assert.match(source, /完整号码只保留最后 6 位/);
+  assert.match(source, /确认新增/);
   assert.match(source, /ai-data-updated/);
 });

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
+import * as leadMembers from "../../src/lib/lead-members";
 import { db } from "../../src/lib/db";
 import { GET as getOrgReporting } from "../../src/app/api/org/reporting/route";
 import { GET as getOrgChannelReporting } from "../../src/app/api/org/channel-reporting/route";
@@ -8,6 +9,8 @@ import { GET as getLeadChannelReporting } from "../../src/app/api/lead/channel-r
 import { GET as getLeadCustomerReporting, POST as postLeadCustomerReporting } from "../../src/app/api/lead/customer-reporting/route";
 import { PATCH as patchSharedCustomer } from "../../src/app/api/lead/customer-reporting/[leadId]/route";
 import { POST as postCustomerOrder } from "../../src/app/api/customer-orders/route";
+import { GET as getPerformanceLeaderboard } from "../../src/app/api/performance-leaderboard/route";
+import { GET as getLeadMemberDailyStats } from "../../src/app/api/lead/member-daily-stats/[memberId]/route";
 import { GET as getResourceReporting } from "../../src/app/api/resource/reporting/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
@@ -323,6 +326,33 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     expect(rows.filter((row) => row.channelId === originalChannelId && row.sourceReceptionId === ids.berlinReception)
       .reduce((total, row) => total + (row.currentRevision?.operatorReceivedCount ?? 0), 0)).toBe(1);
     expect(rows.some((row) => row.sourceReceptionId === ids.berlinOperatorA || row.sourceReceptionId === ids.berlinOperatorB || row.sourceReceptionId === ids.berlinExpert)).toBe(false);
+
+    await signIn(ids.berlinReception);
+    const personalPerformance = await (await import("../../src/app/api/personal-performance/route")).GET(
+      new Request("http://localhost/api/personal-performance?role=RECEPTION&range=custom&sourceDateFrom=2026-09-02&sourceDateTo=2026-09-02"),
+    );
+    expect(personalPerformance.status).toBe(200);
+    expect((await personalPerformance.json()).funnel.summary).toMatchObject({ joined: 1, pushed: 1, registered: 1, ordered: 1 });
+
+    await signIn(ids.companyManager);
+    const leaderboard = await getPerformanceLeaderboard(new Request("http://localhost/api/performance-leaderboard?range=custom&sourceDateFrom=2026-09-02&sourceDateTo=2026-09-02"));
+    expect(leaderboard.status).toBe(200);
+    const leaderboardBody = await leaderboard.json();
+    expect(leaderboardBody.receptions.find((row: { id: string }) => row.id === ids.berlinReception)).toMatchObject({ joined: 1, orders: 1 });
+
+    await signIn(ids.lead);
+    vi.spyOn(leadMembers, "requireLeadRequest").mockResolvedValue({
+      actor: await db.user.findUniqueOrThrow({ where: { id: ids.lead } }),
+      group: { id: ids.berlinGroup, name: `柏林一组-${suffix}` },
+    });
+    const memberDaily = await getLeadMemberDailyStats(
+      new Request("http://localhost/api/lead/member-daily-stats/member?from=2026-09-02&to=2026-09-02"),
+      { params: Promise.resolve({ memberId: ids.berlinReception }) },
+    );
+    expect(memberDaily.status).toBe(200);
+    const memberDailyBody = await memberDaily.json();
+    expect(memberDailyBody.entries.filter((entry: { sourceReceptionId: string | null }) => entry.sourceReceptionId === ids.berlinReception)
+      .reduce((total: number, entry: { currentRevision?: { operatorReceivedCount: number } | null }) => total + (entry.currentRevision?.operatorReceivedCount ?? 0), 0)).toBe(1);
 
     const order = await db.customerOrder.findUnique({ where: { leadId: customer.id } });
     if (order) await db.customerFinanceEvent.deleteMany({ where: { customerOrderId: order.id } });

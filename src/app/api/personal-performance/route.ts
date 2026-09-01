@@ -10,6 +10,7 @@ import { hasOversizedQueryValue } from "../../../lib/request-limits";
 import { getAssignedRoles, hasAssignedRole } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
+import { usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
 
 type Role = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
 const frontlineRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
@@ -73,8 +74,10 @@ function addFunnelEntry(target: FunnelRow, entry: PerformanceEntry, viewerRole: 
     target.joined += value.joinCount;
   } else if (entry.position === "GROUP_OPERATOR") {
     // 接粉自己的“进群”仍以接粉统计为准，不能再把炒群接手数重复加一次。
-    // 炒群本人没有接粉行，因此用自己的接手数作为漏斗里的进群数。
-    if (viewerRole === "GROUP_OPERATOR") target.joined += value.operatorReceivedCount;
+    // 号码跟踪切换后，接粉人的进群也来自这条自动事件行；炒群人只是代为维护进度。
+    if (viewerRole === "GROUP_OPERATOR" || (viewerRole === "RECEPTION" && usesCustomerNumberTracking(entry.businessDate))) {
+      target.joined += value.operatorReceivedCount;
+    }
     target.leftNormal += value.normalLeaveCount;
     target.leftAbnormal += value.abnormalLeaveCount;
     target.pushed += value.expertIntroCount;

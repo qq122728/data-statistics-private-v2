@@ -90,7 +90,7 @@ export async function GET(request: Request, context: RouteContext) {
 
   const entries = await db.dailyStatEntry.findMany({
     where: {
-      ownerId: member.id,
+      OR: [{ ownerId: member.id }, { sourceReceptionId: member.id }],
       groupId: access.group.id,
       ...(from || to ? { businessDate: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     },
@@ -125,7 +125,11 @@ export async function PATCH(request: Request, context: RouteContext) {
       });
       if (!member) return { error: "成员不存在或不属于本组", status: 404 as const };
       const entry = await tx.dailyStatEntry.findFirst({
-        where: { id: input.entryId, ownerId: member.id, groupId: access.group.id },
+        where: {
+          id: input.entryId,
+          groupId: access.group.id,
+          OR: [{ ownerId: member.id }, { sourceReceptionId: member.id }],
+        },
         include: { currentRevision: true, revisions: { orderBy: { version: "desc" }, take: 1 } },
       });
       if (!entry?.currentRevision) return { error: "未找到可以纠正的原始记录", status: 404 as const };

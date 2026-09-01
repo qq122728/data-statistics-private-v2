@@ -18,9 +18,11 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
 });
 
 test("共享表完整保留已进群客户业务字段", () => {
-  for (const field of ["进群日期（自动）", "客户号码", "归属组员", "来源渠道", "炒群负责人", "设备号", "群内天数", "炒群情况", "退群类型", "退群日期（自动）", "专家负责人", "专家情况", "注册日期", "首充", "续充", "出金", "净业绩", "最后修改"]) {
+  for (const field of ["进群日期（自动）", "客户号码", "归属组员", "来源渠道", "炒群负责人", "设备号", "群内天数", "炒群情况", "退群类型", "退群日期（自动）", "专家负责人", "专家情况", "注册", "注册日期", "首充", "续充", "出金", "净业绩", "最后修改"]) {
     assert.match(component, new RegExp(field));
   }
+  assert.match(component, /<th>注册<\/th><th>注册日期<\/th>/);
+  assert.match(component, /customer\.registeredOn \? "已注册" : "未注册"/);
 });
 
 test("组员和组长都能新增已进群客户", () => {
@@ -55,7 +57,7 @@ test("炒群和专家单元格双击编辑并自动保存", () => {
 
 test("表格视觉匹配目标截图的紧凑大表", () => {
   assert.match(css, /\.sheetCard\{[^}]*height:calc\(100vh - 164px\)/);
-  assert.match(css, /\.table\{[^}]*min-width:2160px/);
+  assert.match(css, /\.table\{[^}]*min-width:2240px/);
   assert.match(css, /\.dayCell\{[^}]*background:#edf8f1/);
   assert.match(css, /\.progressCell\{[^}]*width:240px/);
 });

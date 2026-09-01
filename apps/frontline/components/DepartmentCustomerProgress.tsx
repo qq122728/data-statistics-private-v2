@@ -113,7 +113,7 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
     return (!query.trim() || haystack.includes(query.trim().toLowerCase())) && (progress === "全部进度" || progressOf(customer) === progress);
   }), [payload?.customers, progress, query]);
   const pageCount = Math.max(1, Math.ceil((payload?.total ?? 0) / (payload?.pageSize ?? 50)));
-  function showSaved(message: string) { setSavedMessage(message); window.setTimeout(() => setSavedMessage(""), 2400); }
+  function showSaved(message: string) { setSavedMessage(message); window.dispatchEvent(new Event("ai-data-updated")); window.setTimeout(() => setSavedMessage(""), 2400); }
   function beginAdd() { setAdding(true); setError(""); setDraft({ phone: "", channelId: payload?.channelOptions[0]?.id ?? "", joinedOn: localToday() }); }
   async function createCustomer() {
     if (!adding || creating || !draft.phone.trim()) return;

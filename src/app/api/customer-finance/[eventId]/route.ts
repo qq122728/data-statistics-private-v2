@@ -5,6 +5,7 @@ import { db } from "../../../../lib/db";
 import { canWriteCustomerFinance, financeScopeError, financeWriteRoles } from "../../../../lib/customer-finance-access";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { syncCustomerFinanceEvent } from "../../../../lib/customer-number-event-sync";
 
 const correctionSchema = z.object({
   action: z.literal("void"),
@@ -24,23 +25,41 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ev
     const input = correctionSchema.parse(await request.json());
     const { eventId } = await params;
     if (eventId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "流水参数过长" }, { status: 400 });
-    const event = await db.customerFinanceEvent.findUnique({
-      where: { id: eventId },
-      include: {
-        customerOrder: {
-          select: {
-            batch: { select: { groupId: true } },
-            lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true } },
+    const result = await db.$transaction(async (transaction) => {
+      const event = await transaction.customerFinanceEvent.findUnique({
+        where: { id: eventId },
+        include: {
+          customerOrder: {
+            select: {
+              phone: true,
+              batch: { select: { groupId: true, channelId: true } },
+              lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true } },
+            },
           },
         },
-      },
+      });
+      if (!event || !event.customerOrder || !["RECHARGE", "WITHDRAWAL"].includes(event.kind)) return { status: 404 as const, error: "资金流水不存在" };
+      if (event.kind === "RECHARGE" && event.continuationNumber === null) return { status: 400 as const, error: "首充请通过“作废开单”纠错" };
+      if (!canWriteCustomerFinance(user, event.customerOrder)) return { status: 403 as const, error: financeScopeError(user.role) };
+      if (event.voidedAt) return { status: 400 as const, error: "该资金流水已经作废" };
+      const updated = await transaction.customerFinanceEvent.update({ where: { id: event.id }, data: { voidedAt: new Date(), voidReason: input.reason, voidedById: user.id } });
+      if (event.customerOrder.lead) await syncCustomerFinanceEvent(transaction, {
+        ...event.customerOrder.lead,
+        phone: event.customerOrder.phone,
+        batch: event.customerOrder.batch,
+      }, {
+        businessDate: event.occurredOn,
+        kind: event.kind as "RECHARGE" | "WITHDRAWAL",
+        amountCents: event.amountCents,
+        method: event.depositMethod,
+        delta: -1,
+      });
+      return { status: 200 as const, event: updated };
     });
-    if (!event || !event.customerOrder || !["RECHARGE", "WITHDRAWAL"].includes(event.kind)) return NextResponse.json({ error: "资金流水不存在" }, { status: 404 });
-    if (event.kind === "RECHARGE" && event.continuationNumber === null) return NextResponse.json({ error: "首充请通过“作废开单”纠错" }, { status: 400 });
-    if (!canWriteCustomerFinance(user, event.customerOrder)) return authorizationDenied(user, financeScopeError(user.role));
-    if (event.voidedAt) return NextResponse.json({ error: "该资金流水已经作废" }, { status: 400 });
-    const updated = await db.customerFinanceEvent.update({ where: { id: event.id }, data: { voidedAt: new Date(), voidReason: input.reason, voidedById: user.id } });
-    return NextResponse.json({ event: updated });
+    if ("error" in result) return result.status === 403
+      ? authorizationDenied(user, result.error)
+      : NextResponse.json({ error: result.error }, { status: result.status });
+    return NextResponse.json({ event: result.event });
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: error.issues[0]?.message ?? "请检查填写内容" }, { status: 400 });
     if (error instanceof SyntaxError) return NextResponse.json({ error: "请求内容不是有效 JSON" }, { status: 400 });

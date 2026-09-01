@@ -13,6 +13,7 @@ import { authorizationDenied, authorizationErrorResponse } from "../../../../lib
 import { getSystemSettings } from "../../../../lib/settings";
 import { managedDepartmentIds } from "../../../../lib/managed-department-scope";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
+import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
@@ -181,7 +182,16 @@ export async function GET(request: Request) {
   const dailyMemberAggregates = new Map<string, Aggregate>();
   const channelAggregates = new Map<string, { name: string; aggregate: Aggregate; groupIds: Set<string> }>();
   function applyRevision(aggregate: Aggregate, entry: (typeof entries)[number], revision: ApprovedDailyRevision) {
+    const numberTrackedOperator = groupTypeById.get(entry.groupId) === "HACKER"
+      && entry.position === "GROUP_OPERATOR"
+      && usesCustomerNumberTracking(entry.businessDate);
+    revision = revisionForNumberTracking(revision, {
+      businessDate: entry.businessDate,
+      position: entry.position,
+      groupType: groupTypeById.get(entry.groupId) ?? "HACKER",
+    });
     addBatchTotals(aggregate.totals, revisionTotals(revision));
+    if (numberTrackedOperator) aggregate.totals.groupJoin += revision.operatorReceivedCount;
     aggregate.lowAmount += revision.lowAmountCount;
     aggregate.noWs += revision.noWsCount;
     aggregate.manualInvalid += revision.manualInvalidCount ?? 0;

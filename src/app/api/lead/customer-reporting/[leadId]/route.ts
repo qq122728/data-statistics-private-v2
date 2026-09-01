@@ -8,7 +8,7 @@ import { API_LIMITS } from "../../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../../lib/security-events";
 import { leadCurrentGroupId } from "../../../../../lib/customer-current-group";
 import { statisticsDate } from "../../../../../lib/statistics-date";
-import { incrementHistoricalCustomerDailyStat } from "../../../../../lib/daily-stats";
+import { syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerRegistrationEvent } from "../../../../../lib/customer-number-event-sync";
 
 const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assignGroupOperator"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
@@ -46,6 +46,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       if (!actor?.active || !actor.groupId || !lead || leadCurrentGroupId(lead) !== actor.groupId)
         return { status: 404 as const, error: "客户不存在或已不在本组" };
       const update: Record<string, unknown> = {};
+      let trackedExpertOwnerId = lead.expertOwnerId;
       let activity: { kind: "DEVICE_ASSIGNED" | "EXPERT_INTRODUCED" | "REGISTERED" | "LEFT_GROUP" | "PLAN_UPDATED"; note: string; occurredOn: string } | null = null;
       const today = statisticsDate();
 
@@ -74,11 +75,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
           select: { id: true, name: true },
         });
         if (!target) return { status: 400 as const, error: "专家负责人只能选择本组组长或在职专家" };
+        trackedExpertOwnerId = target.id;
         update.expertOwnerId = target.id;
-        update.expertIntroducedOn = lead.expertIntroducedOn ?? (lead.isHistoricalRecord ? today : lead.joinedOn ?? lead.batch.sourceDate);
+        update.expertIntroducedOn = lead.expertIntroducedOn ?? today;
         update.expertWorkflowStage = lead.expertWorkflowStage ?? "QUEUED";
         update.expertStageChangedAt = new Date();
-        activity = { kind: "EXPERT_INTRODUCED", note: `专家负责人调整为 ${target.name}`, occurredOn: lead.expertIntroducedOn ?? (lead.isHistoricalRecord ? today : lead.joinedOn ?? lead.batch.sourceDate) };
+        activity = { kind: "EXPERT_INTRODUCED", note: `专家负责人调整为 ${target.name}`, occurredOn: lead.expertIntroducedOn ?? today };
       } else if (input.action === "setChannel") {
         const channel = await transaction.channel.findUnique({ where: { id_groupId: { id: input.channelId, groupId: actor.groupId } }, select: { id: true, name: true, active: true } });
         if (!channel?.active) return { status: 400 as const, error: "来源渠道不存在或已停用" };
@@ -100,6 +102,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
         update.expertStageChangedAt = new Date();
         activity = { kind: "REGISTERED", note: "专家在共享表登记客户注册", occurredOn: input.occurredOn };
       } else {
+        if (lead.groupStatus === "LEFT" || lead.leftOn) return { status: 400 as const, error: `该客户已经在 ${lead.leftOn ?? "之前"} 退群` };
         if (lead.joinedOn && input.occurredOn < lead.joinedOn) return { status: 400 as const, error: "退群日期不能早于进群日期" };
         update.groupStatus = "LEFT";
         update.leftOn = input.occurredOn;
@@ -110,12 +113,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
 
       await transaction.leadCustomer.update({ where: { id: lead.id }, data: update });
       if (activity) await transaction.leadActivity.create({ data: { leadId: lead.id, actorId: actor.id, ...activity } });
-      if (lead.isHistoricalRecord && input.action === "assignExpert" && !lead.expertIntroducedOn) {
-        await incrementHistoricalCustomerDailyStat(transaction, { ownerId: lead.groupOperatorOwnerId ?? actor.id, groupId: actor.groupId, channelId: lead.batch.channelId, businessDate: today, position: "GROUP_OPERATOR", sourceReceptionId: lead.attributionOwnerId ?? lead.ownerId, reason: `${lead.phone} 老客户推专家`, increment: { expertIntroCount: 1 } });
-      } else if (lead.isHistoricalRecord && input.action === "setRegistration") {
-        await incrementHistoricalCustomerDailyStat(transaction, { ownerId: lead.expertOwnerId!, groupId: actor.groupId, channelId: lead.batch.channelId, businessDate: input.occurredOn, position: "EXPERT", sourceReceptionId: lead.attributionOwnerId ?? lead.ownerId, sourceGroupOperatorId: lead.groupOperatorOwnerId ?? lead.expertOwnerId, reason: `${lead.phone} 老客户注册`, increment: { registrationCount: 1 } });
-      } else if (lead.isHistoricalRecord && input.action === "setLeave" && !lead.leftOn) {
-        await incrementHistoricalCustomerDailyStat(transaction, { ownerId: lead.groupOperatorOwnerId ?? actor.id, groupId: actor.groupId, channelId: lead.batch.channelId, businessDate: input.occurredOn, position: "GROUP_OPERATOR", sourceReceptionId: lead.attributionOwnerId ?? lead.ownerId, reason: `${lead.phone} 老客户退群`, increment: input.leaveType === "NORMAL" ? { normalLeaveCount: 1, currentInGroupCount: -1 } : { abnormalLeaveCount: 1, currentInGroupCount: -1 } });
+      const trackedLead = { ...lead, expertOwnerId: trackedExpertOwnerId, batch: { groupId: actor.groupId, channelId: lead.batch.channelId } };
+      if (input.action === "assignExpert" && !lead.expertIntroducedOn) {
+        await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: today, kind: "EXPERT_INTRO" });
+        await syncCustomerExpertEvent(transaction, trackedLead, { businessDate: today, kind: "RECEIVED" });
+      } else if (input.action === "setRegistration") {
+        await syncCustomerRegistrationEvent(transaction, trackedLead, input.occurredOn);
+      } else if (input.action === "setLeave") {
+        await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: input.occurredOn, kind: input.leaveType === "NORMAL" ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE" });
       }
       await recordAudit(transaction, { actorId: actor.id, action: `SHARED_CUSTOMER_${input.action}`, entityType: "LeadCustomer", entityId: lead.id, summary: { input, before: { ownerId: lead.ownerId, attributionOwnerId: lead.attributionOwnerId, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId, deviceId: lead.deviceId, batchId: lead.batchId, registeredOn: lead.registeredOn, leftOn: lead.leftOn }, update } });
       return { status: 200 as const };

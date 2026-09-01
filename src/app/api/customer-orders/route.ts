@@ -13,7 +13,7 @@ import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
 import { authorizationDenied } from "../../../lib/security-events";
-import { incrementHistoricalCustomerDailyStat } from "../../../lib/daily-stats";
+import { syncCustomerOrderEvent } from "../../../lib/customer-number-event-sync";
 
 type FieldErrors = Record<string, string[]>;
 
@@ -155,7 +155,7 @@ export async function POST(request: Request) {
           where: { id: row.leadId },
           data: { noInitialDepositOn: null, noInitialDepositReason: null, noInitialDepositNote: null, expertWorkflowStage: "ORDERED", expertStageChangedAt: new Date() },
         });
-        // 首充是客户资金事实，不是统计事件。日报数字由员工在 DailyStatEntry 独立填写。
+        // 首充先写入客户资金明细，再同步到当天号码事件统计。
         await transaction.customerFinanceEvent.create({
           data: {
             batchId: row.batchId,
@@ -169,25 +169,10 @@ export async function POST(request: Request) {
         });
         const lead = leadById.get(row.leadId)!;
         const batch = batchById.get(row.batchId)!;
-        if (lead.isHistoricalRecord) {
-          const expertOwnerId = lead.expertOwnerId ?? actor.id;
-          await incrementHistoricalCustomerDailyStat(transaction, {
-            ownerId: expertOwnerId,
-            groupId: batch.groupId,
-            channelId: batch.channelId,
-            businessDate: row.openedOn,
-            position: "EXPERT",
-            sourceReceptionId: lead.attributionOwnerId ?? lead.ownerId,
-            sourceGroupOperatorId: lead.groupOperatorOwnerId ?? expertOwnerId,
-            reason: `${row.phone} 老客户开单首充`,
-            increment: {
-              orderCount: 1,
-              ...(row.initialDepositMethod === "BANK"
-                ? { bankInitialDepositCents: row.initialDepositCents }
-                : { cryptoInitialDepositCents: row.initialDepositCents }),
-            },
-          });
-        }
+        await syncCustomerOrderEvent(transaction, {
+          ...lead, phone: row.phone,
+          batch: { groupId: batch.groupId, channelId: batch.channelId },
+        }, { businessDate: row.openedOn, amountCents: row.initialDepositCents, method: row.initialDepositMethod });
         orders.push(order);
       }
       return { status: 201 as const, orders };

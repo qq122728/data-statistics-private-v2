@@ -10,6 +10,7 @@ import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
+import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
 
 const ranges = new Set(["today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
@@ -90,9 +91,15 @@ export async function GET(request: Request) {
     },
   }) : [];
 
+  const groupTypeById = new Map(channels.map((channel) => [channel.group.id, channel.group.groupType]));
   function aggregate(scoped: typeof entries, snapshots: typeof snapshotEntries = scoped) {
     const totals = scoped.reduce((sum, entry) => {
-      const revision = entry.currentRevision ?? entry.approvedRevision!;
+      const rawRevision = entry.currentRevision ?? entry.approvedRevision!;
+      const revision = revisionForNumberTracking(rawRevision, {
+        businessDate: entry.businessDate,
+        position: entry.position,
+        groupType: groupTypeById.get(entry.groupId) ?? "HACKER",
+      });
       sum.added += revision.dispatchCount;
       sum.collision += revision.duplicateCount;
       sum.lowAmount += revision.lowAmountCount;
@@ -105,6 +112,9 @@ export async function GET(request: Request) {
       sum.effective += revision.effectiveCount;
       sum.replied += revision.replyCount;
       sum.joined += revision.joinCount;
+      if (groupTypeById.get(entry.groupId) === "HACKER" && entry.position === "GROUP_OPERATOR" && usesCustomerNumberTracking(entry.businessDate)) {
+        sum.joined += revision.operatorReceivedCount;
+      }
       sum.left += revision.normalLeaveCount + revision.abnormalLeaveCount;
       sum.abnormalLeft += revision.abnormalLeaveCount;
       sum.pushed += revision.expertIntroCount;

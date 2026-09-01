@@ -20,6 +20,9 @@ test("统一组员表按渠道读取并保存真实每日数据", () => {
   assert.match(source, /position:\s*"RECEPTION"/);
   assert.match(source, /人工无效/);
   assert.match(source, /异常退群率/);
+  assert.match(source, /numberTrackingFrom/);
+  assert.match(source, /NUMBER_TRACKED_METRIC_KEYS/);
+  assert.match(source, /由客户号码进度自动统计/);
 });
 
 test("历史和财务读取真实每日数据接口", () => {
@@ -97,6 +100,7 @@ test("组员AI通过自然语言模板预览并保存真实今日数据和客户
   assert.match(source, /AI纠正/);
   assert.match(source, /为防止覆盖别人的新数据/);
   assert.doesNotMatch(source, /稍后接入/);
+  assert.match(source, /进群及后续按号码自动统计/);
   assert.match(source, /\/api\/customer-orders/);
   assert.match(source, /\/api\/customer-finance/);
   assert.match(source, /ai-data-updated/);

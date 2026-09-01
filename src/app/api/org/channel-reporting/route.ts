@@ -10,6 +10,7 @@ import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
 import { canManageDepartment } from "../../../../lib/managed-department-scope";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
+import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
@@ -33,11 +34,12 @@ export async function GET(request: Request) {
   const group = await db.teamGroup.findFirst({
     where: { id: groupId, active: true },
     select: {
-      id: true, name: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true,
+      id: true, name: true, groupType: true, departmentId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true,
       department: { select: { companyId: true, countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
     },
   });
   if (!group) return NextResponse.json({ error: "小组不存在" }, { status: 404 });
+  const selectedGroupType = group.groupType;
   const inScope = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
     || (actor.duty === "COMPANY_MANAGER" && Boolean(actor.companyId) && actor.companyId === group.department.companyId)
     || (actor.duty === "DEPARTMENT_MANAGER" && canManageDepartment(actor, group.departmentId));
@@ -97,7 +99,12 @@ export async function GET(request: Request) {
     });
   }
   function accumulate(row: Row, entry: (typeof entries)[number]) {
-    const value = entry.currentRevision ?? entry.approvedRevision;
+    const rawValue = entry.currentRevision ?? entry.approvedRevision;
+    const value = rawValue ? revisionForNumberTracking(rawValue, {
+      businessDate: entry.businessDate,
+      position: entry.position,
+      groupType: selectedGroupType,
+    }) : null;
     if (!value) return;
     row.totals.newFans += value.dispatchCount;
     row.totals.duplicateFans += value.duplicateCount;
@@ -105,6 +112,9 @@ export async function GET(request: Request) {
     row.totals.noNumber += value.noWsCount;
     row.totals.replies += value.replyCount;
     row.totals.groupJoin += value.joinCount;
+    if (selectedGroupType === "HACKER" && entry.position === "GROUP_OPERATOR" && usesCustomerNumberTracking(entry.businessDate)) {
+      row.totals.groupJoin += value.operatorReceivedCount;
+    }
     row.totals.groupLeave += value.normalLeaveCount + value.abnormalLeaveCount;
     row.totals.abnormalGroupLeave = (row.totals.abnormalGroupLeave ?? 0) + value.abnormalLeaveCount;
     row.totals.expertIntro += value.expertIntroCount;

@@ -12,7 +12,7 @@ import { entryDateError } from "../../../lib/entry-date-validation";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
 import { authorizationDenied } from "../../../lib/security-events";
 import { hasAnyRole } from "../../../lib/role-access";
-import { incrementHistoricalCustomerDailyStat } from "../../../lib/daily-stats";
+import { syncCustomerFinanceEvent } from "../../../lib/customer-number-event-sync";
 
 type FieldErrors = Record<string, string[]>;
 
@@ -106,24 +106,10 @@ export async function POST(request: Request) {
           ? await transaction.customerFinanceEvent.update({ where: { id: previous.id }, data: { ...data, voidedAt: null, voidReason: null, voidedById: null } })
           : await transaction.customerFinanceEvent.create({ data });
         events.push(savedEvent);
-        if (order.lead?.isHistoricalRecord) {
-          const expertOwnerId = order.lead.expertOwnerId ?? actor.id;
-          await incrementHistoricalCustomerDailyStat(transaction, {
-            ownerId: expertOwnerId,
-            groupId: order.batch.groupId,
-            channelId: order.batch.channelId,
-            businessDate: row.occurredOn,
-            position: "EXPERT",
-            sourceReceptionId: order.lead.attributionOwnerId ?? order.lead.ownerId,
-            sourceGroupOperatorId: order.lead.groupOperatorOwnerId ?? expertOwnerId,
-            reason: `${order.phone} 老客户${row.kind === "RECHARGE" ? "续充" : "出金"}`,
-            increment: row.kind === "WITHDRAWAL"
-              ? { withdrawalCents: row.amountCents }
-              : row.depositMethod === "BANK"
-                ? { bankRechargeCents: row.amountCents }
-                : { cryptoRechargeCents: row.amountCents },
-          });
-        }
+        if (order.lead) await syncCustomerFinanceEvent(transaction, {
+          ...order.lead, phone: order.phone,
+          batch: { groupId: order.batch.groupId, channelId: order.batch.channelId },
+        }, { businessDate: row.occurredOn, kind: row.kind, amountCents: row.amountCents, method: row.depositMethod ?? null });
       }
       return { status: 201 as const, events };
     });

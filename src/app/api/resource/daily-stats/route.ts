@@ -4,6 +4,7 @@ import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { recordAudit } from "../../../../lib/audit";
 import { DailyStatError, dailyStatEntryInclude, isUnifiedDailyStatIdentity, publicDailyStat } from "../../../../lib/daily-stats";
 import { db } from "../../../../lib/db";
+import { usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 
@@ -75,7 +76,8 @@ export async function PATCH(request: Request) {
       // 新版组员日报已把基础、炒群、专家和资金合在一条 RECEPTION 存储行。
       // 审核通过的同一刻才停用旧岗位行，避免新行还在待审时报表突然少数；
       // 仅清除 approvedRevisionId，所有旧修订和操作人仍完整保留。
-      if (isUnifiedDailyStatIdentity(entry.identityKey)) {
+      const numberTrackedReception = entry.group.groupType === "HACKER" && usesCustomerNumberTracking(entry.businessDate);
+      if (isUnifiedDailyStatIdentity(entry.identityKey) && !numberTrackedReception) {
         const legacyCompanions = await tx.dailyStatEntry.findMany({
           where: {
             id: { not: entry.id },

@@ -14,6 +14,7 @@ import { db } from "../../../lib/db";
 import { statisticsDateContext } from "../../../lib/statistics-date";
 import { frontlineMemberRoles, isFrontlineGroupMember } from "../../../lib/role-access";
 import { authorizationDenied, type SecurityEventActor } from "../../../lib/security-events";
+import { CUSTOMER_NUMBER_TRACKING_FROM, NUMBER_TRACKED_DAILY_FIELDS, usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
 
 function errorResponse(error: unknown, actor?: SecurityEventActor) {
   if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });
@@ -148,6 +149,7 @@ export async function GET(request: Request) {
       unifiedByScope.set(key, rows);
     }
     const unifiedEntries = [...unifiedByScope.values()].map((rows) => {
+      const numberTracking = group.groupType === "HACKER" && usesCustomerNumberTracking(rows[0].businessDate);
       const primary = rows.find((entry) => entry.position === "RECEPTION" && isUnifiedDailyStatIdentity(entry.identityKey))
         ?? rows.find((entry) => entry.position === "RECEPTION" && entry.ownerId === actor.id)
         ?? null;
@@ -182,7 +184,7 @@ export async function GET(request: Request) {
             companionTotals[field] += revision[field];
         }
       }
-      const primaryCoversCompanions = primaryRevision
+      const primaryCoversCompanions = !numberTracking && primaryRevision
         ? !activeCompanions.some((entry) => {
             const revision = entry.currentRevision ?? entry.approvedRevision;
             return revision?.changeReason?.startsWith("AI客户事件同步：");
@@ -209,8 +211,10 @@ export async function GET(request: Request) {
         for (const entry of receptionRows) {
           const revision = entry.currentRevision ?? entry.approvedRevision;
           if (!revision) continue;
-          for (const field of numberFields)
+          for (const field of numberFields) {
+            if (numberTracking && NUMBER_TRACKED_DAILY_FIELDS.includes(field as (typeof NUMBER_TRACKED_DAILY_FIELDS)[number])) continue;
             values[field] += revision[field];
+          }
         }
         // 仍有旧岗位行时，由旧岗位行提供其负责的字段，不能再叠加新版接粉行中的同名值。
         if (legacyOperatorRows.length) {
@@ -265,6 +269,7 @@ export async function GET(request: Request) {
       timezone: dateContext.timezone,
       rolloverHour: dateContext.rolloverHour,
       rolloverLabel: dateContext.rolloverLabel,
+      numberTrackingFrom: CUSTOMER_NUMBER_TRACKING_FROM,
       // 旧前端仍需要这三个存储分类；对所有组员都返回，不再绑定账号岗位。
       positions: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"],
       channels,

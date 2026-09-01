@@ -9,6 +9,7 @@ import type { CustomerWorkflowInput } from "./input";
 import { buildBasicCustomerMutation } from "./mutations";
 import { resolveExpertWorkflowStage } from "../expert-workflow-stage";
 import { leadCurrentGroupId } from "../customer-current-group";
+import { syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerOrderEvent, syncCustomerRegistrationEvent } from "../customer-number-event-sync";
 
 type WorkflowActor = {
   id: string;
@@ -42,7 +43,7 @@ export async function executeCustomerWorkflow(
 
     const lead = await transaction.leadCustomer.findUnique({
       where: { id: leadId },
-      include: { batch: { select: { groupId: true } }, customerOrder: { select: { id: true, voidedAt: true } } },
+      include: { batch: { select: { groupId: true, channelId: true } }, customerOrder: { select: { id: true, voidedAt: true, openedOn: true, initialDepositCents: true, initialDepositMethod: true } } },
     });
     if (!lead) return { status: 404 as const, error: "客户不存在" };
     const currentGroupId = leadCurrentGroupId(lead);
@@ -381,6 +382,38 @@ export async function executeCustomerWorkflow(
     } else if (activityKind) {
       await transaction.leadActivity.create({
         data: { leadId: lead.id, actorId: liveActor.id, kind: activityKind, occurredOn, note: activityNote ?? input.reason ?? undefined },
+      });
+    }
+
+    const trackedLead = { ...updated, batch: lead.batch };
+    if (input.action === "joinGroup") {
+      await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: occurredOn, kind: "JOIN" });
+    } else if (input.action === "leaveGroup") {
+      await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: occurredOn, kind: updated.leftWithOrder ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE" });
+    } else if (input.action === "introduceExpert" && !lead.expertIntroducedOn) {
+      await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: occurredOn, kind: "EXPERT_INTRO" });
+      await syncCustomerExpertEvent(transaction, trackedLead, { businessDate: occurredOn, kind: "RECEIVED" });
+    } else if ((input.action === "markExpertContacted" || input.action === "beginExpertReception") && !lead.expertContactedOn) {
+      await syncCustomerExpertEvent(transaction, trackedLead, { businessDate: occurredOn, kind: "CONTACTED" });
+    } else if (input.action === "register") {
+      await syncCustomerRegistrationEvent(transaction, trackedLead, occurredOn);
+    } else if (input.action === "undoJoinGroup" && lead.joinedOn) {
+      await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: lead.joinedOn, kind: "JOIN", delta: -1 });
+    } else if (input.action === "undoLeaveGroup" && lead.leftOn) {
+      await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: lead.leftOn, kind: lead.leftWithOrder ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE", delta: -1 });
+    } else if (input.action === "undoIntroduceExpert" && lead.expertIntroducedOn) {
+      await syncCustomerGroupEvent(transaction, { ...trackedLead, groupOperatorOwnerId: lead.groupOperatorOwnerId }, { businessDate: lead.expertIntroducedOn, kind: "EXPERT_INTRO", delta: -1 });
+      await syncCustomerExpertEvent(transaction, { ...trackedLead, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId }, { businessDate: lead.expertIntroducedOn, kind: "RECEIVED", delta: -1 });
+    } else if (input.action === "undoExpertContacted" && lead.expertContactedOn) {
+      await syncCustomerExpertEvent(transaction, { ...trackedLead, expertOwnerId: lead.expertOwnerId }, { businessDate: lead.expertContactedOn, kind: "CONTACTED", delta: -1 });
+    } else if (input.action === "undoRegister" && lead.registeredOn) {
+      await syncCustomerRegistrationEvent(transaction, { ...trackedLead, expertOwnerId: lead.expertOwnerId }, lead.registeredOn, -1);
+    } else if (input.action === "voidOrder" && lead.customerOrder) {
+      await syncCustomerOrderEvent(transaction, { ...trackedLead, expertOwnerId: lead.expertOwnerId }, {
+        businessDate: lead.customerOrder.openedOn,
+        amountCents: lead.customerOrder.initialDepositCents,
+        method: lead.customerOrder.initialDepositMethod,
+        delta: -1,
       });
     }
 

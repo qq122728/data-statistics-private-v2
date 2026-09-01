@@ -28,6 +28,7 @@ import type {
   BossReportTotals,
   DailyBossBrief,
 } from "./types";
+import { revisionForNumberTracking, usesCustomerNumberTracking } from "../customer-number-tracking";
 
 const ALL_HISTORY_FROM = "1970-01-01";
 const EMPTY_ANOMALIES: BossReportAnomalies = {
@@ -37,13 +38,13 @@ const EMPTY_ANOMALIES: BossReportAnomalies = {
   invalidCustomers: 0,
 };
 
-type BriefGroup = { id: string; name: string; department: { name: string } };
+type BriefGroup = { id: string; name: string; groupType: string; department: { name: string } };
 
 /** 日报累计快照只读审核通过的每日统计；客户进度表不参与日报数字。 */
 async function loadApprovedDailySnapshot(groups: BriefGroup[], to: string): Promise<PerformanceLeaderboardRow[]> {
   const entries = groups.length ? await db.dailyStatEntry.findMany({
     where: { groupId: { in: groups.map((group) => group.id) }, businessDate: { gte: ALL_HISTORY_FROM, lte: to }, approvedRevisionId: { not: null } },
-    select: { groupId: true, position: true, approvedRevision: true },
+    select: { groupId: true, businessDate: true, position: true, approvedRevision: true },
   }) : [];
   const rows = new Map<string, PerformanceLeaderboardRow>(groups.map((group) => [group.id, {
     groupId: group.id, groupName: group.name, departmentId: group.department.name, departmentName: group.department.name,
@@ -54,13 +55,20 @@ async function loadApprovedDailySnapshot(groups: BriefGroup[], to: string): Prom
   }]));
   for (const entry of entries) {
     const row = rows.get(entry.groupId);
-    const value = entry.approvedRevision;
-    if (!row || !value) continue;
+    const rawValue = entry.approvedRevision;
+    const group = groups.find((item) => item.id === entry.groupId);
+    if (!row || !rawValue || !group) continue;
+    const value = revisionForNumberTracking(rawValue, {
+      businessDate: entry.businessDate,
+      position: entry.position,
+      groupType: group.groupType,
+    });
     if (entry.position === "RECEPTION") {
       row.newFans = (row.newFans ?? 0) + value.dispatchCount; row.effectiveFans += value.effectiveCount;
       row.noNumber = (row.noNumber ?? 0) + value.noWsCount; row.duplicateFans = (row.duplicateFans ?? 0) + value.duplicateCount;
       row.replies = (row.replies ?? 0) + value.replyCount; row.groupJoin = (row.groupJoin ?? 0) + value.joinCount;
     } else if (entry.position === "GROUP_OPERATOR") {
+      if (group.groupType === "HACKER" && usesCustomerNumberTracking(entry.businessDate)) row.groupJoin = (row.groupJoin ?? 0) + value.operatorReceivedCount;
       row.expertIntro = (row.expertIntro ?? 0) + value.expertIntroCount;
     } else {
       row.expertContacted = (row.expertContacted ?? 0) + value.expertContactedCount; row.registration = (row.registration ?? 0) + value.registrationCount; row.orders += value.orderCount;
@@ -149,6 +157,7 @@ export async function loadDailyBossBrief(reportDate: string, options: { groupIds
     select: {
       id: true,
       name: true,
+      groupType: true,
       department: { select: { name: true } },
       receptionJoinPassRate: true,
       receptionJoinGoodRate: true,

@@ -663,4 +663,46 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect(rejected.status).toBe(400);
     await expect(rejected.json()).resolves.toMatchObject({ error: "来源接粉不属于该小组的现任或历史成员" });
   });
+
+  it("locks customer-number-tracked fields in reception daily stats from the cutover date", async () => {
+    const data = await fixture();
+    signInAs(data.reception);
+
+    const created = await POST(request("POST", {
+      businessDate: "2026-09-02",
+      position: "RECEPTION",
+      channelId: data.channelId,
+      values: {
+        ...emptyValues,
+        dispatchCount: 20,
+        replyCount: 8,
+        joinCount: 3,
+        normalLeaveCount: 1,
+        expertIntroCount: 2,
+        registrationCount: 1,
+        orderCount: 1,
+        cryptoInitialDepositCents: 100_000,
+        cryptoRechargeCents: 50_000,
+        withdrawalCents: 10_000,
+      },
+    }));
+
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toMatchObject({
+      entry: {
+        currentRevision: {
+          dispatchCount: 20,
+          replyCount: 8,
+          joinCount: 0,
+          normalLeaveCount: 0,
+          expertIntroCount: 0,
+          registrationCount: 0,
+          orderCount: 0,
+          cryptoInitialDepositCents: 0,
+          cryptoRechargeCents: 0,
+          withdrawalCents: 0,
+        },
+      },
+    });
+  });
 });

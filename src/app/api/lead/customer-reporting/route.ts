@@ -14,6 +14,7 @@ import { customerCurrentGroupWhere } from "../../../../lib/customer-current-grou
 import { normalizeCustomerPhone } from "../../../../lib/entry-ledger";
 import { entryDateError } from "../../../../lib/entry-date-validation";
 import { recordAudit } from "../../../../lib/audit";
+import { syncCustomerGroupEvent } from "../../../../lib/customer-number-event-sync";
 
 const stages = new Set(["reception", "group", "expert"]);
 const expertStages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
@@ -320,6 +321,13 @@ export async function POST(request: Request) {
           });
           rows.push(customer);
         }
+        if (rows.length) {
+          await syncCustomerGroupEvent(transaction, {
+            phone: `${rows.length} 位客户`, ownerId: actor.id, attributionOwnerId: actor.id,
+            groupOperatorOwnerId: operator.id, expertOwnerId: null,
+            batch: { groupId: group.id, channelId: channel.id },
+          }, { businessDate: input.joinedOn, kind: "JOIN", delta: rows.length });
+        }
         return rows;
       });
       return NextResponse.json({ created, duplicates, invalid, totalInput: input.phones.length }, { status: 201 });
@@ -356,7 +364,7 @@ export async function POST(request: Request) {
       const customer = await transaction.leadCustomer.create({
         data: {
           phone, customerName: input.customerName || null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
-          groupOperatorOwnerId: operator?.id ?? null,
+          groupOperatorOwnerId: operator?.id ?? actor.id,
           deviceId: device?.id ?? null, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: input.joinedOn,
           groupStatus: "JOINED", joinedOn: input.joinedOn,
           activities: { create: { actorId: actor.id, kind: "JOINED_GROUP", occurredOn: input.joinedOn, note: "从组内共享客户进度表新增" } },
@@ -367,8 +375,13 @@ export async function POST(request: Request) {
         action: "SHARED_CUSTOMER_CREATE",
         entityType: "LeadCustomer",
         entityId: customer.id,
-        summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator?.id ?? null, deviceCode: input.deviceCode ?? null },
+        summary: { phone: customer.phone, groupId: group.id, channelId: channel.id, joinedOn: input.joinedOn, attributionOwnerId: actor.id, groupOperatorOwnerId: operator?.id ?? actor.id, deviceCode: input.deviceCode ?? null },
       });
+      await syncCustomerGroupEvent(transaction, {
+        phone: customer.phone, ownerId: actor.id, attributionOwnerId: actor.id,
+        groupOperatorOwnerId: operator?.id ?? actor.id, expertOwnerId: null,
+        batch: { groupId: group.id, channelId: channel.id },
+      }, { businessDate: input.joinedOn, kind: "JOIN" });
       return { status: 201 as const, customer };
     });
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });

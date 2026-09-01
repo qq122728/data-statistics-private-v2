@@ -38,6 +38,7 @@ type DailyContext = {
   groupType: "HACKER" | "LAWYER";
   today: string;
   rolloverLabel: string;
+  numberTrackingFrom: string;
   channels: Array<{ id: string; name: string; channelType: string }>;
   unifiedEntries: Array<{
     entryId: string | null;
@@ -303,7 +304,9 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     if (naturalIntent === "DAILY" && context?.channels.length) {
       const base = context.groupType === "LAWYER"
         ? "今天 CHANNEL：接粉20，回复8，接粉小金额1，接粉真实案件10，添加律师5，添加专家3，总推客服3，总注册2，总开单1，加密货币充值1000，银行卡充值0，出金0"
-        : NATURAL_TEMPLATES.DAILY[0].text;
+        : context.today >= context.numberTrackingFrom
+          ? "今天 FB-M：添加20，撞粉1，低金额2，无WS0，人工无效0，回复8"
+          : NATURAL_TEMPLATES.DAILY[0].text;
       return context.channels.map((channel) => ({ label: `今日数据 · ${channel.name}`, text: base.replace("FB-M", channel.name).replace("CHANNEL", channel.name) }));
     }
     if (naturalIntent === "CUSTOMER" && customerContext?.channelOptions.length) {
@@ -411,11 +414,15 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       if (!channel) { addMessage("assistant", `没有识别出渠道，请在内容里写上渠道名称。可选：${next.channels.map((item) => item.name).join("、")}`); setPhase("template"); return; }
       const existing = next.unifiedEntries.find((item) => item.businessDate === next.today && item.channel.id === channel.id) ?? null;
       let values = existing ? { ...EMPTY_VALUES, ...existing.values } : { ...EMPTY_VALUES }; let found = 0;
+      const numberTracking = next.groupType === "HACKER" && next.today >= next.numberTrackingFrom;
       const mappings: Array<{ key: keyof Values; labels: string[]; money?: boolean }> = next.groupType === "LAWYER" ? [
         { key: "dispatchCount", labels: ["接粉"] }, { key: "replyCount", labels: ["回复"] }, { key: "lowAmountCount", labels: ["接粉小金额", "小金额"] },
         { key: "lawyerRealCaseCount", labels: ["接粉真实案件", "真实案件"] }, { key: "lawyerAddedCount", labels: ["添加律师"] }, { key: "lawyerExpertAddedCount", labels: ["添加专家"] },
         { key: "customerServicePushCount", labels: ["总推客服", "推客服"] }, { key: "registrationCount", labels: ["总注册", "注册"] }, { key: "orderCount", labels: ["总开单", "开单"] },
         { key: "cryptoInitialDepositCents", labels: ["加密货币充值", "加密充值"], money: true }, { key: "bankInitialDepositCents", labels: ["银行卡充值", "银行充值"], money: true }, { key: "withdrawalCents", labels: ["出金"], money: true },
+      ] : numberTracking ? [
+        { key: "dispatchCount", labels: ["添加数据", "添加"] }, { key: "duplicateCount", labels: ["撞粉"] }, { key: "lowAmountCount", labels: ["低金额"] }, { key: "noWsCount", labels: ["无WS", "无 WS", "无号码"] },
+        { key: "manualInvalidCount", labels: ["人工无效"] }, { key: "replyCount", labels: ["回复"] },
       ] : [
         { key: "dispatchCount", labels: ["添加数据", "添加"] }, { key: "duplicateCount", labels: ["撞粉"] }, { key: "lowAmountCount", labels: ["低金额"] }, { key: "noWsCount", labels: ["无WS", "无 WS", "无号码"] },
         { key: "manualInvalidCount", labels: ["人工无效"] }, { key: "replyCount", labels: ["回复"] }, { key: "joinCount", labels: ["进群"] }, { key: "normalLeaveCount", labels: ["正常退群"] },
@@ -508,7 +515,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         addMessage("assistant", `已读取 ${next.today} · ${channel.name} 的真实数据。`); return;
       }
 
-      const candidateFields = next.groupType === "LAWYER" ? LAWYER_FIELDS : HACKER_FIELDS;
+      const candidateFields = next.groupType === "LAWYER" ? LAWYER_FIELDS : next.today >= next.numberTrackingFrom ? HACKER_FIELDS.slice(0, 6) : HACKER_FIELDS;
       const normalizedText = text.replace(/\s/g, "");
       const field = [...candidateFields].sort((a, b) => b.label.length - a.label.length).find((item) => normalizedText.includes(item.label.replace(/\s|金额|数量|号码/g, "")));
       const newMatch = text.replace(/,/g, "").match(/(?:改成|改为|修改为)\s*\$?([\d]+(?:\.\d+)?)/);
@@ -1163,6 +1170,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
           <strong>选择一个模板</strong>
           {displayedNaturalTemplates.map((template) => <button type="button" key={`${template.label}-${template.text}`} onClick={() => setInput(template.text)}><span>{template.label}</span><small>{template.text}</small></button>)}
           <p>点击模板后，在下方把号码、人员、渠道和数字改成真实内容，再发送。</p>
+          {naturalIntent === "DAILY" && context?.groupType === "HACKER" && context.today >= context.numberTrackingFrom ? <p>这里只填写接粉到回复；进群及后续按号码自动统计。</p> : null}
         </div> : null}
 
         {phase === "legacy-scenario" ? <div className={styles.choiceList} aria-label="选择老客户场景">

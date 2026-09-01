@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { Duty, Role } from "@prisma/client";
 import type { SessionUser } from "../../../../lib/auth";
 import { deleteEmptyAccount } from "../../../../lib/account-deletion";
+import { recordAudit } from "../../../../lib/audit";
 import { db } from "../../../../lib/db";
 import { canManageDepartment } from "../../../../lib/managed-department-scope";
 import { API_LIMITS } from "../../../../lib/request-limits";
@@ -72,6 +73,34 @@ export async function GET() {
     departmentName: account.department?.name ?? null,
     resourceChannelIds: account.resourceChannelAccess.map((item) => item.channelId),
   })));
+}
+
+export async function PATCH(request: Request) {
+  const access = await requireOrgManagerRequest();
+  if ("response" in access) return access.response;
+  const body = await request.json() as { id?: unknown; active?: unknown };
+  const id = typeof body.id === "string" ? body.id : "";
+  if (!id || id.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "账号参数不正确" }, { status: 400 });
+  if (typeof body.active !== "boolean") return NextResponse.json({ error: "账号状态不正确" }, { status: 400 });
+  const active = body.active;
+
+  const result = await db.$transaction(async (client) => {
+    const target = await client.user.findUnique({ where: { id }, select: accountSelect });
+    if (!target || !canManageAccount(access.actor, target)) return { denied: true as const };
+    if (target.active === active) return { account: target };
+    const account = await client.user.update({ where: { id }, data: { active } });
+    if (!active) await client.session.deleteMany({ where: { userId: id } });
+    await recordAudit(client, {
+      actorId: access.actor.id,
+      action: "ORG_ACCOUNT_STATUS_CHANGED",
+      entityType: "User",
+      entityId: id,
+      summary: { changedFields: ["active"], previousActive: target.active, active, username: target.username },
+    });
+    return { account };
+  });
+  if ("denied" in result) return authorizationDenied(access.actor, "无权修改这个账号的状态");
+  return NextResponse.json({ id: result.account.id, active: result.account.active });
 }
 
 export async function DELETE(request: Request) {

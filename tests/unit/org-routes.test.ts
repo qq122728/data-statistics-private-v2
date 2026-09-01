@@ -12,7 +12,7 @@ import { POST as createDepartmentManagerAccount } from "../../src/app/api/org/de
 import { POST as createCompanyManagerAccount } from "../../src/app/api/org/company-managers/route";
 import { POST as createHqManagerAccount } from "../../src/app/api/org/hq-managers/route";
 import { GET as getLeadCandidates } from "../../src/app/api/org/lead-candidates/route";
-import { DELETE as deleteOrgAccount, GET as getOrgAccounts } from "../../src/app/api/org/accounts/route";
+import { DELETE as deleteOrgAccount, GET as getOrgAccounts, PATCH as updateOrgAccount } from "../../src/app/api/org/accounts/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -219,9 +219,33 @@ describe.sequential("阶段5a组织架构路由：新建小组 (部门管理员�
     const response = await updateGroup(jsonRequest("http://localhost/api/org/groups", { id: ids.groupB1, name: `越权改名-${suffix}` }, "PATCH"));
     expect(response.status).toBe(403);
   });
+
+  it("lets the HQ manager disable and re-enable a group", async () => {
+    await signInAs(ids.hq);
+    const disabled = await updateGroup(jsonRequest("http://localhost/api/org/groups", { id: ids.groupB1, active: false }, "PATCH"));
+    expect(disabled.status).toBe(200);
+    await expect(db.teamGroup.findUniqueOrThrow({ where: { id: ids.groupB1 }, select: { active: true } })).resolves.toEqual({ active: false });
+    const enabled = await updateGroup(jsonRequest("http://localhost/api/org/groups", { id: ids.groupB1, active: true }, "PATCH"));
+    expect(enabled.status).toBe(200);
+    await expect(db.teamGroup.findUniqueOrThrow({ where: { id: ids.groupB1 }, select: { active: true } })).resolves.toEqual({ active: true });
+  });
 });
 
 describe.sequential("组织管理员范围内误开空账号删除", () => {
+  it("lets the HQ manager disable an account, invalidates its sessions, and re-enable it", async () => {
+    const id = `toggle-account-${suffix}`;
+    await db.user.create({ data: { id, username: id, name: "启停测试账号", role: "RECEPTION", groupId: ids.groupA2 } });
+    await db.session.create({ data: { userId: id, expiresAt: new Date(Date.now() + 60_000) } });
+    await signInAs(ids.hq);
+    const disabled = await updateOrgAccount(jsonRequest("http://localhost/api/org/accounts", { id, active: false }, "PATCH"));
+    expect(disabled.status).toBe(200);
+    await expect(db.user.findUniqueOrThrow({ where: { id }, select: { active: true } })).resolves.toEqual({ active: false });
+    await expect(db.session.count({ where: { userId: id } })).resolves.toBe(0);
+    const enabled = await updateOrgAccount(jsonRequest("http://localhost/api/org/accounts", { id, active: true }, "PATCH"));
+    expect(enabled.status).toBe(200);
+    await expect(db.user.findUniqueOrThrow({ where: { id }, select: { active: true } })).resolves.toEqual({ active: true });
+  });
+
   it("lists and deletes an empty account inside the company manager's company", async () => {
     const id = `empty-account-${suffix}`;
     await db.user.create({ data: { id, username: id, name: "公司内误开账号", role: "RECEPTION", groupId: ids.groupA2 } });

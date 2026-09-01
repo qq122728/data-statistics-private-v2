@@ -26,7 +26,15 @@ export async function GET(request: Request) {
 
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params)) return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
-  const allowedChannelIds = actor.resourceChannelAccess?.map((item) => item.channelId) ?? [];
+  // 不相信浏览器传来的筛选，也不沿用可能已经过期的页面状态；每次查询都从数据库
+  // 重新读取该账号当前明确绑定的渠道 ID，未绑定渠道绝不会混入结果。
+  const liveActor = await db.user.findUnique({
+    where: { id: actor.id },
+    select: { active: true, role: true, duty: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } } },
+  });
+  if (!liveActor?.active || !hasAssignedRole(liveActor, "RESOURCE_MANAGER"))
+    return authorizationDenied(actor, "当前资源部账号已停用或权限已变更");
+  const allowedChannelIds = liveActor.resourceChannelAccess.map((item) => item.channelId);
   if (!allowedChannelIds.length) return NextResponse.json({ rows: [], channels: [], groups: [] }, { headers: { "Cache-Control": "private, no-store" } });
 
   const channels = await db.channel.findMany({

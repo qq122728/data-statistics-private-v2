@@ -155,7 +155,7 @@ function systemUsageGuide(user: BackendUser, currentPage: string) {
     const duties = [roles.has("RECEPTION") ? "接粉" : "", roles.has("GROUP_OPERATOR") ? "炒群" : "", roles.has("EXPERT") ? "专家" : ""].filter(Boolean).join("、") || "组员";
     lines.push(`你的岗位权限：${duties}。`, "接粉数据在“当日数据”填写添加、无效分类和回复；客户进群后改用客户号码持续跟进。" );
     if (roles.has("GROUP_OPERATOR")) lines.push("炒群工作在“客户进度表”的“在群待推专家”维护炒群负责人、设备号、炒群情况和退群信息。" );
-    if (roles.has("EXPERT")) lines.push("专家工作在“专家进度”维护专家负责人、注册、开单、首充、续充和出金。" );
+    if (roles.has("EXPERT")) lines.push("专家工作在“专家进度”维护专家负责人、注册、开单、首充、续充和出金；其中资金只作为客户跟踪记录，公司认账金额仍以组员填写的每日财务数据为准。" );
   }
   lines.push("AI 闲聊只负责说明和只读查询；任何新增、更新或纠错仍要走业务模板，并在预览页由你确认。" );
   return lines.join("\n");

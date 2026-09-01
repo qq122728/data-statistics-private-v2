@@ -372,8 +372,8 @@ export async function saveDailyStat(
   }
 
   const values = revisionValues(input, group.groupType, options);
-  // 切换日之后，黑客组接粉日报只保留前段手填数据。
-  // 进群及后续字段由号码事件行提供，即使旧前端仍传值也不写入。
+  // 切换日之后，进群、推专家、注册、开单等流程由号码事件提供；
+  // 资金不在锁定列表里，仍由组员填写，作为公司最终认账数字。
   if (group.groupType === "HACKER" && input.position === "RECEPTION" && usesCustomerNumberTracking(input.businessDate)) {
     for (const field of NUMBER_TRACKED_DAILY_FIELDS) values[field] = 0;
   }

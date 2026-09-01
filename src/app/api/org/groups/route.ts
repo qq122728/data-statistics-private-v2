@@ -15,6 +15,7 @@ type GroupRequest = {
   departmentId?: unknown;
   name?: unknown;
   groupType?: unknown;
+  active?: unknown;
   leadAccount?: {
     name?: unknown;
     username?: unknown;
@@ -78,8 +79,7 @@ export async function POST(request: Request) {
 }
 
 /**
- * 组织管理工作台修改小组名称。只允许改名，不在这里移动部门、停用小组或改时区，
- * 避免一个轻量编辑入口绕过正式的人事和组织调整流程。
+ * 组织管理工作台修改小组名称或启停状态。不允许在这里移动部门或改时区。
  */
 export async function PATCH(request: Request) {
   const access = await requireOrgManagerRequest();
@@ -87,9 +87,12 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json()) as GroupRequest;
   const id = typeof body.id === "string" ? body.id : "";
-  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const hasName = typeof body.name === "string";
+  const hasActive = typeof body.active === "boolean";
+  const name = hasName ? (body.name as string).trim() : "";
   if (!id || id.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "小组参数不正确" }, { status: 400 });
-  if (!name || name.length > API_LIMITS.accountDisplayNameCharacters) return NextResponse.json({ error: "小组名称必须在 1 到 100 个字之间" }, { status: 400 });
+  if (!hasName && !hasActive) return NextResponse.json({ error: "请填写要修改的小组名称或状态" }, { status: 400 });
+  if (hasName && (!name || name.length > API_LIMITS.accountDisplayNameCharacters)) return NextResponse.json({ error: "小组名称必须在 1 到 100 个字之间" }, { status: 400 });
 
   try {
     const result = await db.$transaction(async (client) => {
@@ -101,15 +104,22 @@ export async function PATCH(request: Request) {
       if (!canAppointOrTransferLead(access.actor, { id: existing.id, departmentId: existing.departmentId, companyId: existing.department.companyId })) {
         return { denied: true as const };
       }
-      if (existing.name === name) return { group: existing };
+      if ((!hasName || existing.name === name) && (!hasActive || existing.active === body.active)) return { group: existing };
 
-      const updated = await client.teamGroup.update({ where: { id }, data: { name } });
+      const updated = await client.teamGroup.update({ where: { id }, data: {
+        ...(hasName ? { name } : {}),
+        ...(hasActive ? { active: body.active as boolean } : {}),
+      } });
+      const changedFields = [
+        ...(hasName && existing.name !== name ? ["name"] : []),
+        ...(hasActive && existing.active !== body.active ? ["active"] : []),
+      ];
       await recordAudit(client, {
         actorId: access.actor.id,
-        action: "GROUP_UPDATED",
+        action: hasActive && existing.active !== body.active ? "GROUP_STATUS_CHANGED" : "GROUP_UPDATED",
         entityType: "TeamGroup",
         entityId: existing.id,
-        summary: { changedFields: ["name"], previousName: existing.name, name },
+        summary: { changedFields, previousName: existing.name, name: updated.name, previousActive: existing.active, active: updated.active },
       });
       return { group: updated };
     }, { isolationLevel: "Serializable" });

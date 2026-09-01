@@ -196,6 +196,13 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     const smsEntryId = (await smsEntry.json() as { entry: { id: string } }).entry.id;
 
     signInAs(data.resource);
+    const report = await GET_RESOURCE_REPORTING(new Request("http://localhost/api/resource/reporting?range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
+    expect(report.status).toBe(200);
+    const reportBody = await report.json() as { channels: Array<{ id: string }>; rows: Array<{ channel: { id: string } }> };
+    expect(reportBody.channels.map((channel) => channel.id)).toEqual([data.channelId]);
+    expect(reportBody.rows.every((row) => row.channel.id === data.channelId)).toBe(true);
+    expect(reportBody.channels.map((channel) => channel.id)).not.toContain(adsChannelId);
+    expect(reportBody.channels.map((channel) => channel.id)).not.toContain(smsChannelId);
     const inbox = await GET_RESOURCE_REVIEW();
     expect((await inbox.json() as { entries: Array<{ id: string }> }).entries.map((entry) => entry.id)).not.toContain(adsEntryId);
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId: adsEntryId, action: "APPROVE" }))).status).toBe(404);
@@ -664,7 +671,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     await expect(rejected.json()).resolves.toMatchObject({ error: "来源接粉不属于该小组的现任或历史成员" });
   });
 
-  it("locks customer-number-tracked fields in reception daily stats from the cutover date", async () => {
+  it("locks number-tracked progress but keeps member-entered official finance from the cutover date", async () => {
     const data = await fixture();
     signInAs(data.reception);
 
@@ -698,9 +705,9 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
           expertIntroCount: 0,
           registrationCount: 0,
           orderCount: 0,
-          cryptoInitialDepositCents: 0,
-          cryptoRechargeCents: 0,
-          withdrawalCents: 0,
+          cryptoInitialDepositCents: 100_000,
+          cryptoRechargeCents: 50_000,
+          withdrawalCents: 10_000,
         },
       },
     });

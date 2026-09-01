@@ -411,8 +411,6 @@ export async function executeCustomerWorkflow(
     } else if (input.action === "voidOrder" && lead.customerOrder) {
       await syncCustomerOrderEvent(transaction, { ...trackedLead, expertOwnerId: lead.expertOwnerId }, {
         businessDate: lead.customerOrder.openedOn,
-        amountCents: lead.customerOrder.initialDepositCents,
-        method: lead.customerOrder.initialDepositMethod,
         delta: -1,
       });
     }

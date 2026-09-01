@@ -134,7 +134,7 @@ describe.sequential("legacy customer entry", () => {
     expect(facts.filter((fact) => ["NEW_FANS", "EFFECTIVE_FANS", "REPLIES", "GROUP_JOIN", "EXPERT_INTRO", "REGISTRATION"].includes(fact.kind))).toHaveLength(0);
     expect(facts.filter((fact) => fact.kind === "ORDER")).toMatchObject([{ occurredOn: "2026-08-26", quantity: 1 }]);
     expect(facts.filter((fact) => fact.kind === "RECHARGE")).toMatchObject([{ occurredOn: "2026-08-26", amountCents: 100_000 }]);
-    await expect(db.dailyStatRevision.findFirstOrThrow({ where: { entry: { groupId, businessDate: "2026-08-26", position: "EXPERT" } } })).resolves.toMatchObject({ orderCount: 1, cryptoInitialDepositCents: 100_000 });
+    await expect(db.dailyStatRevision.findFirstOrThrow({ where: { entry: { groupId, businessDate: "2026-08-26", position: "EXPERT" } } })).resolves.toMatchObject({ orderCount: 1, cryptoInitialDepositCents: 0 });
   });
 
   it("records only today's recharge for a customer who opened before the system", async () => {
@@ -161,7 +161,7 @@ describe.sequential("legacy customer entry", () => {
     const facts = await loadCanonicalMetricEvents({ groupIds: [groupId] });
     expect(facts.filter((fact) => fact.kind === "ORDER")).toHaveLength(0);
     expect(facts.filter((fact) => fact.kind === "RECHARGE")).toMatchObject([{ occurredOn: "2026-09-01", amountCents: 50_000 }]);
-    await expect(db.dailyStatRevision.findFirstOrThrow({ where: { entry: { groupId, businessDate: "2026-09-01", position: "EXPERT" } } })).resolves.toMatchObject({ orderCount: 0, bankRechargeCents: 50_000 });
+    await expect(db.dailyStatEntry.count({ where: { groupId, businessDate: "2026-09-01", position: "EXPERT" } })).resolves.toBe(0);
   });
 
   it("simulates Aug 30 old-fan join, Aug 29 old-fan order, and a prior order recharging on Sep 1", async () => {
@@ -217,7 +217,7 @@ describe.sequential("legacy customer entry", () => {
     const expertEntry = await db.dailyStatEntry.findFirstOrThrow({ where: { groupId, businessDate: "2026-09-01", position: "EXPERT" }, include: { currentRevision: true } });
     expect(receptionEntry.currentRevision).toMatchObject({ dispatchCount: 0, replyCount: 0, joinCount: 1 });
     expect(operatorEntry.currentRevision).toMatchObject({ operatorReceivedCount: 1, currentInGroupCount: 1 });
-    expect(expertEntry.currentRevision).toMatchObject({ orderCount: 1, cryptoInitialDepositCents: 123_400, bankRechargeCents: 50_000 });
+    expect(expertEntry.currentRevision).toMatchObject({ orderCount: 1, cryptoInitialDepositCents: 0, bankRechargeCents: 0 });
     await expect(db.dailyStatEntry.count({ where: { groupId, businessDate: { in: ["2026-08-29", "2026-08-30"] } } })).resolves.toBe(0);
 
     const facts = await loadCanonicalMetricEvents({ groupIds: [groupId] });

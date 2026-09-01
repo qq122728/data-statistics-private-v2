@@ -61,7 +61,9 @@ export async function GET() {
   const isCompanyManager = access.actor.duty === "COMPANY_MANAGER" && !isHeadquartersManager;
   const isResourceManager = access.actor.role === "RESOURCE_MANAGER";
   if (!isHeadquartersManager && !isCompanyManager && !isResourceManager) return authorizationDenied(access.actor, "当前账号没有公司级渠道管理权限");
-  const allowedChannelIds = access.actor.resourceChannelAccess?.map((item) => item.channelId) ?? [];
+  const allowedChannelIds = isResourceManager
+    ? (await db.resourceChannelAccess.findMany({ where: { userId: access.actor.id }, select: { channelId: true } })).map((item) => item.channelId)
+    : [];
   const rows = await db.channel.findMany({
     where: isCompanyManager
       ? { group: { department: { companyId: access.actor.companyId as string } } }

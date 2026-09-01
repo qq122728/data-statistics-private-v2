@@ -5,7 +5,6 @@ import { db } from "../../../../lib/db";
 import { canWriteCustomerFinance, financeScopeError, financeWriteRoles } from "../../../../lib/customer-finance-access";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
-import { syncCustomerFinanceEvent } from "../../../../lib/customer-number-event-sync";
 
 const correctionSchema = z.object({
   action: z.literal("void"),
@@ -43,17 +42,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ev
       if (!canWriteCustomerFinance(user, event.customerOrder)) return { status: 403 as const, error: financeScopeError(user.role) };
       if (event.voidedAt) return { status: 400 as const, error: "该资金流水已经作废" };
       const updated = await transaction.customerFinanceEvent.update({ where: { id: event.id }, data: { voidedAt: new Date(), voidReason: input.reason, voidedById: user.id } });
-      if (event.customerOrder.lead) await syncCustomerFinanceEvent(transaction, {
-        ...event.customerOrder.lead,
-        phone: event.customerOrder.phone,
-        batch: event.customerOrder.batch,
-      }, {
-        businessDate: event.occurredOn,
-        kind: event.kind as "RECHARGE" | "WITHDRAWAL",
-        amountCents: event.amountCents,
-        method: event.depositMethod,
-        delta: -1,
-      });
       return { status: 200 as const, event: updated };
     });
     if ("error" in result) return result.status === 403

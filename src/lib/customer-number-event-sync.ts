@@ -1,4 +1,4 @@
-import type { DepositMethod, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { customerCurrentGroupWhere } from "./customer-current-group";
 import { incrementCustomerEventDailyStat } from "./daily-stats";
 
@@ -103,7 +103,7 @@ export async function syncCustomerExpertEvent(
 export async function syncCustomerOrderEvent(
   tx: Prisma.TransactionClient,
   lead: NumberTrackedLead,
-  input: { businessDate: string; amountCents: number; method: DepositMethod | null; delta?: number },
+  input: { businessDate: string; delta?: number },
 ) {
   const delta = input.delta ?? 1;
   const ownerId = lead.expertOwnerId ?? lead.groupOperatorOwnerId ?? receptionOwnerId(lead);
@@ -115,36 +115,9 @@ export async function syncCustomerOrderEvent(
     position: "EXPERT",
     sourceReceptionId: receptionOwnerId(lead),
     sourceGroupOperatorId: lead.groupOperatorOwnerId ?? ownerId,
-    reason: `${lead.phone} 开单首充`,
-    increment: {
-      orderCount: delta,
-      ...(input.method === "BANK"
-        ? { bankInitialDepositCents: input.amountCents * delta }
-        : { cryptoInitialDepositCents: input.amountCents * delta }),
-    },
-  });
-}
-
-export async function syncCustomerFinanceEvent(
-  tx: Prisma.TransactionClient,
-  lead: NumberTrackedLead,
-  input: { businessDate: string; kind: "RECHARGE" | "WITHDRAWAL"; amountCents: number; method: DepositMethod | null; delta?: number },
-) {
-  const delta = input.delta ?? 1;
-  const ownerId = lead.expertOwnerId ?? lead.groupOperatorOwnerId ?? receptionOwnerId(lead);
-  return incrementCustomerEventDailyStat(tx, {
-    ownerId,
-    groupId: lead.batch.groupId,
-    channelId: lead.batch.channelId,
-    businessDate: input.businessDate,
-    position: "EXPERT",
-    sourceReceptionId: receptionOwnerId(lead),
-    sourceGroupOperatorId: lead.groupOperatorOwnerId ?? ownerId,
-    reason: `${lead.phone} ${input.kind}`,
-    increment: input.kind === "WITHDRAWAL"
-      ? { withdrawalCents: input.amountCents * delta }
-      : input.method === "BANK"
-        ? { bankRechargeCents: input.amountCents * delta }
-        : { cryptoRechargeCents: input.amountCents * delta },
+    reason: `${lead.phone} 开单`,
+    // 客户进度只确认“发生了开单”。首充、续充和出金属于客户跟踪账，
+    // 公司最终认账金额仍由组员在每日财务数据中填写，避免同一笔钱重复统计。
+    increment: { orderCount: delta },
   });
 }

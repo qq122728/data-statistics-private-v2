@@ -155,7 +155,7 @@ export async function POST(request: Request) {
           where: { id: row.leadId },
           data: { noInitialDepositOn: null, noInitialDepositReason: null, noInitialDepositNote: null, expertWorkflowStage: "ORDERED", expertStageChangedAt: new Date() },
         });
-        // 首充先写入客户资金明细，再同步到当天号码事件统计。
+        // 首充写入客户跟踪明细；公司认账金额由组员在每日财务数据中填写。
         await transaction.customerFinanceEvent.create({
           data: {
             batchId: row.batchId,
@@ -172,7 +172,7 @@ export async function POST(request: Request) {
         await syncCustomerOrderEvent(transaction, {
           ...lead, phone: row.phone,
           batch: { groupId: batch.groupId, channelId: batch.channelId },
-        }, { businessDate: row.openedOn, amountCents: row.initialDepositCents, method: row.initialDepositMethod });
+        }, { businessDate: row.openedOn });
         orders.push(order);
       }
       return { status: 201 as const, orders };

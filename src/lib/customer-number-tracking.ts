@@ -19,11 +19,6 @@ export const NUMBER_TRACKED_DAILY_FIELDS = [
   "expertContactedCount",
   "registrationCount",
   "orderCount",
-  "cryptoInitialDepositCents",
-  "bankInitialDepositCents",
-  "cryptoRechargeCents",
-  "bankRechargeCents",
-  "withdrawalCents",
 ] as const;
 
 /**

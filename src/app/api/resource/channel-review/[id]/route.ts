@@ -31,12 +31,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!actor.active || !hasAssignedRole(actor, "RESOURCE_MANAGER"))
     return authorizationDenied(actor, "只有在职资源部账号可以处理核对记录");
 
-  const allowedChannelIds = actor.resourceChannelAccess?.map((item) => item.channelId) ?? [];
   const { id } = await context.params;
 
   try {
     const input = reviewSchema.parse(await request.json());
     const result = await db.$transaction(async (tx) => {
+      const allowedChannelIds = (await tx.resourceChannelAccess.findMany({ where: { userId: actor.id }, select: { channelId: true } })).map((item) => item.channelId);
       const entry = await tx.channelReviewEntry.findUnique({
         where: { id },
         select: { id: true, channelId: true, status: true },

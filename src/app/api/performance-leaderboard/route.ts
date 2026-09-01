@@ -59,7 +59,7 @@ export async function GET(request: Request) {
   // 公司/部门管理员及资源部仍沿用后端既有的数据范围，避免越权看到范围外小组。
   const groupIds = groups.map((group) => group.id);
   const channelIds = actor.role === "RESOURCE_MANAGER"
-    ? (actor.resourceChannelAccess ?? []).map((access) => access.channelId)
+    ? (await db.resourceChannelAccess.findMany({ where: { userId: actor.id }, select: { channelId: true } })).map((access) => access.channelId)
     : undefined;
 
   const entries = groupIds.length ? await db.dailyStatEntry.findMany({

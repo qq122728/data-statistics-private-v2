@@ -29,7 +29,7 @@ async function resourceActor() {
 export async function GET() {
   const session = await resourceActor();
   if (session.error) return session.error;
-  const channelIds = session.actor.resourceChannelAccess?.map((item) => item.channelId) ?? [];
+  const channelIds = (await db.resourceChannelAccess.findMany({ where: { userId: session.actor.id }, select: { channelId: true } })).map((item) => item.channelId);
   if (!channelIds.length) return NextResponse.json({ entries: [] });
   const entries = await db.dailyStatEntry.findMany({
     where: { status: "RESOURCE_PENDING", position: "RECEPTION", channelId: { in: channelIds } },

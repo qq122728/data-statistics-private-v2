@@ -7,6 +7,7 @@ import { GET as getOrgChannelReporting } from "../../src/app/api/org/channel-rep
 import { GET as getLeadChannelReporting } from "../../src/app/api/lead/channel-reporting/route";
 import { GET as getLeadCustomerReporting, POST as postLeadCustomerReporting } from "../../src/app/api/lead/customer-reporting/route";
 import { PATCH as patchSharedCustomer } from "../../src/app/api/lead/customer-reporting/[leadId]/route";
+import { POST as postCustomerOrder } from "../../src/app/api/customer-orders/route";
 import { GET as getResourceReporting } from "../../src/app/api/resource/reporting/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
@@ -269,6 +270,75 @@ describe.sequential("新版组织范围真实报表 API", () => {
 });
 
 describe.sequential("新版组长真实渠道报表 API", () => {
+  it("客户改渠道时漏斗数据一起搬家，但炒群和专家只负责进度，业绩仍归接粉人", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-02T03:30:00Z"));
+    const originalChannelId = id("berlin-channel");
+    const correctedChannelId = id("berlin-corrected-channel");
+    await db.channel.create({ data: {
+      id: correctedChannelId, groupId: ids.berlinGroup, name: `柏林纠正渠道-${suffix}`, normalizedName: `柏林纠正渠道-${suffix}`,
+    } });
+    await signIn(ids.berlinReception);
+    const created = await postLeadCustomerReporting(new Request("http://localhost/api/lead/customer-reporting", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        phone: `91${suffix.replaceAll("-", "").slice(0, 8)}`,
+        channelId: originalChannelId, sourceDate: "2026-09-02", joinedOn: "2026-09-02",
+      }),
+    }));
+    expect(created.status).toBe(201);
+    const customer = await created.json() as { id: string; phone: string };
+    const patch = (body: Record<string, unknown>) => patchSharedCustomer(
+      new Request(`http://localhost/api/lead/customer-reporting/${customer.id}`, {
+        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }),
+      { params: Promise.resolve({ leadId: customer.id }) },
+    );
+
+    expect((await patch({ action: "assignGroupOperator", userId: ids.berlinOperatorA })).status).toBe(200);
+    expect((await patch({ action: "setChannel", channelId: correctedChannelId })).status).toBe(200);
+    expect((await patch({ action: "assignExpert", userId: ids.berlinExpert })).status).toBe(200);
+    await signIn(ids.berlinExpert);
+    expect((await patch({ action: "setRegistration", occurredOn: "2026-09-02" })).status).toBe(200);
+    const currentCustomer = await db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id }, select: { batchId: true } });
+    expect((await postCustomerOrder(new Request("http://localhost/api/customer-orders", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        batchId: currentCustomer.batchId, leadId: customer.id, phone: customer.phone, openedOn: "2026-09-02",
+        initialDepositCents: 10_000, initialDepositMethod: "BANK",
+      }),
+    }))).status).toBe(201);
+    expect((await patch({ action: "setChannel", channelId: originalChannelId })).status).toBe(200);
+    expect((await patch({ action: "assignGroupOperator", userId: ids.berlinOperatorB })).status).toBe(200);
+
+    const rows = await db.dailyStatEntry.findMany({
+      where: { groupId: ids.berlinGroup, businessDate: "2026-09-02", channelId: { in: [originalChannelId, correctedChannelId] } },
+      include: { currentRevision: true },
+    });
+    const sum = (channelId: string, field: "operatorReceivedCount" | "expertIntroCount" | "expertReceivedCount" | "registrationCount" | "orderCount") =>
+      rows.filter((row) => row.channelId === channelId).reduce((total, row) => total + (row.currentRevision?.[field] ?? 0), 0);
+    for (const field of ["operatorReceivedCount", "expertIntroCount", "expertReceivedCount", "registrationCount", "orderCount"] as const) {
+      expect(sum(correctedChannelId, field), `${field} 旧渠道必须清零`).toBe(0);
+      expect(sum(originalChannelId, field), `${field} 必须搬到新渠道`).toBe(1);
+    }
+    expect(rows.find((row) => row.channelId === originalChannelId && row.position === "GROUP_OPERATOR" && row.ownerId === ids.berlinOperatorA)?.currentRevision)
+      .toMatchObject({ operatorReceivedCount: 1, expertIntroCount: 1 });
+    expect(rows.filter((row) => row.channelId === originalChannelId && row.sourceReceptionId === ids.berlinReception)
+      .reduce((total, row) => total + (row.currentRevision?.operatorReceivedCount ?? 0), 0)).toBe(1);
+    expect(rows.some((row) => row.sourceReceptionId === ids.berlinOperatorA || row.sourceReceptionId === ids.berlinOperatorB || row.sourceReceptionId === ids.berlinExpert)).toBe(false);
+
+    const order = await db.customerOrder.findUnique({ where: { leadId: customer.id } });
+    if (order) await db.customerFinanceEvent.deleteMany({ where: { customerOrderId: order.id } });
+    await db.customerOrder.deleteMany({ where: { leadId: customer.id } });
+    await db.leadActivity.deleteMany({ where: { leadId: customer.id } });
+    await db.auditLog.deleteMany({ where: { entityId: customer.id } });
+    await db.leadCustomer.delete({ where: { id: customer.id } });
+    const eventEntries = await db.dailyStatEntry.findMany({ where: { groupId: ids.berlinGroup, businessDate: "2026-09-02" }, select: { id: true } });
+    await db.dailyStatEntry.updateMany({ where: { id: { in: eventEntries.map((entry) => entry.id) } }, data: { currentRevisionId: null, approvedRevisionId: null } });
+    await db.dailyStatRevision.deleteMany({ where: { entryId: { in: eventEntries.map((entry) => entry.id) } } });
+    await db.dailyStatEntry.deleteMany({ where: { id: { in: eventEntries.map((entry) => entry.id) } } });
+    await db.sourceBatch.deleteMany({ where: { groupId: ids.berlinGroup, sourceDate: "2026-09-02" } });
+    await db.channel.delete({ where: { id_groupId: { id: correctedChannelId, groupId: ids.berlinGroup } } });
+    vi.useRealTimers();
+  });
+
   it("员工保存后即使仍待资源部核对，组长也能立刻在汇总中看到", async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     const channelId = id("berlin-channel");

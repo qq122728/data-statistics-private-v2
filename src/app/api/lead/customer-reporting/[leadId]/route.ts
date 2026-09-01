@@ -8,7 +8,7 @@ import { API_LIMITS } from "../../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../../lib/security-events";
 import { leadCurrentGroupId } from "../../../../../lib/customer-current-group";
 import { statisticsDate } from "../../../../../lib/statistics-date";
-import { syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerRegistrationEvent } from "../../../../../lib/customer-number-event-sync";
+import { reattributeCustomerNumberEvents, syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerRegistrationEvent } from "../../../../../lib/customer-number-event-sync";
 import { entryDateError } from "../../../../../lib/entry-date-validation";
 
 const updateSchema = z.discriminatedUnion("action", [
@@ -47,12 +47,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       });
       const lead = await transaction.leadCustomer.findUnique({
         where: { id: leadId },
-        include: { batch: { select: { groupId: true, channelId: true, sourceDate: true } } },
+        include: {
+          batch: { select: { groupId: true, channelId: true, sourceDate: true } },
+          customerOrder: { select: { openedOn: true, voidedAt: true } },
+        },
       });
       if (!actor?.active || !actor.groupId || !lead || leadCurrentGroupId(lead) !== actor.groupId)
         return { status: 404 as const, error: "客户不存在或已不在本组" };
       const update: Record<string, unknown> = {};
+      let trackedAttributionOwnerId = lead.attributionOwnerId;
+      let trackedGroupOperatorOwnerId = lead.groupOperatorOwnerId;
       let trackedExpertOwnerId = lead.expertOwnerId;
+      let trackedChannelId = lead.batch.channelId;
       let activity: { kind: "DEVICE_ASSIGNED" | "EXPERT_INTRODUCED" | "REGISTERED" | "LEFT_GROUP" | "PLAN_UPDATED"; note: string; occurredOn: string } | null = null;
       const today = statisticsDate();
 
@@ -62,6 +68,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       if (input.action === "assignGroupOperator") {
         const target = await transaction.user.findFirst({ where: { id: input.userId, groupId: actor.groupId, active: true }, select: { id: true, name: true } });
         if (!target) return { status: 400 as const, error: "只能选择本组在职组员" };
+        trackedGroupOperatorOwnerId = target.id;
         update.groupOperatorOwnerId = target.id;
         activity = { kind: "PLAN_UPDATED", note: `炒群负责人调整为 ${target.name}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
       } else if (input.action === "setDeviceCode") {
@@ -94,11 +101,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
         const channel = await transaction.channel.findUnique({ where: { id_groupId: { id: input.channelId, groupId: actor.groupId } }, select: { id: true, name: true, active: true } });
         if (!channel?.active) return { status: 400 as const, error: "来源渠道不存在或已停用" };
         const batch = await getOrCreateSourceBatch({ groupId: actor.groupId, channelId: channel.id, sourceDate: lead.batch.sourceDate }, transaction);
+        trackedChannelId = channel.id;
         update.batchId = batch.id;
         activity = { kind: "PLAN_UPDATED", note: `来源渠道调整为 ${channel.name}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
       } else if (input.action === "setOwner") {
         const target = await transaction.user.findFirst({ where: { id: input.userId, groupId: actor.groupId, active: true }, select: { id: true, name: true } });
         if (!target) return { status: 400 as const, error: "只能选择本组在职组员" };
+        trackedAttributionOwnerId = target.id;
         update.ownerId = target.id;
         update.attributionOwnerId = target.id;
         activity = { kind: "PLAN_UPDATED", note: `接粉及业绩归属纠正为 ${target.name}`, occurredOn: lead.joinedOn ?? lead.batch.sourceDate };
@@ -161,7 +170,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
 
       await transaction.leadCustomer.update({ where: { id: lead.id }, data: update });
       if (activity) await transaction.leadActivity.create({ data: { leadId: lead.id, actorId: actor.id, ...activity } });
-      const trackedLead = { ...lead, expertOwnerId: trackedExpertOwnerId, batch: { groupId: actor.groupId, channelId: lead.batch.channelId } };
+      const trackedLead = {
+        ...lead,
+        attributionOwnerId: trackedAttributionOwnerId,
+        groupOperatorOwnerId: trackedGroupOperatorOwnerId,
+        expertOwnerId: trackedExpertOwnerId,
+        batch: { groupId: actor.groupId, channelId: trackedChannelId },
+      };
+      const attributionChanged = (input.action === "setChannel" && trackedChannelId !== lead.batch.channelId)
+        || (input.action === "setOwner" && trackedAttributionOwnerId !== lead.attributionOwnerId);
+      if (attributionChanged) {
+        await reattributeCustomerNumberEvents(transaction, {
+          ...lead,
+          batch: { groupId: actor.groupId, channelId: lead.batch.channelId },
+        }, trackedLead);
+      }
       if (input.action === "setJoinedOn" && lead.joinedOn !== input.occurredOn) {
         if (lead.joinedOn) await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: lead.joinedOn, kind: "JOIN", delta: -1 });
         await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: input.occurredOn, kind: "JOIN" });

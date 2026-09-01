@@ -207,6 +207,16 @@ describe.sequential("新版组织范围真实报表 API", () => {
       period: { today: "2026-09-01", from: "2026-09-01", to: "2026-09-01" },
       totals: { added: 3, effective: 2, replied: 1 },
     });
+    expect(body.groupChannels).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        groupId: ids.berlinGroup,
+        groupName: expect.stringContaining("柏林一组"),
+        company: { id: ids.companyA, name: expect.any(String) },
+        department: { id: ids.berlinDept, name: expect.any(String) },
+        channel: { name: "柏林渠道" },
+        totals: expect.objectContaining({ added: 3, effective: 2, replied: 1 }),
+      }),
+    ]));
     expect(body.groups.find((group: { id: string }) => group.id === ids.newYorkGroup)).toMatchObject({
       period: { today: "2026-09-01", from: "2026-09-01", to: "2026-09-01" },
       totals: { added: 0 },

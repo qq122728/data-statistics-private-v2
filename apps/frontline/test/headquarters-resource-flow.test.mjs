@@ -15,6 +15,12 @@ test("总公司按先建渠道再开资源账号的顺序展示真实入口", as
   assert.match(source, /<option value="REBATE">底料<\/option>/);
 });
 
+test("总公司首页直接列出公司部门小组和渠道", async () => {
+  const source = await readFile(new URL("components/HeadquartersWorkspace.tsx", root), "utf8");
+  for (const text of ["公司、部门、小组与渠道明细", "每个小组的每个渠道单独一行", "row.company?.name", "row.department.name", "row.groupName", "row.channel.name"]) assert.ok(source.includes(text));
+  assert.match(source, /report\?\.groupChannels/);
+});
+
 test("资源部报表包含小组组员筛选、完整指标比率和底部合计，但没有审核入口", async () => {
   const source = await readFile(new URL("components/ResourceWorkspace.tsx", root), "utf8");
   for (const text of ["小组", "组员", "人工无效", "回复率", "进群率", "异常退群率", "注册率", "开单率", "合计"]) assert.match(source, new RegExp(text));

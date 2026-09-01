@@ -181,6 +181,7 @@ export async function GET(request: Request) {
   const dailyGroupAggregates = new Map<string, Aggregate>();
   const dailyMemberAggregates = new Map<string, Aggregate>();
   const channelAggregates = new Map<string, { name: string; aggregate: Aggregate; groupIds: Set<string> }>();
+  const groupChannelAggregates = new Map<string, { groupId: string; name: string; normalizedName: string; aggregate: Aggregate }>();
   function applyRevision(aggregate: Aggregate, entry: (typeof entries)[number], revision: ApprovedDailyRevision) {
     const numberTrackedOperator = groupTypeById.get(entry.groupId) === "HACKER"
       && entry.position === "GROUP_OPERATOR"
@@ -230,6 +231,10 @@ export async function GET(request: Request) {
     applyRevision(channelRow.aggregate, entry, revision);
     channelRow.groupIds.add(entry.groupId);
     channelAggregates.set(channelKey, channelRow);
+    const groupChannelKey = `${entry.groupId}\0${normalizedChannelName}`;
+    const groupChannelRow = groupChannelAggregates.get(groupChannelKey) ?? { groupId: entry.groupId, name: entry.channel.name, normalizedName: normalizedChannelName, aggregate: freshAggregate() };
+    applyRevision(groupChannelRow.aggregate, entry, revision);
+    groupChannelAggregates.set(groupChannelKey, groupChannelRow);
     groupAggregates.set(entry.groupId, groupAggregate);
     memberAggregates.set(memberKey, memberAggregate);
     dailyGroupAggregates.set(dailyGroupKey, dailyGroupAggregate);
@@ -327,7 +332,27 @@ export async function GET(request: Request) {
     return { id: typedKey, name: row.name, groupType, groupCount: row.groupIds.size, ...serializeAggregate(row.aggregate, inGroup) };
   }).sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
 
-  return NextResponse.json({ range: { preset: range.preset, label: range.label }, groups, members, channels, days }, {
+  const groupChannels = [...groupChannelAggregates.entries()].map(([key, row]) => {
+    const metadata = metadataByGroup.get(row.groupId)!;
+    const period = periods[row.groupId];
+    const inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+      entry.groupId === row.groupId
+      && (entry.channel.normalizedName || entry.channel.name) === row.normalizedName
+      && Boolean(period) && entry.businessDate <= period.to));
+    return {
+      id: key,
+      groupId: row.groupId,
+      groupName: metadata.name,
+      groupType: metadata.groupType,
+      activePeople: activeUsers.filter((person) => person.groupId === row.groupId).length,
+      department: { id: metadata.department.id, name: metadata.department.name },
+      company: metadata.department.company,
+      channel: { name: row.name },
+      ...serializeAggregate(row.aggregate, inGroup),
+    };
+  }).sort((left, right) => `${left.company?.name ?? ""}-${left.department.name}-${left.groupName}-${left.channel.name}`.localeCompare(`${right.company?.name ?? ""}-${right.department.name}-${right.groupName}-${right.channel.name}`, "zh-CN"));
+
+  return NextResponse.json({ range: { preset: range.preset, label: range.label }, groups, groupChannels, members, channels, days }, {
     headers: { "Cache-Control": "private, no-store" },
   });
 }

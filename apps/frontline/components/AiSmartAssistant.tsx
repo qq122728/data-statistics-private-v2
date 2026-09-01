@@ -147,6 +147,7 @@ const NATURAL_TEMPLATES: Record<NaturalIntent, Array<{ label: string; text: stri
 };
 
 type CustomerContext = {
+  actorId?: string;
   today: string;
   channelOptions: Array<{ id: string; name: string }>;
   memberOptions: Array<{ id: string; name: string }>;
@@ -291,6 +292,27 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   const selectedLegacyOperator = legacyContext?.memberOptions.find((item) => item.id === legacyDraft.groupOperatorOwnerId) ?? null;
   const selectedLegacyExpert = legacyContext?.expertOptions.find((item) => item.id === legacyDraft.expertOwnerId) ?? null;
   const summary = useMemo(() => calculated(draft, Boolean(lawyer)), [draft, lawyer]);
+  const displayedNaturalTemplates = useMemo(() => {
+    if (!naturalIntent) return [];
+    if (naturalIntent === "DAILY" && context?.channels.length) {
+      const base = context.groupType === "LAWYER"
+        ? "今天 CHANNEL：接粉20，回复8，接粉小金额1，接粉真实案件10，添加律师5，添加专家3，总推客服3，总注册2，总开单1，加密货币充值1000，银行卡充值0，出金0"
+        : NATURAL_TEMPLATES.DAILY[0].text;
+      return context.channels.map((channel) => ({ label: `今日数据 · ${channel.name}`, text: base.replace("FB-M", channel.name).replace("CHANNEL", channel.name) }));
+    }
+    if (naturalIntent === "CUSTOMER" && customerContext?.channelOptions.length) {
+      const operator = customerContext.memberOptions[0]?.name ?? "炒群负责人";
+      return customerContext.channelOptions.map((channel) => ({ label: `新增客户 · ${channel.name}`, text: NATURAL_TEMPLATES.CUSTOMER[0].text.replace("FB-M", channel.name).replace("吴天", operator) }));
+    }
+    if (naturalIntent === "LEGACY" && legacyContext?.channelOptions.length) {
+      const reception = legacyContext.memberOptions.find((item) => item.id === legacyContext.actorId)?.name ?? legacyContext.memberOptions[0]?.name ?? "接粉组员";
+      const operator = legacyContext.memberOptions.find((item) => item.id !== legacyContext.actorId)?.name ?? reception;
+      const expert = legacyContext.expertOptions[0]?.name ?? "专家负责人";
+      const channel = legacyContext.channelOptions[0].name;
+      return NATURAL_TEMPLATES.LEGACY.map((template) => ({ ...template, text: template.text.replace("FB-M", channel).replace("演示接粉", reception).replace("吴天", operator).replace("西瓜", expert) }));
+    }
+    return NATURAL_TEMPLATES[naturalIntent];
+  }, [naturalIntent, context, customerContext, legacyContext]);
 
   useEffect(() => {
     const element = conversationRef.current;
@@ -312,10 +334,20 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     messageIdRef.current = 1;
   }
 
-  function openNaturalTemplate(intent: NaturalIntent, title: string) {
-    setNaturalIntent(intent); setPhase("template"); setInput("");
-    setMessages([{ id: 0, role: "user", text: title }, { id: 1, role: "assistant", text: "可以直接说完整内容，也可以点击下面的模板，把示例改成你的真实数据后发送。我会先生成预览，不会直接保存。" }]);
+  async function openNaturalTemplate(intent: NaturalIntent, title: string) {
+    setNaturalIntent(intent); setPhase("loading"); setInput("");
+    setMessages([{ id: 0, role: "user", text: title }, { id: 1, role: "assistant", text: "正在读取本组真实渠道和人员，为你生成可直接使用的模板…" }]);
     messageIdRef.current = 2;
+    try {
+      if (intent === "DAILY") setContext(await requestJson<DailyContext>("/api/daily-stats"));
+      if (intent === "CUSTOMER") setCustomerContext(await requestJson<CustomerContext>("/api/lead/customer-reporting?stage=group&page=1"));
+      if (intent === "LEGACY") setLegacyContext(await requestJson<LegacyContext>("/api/lead/customer-reporting?stage=group&page=1"));
+      addMessage("assistant", "模板已经换成本组真实名称。点击模板后，只需要修改号码和数字，再发送即可；我会先生成预览，不会直接保存。");
+      setPhase("template");
+    } catch (caught) {
+      addMessage("assistant", caught instanceof Error ? `真实资料读取失败：${caught.message}` : "真实资料读取失败，请稍后重试。");
+      setPhase("idle");
+    }
   }
 
   function optionInText<T extends { id: string; name: string }>(text: string, options: T[]) {
@@ -1010,10 +1042,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   }
 
   function handleQuickAction(action: string) {
-    if (action === "添加今日数据") { openNaturalTemplate("DAILY", action); return; }
-    if (action === "新增客户") { openNaturalTemplate("CUSTOMER", action); return; }
-    if (action === "录入老客户进度") { openNaturalTemplate("LEGACY", action); return; }
-    if (action === "更新客户进度") { openNaturalTemplate("PROGRESS", action); return; }
+    if (action === "添加今日数据") { void openNaturalTemplate("DAILY", action); return; }
+    if (action === "新增客户") { void openNaturalTemplate("CUSTOMER", action); return; }
+    if (action === "录入老客户进度") { void openNaturalTemplate("LEGACY", action); return; }
+    if (action === "更新客户进度") { void openNaturalTemplate("PROGRESS", action); return; }
     addMessage("user", action);
     addMessage("assistant", "这个入口会在下一步接入。目前可以使用“添加今日数据”“新增客户”和“更新客户进度”。");
   }
@@ -1061,7 +1093,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
 
         {phase === "template" && naturalIntent ? <div className={styles.templateList} aria-label="自然语言填写模板">
           <strong>选择一个模板</strong>
-          {NATURAL_TEMPLATES[naturalIntent].map((template) => <button type="button" key={template.label} onClick={() => setInput(template.text)}><span>{template.label}</span><small>{template.text}</small></button>)}
+          {displayedNaturalTemplates.map((template) => <button type="button" key={`${template.label}-${template.text}`} onClick={() => setInput(template.text)}><span>{template.label}</span><small>{template.text}</small></button>)}
           <p>点击模板后，在下方把号码、人员、渠道和数字改成真实内容，再发送。</p>
         </div> : null}
 

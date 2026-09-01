@@ -63,6 +63,10 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /客户112233今天注册/);
   assert.match(source, /未提到的指标保持原值/);
   assert.match(source, /改用逐步引导/);
+  assert.match(source, /正在读取本组真实渠道和人员/);
+  assert.match(source, /displayedNaturalTemplates/);
+  assert.match(source, /context\.channels\.map/);
+  assert.match(source, /customerContext\.channelOptions\.map/);
   assert.match(source, /确认保存/);
   assert.match(source, /requestJson<CustomerContext>\("\/api\/lead\/customer-reporting\?stage=group&page=1"\)/);
   assert.match(source, /客户号码至少需要 6 位/);

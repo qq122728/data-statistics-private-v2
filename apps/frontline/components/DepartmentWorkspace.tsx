@@ -9,6 +9,7 @@ import DepartmentPersonnelTransfer from "@/components/DepartmentPersonnelTransfe
 import { NotificationBadge, UnifiedNotificationCenter, useNotificationUnread } from "@/components/UnifiedNotificationCenter";
 import { WorkspaceNavButton, WorkspaceShell } from "@/components/WorkspaceShell";
 import DepartmentDeviceAccounts from "@/components/DepartmentDeviceAccounts";
+import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 
 type View = "dashboard" | "summary" | "customers" | "groups" | "transfer" | "devices" | "notifications";
 type Metrics = {
@@ -22,7 +23,7 @@ type ReportGroup = { id: string; name: string; groupType: "HACKER" | "LAWYER"; a
 type ReportMember = { id: string; name: string; groupId: string; groupName: string; groupType: "HACKER" | "LAWYER"; totals: Metrics };
 type ReportChannel = { id: string; name: string; groupType: "HACKER" | "LAWYER"; groupCount: number; totals: Metrics };
 type ReportDay = { date: string; groups: Array<{ groupId: string; groupType: "HACKER" | "LAWYER"; totals: Metrics }> };
-type ReportPayload = { range: { label: string }; groups: ReportGroup[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
+type ReportPayload = { range: { preset: string; label: string }; groups: ReportGroup[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
 type StructureGroup = { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; leadId: string | null; leadName: string | null };
 type StructureDepartment = { id: string; name: string; timezone: string; groups: StructureGroup[] };
 type StructurePayload = {
@@ -43,7 +44,9 @@ function addMetricRows(rows: Array<{ totals: Metrics }>): Metrics {
 export default function DepartmentWorkspace({ user, onLogout }: { user: BackendUser; onLogout: () => void }) {
   const [notificationUnread, setNotificationUnread] = useNotificationUnread();
   const [view, setView] = useState<View>("dashboard");
-  const [range, setRange] = useState("month");
+  const [range, setRange] = useState<SmartDatePreset>("month");
+  const [from, setFrom] = useState(() => `${localCalendarDate().slice(0, 8)}01`);
+  const [to, setTo] = useState(localCalendarDate);
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [structure, setStructure] = useState<StructureDepartment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,8 +61,10 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
+      const query = new URLSearchParams({ range });
+      if (range === "custom") { query.set("sourceDateFrom", from); query.set("sourceDateTo", to); }
       const [nextReport, nextStructure] = await Promise.all([
-        requestJson<ReportPayload>(`/api/org/reporting?range=${encodeURIComponent(range)}`),
+        requestJson<ReportPayload>(`/api/org/reporting?${query}`),
         requestJson<StructurePayload>("/api/org/structure"),
       ]);
       setReport(nextReport);
@@ -70,7 +75,7 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "部门数据读取失败");
     } finally { setLoading(false); }
-  }, [range]);
+  }, [from, range, to]);
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
@@ -83,7 +88,9 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
     let cancelled = false;
     setChannelLoading(true);
     setChannelError("");
-    void requestJson<ReportPayload>(`/api/org/reporting?range=${encodeURIComponent(range)}&groupId=${encodeURIComponent(groupFilter)}`)
+    const query = new URLSearchParams({ range, groupId: groupFilter });
+    if (range === "custom") { query.set("sourceDateFrom", from); query.set("sourceDateTo", to); }
+    void requestJson<ReportPayload>(`/api/org/reporting?${query}`)
       .then((nextReport) => {
         if (!cancelled) setFilteredChannelReport(nextReport);
       })
@@ -97,7 +104,7 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
         if (!cancelled) setChannelLoading(false);
       });
     return () => { cancelled = true; };
-  }, [groupFilter, range, summaryMode]);
+  }, [from, groupFilter, range, summaryMode, to]);
 
   const filteredGroups = useMemo(() => (report?.groups ?? []).filter((group) => group.groupType === groupTypeFilter), [groupTypeFilter, report]);
   const departmentTotals = useMemo(() => filteredGroups.reduce<Metrics>((sum, group) => {
@@ -120,7 +127,7 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
         <WorkspaceNavButton active={view === "devices"} icon="devices" onClick={() => setView("devices")}>设备账号</WorkspaceNavButton>
         <WorkspaceNavButton active={view === "notifications"} icon="notifications" onClick={() => setView("notifications")}>通知中心<NotificationBadge count={notificationUnread} /></WorkspaceNavButton>
       </>}>
-        {(view === "dashboard" || view === "summary") ? <div className="fresh-toolbar"><div className="fresh-history-intro"><strong>{report?.range.label ?? "统计区间"}</strong><span>只统计已经保存并生效的数据</span></div><label><span>统计周期</span><select value={range} onChange={(event) => setRange(event.target.value)}><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="month">本月</option><option value="lastMonth">上月</option></select></label><button className="fresh-primary" onClick={() => void load()}>刷新</button></div> : null}
+        {(view === "dashboard" || view === "summary") ? <SmartDateRangeToolbar range={range} from={from} to={to} currentLabel={report?.range.label} loading={loading} title="部门统计日期" onRange={setRange} onFrom={setFrom} onTo={setTo} onRefresh={() => void load()} /> : null}
         {(view === "dashboard" || view === "summary") ? <div className="department-tabs"><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setGroupFilter(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setGroupFilter(""); }}>律师组数据</button></div> : null}
         {loading ? <section className="fresh-sheet-card department-empty">正在读取真实部门数据…</section> : null}
         {error ? <section className="fresh-sheet-card department-error">{error}</section> : null}

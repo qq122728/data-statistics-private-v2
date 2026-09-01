@@ -14,7 +14,7 @@ import { getSystemSettings } from "../../../../lib/settings";
 import { managedDepartmentIds } from "../../../../lib/managed-department-scope";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 
-const allowedRanges = new Set(["all", "today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
+const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
 type ApprovedDailyRevision = {
   dispatchCount: number; duplicateCount: number; lowAmountCount: number; noWsCount: number; effectiveCount: number;
@@ -132,13 +132,14 @@ export async function GET(request: Request) {
   const maximumTo = Object.values(periods).map((period) => period.to).sort().at(-1) ?? range.to;
   const [dailyEntries, snapshotEntries, activeUsers] = groupIds.length ? await Promise.all([
     db.dailyStatEntry.findMany({
-      where: { groupId: { in: groupIds }, approvedRevisionId: { not: null }, businessDate: { gte: minimumFrom, lte: maximumTo } },
+      where: { groupId: { in: groupIds }, currentRevisionId: { not: null }, businessDate: { gte: minimumFrom, lte: maximumTo } },
       select: {
         id: true, groupId: true, channelId: true, sourceReceptionId: true,
         businessDate: true, position: true, ownerId: true,
         owner: { select: { id: true, name: true, active: true } },
         sourceReception: { select: { id: true, name: true, active: true } },
         channel: { select: { id: true, name: true, normalizedName: true } },
+        currentRevision: true,
         approvedRevision: true,
       },
     }),
@@ -146,12 +147,12 @@ export async function GET(request: Request) {
       where: {
         groupId: { in: groupIds },
         position: "GROUP_OPERATOR",
-        approvedRevisionId: { not: null },
+        currentRevisionId: { not: null },
         businessDate: { lte: maximumTo },
       },
       select: {
         groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
-        businessDate: true, position: true, approvedRevision: true,
+        businessDate: true, position: true, currentRevision: true, approvedRevision: true,
         channel: { select: { id: true, name: true, normalizedName: true } },
       },
     }),
@@ -168,7 +169,7 @@ export async function GET(request: Request) {
   ]) : [[], [], []];
   const entries = dailyEntries.filter((entry) => {
     const period = periods[entry.groupId];
-    return Boolean(entry.approvedRevision && period && entry.businessDate >= period.from && entry.businessDate <= period.to);
+    return Boolean((entry.currentRevision ?? entry.approvedRevision) && period && entry.businessDate >= period.from && entry.businessDate <= period.to);
   });
 
   type Aggregate = { totals: BatchTotals; lowAmount: number; noWs: number; manualInvalid: number; lawyerRealCase: number; lawyerAdded: number; lawyerExpertAdded: number; customerServicePush: number; initialDepositCents: number; rechargeOnlyCents: number; cryptoDepositCents: number; bankDepositCents: number; latestSnapshotDate: string; inGroup: number };
@@ -202,7 +203,7 @@ export async function GET(request: Request) {
     }
   }
   for (const entry of entries) {
-    const revision = entry.approvedRevision as ApprovedDailyRevision;
+    const revision = (entry.currentRevision ?? entry.approvedRevision) as ApprovedDailyRevision;
     const groupAggregate = groupAggregates.get(entry.groupId) ?? freshAggregate();
     const attributionOwnerId = dailyStatAttributionOwnerId(entry);
     const memberKey = `${entry.groupId}:${attributionOwnerId}`;

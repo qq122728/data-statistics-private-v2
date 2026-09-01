@@ -11,7 +11,7 @@ import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 
-const ranges = new Set(["today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
+const ranges = new Set(["today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
 export async function GET(request: Request) {
   let actor;
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
   const entries = minimumFrom && maximumTo ? await db.dailyStatEntry.findMany({
     where: {
       channelId: { in: channels.map((channel) => channel.id) },
-      approvedRevisionId: { not: null },
+      currentRevisionId: { not: null },
       businessDate: { gte: minimumFrom, lte: maximumTo },
     },
     select: {
@@ -71,6 +71,7 @@ export async function GET(request: Request) {
       sourceReception: { select: { id: true, name: true, role: true } },
       businessDate: true,
       position: true,
+      currentRevision: true,
       approvedRevision: true,
     },
   }) : [];
@@ -78,20 +79,20 @@ export async function GET(request: Request) {
     where: {
       channelId: { in: channels.map((channel) => channel.id) },
       position: "GROUP_OPERATOR",
-      approvedRevisionId: { not: null },
+      currentRevisionId: { not: null },
       businessDate: { lte: maximumTo },
     },
     select: {
       groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
       owner: { select: { id: true, name: true, role: true } },
       sourceReception: { select: { id: true, name: true, role: true } },
-      businessDate: true, position: true, approvedRevision: true,
+      businessDate: true, position: true, currentRevision: true, approvedRevision: true,
     },
   }) : [];
 
   function aggregate(scoped: typeof entries, snapshots: typeof snapshotEntries = scoped) {
     const totals = scoped.reduce((sum, entry) => {
-      const revision = entry.approvedRevision!;
+      const revision = entry.currentRevision ?? entry.approvedRevision!;
       sum.added += revision.dispatchCount;
       sum.collision += revision.duplicateCount;
       sum.lowAmount += revision.lowAmountCount;
@@ -126,7 +127,7 @@ export async function GET(request: Request) {
 
   const rows = channelPeriods.map(({ channel, timezone, today, range }) => {
     const scoped = entries.filter((entry) => entry.channelId === channel.id && entry.groupId === channel.group.id
-      && entry.businessDate >= range.from && entry.businessDate <= range.to && entry.approvedRevision);
+      && entry.businessDate >= range.from && entry.businessDate <= range.to && (entry.currentRevision ?? entry.approvedRevision));
     const snapshots = snapshotEntries.filter((entry) => entry.channelId === channel.id
       && entry.groupId === channel.group.id && entry.businessDate <= range.to);
     return {
@@ -141,7 +142,7 @@ export async function GET(request: Request) {
     rows: channelPeriods.flatMap(({ channel, timezone, today, range }) => {
       if (date < range.from || date > range.to) return [];
       const scoped = entries.filter((entry) => entry.businessDate === date && entry.channelId === channel.id
-        && entry.groupId === channel.group.id && entry.approvedRevision);
+        && entry.groupId === channel.group.id && (entry.currentRevision ?? entry.approvedRevision));
       if (!scoped.length) return [];
       return [{
         channel: { id: channel.id, name: channel.name, normalizedName: channel.normalizedName },
@@ -160,7 +161,7 @@ export async function GET(request: Request) {
   }) : [];
   const memberBuckets = new Map<string, { date: string; channelId: string; groupId: string; member: { id: string; name: string; role: string }; totals: ReturnType<typeof aggregate> }>();
   for (const entry of entries) {
-    if (!entry.approvedRevision) continue;
+    if (!(entry.currentRevision ?? entry.approvedRevision)) continue;
     const attributionOwner = entry.sourceReception ?? entry.owner;
     const attributionOwnerId = dailyStatAttributionOwnerId(entry);
     const key = `${entry.businessDate}\u0000${entry.channelId}\u0000${entry.groupId}\u0000${attributionOwnerId}`;

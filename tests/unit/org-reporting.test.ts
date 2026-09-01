@@ -247,6 +247,48 @@ describe.sequential("新版组织范围真实报表 API", () => {
 });
 
 describe.sequential("新版组长真实渠道报表 API", () => {
+  it("员工保存后即使仍待资源部核对，组长也能立刻在汇总中看到", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
+    const channelId = id("berlin-channel");
+    const entry = await db.dailyStatEntry.create({ data: {
+      identityKey: `pending-visible-${suffix}`,
+      ownerId: ids.lead, groupId: ids.berlinGroup, channelId,
+      businessDate: "2026-09-01", timezone: "Europe/Berlin", position: "RECEPTION", status: "RESOURCE_PENDING",
+    } });
+    const revision = await db.dailyStatRevision.create({ data: {
+      entryId: entry.id, version: 1, createdById: ids.lead,
+      dispatchCount: 5, effectiveCount: 5, replyCount: 2,
+    } });
+    await db.dailyStatEntry.update({ where: { id: entry.id }, data: { currentRevisionId: revision.id } });
+    try {
+      await signIn(ids.lead);
+      const response = await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=today"));
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.summary).toMatchObject({ totals: { added: 8, effective: 7, replied: 3 } });
+      expect(body.review).toMatchObject({ pending: 1 });
+
+      await signIn(ids.departmentManager);
+      const departmentBody = await (await getOrgReporting(request("range=today"))).json();
+      expect(departmentBody.groups.find((group: { id: string }) => group.id === ids.berlinGroup))
+        .toMatchObject({ totals: { added: 8, effective: 7, replied: 3 } });
+      const channelBody = await (await getOrgChannelReporting(new Request(
+        `http://localhost/api/org/channel-reporting?range=today&groupId=${ids.berlinGroup}`,
+      ))).json();
+      expect(channelBody.rows).toEqual([
+        expect.objectContaining({ totals: expect.objectContaining({ added: 8, effective: 7, replied: 3 }) }),
+      ]);
+
+      await signIn(ids.resource);
+      const resourceBody = await (await getResourceReporting(new Request("http://localhost/api/resource/reporting?range=today"))).json();
+      expect(resourceBody.rows.find((row: { group: { id: string } }) => row.group.id === ids.berlinGroup))
+        .toMatchObject({ totals: { added: 8, effective: 7, replied: 3 } });
+    } finally {
+      await db.dailyStatEntry.delete({ where: { id: entry.id } });
+      vi.useRealTimers();
+    }
+  });
+
   it("渠道区间内没有任何新记录时，仍按业务线延续此前最近快照", async () => {
     await signIn(ids.lead);
     const response = await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=custom&sourceDateFrom=2026-08-31&sourceDateTo=2026-08-31"));

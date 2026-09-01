@@ -9,6 +9,7 @@ import { NotificationBadge, UnifiedNotificationCenter, useNotificationUnread } f
 import { WorkspaceNavButton, WorkspaceShell, type WorkspaceIcon } from "@/components/WorkspaceShell";
 import styles from "./CompanyWorkspace.module.css";
 import flow from "./CompanyOrganizationFlow.module.css";
+import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 
 type View = "dashboard" | "summary" | "customers" | "organization" | "resources" | "notifications";
 type SummaryMode = "department" | "group" | "member" | "channel" | "day";
@@ -19,7 +20,7 @@ type ReportGroup = { id: string; name: string; groupType: "HACKER" | "LAWYER"; d
 type ReportMember = { id: string; name: string; groupId: string; groupName: string; groupType: "HACKER" | "LAWYER"; totals: Metrics };
 type ReportChannel = { id: string; name: string; groupType: "HACKER" | "LAWYER"; groupCount: number; totals: Metrics };
 type ReportDay = { date: string; groups: Array<{ groupId: string; groupType: "HACKER" | "LAWYER"; totals: Metrics }> };
-type Report = { range: { label: string }; groups: ReportGroup[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
+type Report = { range: { preset: string; label: string }; groups: ReportGroup[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
 type Group = { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; leadId: string | null; leadName: string | null };
 type Department = { id: string; name: string; active: boolean; timezone: string; countryCode: string; workStartMinutes: number; workEndMinutes: number; groups: Group[] };
 type Company = { id: string; name: string; active: boolean; departments: Department[] };
@@ -56,7 +57,9 @@ function sum(rows: Array<{ totals: Metrics }>): Metrics { const result = { ...EM
 export default function CompanyWorkspace({ user, onLogout }: { user: BackendUser; onLogout: () => void }) {
   const [notificationUnread, setNotificationUnread] = useNotificationUnread();
   const [view, setView] = useState<View>("dashboard");
-  const [range, setRange] = useState("month");
+  const [range, setRange] = useState<SmartDatePreset>("month");
+  const [from, setFrom] = useState(() => `${localCalendarDate().slice(0, 8)}01`);
+  const [to, setTo] = useState(localCalendarDate);
   const [summaryMode, setSummaryMode] = useState<SummaryMode>("department");
   const [groupTypeFilter, setGroupTypeFilter] = useState<"HACKER" | "LAWYER">("HACKER");
   const [organizationMode, setOrganizationMode] = useState<OrganizationMode>("structure");
@@ -73,15 +76,17 @@ export default function CompanyWorkspace({ user, onLogout }: { user: BackendUser
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
+      const query = new URLSearchParams({ range });
+      if (range === "custom") { query.set("sourceDateFrom", from); query.set("sourceDateTo", to); }
       const [nextReport, structure, nextAccounts, nextAssets] = await Promise.all([
-        requestJson<Report>(`/api/org/reporting?range=${encodeURIComponent(range)}`), requestJson<Structure>("/api/org/structure"),
+        requestJson<Report>(`/api/org/reporting?${query}`), requestJson<Structure>("/api/org/structure"),
         requestJson<Account[]>("/api/org/accounts"), requestJson<Assets>("/api/org/department-assets"),
       ]);
       setReport(nextReport); setCompany(structure.company ?? null); setAccounts(nextAccounts); setAssets(nextAssets);
       setDepartmentId((current) => structure.company?.departments.some((item) => item.id === current) ? current : structure.company?.departments[0]?.id ?? "");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "公司数据读取失败"); }
     finally { setLoading(false); }
-  }, [range]);
+  }, [from, range, to]);
   useEffect(() => { void load(); }, [load]);
 
   const departments = company?.departments ?? [];
@@ -105,7 +110,7 @@ export default function CompanyWorkspace({ user, onLogout }: { user: BackendUser
       <Nav active={view === "resources"} icon="devices" label="资源管理" onClick={() => setView("resources")} />
       <Nav active={view === "notifications"} icon="notifications" label={<>通知中心<NotificationBadge count={notificationUnread} /></>} onClick={() => setView("notifications")} />
     </>}>
-        {(view === "dashboard" || view === "summary") ? <Toolbar range={range} label={report?.range.label} loading={loading} onRange={setRange} onRefresh={() => void load()} /> : null}
+        {(view === "dashboard" || view === "summary") ? <SmartDateRangeToolbar range={range} from={from} to={to} currentLabel={report?.range.label} loading={loading} title="公司统计日期" onRange={setRange} onFrom={setFrom} onTo={setTo} onRefresh={() => void load()} /> : null}
         {(view === "dashboard" || view === "summary") ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => setGroupTypeFilter("HACKER")}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => setGroupTypeFilter("LAWYER")}>律师组数据</button></div> : null}
         {notice ? <div className={styles.notice}>{notice}</div> : null}{error ? <div className={styles.error}>{error}</div> : null}
         {loading ? <section className={`fresh-sheet-card ${styles.empty}`}>正在读取公司真实数据…</section> : null}
@@ -119,7 +124,6 @@ export default function CompanyWorkspace({ user, onLogout }: { user: BackendUser
 }
 
 function Nav({ active, icon, label, onClick }: { active: boolean; icon: WorkspaceIcon; label: React.ReactNode; onClick: () => void }) { return <WorkspaceNavButton active={active} icon={icon} onClick={onClick}>{label}</WorkspaceNavButton>; }
-function Toolbar({ range, label, loading, onRange, onRefresh }: { range: string; label?: string; loading: boolean; onRange: (value: string) => void; onRefresh: () => void }) { return <div className="fresh-toolbar"><div className="fresh-history-intro"><strong>{label ?? "统计区间"}</strong><span>只统计已保存并生效的数据</span></div><label><span>统计周期</span><select value={range} onChange={(event) => onRange(event.target.value)}><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="month">本月</option><option value="lastMonth">上月</option></select></label><button className="fresh-primary" disabled={loading} onClick={onRefresh}>{loading ? "刷新中…" : "刷新"}</button></div>; }
 function Tabs({ values, active, onChange }: { values: string[][]; active: string; onChange: (value: string) => void }) { return <div className={styles.tabs}>{values.map(([value, label]) => <button key={value} data-active={active === value} aria-pressed={active === value} onClick={() => onChange(value)}>{label}</button>)}</div>; }
 
 type MetricRow = { name: string; sub?: string; people?: number; totals: Metrics };

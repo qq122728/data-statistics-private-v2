@@ -11,9 +11,9 @@ import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 
-const allowedRanges = new Set(["all", "today", "yesterday", "7d", "30d", "month", "lastMonth", "custom"]);
+const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
-/** 组长新版工作台的真实渠道汇总及逐日明细。统计只来自已经生效的每日填写。 */
+/** 组长新版工作台的真实渠道汇总及逐日明细。最新版保存后立即可见，资源部核对状态另行展示。 */
 export async function GET(request: Request) {
   let actor;
   try {
@@ -49,20 +49,22 @@ export async function GET(request: Request) {
   }, today, "month");
   const [entries, snapshotEntries] = await Promise.all([
     db.dailyStatEntry.findMany({
-      where: { groupId: group.id, businessDate: { gte: range.from, lte: range.to }, approvedRevisionId: { not: null } },
+      where: { groupId: group.id, businessDate: { gte: range.from, lte: range.to }, currentRevisionId: { not: null } },
       select: {
         groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
         businessDate: true, position: true,
         owner: { select: { id: true, name: true } },
         sourceReception: { select: { id: true, name: true } },
         channel: { select: { id: true, name: true, normalizedName: true } },
+        status: true,
+        currentRevision: true,
         approvedRevision: true,
       },
     }),
     db.dailyStatEntry.findMany({
       where: {
         groupId: group.id, position: { in: ["RECEPTION", "GROUP_OPERATOR"] },
-        businessDate: { lte: range.to }, approvedRevisionId: { not: null },
+        businessDate: { lte: range.to }, currentRevisionId: { not: null },
       },
       select: {
         groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
@@ -70,6 +72,8 @@ export async function GET(request: Request) {
         owner: { select: { id: true, name: true } },
         sourceReception: { select: { id: true, name: true } },
         channel: { select: { id: true, name: true, normalizedName: true } },
+        status: true,
+        currentRevision: true,
         approvedRevision: true,
       },
     }),
@@ -98,7 +102,7 @@ export async function GET(request: Request) {
     });
   }
   function accumulate(row: Row, entry: (typeof entries)[number]) {
-    const value = entry.approvedRevision;
+    const value = entry.currentRevision ?? entry.approvedRevision;
     if (!value) return;
     row.totals.newFans += value.dispatchCount;
     row.totals.duplicateFans += value.duplicateCount;
@@ -130,7 +134,7 @@ export async function GET(request: Request) {
     }
   }
   for (const entry of entries) {
-    const value = entry.approvedRevision;
+    const value = entry.currentRevision ?? entry.approvedRevision;
     if (!value) continue;
     const row = byChannel.get(entry.channel.id) ?? { channel: entry.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, manualInvalid: 0, initialDepositCents: 0, rechargeCents: 0, inGroup: 0, snapshotDate: "" };
     accumulate(row, entry);
@@ -268,5 +272,10 @@ export async function GET(request: Request) {
     members,
     analysis,
     days,
+    review: {
+      pending: entries.filter((entry) => entry.status === "RESOURCE_PENDING").length,
+      approved: entries.filter((entry) => entry.status === "APPROVED").length,
+      returned: entries.filter((entry) => entry.status === "RETURNED").length,
+    },
   }, { headers: { "Cache-Control": "private, no-store" } });
 }

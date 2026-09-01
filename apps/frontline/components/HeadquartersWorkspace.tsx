@@ -8,6 +8,7 @@ import DepartmentPersonnelTransfer from "@/components/DepartmentPersonnelTransfe
 import { NotificationBadge, UnifiedNotificationCenter, useNotificationUnread } from "@/components/UnifiedNotificationCenter";
 import DepartmentDeviceAccounts from "@/components/DepartmentDeviceAccounts";
 import { WorkspaceNavButton, WorkspaceNavGroup, WorkspaceShell, type WorkspaceIcon } from "@/components/WorkspaceShell";
+import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import styles from "./HeadquartersWorkspace.module.css";
 
 type View = "dashboard" | "summary" | "customers" | "companies" | "groups" | "admins" | "transfer" | "devices" | "channels" | "notices";
@@ -23,7 +24,7 @@ type ReportGroup = { id: string; name: string; groupType: "HACKER" | "LAWYER"; d
 type ReportMember = { id: string; name: string; groupId: string; groupName: string; groupType: "HACKER" | "LAWYER"; totals: Metrics };
 type ReportChannel = { id: string; name: string; groupType: "HACKER" | "LAWYER"; groupCount: number; totals: Metrics };
 type ReportDay = { date: string; groups: Array<{ groupId: string; groupType: "HACKER" | "LAWYER"; totals: Metrics }> };
-type Report = { range: { label: string }; groups: ReportGroup[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
+type Report = { range: { preset: string; label: string }; groups: ReportGroup[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
 type GroupNode = { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; leadId: string | null; leadName: string | null };
 type DepartmentNode = { id: string; name: string; active: boolean; timezone: string; countryCode: string; companyId: string | null; groups: GroupNode[] };
 type CompanyNode = { id: string; name: string; active: boolean; departments: DepartmentNode[] };
@@ -59,8 +60,8 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
   const [view, setView] = useState<View>("dashboard");
   const [report, setReport] = useState<Report | null>(null);
   const [structure, setStructure] = useState<Structure>({ companies: [], unassignedDepartments: [] });
-  const [range, setRange] = useState("month");
-  const [from, setFrom] = useState(""); const [to, setTo] = useState("");
+  const [range, setRange] = useState<SmartDatePreset>("month");
+  const [from, setFrom] = useState(() => `${localCalendarDate().slice(0, 8)}01`); const [to, setTo] = useState(localCalendarDate);
   const [loading, setLoading] = useState(true); const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [mode, setMode] = useState<SummaryMode>("company");
@@ -147,7 +148,7 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
         <NavButton active={view === "notices"} label={<>通知中心<NotificationBadge count={notificationUnread} /></>} icon="notifications" onClick={() => setView("notices")} />
       </>}>
         {notice ? <div className={styles.success}>{notice}</div> : null}{error ? <div className={styles.error}>{error}</div> : null}
-        {(view === "dashboard" || view === "summary") ? <ReportToolbar range={range} from={from} to={to} setRange={setRange} setFrom={setFrom} setTo={setTo} onRefresh={() => void load()} /> : null}
+        {(view === "dashboard" || view === "summary") ? <SmartDateRangeToolbar range={range} from={from} to={to} currentLabel={report?.range.label} loading={loading} title="总公司统计日期" onRange={setRange} onFrom={setFrom} onTo={setTo} onRefresh={() => void load()} /> : null}
         {(view === "dashboard" || view === "summary") ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setGroupId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setGroupId(""); }}>律师组数据</button></div> : null}
         {loading ? <section className={styles.empty}>正在读取全部公司数据…</section> : null}
         {!loading && view === "dashboard" ? <Dashboard groupType={groupTypeFilter} rows={dashboardCompanies} /> : null}
@@ -168,10 +169,6 @@ export default HeadquartersWorkspace;
 function NavButton({ active, label, icon, onClick }: { active: boolean; label: React.ReactNode; icon?: WorkspaceIcon; onClick: () => void }) { return <WorkspaceNavButton active={active} icon={icon} onClick={onClick}>{label}</WorkspaceNavButton>; }
 function NavGroup({ title, children }: { title: string; children: React.ReactNode }) { return <WorkspaceNavGroup label={title}>{children}</WorkspaceNavGroup>; }
 function titleForMode(mode: SummaryMode) { return ({ company: "公司汇总", department: "部门汇总", group: "小组汇总", member: "个人归属汇总（每人一行）", channel: "渠道汇总", day: "日期汇总" })[mode]; }
-
-function ReportToolbar({ range, from, to, setRange, setFrom, setTo, onRefresh }: { range: string; from: string; to: string; setRange: (value: string) => void; setFrom: (value: string) => void; setTo: (value: string) => void; onRefresh: () => void }) {
-  return <section className={styles.toolbar}><div><strong>真实生效数据</strong><span>所有层级均来自同一组织报表账</span></div><label>统计周期<select value={range} onChange={(event) => setRange(event.target.value)}><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="month">本月</option><option value="lastMonth">上月</option><option value="custom">自定义</option></select></label>{range === "custom" ? <><label>开始<input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label>结束<input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label></> : null}<button onClick={onRefresh}>刷新</button></section>;
-}
 
 function ScopeFilters({ groupType, companies, companyId, departmentId, groupId, setCompanyId, setDepartmentId, setGroupId }: { groupType: "HACKER" | "LAWYER"; companies: CompanyNode[]; companyId: string; departmentId: string; groupId: string; setCompanyId: (value: string) => void; setDepartmentId: (value: string) => void; setGroupId: (value: string) => void }) {
   const departments = companyId ? companies.find((company) => company.id === companyId)?.departments ?? [] : companies.flatMap((company) => company.departments);

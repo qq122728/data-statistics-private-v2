@@ -88,3 +88,16 @@ test("资源部使用净业绩口径且不显示审核入口", async () => {
   assert.match(resource, /\["净业绩", money/);
   assert.doesNotMatch(resource, /净入金|PendingTable|ReviewTable|待确认每日数据|待渠道对账|\/api\/resource\/channel-review/);
 });
+
+test("组长和各级管理账号的汇总、渠道对比共用智能日期筛选", async () => {
+  const files = await Promise.all([
+    "components/GroupChannelAnalysis.tsx",
+    "components/DepartmentWorkspace.tsx",
+    "components/CompanyWorkspace.tsx",
+    "components/HeadquartersWorkspace.tsx",
+    "components/ResourceWorkspace.tsx",
+  ].map((path) => readFile(new URL(path, root), "utf8")));
+  for (const source of files) assert.match(source, /SmartDateRangeToolbar/);
+  const shared = await readFile(new URL("components/SmartDateRangeToolbar.tsx", root), "utf8");
+  for (const label of ["今天", "昨天", "近7天", "本周", "近30天", "本月", "上月", "自定义", "当前范围"]) assert.ok(shared.includes(label));
+});

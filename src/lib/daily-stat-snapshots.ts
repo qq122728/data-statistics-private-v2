@@ -5,6 +5,7 @@ type CurrentInGroupSnapshotEntry = {
   sourceReceptionId: string | null;
   businessDate: string;
   position: string;
+  currentRevision?: { currentInGroupCount: number } | null;
   approvedRevision: { currentInGroupCount: number } | null;
 };
 
@@ -16,7 +17,8 @@ type CurrentInGroupSnapshotEntry = {
 export function sumLatestCurrentInGroup(entries: CurrentInGroupSnapshotEntry[]): number {
   const latestByLine = new Map<string, { date: string; count: number }>();
   for (const entry of entries) {
-    if (!entry.approvedRevision || (entry.position !== "GROUP_OPERATOR" && entry.position !== "RECEPTION")) continue;
+    const revision = entry.currentRevision ?? entry.approvedRevision;
+    if (!revision || (entry.position !== "GROUP_OPERATOR" && entry.position !== "RECEPTION")) continue;
     const lineKey = entry.position === "RECEPTION"
       ? JSON.stringify(["UNIFIED_MEMBER", entry.groupId, entry.channelId, entry.ownerId])
       : JSON.stringify(["LEGACY_OPERATOR", entry.groupId, entry.channelId, entry.ownerId, entry.sourceReceptionId]);
@@ -24,10 +26,10 @@ export function sumLatestCurrentInGroup(entries: CurrentInGroupSnapshotEntry[]):
     if (!current || entry.businessDate > current.date) {
       latestByLine.set(lineKey, {
         date: entry.businessDate,
-        count: entry.approvedRevision.currentInGroupCount,
+        count: revision.currentInGroupCount,
       });
     } else if (entry.businessDate === current.date) {
-      current.count += entry.approvedRevision.currentInGroupCount;
+      current.count += revision.currentInGroupCount;
     }
   }
   return [...latestByLine.values()].reduce((sum, item) => sum + item.count, 0);

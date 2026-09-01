@@ -7,6 +7,7 @@ import styles from "./ResourceWorkspace.module.css";
 import standard from "./ResourceWorkspaceStandard.module.css";
 import { UnifiedNotificationCenter } from "@/components/UnifiedNotificationCenter";
 import { WorkspaceNavButton, WorkspaceNavGroup, WorkspaceShell, type WorkspaceIcon } from "@/components/WorkspaceShell";
+import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 
 export type ResourceWorkspaceProps = { user: BackendUser; onLogout: () => void };
 
@@ -59,7 +60,7 @@ const typeLabel = (type: Channel["channelType"]) => type === "SMS" ? "短信粉"
 
 export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceProps) {
   const [view, setView] = useState<View>("dashboard");
-  const [range, setRange] = useState("month");
+  const [range, setRange] = useState<SmartDatePreset>("month");
   const [from, setFrom] = useState(() => `${localDate().slice(0, 8)}01`);
   const [to, setTo] = useState(localDate);
   const [channelId, setChannelId] = useState("");
@@ -162,7 +163,8 @@ export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceP
       <NavButton active={view === "notifications"} onClick={() => setView("notifications")} icon="notifications">通知中心{unread ? <b>{unread}</b> : null}</NavButton>
       </>}>
         {showFilters ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>律师组数据</button></div> : null}
-        {showFilters ? <Filters report={report} range={range} from={from} to={to} channelId={channelId} company={company} department={department} groupId={groupId} memberId={memberId} day={view === "daily" ? day : undefined} companies={companies} departments={departments} groups={filterGroups} members={filterMembers} setRange={setRange} setFrom={setFrom} setTo={setTo} setChannelId={setChannelId} setCompany={(value) => { setCompany(value); setDepartment(""); setGroupId(""); setMemberId(""); }} setDepartment={(value) => { setDepartment(value); setGroupId(""); setMemberId(""); }} setGroupId={(value) => { setGroupId(value); setMemberId(""); }} setMemberId={setMemberId} setDay={setDay} onRefresh={() => void load()} /> : null}
+        {showFilters ? <SmartDateRangeToolbar range={range} from={from} to={to} loading={loading} title="资源数据日期" note="汇总、渠道对比和每日明细共用同一个日期范围" onRange={setRange} onFrom={setFrom} onTo={setTo} onRefresh={() => void load()} /> : null}
+        {showFilters ? <Filters report={report} channelId={channelId} company={company} department={department} groupId={groupId} memberId={memberId} day={view === "daily" ? day : undefined} companies={companies} departments={departments} groups={filterGroups} members={filterMembers} setChannelId={setChannelId} setCompany={(value) => { setCompany(value); setDepartment(""); setGroupId(""); setMemberId(""); }} setDepartment={(value) => { setDepartment(value); setGroupId(""); setMemberId(""); }} setGroupId={(value) => { setGroupId(value); setMemberId(""); }} setMemberId={setMemberId} setDay={setDay} onRefresh={() => void load()} /> : null}
         {loading ? <StateCard>正在读取已授权渠道数据…</StateCard> : null}
         {error ? <div className={styles.error}>{error}</div> : null}{notice ? <div className={styles.success}>{notice}</div> : null}
         {!loading && view === "dashboard" ? <Dashboard groupType={groupTypeFilter} totals={totals} rows={visibleBaseRows} /> : null}
@@ -181,10 +183,9 @@ function NavGroup({ label, children }: { label: string; children: React.ReactNod
 function NavButton({ active, icon, onClick, children }: { active: boolean; icon: WorkspaceIcon; onClick: () => void; children: React.ReactNode }) { return <WorkspaceNavButton active={active} icon={icon} onClick={onClick}>{children}</WorkspaceNavButton>; }
 function StateCard({ children }: { children: React.ReactNode }) { return <section className={`fresh-sheet-card ${styles.card} ${styles.state}`}>{children}</section>; }
 
-function Filters(props: { report: Reporting | null; range: string; from: string; to: string; channelId: string; company: string; department: string; groupId: string; memberId: string; day?: string; companies: string[]; departments: string[]; groups: Reporting["groups"]; members: Reporting["members"]; setRange: (value: string) => void; setFrom: (value: string) => void; setTo: (value: string) => void; setChannelId: (value: string) => void; setCompany: (value: string) => void; setDepartment: (value: string) => void; setGroupId: (value: string) => void; setMemberId: (value: string) => void; setDay: (value: string) => void; onRefresh: () => void }) {
+function Filters(props: { report: Reporting | null; channelId: string; company: string; department: string; groupId: string; memberId: string; day?: string; companies: string[]; departments: string[]; groups: Reporting["groups"]; members: Reporting["members"]; setChannelId: (value: string) => void; setCompany: (value: string) => void; setDepartment: (value: string) => void; setGroupId: (value: string) => void; setMemberId: (value: string) => void; setDay: (value: string) => void; onRefresh: () => void }) {
   return <section className={`fresh-toolbar ${styles.filters}`}>
-    {props.day !== undefined ? <label><span>1. 日期</span><select value={props.day} onChange={(event) => props.setDay(event.target.value)}><option value="">全部日期</option>{props.report?.days.map((item) => <option key={item.date}>{item.date}</option>)}</select></label> : <label><span>统计周期</span><select value={props.range} onChange={(event) => props.setRange(event.target.value)}><option value="today">今天</option><option value="yesterday">昨天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="month">本月</option><option value="lastMonth">上月</option><option value="custom">自定义</option></select></label>}
-    {props.range === "custom" ? <><label><span>开始日期</span><input type="date" value={props.from} onChange={(event) => props.setFrom(event.target.value)} /></label><label><span>结束日期</span><input type="date" value={props.to} onChange={(event) => props.setTo(event.target.value)} /></label></> : null}
+    {props.day !== undefined ? <label><span>1. 区间内日期</span><select value={props.day} onChange={(event) => props.setDay(event.target.value)}><option value="">全部日期</option>{props.report?.days.map((item) => <option key={item.date}>{item.date}</option>)}</select></label> : null}
     <label><span>{props.day !== undefined ? "2. " : ""}渠道</span><select value={props.channelId} onChange={(event) => props.setChannelId(event.target.value)}><option value="">全部授权渠道</option>{props.report?.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>
     <label><span>{props.day !== undefined ? "3. " : ""}公司</span><select value={props.company} onChange={(event) => props.setCompany(event.target.value)}><option value="">全部公司</option>{props.companies.map((name) => <option key={name}>{name}</option>)}</select></label>
     <label><span>{props.day !== undefined ? "4. " : ""}部门</span><select value={props.department} onChange={(event) => props.setDepartment(event.target.value)}><option value="">全部部门</option>{props.departments.map((name) => <option key={name}>{name}</option>)}</select></label>

@@ -1,4 +1,4 @@
-export type LeadDatePreset = "all" | "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "custom";
+export type LeadDatePreset = "all" | "today" | "yesterday" | "7d" | "week" | "30d" | "month" | "lastMonth" | "custom";
 
 export type LeadDateRange = {
   preset: LeadDatePreset;
@@ -12,6 +12,7 @@ const labels: Record<LeadDatePreset, string> = {
   today: "今日",
   yesterday: "昨日",
   "7d": "近7天",
+  week: "本周",
   "30d": "近30天",
   month: "当月",
   lastMonth: "上月",
@@ -35,6 +36,11 @@ export function leadDateRangeForPreset(preset: LeadDatePreset, today: string, cu
   let to = today;
   if (preset === "yesterday") from = to = addDateDays(today, -1);
   if (preset === "7d") from = addDateDays(today, -6);
+  if (preset === "week") {
+    const [year, month, day] = today.split("-").map(Number);
+    const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+    from = addDateDays(today, -(weekday === 0 ? 6 : weekday - 1));
+  }
   if (preset === "30d") from = addDateDays(today, -29);
   if (preset === "month") from = `${today.slice(0, 7)}-01`;
   if (preset === "lastMonth") {
@@ -54,7 +60,7 @@ export function leadDateRangeForPreset(preset: LeadDatePreset, today: string, cu
 export function resolveLeadDateRange(values: Record<string, string | undefined>, today: string): LeadDateRange {
   const rawPreset = values.range;
   const hasExplicitDates = validDate(values.sourceDateFrom) || validDate(values.sourceDateTo);
-  const preset: LeadDatePreset = rawPreset === "all" || rawPreset === "today" || rawPreset === "yesterday" || rawPreset === "7d" || rawPreset === "30d" || rawPreset === "month" || rawPreset === "lastMonth" || rawPreset === "custom" ? rawPreset : hasExplicitDates ? "custom" : "7d";
+  const preset: LeadDatePreset = rawPreset === "all" || rawPreset === "today" || rawPreset === "yesterday" || rawPreset === "7d" || rawPreset === "week" || rawPreset === "30d" || rawPreset === "month" || rawPreset === "lastMonth" || rawPreset === "custom" ? rawPreset : hasExplicitDates ? "custom" : "7d";
   return leadDateRangeForPreset(preset, today, values.sourceDateFrom, values.sourceDateTo);
 }
 
@@ -75,6 +81,7 @@ export const leadDatePresets: Array<{ value: Exclude<LeadDatePreset, "custom" | 
   { value: "today", label: "今日" },
   { value: "yesterday", label: "昨日" },
   { value: "7d", label: "近7天" },
+  { value: "week", label: "本周" },
   { value: "30d", label: "近30天" },
   { value: "month", label: "当月" },
   { value: "lastMonth", label: "上月" },

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { requestJson } from "@/lib/backend";
+import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 
 type Totals = { added: number; collision: number; lowAmount: number; noWs: number; manualInvalid: number; lawyerRealCase: number; lawyerAdded: number; lawyerExpertAdded: number; customerServicePush: number; effective: number; replied: number; joined: number; left: number; leftAbnormal: number; inGroup: number; pushed: number; registered: number; ordered: number; initialDepositCents: number; rechargeCents: number; withdrawalCents: number; netCents: number; cryptoDepositCents: number; bankDepositCents: number };
 type Rates = { effectiveRate: number | null; replyRate: number | null; joinRate: number | null; registrationRate: number | null; orderRate: number | null; abnormalLeaveRate: number | null; lawyerReplyRate: number | null; lawyerAddedRate: number | null; lawyerExpertAddedRate: number | null };
@@ -9,7 +10,7 @@ type Slice = { id?: string; name: string; totals: Totals; derivedRates: Rates };
 type Channel = Slice & { members: Array<Slice & { id: string }> };
 type Member = Slice & { id: string; channels: Array<Slice & { id: string }> };
 type Day = { date: string; summary: Slice; rows: Channel[] };
-type Payload = { group: { name: string; groupType: "HACKER" | "LAWYER" }; range: { from: string; to: string; label: string }; summary: Slice; rows: Channel[]; members: Member[]; days: Day[]; analysis: Array<{ tone: "good" | "warn" | "info"; title: string; detail: string }> };
+type Payload = { group: { name: string; groupType: "HACKER" | "LAWYER" }; range: { today: string; from: string; to: string; label: string }; summary: Slice; rows: Channel[]; members: Member[]; days: Day[]; review: { pending: number; approved: number; returned: number }; analysis: Array<{ tone: "good" | "warn" | "info"; title: string; detail: string }> };
 type Mode = "member" | "channel" | "day";
 type ViewRow = Slice & { key: string; children: Slice[] };
 
@@ -48,7 +49,9 @@ function MetricCells({ row, columns }: { row: Slice; columns: Column[] }) {
 }
 
 export function GroupChannelAnalysis() {
-  const [range, setRange] = useState("month");
+  const [range, setRange] = useState<SmartDatePreset>("today");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [payload, setPayload] = useState<Payload | null>(null);
   const [mode, setMode] = useState<Mode>("member");
   const [expanded, setExpanded] = useState("");
@@ -56,11 +59,20 @@ export function GroupChannelAnalysis() {
   const [loading, setLoading] = useState(true);
   async function load() {
     setLoading(true); setError("");
-    try { setPayload(await requestJson<Payload>(`/api/lead/channel-reporting?range=${range}`)); }
+    const params = new URLSearchParams({ range });
+    if (range === "custom") {
+      params.set("sourceDateFrom", customFrom || payload?.range.from || "");
+      params.set("sourceDateTo", customTo || payload?.range.to || "");
+    }
+    try {
+      const next = await requestJson<Payload>(`/api/lead/channel-reporting?${params.toString()}`);
+      setPayload(next);
+      if (range === "custom") { setCustomFrom(next.range.from); setCustomTo(next.range.to); }
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : "分析报告读取失败"); }
     finally { setLoading(false); }
   }
-  useEffect(() => { void load(); }, [range]);
+  useEffect(() => { if (range !== "custom") void load(); }, [range]);
   const rows = useMemo<ViewRow[]>(() => {
     if (!payload) return [];
     if (mode === "member") return payload.members.map((row) => ({ ...row, key: row.id, children: row.channels }));
@@ -76,9 +88,10 @@ export function GroupChannelAnalysis() {
     : mode === "channel" ? "先看渠道全组合计，点击一行展开归属成员" : "每天一行显示本组合计，点击可展开当天各渠道";
 
   return <div className="analysis-page">
-    <div className="fresh-toolbar"><div className="fresh-history-intro"><strong>小组渠道数据汇总＋智能分析</strong><span>统计只读取已经生效的每日数据，历史调组不会改写原小组报表</span></div><label><span>统计周期</span><select value={range} onChange={(event) => setRange(event.target.value)}><option value="today">今天</option><option value="7d">近 7 天</option><option value="30d">近 30 天</option><option value="month">本月</option><option value="lastMonth">上月</option></select></label><button className="fresh-primary" onClick={() => void load()}>刷新报告</button></div>
+    <SmartDateRangeToolbar range={range} from={customFrom || payload?.range.from || ""} to={customTo || payload?.range.to || ""} currentLabel={payload ? payload.range.from === payload.range.to ? payload.range.from : `${payload.range.from} 至 ${payload.range.to}` : undefined} loading={loading} title="小组渠道数据汇总＋智能分析" note="保存后立即进入组长汇总；资源部核对状态单独标记，不再挡住数据" onRange={setRange} onFrom={setCustomFrom} onTo={setCustomTo} onRefresh={() => void load()} />
     {error ? <div className="team-management__notice"><span>!</span>{error}</div> : null}
     {loading && !payload ? <section className="fresh-sheet-card analysis-loading">正在生成真实分析报告…</section> : payload ? <>
+      {payload.review.pending > 0 ? <section className="analysis-review-note"><strong>{payload.review.pending} 条数据待资源部核对</strong><span>这些数据已经显示在本页并计入汇总，不会再出现“填了但组长看不到”。</span></section> : null}
       <section className="analysis-kpis">{lawyerGroup ? <><article><span>接粉</span><strong>{payload.summary.totals.added}</strong><small>回复率 {percent(payload.summary.derivedRates.lawyerReplyRate)}</small></article><article><span>真实案件</span><strong>{payload.summary.totals.lawyerRealCase}</strong><small>小金额 {payload.summary.totals.lowAmount}</small></article><article><span>添加律师</span><strong>{payload.summary.totals.lawyerAdded}</strong><small>添加率 {percent(payload.summary.derivedRates.lawyerAddedRate)}</small></article><article><span>总开单</span><strong>{payload.summary.totals.ordered}</strong><small>总注册 {payload.summary.totals.registered}</small></article></> : <><article><span>添加数据</span><strong>{payload.summary.totals.added}</strong><small>有效 {payload.summary.totals.effective} · {percent(payload.summary.derivedRates.effectiveRate)}</small></article><article><span>进群</span><strong>{payload.summary.totals.joined}</strong><small>进群率 {percent(payload.summary.derivedRates.joinRate)}</small></article><article><span>开单</span><strong>{payload.summary.totals.ordered}</strong><small>开单率 {percent(payload.summary.derivedRates.orderRate)}</small></article><article><span>净业绩</span><strong>{money(payload.summary.totals.netCents)}</strong><small>首充 {money(payload.summary.totals.initialDepositCents)} · 续充 {money(payload.summary.totals.rechargeCents)}</small></article></>}</section>
       <section className="analysis-insights"><header><div><h2>智能分析结论</h2><p>{payload.group.name} · {payload.range.from} 至 {payload.range.to} · 每条结论都能回到下面表格核对</p></div></header><div>{payload.analysis.length ? payload.analysis.map((item, index) => <article key={`${item.title}-${index}`} data-tone={item.tone}><i>{item.tone === "good" ? "✓" : item.tone === "warn" ? "!" : "i"}</i><div><strong>{item.title}</strong><p>{item.detail}</p></div></article>) : <article data-tone="info"><i>i</i><div><strong>当前样本还不足</strong><p>继续填写每日数据后，系统会自动生成渠道和人员对比。</p></div></article>}</div></section>
       <section className="fresh-sheet-card analysis-table-card"><div className="fresh-sheet-title"><div><h2>{title}</h2><p>{note}</p></div><div className="analysis-switch"><button data-active={mode === "member"} onClick={() => { setMode("member"); setExpanded(""); }}>按归属人员看</button><button data-active={mode === "channel"} onClick={() => { setMode("channel"); setExpanded(""); }}>按渠道看</button><button data-active={mode === "day"} onClick={() => { setMode("day"); setExpanded(""); }}>按日期看</button></div></div><div className="analysis-table-wrap"><table style={{ minWidth: lawyerGroup ? 1800 : 2260 }}><thead><tr><th>{firstColumn}</th>{columns.map((column) => <th key={column.label}>{column.label}</th>)}</tr></thead>{rows.map((row) => <tbody key={row.key} className="analysis-row-group"><tr onClick={() => setExpanded(expanded === row.key ? "" : row.key)}><td><button aria-label={`${expanded === row.key ? "收起" : "展开"}${row.name}明细`}>{expanded === row.key ? "−" : "+"}</button><strong>{row.name}</strong></td><MetricCells row={row} columns={columns} /></tr>{expanded === row.key ? row.children.map((child) => <tr className="analysis-child" key={child.id || child.name}><td>↳ {child.name}</td><MetricCells row={child} columns={columns} /></tr>) : null}</tbody>)}<tfoot><tr><td><strong>合计</strong></td><MetricCells row={payload.summary} columns={columns} /></tr></tfoot></table></div></section>

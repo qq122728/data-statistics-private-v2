@@ -10,6 +10,7 @@ describe("lead date ranges", () => {
     expect(leadDateRangeForPreset("today", today)).toMatchObject({ from: today, to: today });
     expect(leadDateRangeForPreset("yesterday", today)).toMatchObject({ from: "2026-08-14", to: "2026-08-14" });
     expect(leadDateRangeForPreset("7d", today)).toMatchObject({ from: "2026-08-09", to: today });
+    expect(leadDateRangeForPreset("week", today)).toMatchObject({ from: "2026-08-10", to: today });
     expect(leadDateRangeForPreset("30d", today)).toMatchObject({ from: "2026-07-17", to: today });
     expect(leadDateRangeForPreset("month", today)).toMatchObject({ from: "2026-08-01", to: today });
   });
@@ -43,5 +44,16 @@ describe("lead date ranges", () => {
     expect(dashboardFilter).toContain("const customPanelKey = JSON.stringify");
     expect(dashboardFilter).toContain("key={customPanelKey}");
     expect(dashboardFilter).toContain('open={range.preset === "custom"}');
+  });
+
+  it("gives the group leader quick dates, the current range and a custom range", () => {
+    const groupSource = readFileSync("apps/frontline/components/GroupChannelAnalysis.tsx", "utf8");
+    const source = readFileSync("apps/frontline/components/SmartDateRangeToolbar.tsx", "utf8");
+    expect(groupSource).toContain("SmartDateRangeToolbar");
+    for (const label of ["今天", "昨天", "近7天", "本周", "本月", "上月", "自定义", "当前范围"]) {
+      expect(source).toContain(label);
+    }
+    expect(source).toContain('type="date"');
+    expect(groupSource).toContain("待资源部核对");
   });
 });

@@ -20,6 +20,7 @@ afterEach(async () => {
   await db.leadCustomer.deleteMany({ where: { batch: { groupId: { startsWith: prefix } } } });
   await db.sourceBatch.deleteMany({ where: { groupId: { startsWith: prefix } } });
   await db.channel.deleteMany({ where: { groupId: { startsWith: prefix } } });
+  await db.device.deleteMany({ where: { groupId: { startsWith: prefix } } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.teamGroup.deleteMany({ where: { id: { startsWith: prefix } } });
   await db.department.deleteMany({ where: { id: { startsWith: prefix } } });
@@ -161,6 +162,69 @@ describe.sequential("legacy customer entry", () => {
     expect(facts.filter((fact) => fact.kind === "ORDER")).toHaveLength(0);
     expect(facts.filter((fact) => fact.kind === "RECHARGE")).toMatchObject([{ occurredOn: "2026-09-01", amountCents: 50_000 }]);
     await expect(db.dailyStatRevision.findFirstOrThrow({ where: { entry: { groupId, businessDate: "2026-09-01", position: "EXPERT" } } })).resolves.toMatchObject({ orderCount: 0, bankRechargeCents: 50_000 });
+  });
+
+  it("simulates Aug 30 old-fan join, Aug 29 old-fan order, and a prior order recharging on Sep 1", async () => {
+    const suffix = randomUUID();
+    const departmentId = `${prefix}department-${suffix}`;
+    const groupId = `${prefix}group-${suffix}`;
+    const channelId = `${prefix}channel-${suffix}`;
+    await db.department.create({ data: { id: departmentId, name: `${prefix}组合场景公司-${suffix}`, timezone: "Asia/Shanghai" } });
+    await db.teamGroup.create({ data: { id: groupId, name: `${prefix}组合场景小组-${suffix}`, departmentId } });
+    const createUser = (role: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT", name: string) => db.user.create({ data: { id: `${prefix}${role}-${suffix}`, username: `${prefix}${role}-${suffix}`, name, role, groupId, passwordHash: hashPassword("Legacy@56790") } });
+    const [reception, operator, expert] = await Promise.all([
+      createUser("RECEPTION", "接粉员"), createUser("GROUP_OPERATOR", "炒群员"), createUser("EXPERT", "专家"),
+    ]);
+    await db.channel.create({ data: { id: channelId, groupId, name: "8月底历史渠道", normalizedName: `history-combined-${suffix}` } });
+    vi.spyOn(auth, "requireUser").mockResolvedValue(expert);
+    const digits = suffix.replace(/\D/g, "").padEnd(9, "0").slice(0, 8);
+    const phones = { joined: `15${digits}1`, ordered: `15${digits}2`, recharged: `15${digits}3` };
+    const common = { channelId, receptionOwnerId: reception.id, groupOperatorOwnerId: operator.id, expertOwnerId: expert.id };
+    const post = (body: Record<string, unknown>) => POST(new Request("http://localhost/api/legacy-customers", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }));
+
+    const joined = await post({
+      ...common, phone: phones.joined, sourceDate: "2026-08-30", baselineStage: "REPLIED", baselineOn: "2026-08-30",
+      currentEvent: "JOINED", occurredOn: "2026-09-01", deviceCode: "TEST-WA-01",
+    });
+    const ordered = await post({
+      ...common, phone: phones.ordered, sourceDate: "2026-08-29", baselineStage: "REGISTERED", baselineOn: "2026-08-31",
+      currentEvent: "ORDERED", occurredOn: "2026-09-01", initialDepositCents: 123_400, initialDepositMethod: "CRYPTO",
+    });
+    const recharged = await post({
+      ...common, phone: phones.recharged, sourceDate: "2026-07-15", baselineStage: "ORDERED", baselineOn: "2026-08-29",
+      currentEvent: "RECHARGE", occurredOn: "2026-09-01", amountCents: 50_000, initialDepositMethod: "BANK",
+    });
+    expect([joined.status, ordered.status, recharged.status]).toEqual([201, 201, 201]);
+
+    const saved = await db.leadCustomer.findMany({
+      where: { phone: { in: Object.values(phones).map(normalizeCustomerPhone) } },
+      include: { batch: true, customerOrder: { include: { events: true } } },
+      orderBy: { phone: "asc" },
+    });
+    expect(saved).toHaveLength(3);
+    expect(saved.map((row) => row.batch.sourceDate).sort()).toEqual(["2026-07-15", "2026-08-29", "2026-08-30"]);
+    expect(saved.find((row) => row.phone === normalizeCustomerPhone(phones.joined))).toMatchObject({ joinedOn: "2026-09-01", isHistoricalRecord: true });
+    expect(saved.find((row) => row.phone === normalizeCustomerPhone(phones.ordered))?.customerOrder).toMatchObject({ openedOn: "2026-09-01", initialDepositCents: 123_400, isHistoricalBaseline: false });
+    expect(saved.find((row) => row.phone === normalizeCustomerPhone(phones.recharged))?.customerOrder).toMatchObject({ openedOn: "2026-08-29", initialDepositCents: 0, isHistoricalBaseline: true });
+    expect(saved.find((row) => row.phone === normalizeCustomerPhone(phones.recharged))?.customerOrder?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "RECHARGE", occurredOn: "2026-09-01", amountCents: 50_000, continuationNumber: 1 }),
+    ]));
+
+    const receptionEntry = await db.dailyStatEntry.findFirstOrThrow({ where: { groupId, businessDate: "2026-09-01", position: "RECEPTION" }, include: { currentRevision: true } });
+    const operatorEntry = await db.dailyStatEntry.findFirstOrThrow({ where: { groupId, businessDate: "2026-09-01", position: "GROUP_OPERATOR" }, include: { currentRevision: true } });
+    const expertEntry = await db.dailyStatEntry.findFirstOrThrow({ where: { groupId, businessDate: "2026-09-01", position: "EXPERT" }, include: { currentRevision: true } });
+    expect(receptionEntry.currentRevision).toMatchObject({ dispatchCount: 0, replyCount: 0, joinCount: 1 });
+    expect(operatorEntry.currentRevision).toMatchObject({ operatorReceivedCount: 1, currentInGroupCount: 1 });
+    expect(expertEntry.currentRevision).toMatchObject({ orderCount: 1, cryptoInitialDepositCents: 123_400, bankRechargeCents: 50_000 });
+    await expect(db.dailyStatEntry.count({ where: { groupId, businessDate: { in: ["2026-08-29", "2026-08-30"] } } })).resolves.toBe(0);
+
+    const facts = await loadCanonicalMetricEvents({ groupIds: [groupId] });
+    expect(facts.filter((fact) => ["NEW_FANS", "EFFECTIVE_FANS"].includes(fact.kind))).toHaveLength(0);
+    expect(facts.filter((fact) => fact.kind === "GROUP_JOIN" && fact.occurredOn === "2026-09-01")).toHaveLength(1);
+    expect(facts.filter((fact) => fact.kind === "ORDER" && fact.occurredOn === "2026-09-01")).toHaveLength(1);
+    expect(facts.filter((fact) => fact.kind === "RECHARGE" && fact.occurredOn === "2026-09-01")).toHaveLength(2);
   });
 
   it("keeps cross-team duplicate lookup generic", async () => {

@@ -10,7 +10,7 @@ import { statisticsDate } from "../../../lib/statistics-date";
 import { entryDateError } from "../../../lib/entry-date-validation";
 import { normalizeCustomerPhone } from "../../../lib/entry-ledger";
 import { API_LIMITS } from "../../../lib/request-limits";
-import { getAssignedRoles } from "../../../lib/role-access";
+import { getAssignedRoles, hasAssignedRole } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
 import { incrementHistoricalCustomerDailyStat } from "../../../lib/daily-stats";
@@ -83,6 +83,9 @@ export async function POST(request: Request) {
   if (!sessionUser.groupId) return authorizationDenied(sessionUser, "当前账号未绑定小组");
   try {
     const input = inputSchema.parse(await request.json());
+    if (["REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"].includes(input.currentEvent) && !hasAssignedRole(sessionUser, "EXPERT")) {
+      return authorizationDenied(sessionUser, "录入老客户的注册、开单或资金进度需要专家权限");
+    }
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
     const today = statisticsDate();
@@ -92,6 +95,7 @@ export async function POST(request: Request) {
     const result = await db.$transaction(async (tx) => {
       const actor = await tx.user.findUnique({ where: { id: sessionUser.id }, select: { id: true, role: true, roleAssignments: { select: { role: true } }, active: true, groupId: true } });
       if (!actor?.active || !actor.groupId || !mayCreate(actor)) return { status: 403 as const, error: "当前岗位不能录入老客户" };
+      if (["REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"].includes(input.currentEvent) && !hasAssignedRole(actor, "EXPERT")) return { status: 403 as const, error: "录入老客户的注册、开单或资金进度需要专家权限" };
       const duplicate = await tx.leadCustomer.findUnique({ where: { phone }, select: { customerName: true, batch: { select: { groupId: true } }, owner: { select: { name: true } } } });
       if (duplicate) {
         if (duplicate.batch.groupId !== actor.groupId) return { status: 409 as const, error: "该号码已存在" };

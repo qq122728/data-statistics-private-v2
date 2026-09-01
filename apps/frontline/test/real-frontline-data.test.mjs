@@ -44,6 +44,7 @@ test("客户进度统一使用真实共享表格", () => {
 
 test("组员AI通过自然语言模板预览并保存真实今日数据和客户进度", () => {
   const source = read("AiSmartAssistant.tsx");
+  const workspace = read("FreshWorkspace.tsx");
   assert.match(source, /AI 对话内容/);
   assert.match(source, /AI 对话输入框/);
   assert.match(source, /添加今日数据/);
@@ -104,4 +105,9 @@ test("组员AI通过自然语言模板预览并保存真实今日数据和客户
   assert.match(source, /\/api\/customer-orders/);
   assert.match(source, /\/api\/customer-finance/);
   assert.match(source, /ai-data-updated/);
+  assert.match(source, /canUseExpertActions/);
+  assert.match(source, /EXPERT_PROGRESS_ACTIONS/);
+  assert.match(source, /当前账号没有专家权限/);
+  assert.match(source, /canUseExpertActions \|\| !EXPERT_PROGRESS_ACTIONS\.has\(action\)/);
+  assert.match(workspace, /<AiSmartAssistant[^>]*user=\{user\}/);
 });

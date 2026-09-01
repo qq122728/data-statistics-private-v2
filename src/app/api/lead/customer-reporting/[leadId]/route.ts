@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../../../lib/auth";
 import { db, getOrCreateSourceBatch } from "../../../../../lib/db";
 import { recordAudit } from "../../../../../lib/audit";
-import { isFrontlineGroupMember } from "../../../../../lib/role-access";
+import { hasAssignedRole, isFrontlineGroupMember } from "../../../../../lib/role-access";
 import { API_LIMITS } from "../../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../../lib/security-events";
 import { leadCurrentGroupId } from "../../../../../lib/customer-current-group";
@@ -55,6 +55,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
       let trackedExpertOwnerId = lead.expertOwnerId;
       let activity: { kind: "DEVICE_ASSIGNED" | "EXPERT_INTRODUCED" | "REGISTERED" | "LEFT_GROUP" | "PLAN_UPDATED"; note: string; occurredOn: string } | null = null;
       const today = statisticsDate();
+
+      if (input.action === "setRegistration" && !hasAssignedRole(actor, "EXPERT"))
+        return { status: 403 as const, error: "需要专家权限才能登记注册" };
 
       if (input.action === "assignGroupOperator") {
         const target = await transaction.user.findFirst({ where: { id: input.userId, groupId: actor.groupId, active: true }, select: { id: true, name: true } });

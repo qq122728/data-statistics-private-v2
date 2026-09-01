@@ -54,7 +54,7 @@ export default function FreshWorkspace({ user, onLogout }: { user: BackendUser; 
       <header className="fresh-header">
         <div><h1>{meta.title}</h1><p>{meta.note}</p></div>
         <div className="fresh-header-actions">
-          <AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${meta.title}`} />
+          <AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${meta.title}`} user={user} />
           <div className="fresh-user"><span>{user.name.slice(0, 1)}</span><div><strong>{user.name}</strong><small>{isLead ? "组员 · 组长权限" : "组员"}</small></div><button onClick={onLogout}><SignOut size={16} />退出</button></div>
         </div>
       </header>

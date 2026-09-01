@@ -88,6 +88,7 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
   const phoneInput = useRef<HTMLInputElement>(null);
   // 传入 member 代表当前是本组在职成员；管理员不传 member，继续只读。
   const canEdit = Boolean(member);
+  const canEditExpert = Boolean(member && (member.role === "LEAD" || member.role === "EXPERT" || member.roles?.includes("LEAD") || member.roles?.includes("EXPERT")));
 
 
   useEffect(() => {
@@ -190,6 +191,7 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
         </nav>
         <nav className={styles.statusFilters} aria-label="按客户状态筛选">
           {progressFilters.map((item) => <button type="button" key={item} data-active={progress === item} aria-pressed={progress === item} onClick={() => setProgress(item)}>{item}</button>)}
+          {viewMode === "expert" && member && !canEditExpert ? <em className={styles.permissionHint}>只读 · 需专家权限才能编辑</em> : null}
         </nav>
         <span className={styles.liveState}><i />实时共享</span>
       </header>
@@ -215,11 +217,11 @@ export function DepartmentCustomerProgress({ groups, member }: { groups?: Depart
                 <td><div className={styles.stackedCell}><label><span>类型</span>{canEdit && customer.groupStatus !== "LEFT" ? <select className={styles.cellSelect} value="" disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "setLeave", leaveType: event.target.value, occurredOn: localToday() }, "leave", "退群类型和日期已保存")}><option value="">—</option><option value="NORMAL">正常退群</option><option value="ABNORMAL">异常退群</option></select> : <b>{customer.groupStatus === "LEFT" ? (customer.leftWithOrder ? "正常退群" : "异常退群") : "—"}</b>}</label><div><span>日期</span><b>{customer.leftOn ?? "—"}</b></div></div></td>
                 <td>{canEdit ? <select className={styles.cellSelect} value={customer.expertOwner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "assignExpert", userId: event.target.value }, "expert", "专家负责人已保存")}><option value="" disabled>点击选择</option>{payload?.expertOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select> : customer.expertOwner?.name ?? "未分配"}</td>
                 {viewMode === "expert" ? <>
-                <td className={styles.progressCell}><EditableCell label="专家情况" value={latestExpertText(customer)} editable={canEdit} saving={savingCell === `${customer.id}:expert`} onSave={(note) => saveSituation(customer, "expert", note)} /></td>
-                <td><div className={styles.stackedCell}><div><span>状态</span><span className={styles.registrationStatus} data-registered={Boolean(customer.registeredOn)}>{customer.registeredOn ? "已注册" : "未注册"}</span></div><label><span>日期</span>{canEdit ? <input key={customer.registeredOn ?? "empty"} className={styles.dateInput} type="date" defaultValue={customer.registeredOn ?? ""} min={customer.joinedOn ?? undefined} disabled={Boolean(savingCell)} onChange={(event) => event.target.value && void patchCell(customer, { action: "setRegistration", occurredOn: event.target.value }, "registration", "注册日期已保存")} /> : <b>{customer.registeredOn ?? "—"}</b>}</label></div></td>
-                <td className={styles.money}>{customer.order ? <button className={styles.financeCell} onClick={() => canEdit && openFinance("INITIAL", customer)} disabled={!canEdit}>{money(customer.order.initialDepositCents)}</button> : <button className={styles.financeAdd} disabled={!canEdit || !customer.registeredOn} title={!customer.registeredOn ? "请先填写注册日期" : "登记首充"} onClick={() => openFinance("INITIAL", customer)}>+ 首充</button>}</td>
-                <td className={styles.money}><button className={styles.financeCell} disabled={!canEdit || !customer.order} onClick={() => openFinance("RECHARGE", customer)}>{money(customer.order?.rechargeCents)}{rechargeCount ? <small>{rechargeCount}笔</small> : null}</button></td>
-                <td><button className={styles.financeCell} disabled={!canEdit || !customer.order} onClick={() => openFinance("WITHDRAWAL", customer)}>{money(customer.order?.withdrawalCents)}{withdrawalCount ? <small>{withdrawalCount}笔</small> : null}</button></td>
+                <td className={styles.progressCell}><EditableCell label="专家情况" value={latestExpertText(customer)} editable={canEditExpert} saving={savingCell === `${customer.id}:expert`} onSave={(note) => saveSituation(customer, "expert", note)} /></td>
+                <td><div className={styles.stackedCell}><div><span>状态</span><span className={styles.registrationStatus} data-registered={Boolean(customer.registeredOn)}>{customer.registeredOn ? "已注册" : "未注册"}</span></div><label><span>日期</span>{canEditExpert ? <input key={customer.registeredOn ?? "empty"} className={styles.dateInput} type="date" defaultValue={customer.registeredOn ?? ""} min={customer.joinedOn ?? undefined} disabled={Boolean(savingCell)} onChange={(event) => event.target.value && void patchCell(customer, { action: "setRegistration", occurredOn: event.target.value }, "registration", "注册日期已保存")} /> : <b>{customer.registeredOn ?? "—"}</b>}</label></div></td>
+                <td className={styles.money}>{customer.order ? <button className={styles.financeCell} onClick={() => canEditExpert && openFinance("INITIAL", customer)} disabled={!canEditExpert}>{money(customer.order.initialDepositCents)}</button> : <button className={styles.financeAdd} disabled={!canEditExpert || !customer.registeredOn} title={!canEditExpert ? "需要专家权限" : !customer.registeredOn ? "请先填写注册日期" : "登记首充"} onClick={() => openFinance("INITIAL", customer)}>+ 首充</button>}</td>
+                <td className={styles.money}><button className={styles.financeCell} disabled={!canEditExpert || !customer.order} onClick={() => openFinance("RECHARGE", customer)}>{money(customer.order?.rechargeCents)}{rechargeCount ? <small>{rechargeCount}笔</small> : null}</button></td>
+                <td><button className={styles.financeCell} disabled={!canEditExpert || !customer.order} onClick={() => openFinance("WITHDRAWAL", customer)}>{money(customer.order?.withdrawalCents)}{withdrawalCount ? <small>{withdrawalCount}笔</small> : null}</button></td>
                 <td className={styles.net}>{money(net)}</td>
                 </> : null}
                 <td className={styles.updated}>{customer.activities[0]?.actor?.name ?? "系统"}<small>{customer.activities[0]?.occurredOn ?? "—"}</small></td>

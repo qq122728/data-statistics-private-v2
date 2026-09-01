@@ -23,6 +23,12 @@ type WorkflowLead = {
 
 export type CustomerAccessFailure = { status: 403; error: string };
 
+const expertOnlyActions = new Set<CustomerWorkflowAction>([
+  "beginExpertReception", "beginExpertTracking", "markPendingRegistration", "markExpertStalled",
+  "clearExpertStalled", "markNoInitialDeposit", "clearNoInitialDeposit", "register", "undoRegister",
+  "voidOrder", "updateExpertDetails",
+]);
+
 /**
  * 已进群后按客户当前明确负责人选择职责，不再依赖账号的旧岗位标签。
  * 历史 role 仍保留给报表和审计，但不能阻止被明确分配的同组组员工作。
@@ -34,9 +40,10 @@ export function resolveWorkflowActorRole(
 ): Role | null {
   if (!actor.active) return null;
   if (hasAssignedRole(actor, "LEAD")) return "LEAD";
-  // 共享表情况列不改变负责人；这里只选择对应的字段更新逻辑。
+  if (expertOnlyActions.has(action) && !hasAssignedRole(actor, "EXPERT")) return null;
+  // 共享表情况列不改变负责人，但专家字段仍必须真的持有专家权限。
   if (action === "updateGroupProgress") return "GROUP_OPERATOR";
-  if (action === "updateExpertDetails") return "EXPERT";
+  if (action === "updateExpertDetails" && hasAssignedRole(actor, "EXPERT")) return "EXPERT";
   if (lead.expertOwnerId === actor.id && roleAllowsCustomerAction("EXPERT", action))
     return "EXPERT";
   if (lead.groupOperatorOwnerId === actor.id && roleAllowsCustomerAction("GROUP_OPERATOR", action))
@@ -65,8 +72,13 @@ export async function authorizeCustomerAction(
   if (leadCurrentGroupId(lead) !== actor.groupId)
     return { status: 403, error: "该客户当前已不属于你所在的小组" };
 
-  // 共享客户表的炒群情况和专家情况由同组在职成员共同维护。
-  if (action === "updateGroupProgress" || action === "updateExpertDetails") return null;
+  // 炒群情况仍由同组组员共同维护；专家情况必须先开通专家权限。
+  if (action === "updateGroupProgress") return null;
+  if (expertOnlyActions.has(action) && !hasAssignedRole(actor, "EXPERT"))
+    return { status: 403, error: "需要专家权限才能处理专家阶段" };
+  if (action === "updateExpertDetails") return hasAssignedRole(actor, "EXPERT")
+    ? null
+    : { status: 403, error: "需要专家权限才能填写专家进度" };
 
   const effectiveRole = resolveWorkflowActorRole(actor, lead, action);
   if (!effectiveRole) return { status: 403, error: "当前岗位不能处理该客户或执行此操作" };

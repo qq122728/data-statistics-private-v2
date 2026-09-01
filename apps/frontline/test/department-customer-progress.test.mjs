@@ -50,8 +50,10 @@ test("组员和组长都能新增已进群客户", () => {
   assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
 });
 
-test("共享表向同组成员开放全部业务列并逐笔登记资金", () => {
+test("共享表开放接粉和炒群列，专家列需要专家权限", () => {
   assert.match(component, /const canEdit = Boolean\(member\)/);
+  assert.match(component, /const canEditExpert = Boolean/);
+  assert.match(component, /需专家权限才能编辑/);
   assert.doesNotMatch(component, /const canOwner|const canOperator|const canExpert/);
   for (const action of ["setSourceDate", "setJoinedOn", "assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
   assert.match(component, /placeholder="手动填写"/);
@@ -60,6 +62,7 @@ test("共享表向同组成员开放全部业务列并逐笔登记资金", () =>
   assert.match(component, /\/api\/customer-finance/);
   assert.match(component, /\+ 确认本次续充/);
   assert.match(component, /financeEvents/);
+  assert.match(customerPatch, /hasAssignedRole\(actor, "EXPERT"\)/);
 });
 
 test("炒群和专家单元格双击编辑并自动保存", () => {

@@ -16,7 +16,8 @@ export const frontlineMemberRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT", "L
 export const groupCustomerPageRoles = ["ADMIN", "COMPANY_MANAGER", "LEAD", "GROUP_OPERATOR"] as const satisfies readonly Role[];
 export const expertCustomerPageRoles = ["ADMIN", "COMPANY_MANAGER", "LEAD", "EXPERT"] as const satisfies readonly Role[];
 export const customerDeleteRoles = ["RECEPTION", "LEAD"] as const satisfies readonly Role[];
-export const customerOrderWriteRoles = frontlineMemberRoles;
+// 开单和资金属于专家阶段：组长默认兼任专家，普通组员必须额外开通 EXPERT。
+export const customerOrderWriteRoles = ["LEAD", "EXPERT"] as const satisfies readonly Role[];
 
 export function roleIsOneOf(role: Role, roles: readonly Role[]): boolean {
   return roles.includes(role);

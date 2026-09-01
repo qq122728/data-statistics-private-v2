@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle, ChatCircleDots, MagicWand, Minus, PaperPlaneTilt, X } from "@phosphor-icons/react";
-import { requestJson } from "@/lib/backend";
+import { requestJson, type BackendUser } from "@/lib/backend";
 import styles from "./AiSmartAssistant.module.css";
 
 type Values = {
@@ -140,6 +140,8 @@ const NATURAL_TEMPLATES: Record<NaturalIntent, Array<{ label: string; text: stri
     { label: "老粉今天续充", text: "老客户112233，8月20日接粉，渠道FB-M，归属演示接粉，历史已开单，今天续充500，银行卡，专家西瓜，炒群吴天" },
   ],
   PROGRESS: [
+    { label: "更新炒群情况", text: "客户112233更新炒群情况：客户今晚继续沟通" },
+    { label: "登记正常退群", text: "客户112233今天正常退群" },
     { label: "登记注册", text: "客户112233今天注册" },
     { label: "登记开单", text: "客户112233今天开单，首充1000，加密货币" },
     { label: "新增续充", text: "客户112233今天续充500，银行卡" },
@@ -179,6 +181,7 @@ const PROGRESS_LABELS: Record<ProgressAction, string> = {
   expertNote: "更新专家情况", register: "登记注册", normalLeave: "正常退群", abnormalLeave: "异常退群",
   initial: "登记首充", recharge: "新增续充", withdrawal: "登记出金",
 };
+const EXPERT_PROGRESS_ACTIONS = new Set<ProgressAction>(["expertNote", "register", "initial", "recharge", "withdrawal"]);
 
 type LegacyScenario = "JOIN" | "ORDER" | "RECHARGE";
 type LegacyContext = CustomerContext & { actorId: string; expertOptions: Array<{ id: string; name: string }> };
@@ -260,9 +263,10 @@ type AiSmartAssistantProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   contextLabel: string;
+  user: BackendUser;
 };
 
-export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAssistantProps) {
+export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiSmartAssistantProps) {
   const [input, setInput] = useState("");
   const [naturalIntent, setNaturalIntent] = useState<NaturalIntent | null>(null);
   const [naturalChangeReason, setNaturalChangeReason] = useState("");
@@ -290,6 +294,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   const conversationRef = useRef<HTMLDivElement>(null);
 
   const lawyer = context?.groupType === "LAWYER";
+  const canUseExpertActions = user.role === "LEAD" || user.role === "EXPERT" || user.roles.includes("LEAD") || user.roles.includes("EXPERT");
   const fields = lawyer ? LAWYER_FIELDS : HACKER_FIELDS;
   const selectedChannel = context?.channels.find((channel) => channel.id === channelId) ?? null;
   const selectedCustomerChannel = customerContext?.channelOptions.find((channel) => channel.id === customerDraft.channelId) ?? null;
@@ -318,7 +323,9 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       const operator = legacyContext.memberOptions.find((item) => item.id !== legacyContext.actorId)?.name ?? reception;
       const expert = legacyContext.expertOptions[0]?.name ?? "专家负责人";
       const channel = legacyContext.channelOptions[0].name;
-      return NATURAL_TEMPLATES.LEGACY.map((template) => ({ ...template, text: template.text.replace("FB-M", channel).replace("演示接粉", reception).replace("吴天", operator).replace("西瓜", expert) }));
+      return NATURAL_TEMPLATES.LEGACY
+        .filter((template) => canUseExpertActions || template.label === "老粉今天进群")
+        .map((template) => ({ ...template, text: template.text.replace("FB-M", channel).replace("演示接粉", reception).replace("吴天", operator).replace("西瓜", expert) }));
     }
     if (naturalIntent === "QUERY" && context?.channels.length) {
       return [
@@ -329,8 +336,9 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         ]),
       ];
     }
+    if (naturalIntent === "PROGRESS" && !canUseExpertActions) return NATURAL_TEMPLATES.PROGRESS.slice(0, 2);
     return NATURAL_TEMPLATES[naturalIntent];
-  }, [naturalIntent, context, customerContext, legacyContext]);
+  }, [naturalIntent, context, customerContext, legacyContext, canUseExpertActions]);
 
   useEffect(() => {
     const element = conversationRef.current;
@@ -457,6 +465,9 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     try {
       const next = await requestJson<LegacyContext>("/api/lead/customer-reporting?stage=group&page=1");
       const scenario: LegacyScenario | null = /续充/.test(text) ? "RECHARGE" : /开单|首充/.test(text) ? "ORDER" : /进群/.test(text) ? "JOIN" : null;
+      if (scenario && scenario !== "JOIN" && !canUseExpertActions) {
+        setLegacyContext(next); addMessage("assistant", "当前账号没有专家权限，AI 只能录入老客户今天进群。开单、首充和续充需要先增加专家权限。"); setPhase("template"); return;
+      }
       const phone = phoneIn(text); const dateRaw = text.match(/((?:(?:\d{4})[年./-])?\d{1,2}[月./-]\d{1,2}(?:日|号)?)\s*接粉/)?.[1] ?? "";
       const sourceDate = aiDate(dateRaw, next.today); const channel = optionAfter(text, "渠道", next.channelOptions) ?? optionInText(text, next.channelOptions);
       const reception = optionAfter(text, "归属", next.memberOptions) ?? next.memberOptions.find((item) => item.id === next.actorId) ?? null;
@@ -475,13 +486,18 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       const phone = phoneIn(text); if (!phone) { addMessage("assistant", "没有识别出客户号码，请使用模板补上号码后重新发送。"); setPhase("template"); return; }
       const result = await requestJson<ProgressContext>(`/api/lead/customer-reporting?stage=group&page=1&q=${encodeURIComponent(phone)}`); const customer = result.customers.find((item) => item.phone === phone) ?? null;
       if (!customer) { addMessage("assistant", `本组共享客户表没有找到 ${phone}。`); setPhase("template"); return; }
-      const action: ProgressAction | null = /续充/.test(text) ? "recharge" : /出金/.test(text) ? "withdrawal" : /开单|首充/.test(text) ? "initial" : /注册/.test(text) ? "register" : /异常退群/.test(text) ? "abnormalLeave" : /正常退群|退群/.test(text) ? "normalLeave" : null;
-      if (!action) { addMessage("assistant", "没有识别出要更新的进度。目前模板支持注册、开单、续充和出金。"); setPhase("template"); return; }
+      const action: ProgressAction | null = /续充/.test(text) ? "recharge" : /出金/.test(text) ? "withdrawal" : /开单|首充/.test(text) ? "initial" : /注册/.test(text) ? "register" : /异常退群/.test(text) ? "abnormalLeave" : /正常退群|退群/.test(text) ? "normalLeave" : /炒群情况|群内情况/.test(text) ? "groupNote" : null;
+      if (!action) { addMessage("assistant", "没有识别出要更新的进度。可以使用页面上的模板后再修改内容。"); setPhase("template"); return; }
+      if (EXPERT_PROGRESS_ACTIONS.has(action) && !canUseExpertActions) {
+        addMessage("assistant", "当前账号没有专家权限，AI 只能更新接粉和炒群进度。注册、开单、首充、续充、出金和专家情况需要先增加专家权限。"); setPhase("template"); return;
+      }
       if (action === "initial" && (!customer.registeredOn || customer.order)) { addMessage("assistant", customer.order ? "该客户已经开单，不能重复登记首充。" : "该客户尚未登记注册，请先登记注册。"); setPhase("template"); return; }
       if ((action === "recharge" || action === "withdrawal") && !customer.order) { addMessage("assistant", "该客户还没有开单，不能登记续充或出金。"); setPhase("template"); return; }
       const amountValue = ["initial", "recharge", "withdrawal"].includes(action) ? numberAfter(text, action === "initial" ? ["首充", "开单"] : action === "recharge" ? ["续充"] : ["出金"]) : 0;
       if (["initial", "recharge", "withdrawal"].includes(action) && !amountValue) { addMessage("assistant", "没有识别出本次金额，请在首充、续充或出金后面填写金额。"); setPhase("template"); return; }
-      setProgressContext(result); setProgressCustomer(customer); setProgressDraft({ action, text: "", userId: "", amountCents: amountValue ? Math.round(amountValue * 100) : 0, depositMethod: /银行卡|银行/.test(text) ? "BANK" : "CRYPTO" }); setPhase("progress-preview");
+      const note = action === "groupNote" ? (text.split(/[：:]/).slice(1).join(":").trim() || textAfter(text, "炒群情况")) : "";
+      if (action === "groupNote" && !note) { addMessage("assistant", "请在“炒群情况”后填写要更新的内容。"); setPhase("template"); return; }
+      setProgressContext(result); setProgressCustomer(customer); setProgressDraft({ action, text: note, userId: "", amountCents: amountValue ? Math.round(amountValue * 100) : 0, depositMethod: /银行卡|银行/.test(text) ? "BANK" : "CRYPTO" }); setPhase("progress-preview");
       addMessage("assistant", `已识别“${PROGRESS_LABELS[action]}”，请核对预览后确认更新。`);
     } catch (caught) { addMessage("assistant", caught instanceof Error ? caught.message : "客户进度识别失败。"); setPhase("template"); }
   }
@@ -567,6 +583,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   }
 
   function chooseLegacyScenario(scenario: LegacyScenario) {
+    if (scenario !== "JOIN" && !canUseExpertActions) {
+      addMessage("assistant", "当前账号没有专家权限，只能录入老粉今天进群。");
+      return;
+    }
     const meta = LEGACY_SCENARIOS[scenario];
     setLegacyDraft((current) => ({ ...EMPTY_LEGACY, scenario, occurredOn: legacyContext?.today ?? current.occurredOn, receptionOwnerId: legacyContext?.memberOptions.find((item) => item.id === legacyContext.actorId)?.id ?? legacyContext?.memberOptions[0]?.id ?? "" }));
     addMessage("user", meta.label);
@@ -670,6 +690,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
 
   async function saveLegacyCustomer() {
     if (!legacyContext || !legacyDraft.scenario) return;
+    if (legacyDraft.scenario !== "JOIN" && !canUseExpertActions) {
+      addMessage("assistant", "保存已停止：当前账号没有专家权限。");
+      setPhase("legacy-preview"); return;
+    }
     const meta = LEGACY_SCENARIOS[legacyDraft.scenario]; setPhase("legacy-saving"); addMessage("assistant", "正在保存老客户档案和本次真实进度…");
     try {
       await requestJson("/api/legacy-customers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
@@ -880,6 +904,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
 
   function chooseProgressAction(action: ProgressAction) {
     if (!progressCustomer || !progressContext) return;
+    if (EXPERT_PROGRESS_ACTIONS.has(action) && !canUseExpertActions) {
+      addMessage("assistant", "当前账号没有专家权限，该项不能修改。");
+      return;
+    }
     if ((action === "expertNote" || action === "register" || action === "initial") && !progressCustomer.expertOwner) {
       addMessage("assistant", "这个客户还没有专家负责人，请先选择“推专家”。" ); return;
     }
@@ -943,6 +971,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
 
   async function saveProgressUpdate() {
     if (!progressCustomer || !progressContext || !progressDraft.action) return;
+    if (EXPERT_PROGRESS_ACTIONS.has(progressDraft.action) && !canUseExpertActions) {
+      addMessage("assistant", "保存已停止：当前账号没有专家权限。");
+      setPhase("progress-preview"); return;
+    }
     const action = progressDraft.action; setPhase("progress-saving"); addMessage("assistant", "正在更新客户进度…" );
     try {
       if (action === "groupNote" || action === "expertNote") {
@@ -1174,7 +1206,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         </div> : null}
 
         {phase === "legacy-scenario" ? <div className={styles.choiceList} aria-label="选择老客户场景">
-          {(Object.keys(LEGACY_SCENARIOS) as LegacyScenario[]).map((scenario) => <button type="button" key={scenario} onClick={() => chooseLegacyScenario(scenario)}><strong>{LEGACY_SCENARIOS[scenario].label}</strong><small>{LEGACY_SCENARIOS[scenario].note}</small></button>)}
+          {(Object.keys(LEGACY_SCENARIOS) as LegacyScenario[]).filter((scenario) => canUseExpertActions || scenario === "JOIN").map((scenario) => <button type="button" key={scenario} onClick={() => chooseLegacyScenario(scenario)}><strong>{LEGACY_SCENARIOS[scenario].label}</strong><small>{LEGACY_SCENARIOS[scenario].note}</small></button>)}
         </div> : null}
 
         {phase === "legacy-channel" && legacyContext ? <div className={styles.choiceList} aria-label="选择老客户来源渠道">
@@ -1285,7 +1317,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         </div> : null}
 
         {phase === "progress-action" && progressCustomer ? <div className={styles.choiceList} aria-label="选择客户进度动作">
-          {(Object.keys(PROGRESS_LABELS) as ProgressAction[]).map((action) => <button type="button" key={action} onClick={() => chooseProgressAction(action)}><strong>{PROGRESS_LABELS[action]}</strong><small>{action === "recharge" && progressCustomer.order ? `第 ${progressCustomer.order.nextContinuationNumber} 笔续充` : "客户进度"}</small></button>)}
+          {(Object.keys(PROGRESS_LABELS) as ProgressAction[]).filter((action) => canUseExpertActions || !EXPERT_PROGRESS_ACTIONS.has(action)).map((action) => <button type="button" key={action} onClick={() => chooseProgressAction(action)}><strong>{PROGRESS_LABELS[action]}</strong><small>{action === "recharge" && progressCustomer.order ? `第 ${progressCustomer.order.nextContinuationNumber} 笔续充` : "客户进度"}</small></button>)}
         </div> : null}
 
         {phase === "progress-person" && progressContext && progressDraft.action ? <div className={styles.choiceList} aria-label="选择客户负责人">

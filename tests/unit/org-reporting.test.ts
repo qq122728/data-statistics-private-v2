@@ -506,7 +506,7 @@ describe.sequential("新版客户进度 API", () => {
     expect((await getLeadCustomerReporting(new Request(`http://localhost/api/lead/customer-reporting?stage=expert&groupId=${ids.berlinGroup}`))).status).toBe(200);
   });
 
-  it("共享表允许同组成员编辑所有业务列并记录审计", async () => {
+  it("共享表的专家列需要专家权限并记录审计", async () => {
     const leadId = id("customer-group");
     const patch = (body: Record<string, unknown>) => patchSharedCustomer(
       new Request(`http://localhost/api/lead/customer-reporting/${leadId}`, {
@@ -525,7 +525,10 @@ describe.sequential("新版客户进度 API", () => {
     expect((await patch({ action: "assignExpert", userId: ids.berlinExpert })).status).toBe(200);
 
     await signIn(ids.berlinOperatorA);
+    expect((await patch({ action: "setRegistration", occurredOn: "2026-07-09" })).status).toBe(403);
+    await signIn(ids.berlinExpert);
     expect((await patch({ action: "setRegistration", occurredOn: "2026-07-09" })).status).toBe(200);
+    await signIn(ids.berlinOperatorA);
     expect((await patch({ action: "setOwner", userId: ids.berlinReception })).status).toBe(200);
 
     expect(await db.leadCustomer.findUniqueOrThrow({ where: { id: leadId }, select: { joinedOn: true, groupOperatorOwnerId: true, expertOwnerId: true, registeredOn: true, device: { select: { code: true } }, batch: { select: { sourceDate: true } } } })).toEqual({

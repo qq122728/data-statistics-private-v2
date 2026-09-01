@@ -285,7 +285,7 @@ describe.sequential("frontline role boundaries", () => {
     }
   });
 
-  it("让旧岗位是接粉的组员按客户明确负责关系处理炒群和专家进度", async () => {
+  it("只被分配为专家负责人的接粉组员仍只能处理炒群进度", async () => {
     const sourceLead = await db.leadCustomer.findUniqueOrThrow({
       where: { id: ids.leadCustomerA },
       select: { batchId: true },
@@ -322,12 +322,11 @@ describe.sequential("frontline role boundaries", () => {
       );
 
       expect(groupProgress.status).toBe(200);
-      expect(expertProgress.status).toBe(200);
+      expect(expertProgress.status).toBe(403);
       await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id } })).resolves.toMatchObject({
         attributionOwnerId: ids.groupOperatorA,
         groupOperatorOwnerId: ids.receptionA,
         expertOwnerId: ids.receptionA,
-        expertNotes: "已与客户沟通资料",
       });
     } finally {
       await db.leadCustomer.deleteMany({ where: { id: customer.id } });
@@ -695,7 +694,7 @@ describe.sequential("frontline role boundaries", () => {
     },
   );
 
-  it("lets a group member reach finance ownership and input validation instead of blocking by legacy role", async () => {
+  it("blocks finance endpoints before lookup when the member has no expert permission", async () => {
     await signInAs(ids.groupOperatorA);
     expect(
       (
@@ -707,7 +706,7 @@ describe.sequential("frontline role boundaries", () => {
           { params: Promise.resolve({ eventId: "missing" }) },
         )
       ).status,
-    ).toBe(404);
+    ).toBe(403);
     expect(
       (
         await createFinance(
@@ -722,7 +721,7 @@ describe.sequential("frontline role boundaries", () => {
           }),
         )
       ).status,
-    ).toBe(400);
+    ).toBe(403);
   });
 
   it("keeps reception ownership and lead group boundaries in place", async () => {
@@ -1144,7 +1143,7 @@ describe.sequential("frontline role boundaries", () => {
     });
   });
 
-  it("让同组成员共同维护专家情况", async () => {
+  it("只让组长和有专家权限的成员维护专家情况", async () => {
     await signInAs(ids.expertA);
     const expertUpdate = await updateLead(
       new Request("http://localhost/api/leads/target", {
@@ -1204,7 +1203,7 @@ describe.sequential("frontline role boundaries", () => {
       }),
       leadContext(ids.leadCustomerA),
     );
-    expect(receptionUpdate.status).toBe(200);
+    expect(receptionUpdate.status).toBe(403);
   });
 
   it("stores one group progress entry per customer per day and lets same-day saves update it", async () => {
@@ -1288,7 +1287,7 @@ describe.sequential("frontline role boundaries", () => {
     expect(expert.status).toBe(403);
   });
 
-  it("让同组所有在职成员共同登记资金流水", async () => {
+  it("只让组长和有专家权限的成员登记资金流水", async () => {
     const order = await db.customerOrder.findFirstOrThrow({
       where: { leadId: ids.leadCustomerA, voidedAt: null },
     });
@@ -1363,7 +1362,7 @@ describe.sequential("frontline role boundaries", () => {
         }),
       }),
     );
-    expect(receptionFinance.status).toBe(201);
+    expect(receptionFinance.status).toBe(403);
 
     vi.restoreAllMocks();
     await signInAs(ids.expertB);
@@ -1399,7 +1398,7 @@ describe.sequential("frontline role boundaries", () => {
           }),
         )
       ).status,
-    ).toBe(400);
+    ).toBe(403);
 
     vi.restoreAllMocks();
     await signInAs(ids.expertA);
@@ -1416,7 +1415,7 @@ describe.sequential("frontline role boundaries", () => {
     ).toBe(200);
   });
 
-  it("keeps workflow stage changes separate while allowing members through order and finance validation", async () => {
+  it("blocks expert workflow, order and finance writes for members without expert permission", async () => {
     await signInAs(ids.receptionA);
     const expertAction = await updateLead(
       new Request("http://localhost/api/leads/target", {
@@ -1438,7 +1437,7 @@ describe.sequential("frontline role boundaries", () => {
       }),
     );
     expect(expertAction.status).toBe(403);
-    expect(order.status).toBe(400);
-    expect(finance.status).toBe(400);
+    expect(order.status).toBe(403);
+    expect(finance.status).toBe(403);
   });
 });

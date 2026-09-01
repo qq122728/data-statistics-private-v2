@@ -104,6 +104,7 @@ export function canWriteCustomerRevenue(
   target: CustomerRevenueWriteTarget,
 ): boolean {
   if (!user.active || !target.lead || !isFrontlineGroupMember(user)) return false;
+  if (!hasAssignedRole(user, "EXPERT")) return false;
   return Boolean(user.groupId && (target.lead.currentGroupId ?? target.batch.groupId) === user.groupId);
 }
 

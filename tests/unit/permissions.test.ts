@@ -99,7 +99,7 @@ describe("data permissions", () => {
     await expect(canWriteBatch(member, ownBatch.id)).resolves.toBe(false);
   });
 
-  it("让同组在职成员共同登记客户资金，但不能跨组", () => {
+  it("只让同组且有专家权限的账号登记客户资金", () => {
     const target = {
       batch: { groupId: "group-a" },
       lead: {
@@ -116,9 +116,10 @@ describe("data permissions", () => {
     expect(canWriteCustomerRevenue(lead, target)).toBe(false);
     expect(canWriteCustomerRevenue({ ...lead, groupId: "group-b" }, target)).toBe(true);
     expect(canWriteCustomerRevenue(expert, target)).toBe(true);
-    expect(canWriteCustomerRevenue({ id: "reception-a", role: "RECEPTION", groupId: "group-b", active: true }, target)).toBe(true);
-    expect(canWriteCustomerRevenue({ id: "operator-a", role: "GROUP_OPERATOR", groupId: "group-b", active: true }, target)).toBe(true);
-    expect(canWriteCustomerRevenue({ id: "reception-b", role: "RECEPTION", groupId: "group-b", active: true }, target)).toBe(true);
+    expect(canWriteCustomerRevenue({ id: "reception-a", role: "RECEPTION", groupId: "group-b", active: true }, target)).toBe(false);
+    expect(canWriteCustomerRevenue({ id: "operator-a", role: "GROUP_OPERATOR", groupId: "group-b", active: true }, target)).toBe(false);
+    expect(canWriteCustomerRevenue({ id: "reception-b", role: "RECEPTION", groupId: "group-b", active: true }, target)).toBe(false);
+    expect(canWriteCustomerRevenue({ id: "reception-b", role: "RECEPTION", roleAssignments: [{ role: "EXPERT" as const }], groupId: "group-b", active: true }, target)).toBe(true);
     expect(canWriteCustomerRevenue({ ...expert, groupId: "group-a" }, target)).toBe(false);
     expect(canWriteCustomerRevenue({ ...expert, id: "expert-b" }, target)).toBe(true);
     expect(canWriteCustomerRevenue({ ...expert, active: false }, target)).toBe(false);

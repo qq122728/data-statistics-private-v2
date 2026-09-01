@@ -49,7 +49,7 @@ type DailyContext = {
 };
 
 type Message = { id: number; role: "assistant" | "user"; text: string };
-type Phase = "idle" | "template" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done" | "query-daily-result" | "query-customer-result"
+type Phase = "idle" | "chatting" | "template" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done" | "query-daily-result" | "query-customer-result"
   | "customer-loading" | "customer-mode" | "customer-phone" | "customer-name" | "customer-channel" | "customer-operator" | "customer-device" | "customer-preview" | "customer-saving" | "customer-done"
   | "customer-batch-input" | "customer-batch-preview" | "customer-batch-saving" | "customer-batch-done"
   | "progress-loading" | "progress-phone" | "progress-action" | "progress-text" | "progress-person" | "progress-amount" | "progress-method" | "progress-preview" | "progress-saving" | "progress-done"
@@ -1147,6 +1147,23 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     }
   }
 
+  async function sendCasualChat(text: string) {
+    const history = [...messages, { id: -1, role: "user" as const, text }]
+      .slice(-12)
+      .map((message) => ({ role: message.role, content: message.text }));
+    setPhase("chatting"); addMessage("user", text); setInput("");
+    try {
+      const result = await requestJson<{ reply: string; mode: "READ_ONLY_CHAT" }>("/api/ai/chat", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ messages: history }),
+      });
+      addMessage("assistant", result.reply);
+    } catch (caught) {
+      addMessage("assistant", caught instanceof Error ? caught.message : "AI 闲聊暂时不可用。");
+    } finally {
+      setPhase("idle");
+    }
+  }
+
   function handleQuickAction(action: string) {
     if (action === "添加今日数据") { void openNaturalTemplate("DAILY", action); return; }
     if (action === "新增客户") { void openNaturalTemplate("CUSTOMER", action); return; }
@@ -1157,7 +1174,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
 
   function submit() {
     const raw = input.trim();
-    if (!raw || phase === "loading" || phase === "saving" || phase === "customer-loading" || phase === "customer-saving") return;
+    if (!raw || phase === "chatting" || phase === "loading" || phase === "saving" || phase === "customer-loading" || phase === "customer-saving") return;
     if (phase === "metrics" || phase === "editing") { acceptMetric(raw); return; }
     if (phase === "template") { parseNaturalEntry(raw); return; }
     if (phase === "customer-phone") { acceptCustomerPhone(raw); return; }
@@ -1166,14 +1183,12 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     if (phase === "progress-phone") { void acceptProgressPhone(raw); return; }
     if (phase === "progress-text" || phase === "progress-amount") { acceptProgressValue(raw); return; }
     if (["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase)) { acceptLegacyText(raw); return; }
-    if (phase === "idle" && /查询|纠正|改成|改为|修改为/.test(raw)) { setNaturalIntent("QUERY"); void parseNaturalQuery(raw); return; }
+    if (phase === "idle" && (/纠正|改成|改为|修改为/.test(raw) || /查询.*(?:客户|号码|渠道|数据|进度|回复|进群|注册|开单|首充|续充|出金|业绩)/.test(raw))) { setNaturalIntent("QUERY"); void parseNaturalQuery(raw); return; }
     if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setNaturalIntent("DAILY"); void parseNaturalDaily(raw); return; }
     if (phase === "idle" && /老客户|老粉/.test(raw)) { setNaturalIntent("LEGACY"); void parseNaturalLegacy(raw); return; }
     if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setNaturalIntent("CUSTOMER"); void parseNaturalCustomer(raw); return; }
     if (phase === "idle" && /更新.*客户|客户.*进度|跟进.*客户|客户\d+.*(?:注册|开单|首充|续充|出金|退群)/.test(raw)) { setNaturalIntent("PROGRESS"); void parseNaturalProgress(raw); return; }
-    addMessage("user", raw);
-    addMessage("assistant", "目前支持添加今日数据、新增客户、更新客户进度，以及查询或纠正数据。" );
-    setInput("");
+    void sendCasualChat(raw);
   }
 
   const inputEnabled = phase === "idle" || phase === "template" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name" || phase === "customer-device" || phase === "progress-phone" || phase === "progress-text" || phase === "progress-amount" || ["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase);

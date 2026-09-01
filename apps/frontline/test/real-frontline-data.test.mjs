@@ -105,6 +105,9 @@ test("组员AI通过自然语言模板预览并保存真实今日数据和客户
   assert.match(source, /\/api\/customer-orders/);
   assert.match(source, /\/api\/customer-finance/);
   assert.match(source, /ai-data-updated/);
+  assert.match(source, /sendCasualChat/);
+  assert.match(source, /\/api\/ai\/chat/);
+  assert.match(source, /READ_ONLY_CHAT/);
   assert.match(source, /canUseExpertActions/);
   assert.match(source, /EXPERT_PROGRESS_ACTIONS/);
   assert.match(source, /当前账号没有专家权限/);

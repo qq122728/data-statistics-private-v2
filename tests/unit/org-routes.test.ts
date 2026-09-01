@@ -345,17 +345,17 @@ describe.sequential("阶段5a组织架构路由：任免/调动组长 (calls tra
     expect(response.status).toBe(200);
   });
 
-  it("stores a future replacement as pending until the target group's local effective date", async () => {
+  it("stores a future replacement as pending until the shared China-time statistical date", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     try {
       await signInAs(ids.hq);
       const response = await appointLead(
-        jsonRequest(`http://localhost/api/org/groups/${ids.groupB1}/lead`, { userId: ids.candidateA1Reader, effectiveOn: "2026-09-01", reason: "验证未来组长更换计划" }),
+        jsonRequest(`http://localhost/api/org/groups/${ids.groupB1}/lead`, { userId: ids.candidateA1Reader, effectiveOn: "2026-09-02", reason: "验证未来组长更换计划" }),
         { params: Promise.resolve({ groupId: ids.groupB1 }) },
       );
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({ scheduled: true, plan: { status: "PENDING", effectiveOn: "2026-09-01", newLeadId: ids.candidateA1Reader } });
+      await expect(response.json()).resolves.toMatchObject({ scheduled: true, plan: { status: "PENDING", effectiveOn: "2026-09-02", newLeadId: ids.candidateA1Reader } });
       await expect(db.user.findUniqueOrThrow({ where: { id: ids.candidateB1 }, select: { role: true, active: true } })).resolves.toEqual({ role: "LEAD", active: true });
     } finally {
       vi.useRealTimers();

@@ -55,7 +55,7 @@ describe("group business time", () => {
     expect(new Set(BUSINESS_TIMEZONE_OPTIONS.map((option) => option.timezone)).size).toBe(BUSINESS_TIMEZONE_OPTIONS.length);
   });
 
-  it("derives Berlin, Singapore, and New York dates from the same UTC instant", async () => {
+  it("uses one China-time statistical date for Berlin, Singapore, and New York", async () => {
     const now = new Date("2026-09-01T03:30:00Z");
     const clientFor = (timezone: string, countryCode: string) => ({
       teamGroup: {
@@ -65,7 +65,7 @@ describe("group business time", () => {
 
     await expect(resolveGroupBusinessDate("de", "Asia/Shanghai", now, clientFor("Europe/Berlin", "DE") as never)).resolves.toBe("2026-09-01");
     await expect(resolveGroupBusinessDate("sg", "Asia/Shanghai", now, clientFor("Asia/Singapore", "SG") as never)).resolves.toBe("2026-09-01");
-    await expect(resolveGroupBusinessDate("us", "Asia/Shanghai", now, clientFor("America/New_York", "US") as never)).resolves.toBe("2026-08-31");
+    await expect(resolveGroupBusinessDate("us", "Asia/Shanghai", now, clientFor("America/New_York", "US") as never)).resolves.toBe("2026-09-01");
   });
 
   it("uses the IANA daylight-saving jump in New York", () => {

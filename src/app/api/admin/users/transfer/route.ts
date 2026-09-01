@@ -80,7 +80,7 @@ export async function POST(request: Request) {
     if (!liveActor) return { denied: true as const };
     const targetBusinessDate = await resolveGroupBusinessDate(targetGroupId, settings.timezone, now, tx);
     if (effectiveOn > targetBusinessDate)
-      return { error: `调动生效日期不能晚于目标小组当地今天 ${targetBusinessDate}`, status: 400 as const };
+      return { error: `调动生效日期不能晚于当前北京时间统计日 ${targetBusinessDate}`, status: 400 as const };
     return transferUserPosition({
       tx,
       actor: liveActor,

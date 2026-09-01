@@ -89,7 +89,7 @@ export async function POST(request: Request) {
 
       const businessDate = await resolveGroupBusinessDate(group.id, settings.timezone, now, client);
       if (effectiveOn > businessDate)
-        return { error: `生效日期不能晚于目标小组当地今天 ${businessDate}`, status: 400 as const };
+        return { error: `生效日期不能晚于当前北京时间统计日 ${businessDate}`, status: 400 as const };
 
       const existingLead = await client.user.findFirst({
         where: { role: "LEAD", active: true, groupId: group.id },

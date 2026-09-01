@@ -198,15 +198,15 @@ describe.sequential("组织架构：给空缺小组开设全新组长账号", ()
     await expect(db.user.count({ where: { username } })).resolves.toBe(1);
   });
 
-  it("uses the target group's local date when rejecting a future effective date", async () => {
+  it("uses the shared China-time statistical date when rejecting a future effective date", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     try {
       await signInAs(ids.hq);
-      const body = { ...validBody(ids.groupFuture), effectiveOn: "2026-09-01" };
+      const body = { ...validBody(ids.groupFuture), effectiveOn: "2026-09-02" };
       const response = await createGroupLeadAccount(request(body));
       expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({ error: "生效日期不能晚于目标小组当地今天 2026-08-31" });
+      await expect(response.json()).resolves.toEqual({ error: "生效日期不能晚于当前北京时间统计日 2026-09-01" });
       await expect(db.user.findUnique({ where: { username: body.username } })).resolves.toBeNull();
     } finally {
       vi.useRealTimers();

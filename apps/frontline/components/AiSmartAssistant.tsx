@@ -416,7 +416,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       const phone = phoneIn(text); const channel = optionAfter(text, "渠道", next.channelOptions) ?? optionInText(text, next.channelOptions);
       const operator = optionAfter(text, "炒群", next.memberOptions); const deviceCode = textAfter(text, "设备") || textAfter(text, "设备号"); const customerName = textAfter(text, "姓名");
       const missing = [!phone && "客户号码", !channel && "来源渠道", !operator && "炒群负责人", !deviceCode && "设备号"].filter(Boolean);
-      if (missing.length) { setCustomerContext(next); addMessage("assistant", `还缺少：${missing.join("、")}。请补充完整后重新发送，或继续使用逐步引导。`); setPhase("template"); return; }
+      if (missing.length) { setCustomerContext(next); addMessage("assistant", `还缺少：${missing.join("、")}。请点击模板补齐这些内容后重新发送。`); setPhase("template"); return; }
       setCustomerContext(next); setCustomerMode("single"); setCustomerDraft({ phone, customerName, channelId: channel!.id, joinedOn: next.today, groupOperatorOwnerId: operator!.id, deviceCode }); setPhase("customer-preview");
       addMessage("assistant", "客户资料已一次识别完成，请核对预览后确认新增。");
     } catch (caught) { addMessage("assistant", caught instanceof Error ? caught.message : "客户资料识别失败。"); setPhase("template"); }
@@ -461,13 +461,6 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     if (naturalIntent === "CUSTOMER") { void parseNaturalCustomer(text); return; }
     if (naturalIntent === "LEGACY") { void parseNaturalLegacy(text); return; }
     if (naturalIntent === "PROGRESS") { void parseNaturalProgress(text); }
-  }
-
-  function startGuidedFallback() {
-    if (naturalIntent === "DAILY") { void startDailyFlow(); return; }
-    if (naturalIntent === "CUSTOMER") { void startCustomerFlow(); return; }
-    if (naturalIntent === "LEGACY") { void startLegacyFlow(); return; }
-    if (naturalIntent === "PROGRESS") startProgressFlow();
   }
 
   async function startLegacyFlow() {
@@ -1061,10 +1054,11 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     if (phase === "progress-phone") { void acceptProgressPhone(raw); return; }
     if (phase === "progress-text" || phase === "progress-amount") { acceptProgressValue(raw); return; }
     if (["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase)) { acceptLegacyText(raw); return; }
-    if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setInput(""); void startDailyFlow(); return; }
-    if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setInput(""); void startCustomerFlow(); return; }
+    if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setNaturalIntent("DAILY"); void parseNaturalDaily(raw); return; }
+    if (phase === "idle" && /老客户|老粉/.test(raw)) { setNaturalIntent("LEGACY"); void parseNaturalLegacy(raw); return; }
+    if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setNaturalIntent("CUSTOMER"); void parseNaturalCustomer(raw); return; }
     addMessage("user", raw);
-    if (phase === "idle" && /更新.*客户|客户.*进度|跟进.*客户/.test(raw)) { setInput(""); startProgressFlow(); return; }
+    if (phase === "idle" && /更新.*客户|客户.*进度|跟进.*客户|客户\d+.*(?:注册|开单|首充|续充|出金|退群)/.test(raw)) { setNaturalIntent("PROGRESS"); void parseNaturalProgress(raw); return; }
     addMessage("assistant", "目前支持添加今日数据、新增客户和更新客户进度，请点击对应入口开始。" );
     setInput("");
   }
@@ -1241,19 +1235,18 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       </div>
 
       <div className={styles.flowActions}>
-        {phase === "template" ? <button type="button" onClick={startGuidedFallback}>改用逐步引导</button> : null}
-        {phase === "preview" ? <><button type="button" onClick={() => setPhase("edit-select")}>修改数据</button><button type="button" data-primary="true" disabled={Boolean(validationError)} onClick={() => void save()}>确认保存</button></> : null}
+        {phase === "preview" ? <><button type="button" onClick={() => void openNaturalTemplate("DAILY", "添加今日数据")}>重新填写</button><button type="button" data-primary="true" disabled={Boolean(validationError)} onClick={() => void save()}>确认保存</button></> : null}
         {phase === "edit-select" ? <button type="button" onClick={() => setPhase("preview")}>返回预览</button> : null}
-        {phase === "done" ? <><button type="button" onClick={() => { setPhase("channel"); setChannelId(""); setEntryId(null); addMessage("assistant", "请选择下一个需要填写的来源渠道。" ); }}>继续填写其他渠道</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
-        {phase === "customer-preview" ? <><button type="button" onClick={() => { setPhase("customer-phone"); addMessage("assistant", "请重新输入客户完整号码或号码后 6 位。" ); }}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveCustomer()}>确认新增</button></> : null}
-        {phase === "customer-done" ? <><button type="button" onClick={() => void startCustomerFlow()}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "done" ? <><button type="button" onClick={() => void openNaturalTemplate("DAILY", "添加今日数据")}>继续填写其他渠道</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "customer-preview" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增客户")}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveCustomer()}>确认新增</button></> : null}
+        {phase === "customer-done" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增客户")}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
         {phase === "customer-batch-input" ? <button type="button" data-primary="true" disabled={!customerBatchText.trim()} onClick={acceptCustomerBatch}>下一步：选择渠道</button> : null}
         {phase === "customer-batch-preview" ? <><button type="button" onClick={() => { setPhase("customer-batch-input"); setCustomerBatchPreview(null); addMessage("assistant", "请修改批量号码后重新检查。" ); }}>修改号码</button><button type="button" data-primary="true" disabled={!customerBatchPreview?.validPhones.length} onClick={() => void saveCustomerBatch()}>确认批量新增</button></> : null}
-        {phase === "customer-batch-done" ? <><button type="button" onClick={() => void startCustomerFlow()}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
-        {phase === "progress-preview" ? <><button type="button" onClick={() => { setPhase("progress-action"); setProgressDraft({ ...EMPTY_PROGRESS }); addMessage("assistant", "请重新选择需要更新的项目。" ); }}>重新选择</button><button type="button" data-primary="true" onClick={() => void saveProgressUpdate()}>确认更新</button></> : null}
-        {phase === "progress-done" ? <><button type="button" onClick={startProgressFlow}>继续更新其他客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
-        {phase === "legacy-preview" ? <><button type="button" onClick={() => void startLegacyFlow()}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveLegacyCustomer()}>确认导入老客户</button></> : null}
-        {phase === "legacy-done" ? <><button type="button" onClick={() => void startLegacyFlow()}>继续录入老客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "customer-batch-done" ? <><button type="button" onClick={() => void openNaturalTemplate("CUSTOMER", "新增客户")}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "progress-preview" ? <><button type="button" onClick={() => void openNaturalTemplate("PROGRESS", "更新客户进度")}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveProgressUpdate()}>确认更新</button></> : null}
+        {phase === "progress-done" ? <><button type="button" onClick={() => void openNaturalTemplate("PROGRESS", "更新客户进度")}>继续更新其他客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "legacy-preview" ? <><button type="button" onClick={() => void openNaturalTemplate("LEGACY", "录入老客户进度")}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveLegacyCustomer()}>确认导入老客户</button></> : null}
+        {phase === "legacy-done" ? <><button type="button" onClick={() => void openNaturalTemplate("LEGACY", "录入老客户进度")}>继续录入老客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
       </div>
       <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); submit(); }}>
         {phase === "template" ? <textarea aria-label="AI 对话输入框" rows={3} placeholder="点击上方模板，修改后发送；也可以直接说完整内容" value={input} onChange={(event) => setInput(event.target.value)} /> : <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" || phase === "progress-phone" || phase === "legacy-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" || phase === "legacy-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" || phase === "legacy-device" ? "输入设备账号，或回复“跳过”" : phase === "progress-text" ? "输入新的进度内容" : phase === "progress-amount" || phase === "legacy-amount" ? "输入金额，例如 1000" : ["legacy-source-date", "legacy-baseline-date", "legacy-occurred-date"].includes(phase) ? "输入日期，例如 2026-08-20" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />}

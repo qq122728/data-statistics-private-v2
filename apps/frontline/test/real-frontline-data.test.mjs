@@ -25,6 +25,9 @@ test("统一组员表按渠道读取并保存真实每日数据", () => {
 test("历史和财务读取真实每日数据接口", () => {
   const source = read("MemberDailyRecords.tsx");
   assert.match(source, /requestJson<Context>\(`\/api\/daily-stats/);
+  assert.match(source, /ai-data-updated/);
+  assert.match(source, /visibilitychange/);
+  assert.match(source, /setInterval\(refreshWhenVisible, 10_000\)/);
   assert.doesNotMatch(source, /const\s+(?:history|finance|fund).*Seed/i);
 });
 
@@ -36,7 +39,7 @@ test("客户进度统一使用真实共享表格", () => {
   assert.doesNotMatch(source, /GroupOperatorWorkbench|ExpertWorkbench|RealReceptionProgress/);
 });
 
-test("组员AI通过右侧引导对话预览并保存真实今日数据和已进群客户", () => {
+test("组员AI通过自然语言模板预览并保存真实今日数据和客户进度", () => {
   const source = read("AiSmartAssistant.tsx");
   assert.match(source, /AI 对话内容/);
   assert.match(source, /AI 对话输入框/);
@@ -62,7 +65,7 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /老客户112233/);
   assert.match(source, /客户112233今天注册/);
   assert.match(source, /未提到的指标保持原值/);
-  assert.match(source, /改用逐步引导/);
+  assert.doesNotMatch(source, /改用逐步引导/);
   assert.match(source, /正在读取本组真实渠道和人员/);
   assert.match(source, /displayedNaturalTemplates/);
   assert.match(source, /context\.channels\.map/);

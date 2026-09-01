@@ -73,6 +73,20 @@ export function MemberDailyRecords({ mode: _mode }: { mode: "history" | "finance
   }
 
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    const refresh = () => { void load(); };
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("ai-data-updated", refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    const timer = window.setInterval(refreshWhenVisible, 10_000);
+    return () => {
+      window.removeEventListener("ai-data-updated", refresh);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.clearInterval(timer);
+    };
+  }, [from, to]);
   const rows = useMemo(() => rowsFrom(entries), [entries]);
 
   return <div className="member-history">

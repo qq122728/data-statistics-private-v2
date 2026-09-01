@@ -65,17 +65,14 @@ test("表格视觉匹配目标截图的紧凑大表", () => {
   assert.match(css, /\.progressCell\{[^}]*width:240px/);
 });
 
-test("客户进度提供独立的老客户自由填写共享表", () => {
+test("客户进度提供接粉日期分离且接入统计的老客户入口", () => {
   assert.match(component, /老客户导入/);
   assert.match(component, /LegacyCustomerImport/);
-  assert.match(legacy, /添加一行/);
-  for (const field of ["进群日期", "客户号码", "归属组员", "来源渠道", "炒群负责人", "设备号", "群内天数", "炒群情况", "退群类型", "退群日期（自动）", "专家负责人", "专家情况", "注册日期", "首充", "续充", "出金", "净业绩"]) {
+  for (const field of ["接粉日期", "客户号码后 6 位", "来源渠道", "接粉归属", "设备号", "炒群负责人", "专家负责人", "启用前最后状态", "实际发生日期", "首充金额", "续充金额", "出金金额"]) {
     assert.match(legacy, new RegExp(field));
   }
-  assert.match(legacy, /<select aria-label="来源渠道"/);
-  assert.match(legacy, /channelOptions\.map/);
-  assert.equal((legacy.match(/<select/g) ?? []).length, 1);
-  assert.match(legacy, /\/api\/legacy-customer-rows/);
-  assert.match(legacy, /onBlur=\{\(\) => void finish\(\)\}/);
-  assert.match(legacy, /initialDepositCents \+ row\.rechargeCents - row\.withdrawalCents|netPerformanceCents/);
+  for (const scenario of ["老粉今天进群", "老粉今天开单", "已开单老粉今天续充"]) assert.match(legacy, new RegExp(scenario));
+  assert.match(legacy, /\/api\/legacy-customers/);
+  assert.match(legacy, /sourceDate: draft\.sourceDate/);
+  assert.match(legacy, /接粉日期只作为号码来源底账/);
 });

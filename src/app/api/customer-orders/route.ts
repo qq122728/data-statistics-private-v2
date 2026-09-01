@@ -13,6 +13,7 @@ import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
 import { authorizationDenied } from "../../../lib/security-events";
+import { incrementHistoricalCustomerDailyStat } from "../../../lib/daily-stats";
 
 type FieldErrors = Record<string, string[]>;
 
@@ -123,7 +124,7 @@ export async function POST(request: Request) {
       const leadIds = validRows.map(({ row }) => row.leadId);
       const leads = await transaction.leadCustomer.findMany({
         where: { id: { in: leadIds } },
-        select: { id: true, phone: true, batchId: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, invalid: true, groupStatus: true, registeredOn: true },
+        select: { id: true, phone: true, batchId: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, invalid: true, groupStatus: true, registeredOn: true, isHistoricalRecord: true },
       });
       const leadById = new Map(leads.map((lead) => [lead.id, lead]));
       for (const { row, index } of validRows) {
@@ -166,6 +167,27 @@ export async function POST(request: Request) {
             depositMethod: row.initialDepositMethod,
           },
         });
+        const lead = leadById.get(row.leadId)!;
+        const batch = batchById.get(row.batchId)!;
+        if (lead.isHistoricalRecord) {
+          const expertOwnerId = lead.expertOwnerId ?? actor.id;
+          await incrementHistoricalCustomerDailyStat(transaction, {
+            ownerId: expertOwnerId,
+            groupId: batch.groupId,
+            channelId: batch.channelId,
+            businessDate: row.openedOn,
+            position: "EXPERT",
+            sourceReceptionId: lead.attributionOwnerId ?? lead.ownerId,
+            sourceGroupOperatorId: lead.groupOperatorOwnerId ?? expertOwnerId,
+            reason: `${row.phone} 老客户开单首充`,
+            increment: {
+              orderCount: 1,
+              ...(row.initialDepositMethod === "BANK"
+                ? { bankInitialDepositCents: row.initialDepositCents }
+                : { cryptoInitialDepositCents: row.initialDepositCents }),
+            },
+          });
+        }
         orders.push(order);
       }
       return { status: 201 as const, orders };

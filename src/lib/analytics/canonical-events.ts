@@ -150,6 +150,7 @@ export async function loadCanonicalMetricEvents(
               id: true,
               openedOn: true,
               initialDepositCents: true,
+              isHistoricalBaseline: true,
               voidedAt: true,
               events: {
                 where: {
@@ -302,16 +303,20 @@ export async function loadCanonicalMetricEvents(
 
       const order = lead.customerOrder;
       if (!order || order.voidedAt) continue;
-      add(batch, lead, `order:${order.id}`, "ORDER", order.openedOn, 1);
-      add(
-        batch,
-        lead,
-        `initial:${order.id}`,
-        "RECHARGE",
-        order.openedOn,
-        null,
-        order.initialDepositCents,
-      );
+      // 老客户启用前已经开单时，只保留订单作为后续续充/出金的载体；
+      // 历史开单和历史首充不能倒灌到当前统计。
+      if (!order.isHistoricalBaseline) {
+        add(batch, lead, `order:${order.id}`, "ORDER", order.openedOn, 1);
+        add(
+          batch,
+          lead,
+          `initial:${order.id}`,
+          "RECHARGE",
+          order.openedOn,
+          null,
+          order.initialDepositCents,
+        );
+      }
       for (const event of order.events) {
         if (event.kind === "RECHARGE" && event.continuationNumber === null)
           continue;

@@ -13,9 +13,10 @@ import { API_LIMITS } from "../../../lib/request-limits";
 import { getAssignedRoles } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
+import { incrementHistoricalCustomerDailyStat } from "../../../lib/daily-stats";
 
-const baselineStages = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED"] as const;
-const currentEvents = ["NONE", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED", "ORDERED"] as const;
+const baselineStages = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED", "ORDERED"] as const;
+const currentEvents = ["NONE", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"] as const;
 const rank = { NONE: -1, NOT_REPLIED: 0, REPLIED: 1, JOINED: 2, INTRODUCED: 3, REGISTERED: 4, ORDERED: 5 } as const;
 const date = z.string().refine(isCalendarDate, "日期必须是实际存在的 YYYY-MM-DD");
 const inputSchema = z.object({
@@ -25,20 +26,27 @@ const inputSchema = z.object({
   receptionOwnerId: z.string().min(1, "请选择接粉归属").max(API_LIMITS.identifierCharacters),
   groupOperatorOwnerId: z.string().max(API_LIMITS.identifierCharacters).optional(),
   expertOwnerId: z.string().max(API_LIMITS.identifierCharacters).optional(),
+  deviceCode: z.string().trim().max(100, "设备号不能超过 100 个字").optional(),
+  sourceDate: date.optional(),
   baselineStage: z.enum(baselineStages), baselineOn: date,
   currentEvent: z.enum(currentEvents), occurredOn: date.optional(),
   initialDepositCents: z.number().int().positive("首充金额必须大于 0").max(2_147_483_647).optional(),
+  amountCents: z.number().int().positive("金额必须大于 0").max(2_147_483_647).optional(),
   initialDepositMethod: z.enum(["CRYPTO", "BANK"]).optional(),
   notes: z.string().trim().max(1_000, "备注不能超过 1,000 个字").optional(),
 }).superRefine((value, context) => {
   if (value.currentEvent !== "NONE" && !value.occurredOn) context.addIssue({ code: "custom", path: ["occurredOn"], message: "请填写本次进度的实际日期" });
+  if (value.sourceDate && value.baselineOn < value.sourceDate) context.addIssue({ code: "custom", path: ["baselineOn"], message: "启用前状态日期不能早于接粉日期" });
   if (value.occurredOn && value.occurredOn < value.baselineOn) context.addIssue({ code: "custom", path: ["occurredOn"], message: "本次进度日期不能早于启用前状态日期" });
-  if (value.currentEvent !== "NONE" && rank[value.currentEvent] <= rank[value.baselineStage]) context.addIssue({ code: "custom", path: ["currentEvent"], message: "本次新进度必须晚于启用前最后状态" });
-  const finalRank = value.currentEvent === "NONE" ? rank[value.baselineStage] : rank[value.currentEvent];
+  const progressEvent = !["NONE", "RECHARGE", "WITHDRAWAL"].includes(value.currentEvent);
+  if (progressEvent && rank[value.currentEvent as keyof typeof rank] <= rank[value.baselineStage]) context.addIssue({ code: "custom", path: ["currentEvent"], message: "本次新进度必须晚于启用前最后状态" });
+  if (["RECHARGE", "WITHDRAWAL"].includes(value.currentEvent) && value.baselineStage !== "ORDERED") context.addIssue({ code: "custom", path: ["baselineStage"], message: "老客户必须已经开单，才能登记今天的续充或出金" });
+  const finalRank = ["RECHARGE", "WITHDRAWAL"].includes(value.currentEvent) ? rank.ORDERED : value.currentEvent === "NONE" ? rank[value.baselineStage] : rank[value.currentEvent as keyof typeof rank];
   if (finalRank >= rank.JOINED && !value.groupOperatorOwnerId) context.addIssue({ code: "custom", path: ["groupOperatorOwnerId"], message: "已进群客户必须选择炒群归属" });
   if (finalRank >= rank.INTRODUCED && !value.expertOwnerId) context.addIssue({ code: "custom", path: ["expertOwnerId"], message: "已推专家客户必须选择专家归属" });
-  if (value.currentEvent === "ORDERED" && !value.initialDepositCents) context.addIssue({ code: "custom", path: ["initialDepositCents"], message: "今天开单必须填写首充金额" });
-  if (value.currentEvent === "ORDERED" && !value.initialDepositMethod) context.addIssue({ code: "custom", path: ["initialDepositMethod"], message: "今天开单必须选择首充入金方式" });
+  const money = value.amountCents ?? value.initialDepositCents;
+  if (["ORDERED", "RECHARGE", "WITHDRAWAL"].includes(value.currentEvent) && !money) context.addIssue({ code: "custom", path: ["amountCents"], message: "请填写本次实际金额" });
+  if (["ORDERED", "RECHARGE"].includes(value.currentEvent) && !value.initialDepositMethod) context.addIssue({ code: "custom", path: ["initialDepositMethod"], message: "请选择本次入金方式" });
 });
 
 type RoleActor = Parameters<typeof getAssignedRoles>[0];
@@ -78,7 +86,7 @@ export async function POST(request: Request) {
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
     const today = statisticsDate();
-    for (const [label, value] of [["启用前状态日期", input.baselineOn], ["本次进度日期", input.occurredOn]] as const) {
+    for (const [label, value] of [["接粉日期", input.sourceDate], ["启用前状态日期", input.baselineOn], ["本次进度日期", input.occurredOn]] as const) {
       if (!value) continue; const error = entryDateError(value, today, label); if (error) return NextResponse.json({ error }, { status: 400 });
     }
     const result = await db.$transaction(async (tx) => {
@@ -96,15 +104,23 @@ export async function POST(request: Request) {
       ]);
       if (members.length !== new Set(ownerIds).size) return { status: 400 as const, error: "归属只能选择本组成员" };
       if (!channel) return { status: 400 as const, error: "历史渠道只能选择本组渠道" };
-      const batch = await tx.sourceBatch.upsert({ where: { groupId_channelId_sourceDate: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn } }, update: {}, create: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn, channelTypeSnapshot: channel.channelType } });
+      const sourceDate = input.sourceDate ?? input.baselineOn;
+      const batch = await tx.sourceBatch.upsert({ where: { groupId_channelId_sourceDate: { groupId: actor.groupId, channelId: channel.id, sourceDate } }, update: {}, create: { groupId: actor.groupId, channelId: channel.id, sourceDate, channelTypeSnapshot: channel.channelType, isHistoricalRecord: true } });
       const baselineRank = rank[input.baselineStage];
-      const finalRank = input.currentEvent === "NONE" ? baselineRank : rank[input.currentEvent];
+      const finalRank = ["RECHARGE", "WITHDRAWAL"].includes(input.currentEvent) ? rank.ORDERED : input.currentEvent === "NONE" ? baselineRank : rank[input.currentEvent as keyof typeof rank];
       const currentOn = input.occurredOn ?? input.baselineOn;
       const counted = (stage: "REPLIED" | "JOINED" | "INTRODUCED" | "REGISTERED") => input.currentEvent !== "NONE" && rank[stage] > baselineRank && rank[stage] <= finalRank;
       const dateFor = (stage: "REPLIED" | "JOINED" | "INTRODUCED" | "REGISTERED") => finalRank >= rank[stage] ? (counted(stage) ? currentOn : input.baselineOn) : null;
+      const device = input.deviceCode ? await tx.device.upsert({
+        where: { groupId_code: { groupId: actor.groupId, code: input.deviceCode } },
+        update: {},
+        create: { groupId: actor.groupId, code: input.deviceCode, memberId: input.groupOperatorOwnerId || input.receptionOwnerId },
+        select: { id: true },
+      }) : null;
       const lead = await tx.leadCustomer.create({ data: {
         phone, batchId: batch.id, ownerId: input.receptionOwnerId, attributionOwnerId: input.receptionOwnerId,
         groupOperatorOwnerId: input.groupOperatorOwnerId || null, expertOwnerId: input.expertOwnerId || null,
+        deviceId: device?.id ?? null,
         customerName: input.customerName || null, historicalSourceName: channel.name, isHistoricalRecord: true, historicalBaselineStage: input.baselineStage, notes: input.notes || null,
         replyStatus: finalRank >= rank.REPLIED ? "REPLIED" : "NOT_REPLIED", repliedOn: dateFor("REPLIED"), historicalReplyCounted: counted("REPLIED"),
         groupStatus: finalRank >= rank.JOINED ? "JOINED" : "NOT_JOINED", joinedOn: dateFor("JOINED"), historicalJoinCounted: counted("JOINED"),
@@ -120,9 +136,36 @@ export async function POST(request: Request) {
         counted("REGISTERED") ? { kind: "REGISTERED" as const, note: "老客户启用后新增注册" } : null,
       ].filter((value): value is NonNullable<typeof value> => Boolean(value));
       if (activities.length) await tx.leadActivity.createMany({ data: activities.map((activity) => ({ leadId: lead.id, actorId: actor.id, occurredOn: currentOn, ...activity })) });
+      const amountCents = input.amountCents ?? input.initialDepositCents ?? 0;
       let orderId: string | null = null;
-      if (input.currentEvent === "ORDERED" && input.initialDepositCents && input.initialDepositMethod) {
-        const order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: currentOn, initialDepositCents: input.initialDepositCents, initialDepositMethod: input.initialDepositMethod } }); orderId = order.id;
+      let order = null;
+      if (input.baselineStage === "ORDERED") {
+        order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: input.baselineOn, initialDepositCents: 0, initialDepositMethod: null, isHistoricalBaseline: true } });
+        orderId = order.id;
+      } else if (input.currentEvent === "ORDERED" && amountCents && input.initialDepositMethod) {
+        order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: currentOn, initialDepositCents: amountCents, initialDepositMethod: input.initialDepositMethod } });
+        await tx.customerFinanceEvent.create({ data: { batchId: batch.id, customerOrderId: order.id, enteredById: actor.id, occurredOn: currentOn, kind: "RECHARGE", amountCents, depositMethod: input.initialDepositMethod } });
+        orderId = order.id;
+      }
+      if (order && ["RECHARGE", "WITHDRAWAL"].includes(input.currentEvent) && amountCents) {
+        await tx.customerFinanceEvent.create({ data: { batchId: batch.id, customerOrderId: order.id, enteredById: actor.id, occurredOn: currentOn, kind: input.currentEvent === "RECHARGE" ? "RECHARGE" : "WITHDRAWAL", amountCents, depositMethod: input.currentEvent === "RECHARGE" ? input.initialDepositMethod : null, continuationNumber: input.currentEvent === "RECHARGE" ? 1 : null } });
+      }
+
+      if (input.currentEvent === "REPLIED") {
+        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.receptionOwnerId, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "RECEPTION", sourceReceptionId: input.receptionOwnerId, reason: `${phone} 老客户回复`, increment: { replyCount: 1 } });
+      } else if (input.currentEvent === "JOINED") {
+        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.receptionOwnerId, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "RECEPTION", sourceReceptionId: input.receptionOwnerId, reason: `${phone} 老客户进群`, increment: { joinCount: 1 } });
+        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.groupOperatorOwnerId!, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "GROUP_OPERATOR", sourceReceptionId: input.receptionOwnerId, reason: `${phone} 老客户进群`, increment: { operatorReceivedCount: 1, currentInGroupCount: 1 } });
+      } else if (input.currentEvent === "INTRODUCED") {
+        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.groupOperatorOwnerId!, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "GROUP_OPERATOR", sourceReceptionId: input.receptionOwnerId, reason: `${phone} 老客户推专家`, increment: { expertIntroCount: 1 } });
+      } else if (input.currentEvent === "REGISTERED") {
+        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.expertOwnerId!, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "EXPERT", sourceReceptionId: input.receptionOwnerId, sourceGroupOperatorId: input.groupOperatorOwnerId, reason: `${phone} 老客户注册`, increment: { registrationCount: 1 } });
+      } else if (input.currentEvent === "ORDERED") {
+        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.expertOwnerId!, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "EXPERT", sourceReceptionId: input.receptionOwnerId, sourceGroupOperatorId: input.groupOperatorOwnerId, reason: `${phone} 老客户开单首充`, increment: { orderCount: 1, ...(input.initialDepositMethod === "BANK" ? { bankInitialDepositCents: amountCents } : { cryptoInitialDepositCents: amountCents }) } });
+      } else if (input.currentEvent === "RECHARGE") {
+        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.expertOwnerId!, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "EXPERT", sourceReceptionId: input.receptionOwnerId, sourceGroupOperatorId: input.groupOperatorOwnerId, reason: `${phone} 老客户续充`, increment: input.initialDepositMethod === "BANK" ? { bankRechargeCents: amountCents } : { cryptoRechargeCents: amountCents } });
+      } else if (input.currentEvent === "WITHDRAWAL") {
+        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.expertOwnerId!, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "EXPERT", sourceReceptionId: input.receptionOwnerId, sourceGroupOperatorId: input.groupOperatorOwnerId, reason: `${phone} 老客户出金`, increment: { withdrawalCents: amountCents } });
       }
       await recordAudit(tx, { actorId: actor.id, action: "HISTORICAL_CUSTOMER_CREATED", entityType: "LeadCustomer", entityId: lead.id, summary: { channelId: channel.id, baselineStage: input.baselineStage, currentEvent: input.currentEvent, receptionOwnerId: input.receptionOwnerId, groupOperatorOwnerId: input.groupOperatorOwnerId || null, expertOwnerId: input.expertOwnerId || null, orderId } });
       return { status: 201 as const, leadId: lead.id, destination: destinationFor(actor, phone) };

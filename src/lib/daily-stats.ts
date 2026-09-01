@@ -6,6 +6,15 @@ import { getAssignedRoles, isFrontlineGroupMember } from "./role-access";
 const nonNegativeInt = z.number().int().min(0).max(2_147_483_647).default(0);
 const optionalId = z.string().trim().min(1).nullable().optional();
 
+export const dailyStatNumberFields = [
+  "dispatchCount", "duplicateCount", "lowAmountCount", "noWsCount", "manualInvalidCount",
+  "lawyerRealCaseCount", "lawyerAddedCount", "lawyerExpertAddedCount", "customerServicePushCount",
+  "replyCount", "joinCount", "operatorReceivedCount", "normalLeaveCount",
+  "abnormalLeaveCount", "currentInGroupCount", "expertIntroCount", "expertReceivedCount",
+  "expertContactedCount", "registrationCount", "orderCount", "cryptoInitialDepositCents",
+  "bankInitialDepositCents", "cryptoRechargeCents", "bankRechargeCents", "withdrawalCents",
+] as const;
+
 export const dailyStatValuesSchema = z.object({
   dispatchCount: nonNegativeInt,
   duplicateCount: nonNegativeInt,
@@ -102,10 +111,14 @@ function normalizeSources(input: SaveDailyStatInput, actorId: string) {
   };
 }
 
-function revisionValues(input: SaveDailyStatInput, groupType: "HACKER" | "LAWYER") {
+function revisionValues(
+  input: SaveDailyStatInput,
+  groupType: "HACKER" | "LAWYER",
+  options: { allowHistoricalFunnelOverflow?: boolean } = {},
+) {
   const all = input.values;
   if (input.position === "RECEPTION" && groupType === "LAWYER") {
-    if (all.replyCount > all.dispatchCount) throw new DailyStatError("回复数量不能超过接粉数量");
+    if (!options.allowHistoricalFunnelOverflow && all.replyCount > all.dispatchCount) throw new DailyStatError("回复数量不能超过接粉数量");
     for (const [label, value] of [
       ["接粉小金额", all.lowAmountCount],
       ["接粉真实案件", all.lawyerRealCaseCount],
@@ -134,8 +147,8 @@ function revisionValues(input: SaveDailyStatInput, groupType: "HACKER" | "LAWYER
   if (input.position === "RECEPTION") {
     const effectiveCount = all.dispatchCount - all.duplicateCount - all.lowAmountCount - all.noWsCount - all.manualInvalidCount;
     if (effectiveCount < 0) throw new DailyStatError("撞粉、低金额、无 WhatsApp 与人工无效数量之和不能超过总下发粉数量");
-    if (all.replyCount > effectiveCount) throw new DailyStatError("回复数量不能超过有效数据数量");
-    if (all.joinCount > effectiveCount) throw new DailyStatError("进群数量不能超过有效数据数量");
+    if (!options.allowHistoricalFunnelOverflow && all.replyCount > effectiveCount) throw new DailyStatError("回复数量不能超过有效数据数量");
+    if (!options.allowHistoricalFunnelOverflow && all.joinCount > effectiveCount) throw new DailyStatError("进群数量不能超过有效数据数量");
     // 注册和开单按实际发生日期登记，可能来自前几天已经推专家或注册的存量客户，
     // 因此不能拿当天推专家、当天注册数量作为上限。
     return {
@@ -249,6 +262,7 @@ export async function saveDailyStat(
   tx: Prisma.TransactionClient,
   actor: DailyStatActor,
   rawInput: unknown,
+  options: { allowHistoricalFunnelOverflow?: boolean } = {},
 ) {
   if (!actor.active || !actor.groupId) throw new DailyStatError("当前账号未分配到可用小组", 403);
   const input = saveDailyStatSchema.parse(rawInput);
@@ -356,7 +370,7 @@ export async function saveDailyStat(
     throw new DailyStatError("已确认数据必须填写更正原因", 400);
   }
 
-  const values = revisionValues(input, group.groupType);
+  const values = revisionValues(input, group.groupType, options);
   let entry: DailyStatEntry;
   if (!existing) {
     entry = await tx.dailyStatEntry.create({
@@ -422,4 +436,68 @@ export function publicDailyStat(entry: DailyStatWithDetails) {
     ...entry,
     officialRevision: entry.approvedRevision,
   };
+}
+
+type DailyStatIncrement = Partial<Record<(typeof dailyStatNumberFields)[number], number>>;
+
+/**
+ * 把“老客户今天新发生的步骤”并入现有日报行。
+ * 接粉量保持不变，只累加这次真实发生的进群、注册、开单或资金事实。
+ */
+export async function incrementHistoricalCustomerDailyStat(
+  tx: Prisma.TransactionClient,
+  input: {
+    ownerId: string;
+    groupId: string;
+    channelId: string;
+    businessDate: string;
+    position: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
+    sourceReceptionId: string;
+    sourceGroupOperatorId?: string | null;
+    reason: string;
+    increment: DailyStatIncrement;
+  },
+) {
+  const owner = await tx.user.findFirst({
+    where: { id: input.ownerId, groupId: input.groupId, active: true },
+    select: { id: true, active: true, role: true, groupId: true, roleAssignments: { select: { role: true } } },
+  });
+  if (!owner) throw new DailyStatError("老客户当前负责人已停用或不在本组，请先重新选择负责人");
+
+  const sources = normalizeSources({
+    businessDate: input.businessDate,
+    position: input.position,
+    channelId: input.channelId,
+    sourceReceptionId: input.sourceReceptionId,
+    sourceGroupOperatorId: input.sourceGroupOperatorId ?? undefined,
+    values: Object.fromEntries(dailyStatNumberFields.map((field) => [field, 0])) as z.infer<typeof dailyStatValuesSchema>,
+  }, owner.id);
+  const identityKey = entryIdentity({
+    ownerId: owner.id,
+    groupId: input.groupId,
+    businessDate: input.businessDate,
+    position: input.position,
+    channelId: input.channelId,
+    ...sources,
+  });
+  const existing = await tx.dailyStatEntry.findUnique({
+    where: { identityKey },
+    include: { currentRevision: true, approvedRevision: true },
+  });
+  const previous = existing?.currentRevision ?? existing?.approvedRevision;
+  const values = Object.fromEntries(dailyStatNumberFields.map((field) => [field, previous?.[field] ?? 0])) as z.infer<typeof dailyStatValuesSchema>;
+  for (const [field, amount] of Object.entries(input.increment) as Array<[keyof DailyStatIncrement, number | undefined]>) {
+    if (!amount) continue;
+    values[field] = Math.max(0, values[field] + amount);
+  }
+  return saveDailyStat(tx, owner, {
+    ...(existing ? { entryId: existing.id } : {}),
+    businessDate: input.businessDate,
+    position: input.position,
+    channelId: input.channelId,
+    sourceReceptionId: input.sourceReceptionId,
+    sourceGroupOperatorId: input.sourceGroupOperatorId ?? undefined,
+    changeReason: `AI客户事件同步：${input.reason}`,
+    values,
+  }, { allowHistoricalFunnelOverflow: true });
 }

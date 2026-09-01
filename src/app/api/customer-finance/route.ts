@@ -12,6 +12,7 @@ import { entryDateError } from "../../../lib/entry-date-validation";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
 import { authorizationDenied } from "../../../lib/security-events";
 import { hasAnyRole } from "../../../lib/role-access";
+import { incrementHistoricalCustomerDailyStat } from "../../../lib/daily-stats";
 
 type FieldErrors = Record<string, string[]>;
 
@@ -68,8 +69,8 @@ export async function POST(request: Request) {
       const orders = await transaction.customerOrder.findMany({
         where: { id: { in: validRows.map(({ row }) => row.customerOrderId) } },
         include: {
-          batch: { select: { groupId: true } },
-          lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true } },
+          batch: { select: { groupId: true, channelId: true } },
+          lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, isHistoricalRecord: true } },
           events: { where: { kind: "RECHARGE", continuationNumber: { not: null } }, select: { id: true, continuationNumber: true, voidedAt: true } },
         },
       });
@@ -101,9 +102,28 @@ export async function POST(request: Request) {
           depositMethod: row.kind === "RECHARGE" ? row.depositMethod : null,
           continuationNumber: row.kind === "RECHARGE" ? row.continuationNumber : null,
         };
-        events.push(previous
+        const savedEvent = previous
           ? await transaction.customerFinanceEvent.update({ where: { id: previous.id }, data: { ...data, voidedAt: null, voidReason: null, voidedById: null } })
-          : await transaction.customerFinanceEvent.create({ data }));
+          : await transaction.customerFinanceEvent.create({ data });
+        events.push(savedEvent);
+        if (order.lead?.isHistoricalRecord) {
+          const expertOwnerId = order.lead.expertOwnerId ?? actor.id;
+          await incrementHistoricalCustomerDailyStat(transaction, {
+            ownerId: expertOwnerId,
+            groupId: order.batch.groupId,
+            channelId: order.batch.channelId,
+            businessDate: row.occurredOn,
+            position: "EXPERT",
+            sourceReceptionId: order.lead.attributionOwnerId ?? order.lead.ownerId,
+            sourceGroupOperatorId: order.lead.groupOperatorOwnerId ?? expertOwnerId,
+            reason: `${order.phone} 老客户${row.kind === "RECHARGE" ? "续充" : "出金"}`,
+            increment: row.kind === "WITHDRAWAL"
+              ? { withdrawalCents: row.amountCents }
+              : row.depositMethod === "BANK"
+                ? { bankRechargeCents: row.amountCents }
+                : { cryptoRechargeCents: row.amountCents },
+          });
+        }
       }
       return { status: 201 as const, events };
     });

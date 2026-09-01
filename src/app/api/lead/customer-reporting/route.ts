@@ -198,6 +198,7 @@ export async function GET(request: Request) {
     orderBy: [{ name: "asc" }, { id: "asc" }],
   }) : [];
   return NextResponse.json({
+    actorId: actor.id,
     stage, expertStage, expertCounts, page, pageSize: PAGE_SIZE, total, today, timezone,
     channels: [...new Set(channelRows.map((row) => row.batch.channel.name))].sort((left, right) => left.localeCompare(right, "zh-CN")),
     channelOptions: await db.channel.findMany({ where: { groupId: group.id, active: true }, select: { id: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] }),

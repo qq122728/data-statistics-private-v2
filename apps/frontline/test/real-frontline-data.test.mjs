@@ -62,6 +62,7 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /推专家/);
   assert.match(source, /登记注册/);
   assert.match(source, /登记首充/);
+  assert.match(source, /还没有登记注册/);
   assert.match(source, /新增续充/);
   assert.match(source, /登记出金/);
   assert.match(source, /确认更新/);

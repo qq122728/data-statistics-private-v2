@@ -137,6 +137,7 @@ const EMPTY_CUSTOMER: CustomerDraft = { phone: "", customerName: "", channelId: 
 
 type ProgressCustomer = {
   id: string; phone: string; customerName: string | null; joinedOn: string | null; groupStatus: string;
+  registeredOn: string | null;
   groupOperatorOwner: { id: string; name: string } | null; expertOwner: { id: string; name: string } | null;
   device: { id: string; code: string } | null; batch: { id: string; channel: { name: string } };
   order: { id: string; nextContinuationNumber: number } | null;
@@ -471,6 +472,12 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     }
     if (action === "initial" && progressCustomer.order) {
       addMessage("assistant", "这个客户已经登记过首充，不能重复开单；可以选择新增续充。" ); return;
+    }
+    if (action === "initial" && !progressCustomer.registeredOn) {
+      addMessage("assistant", "这个客户还没有登记注册，请先选择“登记注册”，注册完成后才能登记首充。" ); return;
+    }
+    if (action === "register" && progressCustomer.registeredOn) {
+      addMessage("assistant", `这个客户已经在 ${progressCustomer.registeredOn} 登记注册，不需要重复登记。`); return;
     }
     const next = { ...EMPTY_PROGRESS, action };
     setProgressDraft(next); addMessage("user", PROGRESS_LABELS[action]);

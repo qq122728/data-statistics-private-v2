@@ -34,7 +34,10 @@ export function workspaceOrigin(workspace: LoginResponse["workspace"]): string {
 
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init });
-  const payload = await response.json().catch(() => ({})) as T & { error?: string };
-  if (!response.ok) throw new Error(payload.error ?? "操作失败，请稍后重试");
+  const payload = await response.json().catch(() => ({})) as T & { error?: string; fields?: Record<string, string[]> };
+  if (!response.ok) {
+    const fieldMessage = payload.fields ? Object.values(payload.fields).flat().find(Boolean) : undefined;
+    throw new Error(fieldMessage ? `${payload.error ?? "请检查填写内容"}：${fieldMessage}` : payload.error ?? "操作失败，请稍后重试");
+  }
   return payload;
 }

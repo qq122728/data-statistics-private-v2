@@ -41,8 +41,8 @@ export type AssistantIntent =
   | { kind: "daily"; correction: boolean; updates: MetricUpdate[] }
   | { kind: "customer_query"; phoneTail: string }
   | { kind: "customer_note"; phoneTail: string; noteKind: "group" | "expert"; note: string }
-  | { kind: "customer_event"; phoneTail: string; event: "REPLIED" | "JOINED" | "LEFT_NORMAL" | "LEFT_ABNORMAL" | "INTRODUCED" | "REGISTERED" | "ORDERED" | "RECHARGE" | "WITHDRAWAL"; amountCents?: number }
-  | { kind: "legacy_event"; phoneTail: string; event: "JOINED" | "ORDERED" | "RECHARGE"; sourceDate: string; amountCents?: number; channelName?: string; receptionOwnerName?: string; groupOperatorName?: string; expertName?: string }
+  | { kind: "customer_event"; phoneTail: string; event: "REPLIED" | "JOINED" | "LEFT_NORMAL" | "LEFT_ABNORMAL" | "INTRODUCED" | "REGISTERED" | "ORDERED" | "RECHARGE" | "WITHDRAWAL"; amountCents?: number; depositMethod?: "CRYPTO" | "BANK" }
+  | { kind: "legacy_event"; phoneTail: string; event: "JOINED" | "ORDERED" | "RECHARGE"; sourceDate: string; amountCents?: number; depositMethod?: "CRYPTO" | "BANK"; channelName?: string; receptionOwnerName?: string; groupOperatorName?: string; expertName?: string }
   | { kind: "unknown" };
 
 const metricPatterns: Array<{ key: keyof DailyValues; label: string; money?: boolean; patterns: string[] }> = [
@@ -81,7 +81,7 @@ export function interpretAssistantMessage(message: string): AssistantIntent {
     const sourceDate = `${sourceDateMatch[1] ?? new Date().getFullYear()}-${sourceDateMatch[2].padStart(2, "0")}-${sourceDateMatch[3].padStart(2, "0")}`;
     const event = /续充/.test(compact) ? "RECHARGE" as const : /开单/.test(compact) ? "ORDERED" as const : "JOINED" as const;
     const amountMatch = event === "JOINED" ? null : compact.match(/(?:开单|首充|续充|金额)[^\d]{0,12}(\d+(?:\.\d+)?)/);
-    return { kind: "legacy_event", phoneTail: tail, event, sourceDate, ...(amountMatch ? { amountCents: Math.round(Number(amountMatch[1]) * 100) } : {}) };
+    return { kind: "legacy_event", phoneTail: tail, event, sourceDate, ...(amountMatch ? { amountCents: Math.round(Number(amountMatch[1]) * 100), depositMethod: /银行卡|银行/.test(compact) ? "BANK" as const : "CRYPTO" as const } : {}) };
   }
   const groupMatch = compact.match(/(?:炒群情况|群内情况|炒群进度)(?:写错了|改成|修改为|更新为|是|为)?\s*(.+)$/);
   if (tail && groupMatch?.[1]?.trim()) return { kind: "customer_note", phoneTail: tail, noteKind: "group", note: groupMatch[1].trim() };
@@ -102,7 +102,7 @@ export function interpretAssistantMessage(message: string): AssistantIntent {
     if (event) {
       const needsAmount = event === "ORDERED" || event === "RECHARGE" || event === "WITHDRAWAL";
       const amountMatch = needsAmount ? compact.match(/(?:开单|首充|续充|再次入金|出金|金额)[^\d]{0,12}(\d+(?:\.\d+)?)/) : null;
-      return { kind: "customer_event", phoneTail: tail, event, ...(amountMatch ? { amountCents: Math.round(Number(amountMatch[1]) * 100) } : {}) };
+      return { kind: "customer_event", phoneTail: tail, event, ...(amountMatch ? { amountCents: Math.round(Number(amountMatch[1]) * 100), depositMethod: /银行卡|银行/.test(compact) ? "BANK" as const : "CRYPTO" as const } : {}) };
     }
   }
 

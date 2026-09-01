@@ -23,6 +23,7 @@ const rawIntentSchema = z.discriminatedUnion("kind", [
     kind: z.literal("customer_event"),
     event: z.enum(["REPLIED", "JOINED", "LEFT_NORMAL", "LEFT_ABNORMAL", "INTRODUCED", "REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"]),
     amountCents: z.number().int().positive().optional(),
+    depositMethod: z.enum(["CRYPTO", "BANK"]).optional(),
   }).strict(),
   z.object({
     kind: z.literal("legacy_event"),
@@ -33,6 +34,7 @@ const rawIntentSchema = z.discriminatedUnion("kind", [
     groupOperatorName: z.string().trim().max(80).optional(),
     expertName: z.string().trim().max(80).optional(),
     amountCents: z.number().int().positive().optional(),
+    depositMethod: z.enum(["CRYPTO", "BANK"]).optional(),
   }).strict(),
   z.object({ kind: z.literal("unknown") }).strict(),
 ]);
@@ -52,8 +54,8 @@ export type AiAssistantIntent =
   | { kind: "daily"; correction: boolean; updates: Array<{ key: MetricKey; label: string; value: number; money?: boolean }> }
   | { kind: "customer_query"; phoneTail: string }
   | { kind: "customer_note"; phoneTail: string; noteKind: "group" | "expert"; note: string }
-  | { kind: "customer_event"; phoneTail: string; event: "REPLIED" | "JOINED" | "LEFT_NORMAL" | "LEFT_ABNORMAL" | "INTRODUCED" | "REGISTERED" | "ORDERED" | "RECHARGE" | "WITHDRAWAL"; amountCents?: number }
-  | { kind: "legacy_event"; phoneTail: string; event: "JOINED" | "ORDERED" | "RECHARGE"; sourceDate: string; channelName?: string; receptionOwnerName?: string; groupOperatorName?: string; expertName?: string; amountCents?: number }
+  | { kind: "customer_event"; phoneTail: string; event: "REPLIED" | "JOINED" | "LEFT_NORMAL" | "LEFT_ABNORMAL" | "INTRODUCED" | "REGISTERED" | "ORDERED" | "RECHARGE" | "WITHDRAWAL"; amountCents?: number; depositMethod?: "CRYPTO" | "BANK" }
+  | { kind: "legacy_event"; phoneTail: string; event: "JOINED" | "ORDERED" | "RECHARGE"; sourceDate: string; channelName?: string; receptionOwnerName?: string; groupOperatorName?: string; expertName?: string; amountCents?: number; depositMethod?: "CRYPTO" | "BANK" }
   | { kind: "unknown" };
 
 function customerNumberTail(message: string) {
@@ -98,9 +100,9 @@ export async function interpretWithServerModel(
             "业务词映射：接粉/添加→dispatchCount，撞粉→duplicateCount，低金额/小金额→lowAmountCount，无号码/无WS→noWsCount，人工无效→manualInvalidCount，回复→replyCount，进群/拉群→joinCount，正常退群→normalLeaveCount，异常退群→abnormalLeaveCount，推专家→expertIntroCount，注册→registrationCount，开单→orderCount，首充→InitialDeposit，续充/再次入金→Recharge，出金→withdrawalCents。",
             "出现写错、纠正、改成、应该是、修改为时 correction=true。",
             "查询某号码进度输出 {\"kind\":\"customer_query\"}。修改炒群情况输出 {\"kind\":\"customer_note\",\"noteKind\":\"group\",\"note\":\"新内容\"}；修改专家情况时 noteKind=expert。",
-            "某个已存在号码今天发生回复、进群/拉群、正常退群、异常退群、推专家、注册、开单、续充或出金时输出 customer_event。格式：{\"kind\":\"customer_event\",\"event\":\"REPLIED|JOINED|LEFT_NORMAL|LEFT_ABNORMAL|INTRODUCED|REGISTERED|ORDERED|RECHARGE|WITHDRAWAL\",\"amountCents\":50000}。开单、续充、出金要提取金额，缺金额就省略，不得编造。",
+            "某个已存在号码今天发生回复、进群/拉群、正常退群、异常退群、推专家、注册、开单、续充或出金时输出 customer_event。格式：{\"kind\":\"customer_event\",\"event\":\"REPLIED|JOINED|LEFT_NORMAL|LEFT_ABNORMAL|INTRODUCED|REGISTERED|ORDERED|RECHARGE|WITHDRAWAL\",\"amountCents\":50000,\"depositMethod\":\"CRYPTO|BANK\"}。开单、续充、出金要提取金额，明确说银行卡就用 BANK，否则入金默认 CRYPTO；缺金额就省略，不得编造。",
             `当前统计日是 ${options.today ?? "未知"}。老客户或其他日期的粉今天发生进群、拉群、开单或续充，输出 legacy_event；拉群等于进群。`,
-            "legacy_event 格式：{\"kind\":\"legacy_event\",\"event\":\"JOINED|ORDERED|RECHARGE\",\"sourceDate\":\"YYYY-MM-DD\",\"channelName\":\"原话中的渠道\",\"receptionOwnerName\":\"接粉归属\",\"groupOperatorName\":\"炒群负责人\",\"expertName\":\"专家负责人\",\"amountCents\":100000}。",
+            "legacy_event 格式：{\"kind\":\"legacy_event\",\"event\":\"JOINED|ORDERED|RECHARGE\",\"sourceDate\":\"YYYY-MM-DD\",\"channelName\":\"原话中的渠道\",\"receptionOwnerName\":\"接粉归属\",\"groupOperatorName\":\"炒群负责人\",\"expertName\":\"专家负责人\",\"amountCents\":100000,\"depositMethod\":\"CRYPTO|BANK\"}。",
             "legacy_event 的 sourceDate 是老粉最初来源日期，不是今天。开单和续充必须提取金额并换算为美分；缺金额时不要编造，省略 amountCents。原话没有负责人或渠道就省略对应字段。",
             "如果员工只是聊天、含糊不清或缺少要写入的明确值，输出 {\"kind\":\"unknown\"}。只输出 JSON。",
           ].join("\n"),

@@ -41,15 +41,15 @@ type Change = MetricUpdate & { before: number };
 type PendingAction =
   | { kind: "daily"; channelId: string; channelName: string; date: string; entryId: string | null; current: DailyValues; changes: Change[]; correction: boolean; original: string; today: string }
   | { kind: "customer_note"; customer: Customer; noteKind: "group" | "expert"; before: string; after: string; original: string }
-  | { kind: "customer_event"; customer: Customer; event: "REPLIED" | "JOINED" | "LEFT_NORMAL" | "LEFT_ABNORMAL" | "INTRODUCED" | "REGISTERED" | "ORDERED" | "RECHARGE" | "WITHDRAWAL"; amountCents: number | null; today: string; original: string }
+  | { kind: "customer_event"; customer: Customer; event: "REPLIED" | "JOINED" | "LEFT_NORMAL" | "LEFT_ABNORMAL" | "INTRODUCED" | "REGISTERED" | "ORDERED" | "RECHARGE" | "WITHDRAWAL"; amountCents: number | null; depositMethod: "CRYPTO" | "BANK"; today: string; original: string; canonicalSaved?: boolean }
   | {
     kind: "legacy_event"; event: "JOINED" | "ORDERED" | "RECHARGE"; phoneTail: string; sourceDate: string; today: string;
     channel: Option; receptionOwner: Option; groupOperator: Option; expert: Option | null; amountCents: number | null;
-    existingCustomer: Customer | null; original: string;
+    existingCustomer: Customer | null; depositMethod: "CRYPTO" | "BANK"; original: string; canonicalSaved?: boolean;
   };
 type ChatItem = { id: number; from: "user" | "assistant"; text: string };
 type ResourceGuide = { today: string; channels: Array<{ id: string; name: string }>; channelId: string; dispatchCount: number; duplicateCount: number; lowAmountCount: number; noWsCount: number; manualInvalidCount: number };
-type LegacyGuide = { today: string; phone: string; sourceDate: string; event: "JOINED" | "ORDERED"; channelId: string; receptionOwnerId: string; groupOperatorId: string; expertId: string; amount: number; context: HistoricalContext };
+type LegacyGuide = { today: string; phone: string; sourceDate: string; event: "JOINED" | "ORDERED"; channelId: string; receptionOwnerId: string; groupOperatorId: string; expertId: string; amount: number; depositMethod: "CRYPTO" | "BANK"; context: HistoricalContext };
 
 const samples = [
   "今天 FB-M 添加20，回复8，进群3",
@@ -129,7 +129,7 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
     try {
       const daily = await requestJson<DailyContext>("/api/daily-stats");
       const context = await requestJson<HistoricalContext>(`/api/historical-claims?baselineOn=${encodeURIComponent(daily.today)}`);
-      setLegacyGuide({ today: context.today, phone: "", sourceDate: context.today, event: "JOINED", channelId: context.channels[0]?.id ?? "", receptionOwnerId: context.members.reception.find((item) => item.id === user.id)?.id ?? context.members.reception[0]?.id ?? "", groupOperatorId: context.members.groupOperator.find((item) => item.id === user.id)?.id ?? context.members.groupOperator[0]?.id ?? "", expertId: context.members.expert.find((item) => item.id === user.id)?.id ?? context.members.expert[0]?.id ?? "", amount: 0, context });
+      setLegacyGuide({ today: context.today, phone: "", sourceDate: context.today, event: "JOINED", channelId: context.channels[0]?.id ?? "", receptionOwnerId: context.members.reception.find((item) => item.id === user.id)?.id ?? context.members.reception[0]?.id ?? "", groupOperatorId: context.members.groupOperator.find((item) => item.id === user.id)?.id ?? context.members.groupOperator[0]?.id ?? "", expertId: context.members.expert.find((item) => item.id === user.id)?.id ?? context.members.expert[0]?.id ?? "", amount: 0, depositMethod: "CRYPTO", context });
       reply("老客户先填原始来源日期，再选择今天新发生的进度。以前已经发生的步骤只作为底账，不会倒灌到今天统计。");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "读取老客户选项失败"); }
     finally { setBusy(false); }
@@ -148,10 +148,10 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
     if (legacyGuide.event === "ORDERED" && (!expert || legacyGuide.amount <= 0)) { setError("今天开单必须选择专家并填写首充金额"); return; }
     const existing = await findCustomer(digits.slice(-6));
     if (existing) {
-      setPending({ kind: "customer_event", customer: existing, event: legacyGuide.event, amountCents: legacyGuide.event === "ORDERED" ? Math.round(legacyGuide.amount * 100) : null, today: legacyGuide.today, original: "AI引导老客户新进度" });
+      setPending({ kind: "customer_event", customer: existing, event: legacyGuide.event, amountCents: legacyGuide.event === "ORDERED" ? Math.round(legacyGuide.amount * 100) : null, depositMethod: legacyGuide.depositMethod, today: legacyGuide.today, original: "AI引导老客户新进度" });
       reply("该号码已经存在，不重复导入，只新增今天发生的进度。");
     } else {
-      setPending({ kind: "legacy_event", event: legacyGuide.event, phoneTail: digits, sourceDate: legacyGuide.sourceDate, today: legacyGuide.today, channel, receptionOwner, groupOperator, expert: legacyGuide.event === "ORDERED" ? expert : null, amountCents: legacyGuide.event === "ORDERED" ? Math.round(legacyGuide.amount * 100) : null, existingCustomer: null, original: "AI引导老客户新进度" });
+      setPending({ kind: "legacy_event", event: legacyGuide.event, phoneTail: digits, sourceDate: legacyGuide.sourceDate, today: legacyGuide.today, channel, receptionOwner, groupOperator, expert: legacyGuide.event === "ORDERED" ? expert : null, amountCents: legacyGuide.event === "ORDERED" ? Math.round(legacyGuide.amount * 100) : null, depositMethod: legacyGuide.depositMethod, existingCustomer: null, original: "AI引导老客户新进度" });
       reply("已生成老客户保存预览：原始日期只建历史底账，今天事件才进入今天报表。");
     }
     setLegacyGuide(null);
@@ -243,7 +243,7 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
           reply(`客户 ${customer.phone} 还没有有效开单，不能登记${customerEventLabel(intent.event)}。`); return;
         }
         const daily = await requestJson<DailyContext>("/api/daily-stats");
-        setPending({ kind: "customer_event", customer, event: intent.event, amountCents: intent.amountCents ?? null, today: daily.today, original: message });
+        setPending({ kind: "customer_event", customer, event: intent.event, amountCents: intent.amountCents ?? null, depositMethod: intent.depositMethod ?? "CRYPTO", today: daily.today, original: message });
         reply(`已找到客户 ${customer.phone}。这次只新增“${customerEventLabel(intent.event)}”事件，原始接粉归属不会改变。`);
         return;
       }
@@ -254,7 +254,7 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
           const mappedEvent = intent.event;
           if (mappedEvent === "RECHARGE" && !existingCustomer.order) { reply(`客户 ${intent.phoneTail} 没有有效开单记录，不能直接续充。请先核对号码或先登记开单。`); return; }
           if ((mappedEvent === "ORDERED" || mappedEvent === "RECHARGE") && !intent.amountCents) { reply(`我知道这是今天${mappedEvent === "ORDERED" ? "开单" : "续充"}，但还缺金额。`); return; }
-          setPending({ kind: "customer_event", customer: existingCustomer, event: mappedEvent, amountCents: intent.amountCents ?? null, today: daily.today, original: message });
+          setPending({ kind: "customer_event", customer: existingCustomer, event: mappedEvent, amountCents: intent.amountCents ?? null, depositMethod: intent.depositMethod ?? "CRYPTO", today: daily.today, original: message });
           reply(`这个号码已经在客户库中，不会重复导入。今天只新增“${customerEventLabel(mappedEvent)}”事件。`);
           return;
         }
@@ -277,7 +277,7 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
           : null;
         const missing = [!channel ? "来源渠道" : "", !receptionOwner ? "接粉归属" : "", !groupOperator ? "炒群负责人" : "", intent.event === "ORDERED" && !expert ? "专家负责人" : "", intent.event === "ORDERED" && !intent.amountCents ? "首充金额" : ""].filter(Boolean);
         if (missing.length) { reply(`我已经理解客户要${eventLabel(intent.event)}，但还缺：${missing.join("、")}。请把这些信息补在同一句里。`); return; }
-        setPending({ kind: "legacy_event", event: intent.event, phoneTail: intent.phoneTail, sourceDate: intent.sourceDate, today: historical.today, channel: channel!, receptionOwner: receptionOwner!, groupOperator: groupOperator!, expert, amountCents: intent.amountCents ?? null, existingCustomer: null, original: message });
+        setPending({ kind: "legacy_event", event: intent.event, phoneTail: intent.phoneTail, sourceDate: intent.sourceDate, today: historical.today, channel: channel!, receptionOwner: receptionOwner!, groupOperator: groupOperator!, expert, amountCents: intent.amountCents ?? null, depositMethod: intent.depositMethod ?? "CRYPTO", existingCustomer: null, original: message });
         reply(`已按“历史资料不倒灌、今天事件计入今天”生成预览。客户来源仍保留在 ${intent.sourceDate}。`);
         return;
       }
@@ -291,6 +291,7 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
   async function confirm() {
     if (!pending || busy) return;
     setBusy(true); setError("");
+    let canonicalSaved = pending.kind === "customer_event" || pending.kind === "legacy_event" ? Boolean(pending.canonicalSaved) : false;
     try {
       if (pending.kind === "daily") {
         const values = { ...pending.current };
@@ -320,36 +321,44 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
         onNavigate("customers");
       } else if (pending.kind === "customer_event") {
         const { customer, event, amountCents, today } = pending;
-        if (event === "ORDERED") {
-          if (!amountCents) throw new Error("缺少首充金额");
-          await requestJson("/api/customer-orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batchId: customer.batch.id, leadId: customer.id, openedOn: today, phone: customer.phone, initialDepositCents: amountCents, initialDepositMethod: "CRYPTO" }) });
-        } else if (event === "RECHARGE" || event === "WITHDRAWAL") {
-          if (!customer.order || !amountCents) throw new Error("缺少开单或金额信息");
-          await requestJson("/api/customer-finance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ customerOrderId: customer.order.id, occurredOn: today, kind: event, amountCents, ...(event === "RECHARGE" ? { depositMethod: "CRYPTO", continuationNumber: customer.order.nextContinuationNumber } : {}) }) });
-        } else {
-          const action = { REPLIED: "reply", JOINED: "joinGroup", LEFT_NORMAL: "leaveGroup", LEFT_ABNORMAL: "leaveGroup", INTRODUCED: "introduceExpert", REGISTERED: "register" }[event];
-          await requestJson(`/api/leads/${customer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, occurredOn: today, ...(event === "LEFT_NORMAL" ? { leaveNote: "正常退群（AI录入）" } : event === "LEFT_ABNORMAL" ? { leaveNote: "异常退群（AI录入）" } : {}) }) });
+        if (!canonicalSaved) {
+          if (event === "ORDERED") {
+            if (!amountCents) throw new Error("缺少首充金额");
+            await requestJson("/api/customer-orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batchId: customer.batch.id, leadId: customer.id, openedOn: today, phone: customer.phone, initialDepositCents: amountCents, initialDepositMethod: pending.depositMethod }) });
+          } else if (event === "RECHARGE" || event === "WITHDRAWAL") {
+            if (!customer.order || !amountCents) throw new Error("缺少开单或金额信息");
+            await requestJson("/api/customer-finance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ customerOrderId: customer.order.id, occurredOn: today, kind: event, amountCents, ...(event === "RECHARGE" ? { depositMethod: pending.depositMethod, continuationNumber: customer.order.nextContinuationNumber } : {}) }) });
+          } else {
+            const action = { REPLIED: "reply", JOINED: "joinGroup", LEFT_NORMAL: "leaveGroup", LEFT_ABNORMAL: "leaveGroup", INTRODUCED: "introduceExpert", REGISTERED: "register" }[event];
+            await requestJson(`/api/leads/${customer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, occurredOn: today, ...(event === "LEFT_NORMAL" ? { leaveNote: "正常退群（AI录入）" } : event === "LEFT_ABNORMAL" ? { leaveNote: "异常退群（AI录入）" } : {}) }) });
+          }
+          canonicalSaved = true;
+          setPending((value) => value?.kind === "customer_event" ? { ...value, canonicalSaved: true } : value);
         }
         await syncCustomerEventDailyImpact(pending);
         reply(`客户 ${customer.phone} 已记录${customerEventLabel(event)}；客户表和今天报表已同步，接粉归属仍是 ${customer.attributionOwner?.name ?? customer.owner?.name ?? "原归属人"}。`);
         onNavigate("customers");
       } else {
-        if (pending.event === "RECHARGE") {
-          const order = pending.existingCustomer?.order;
-          if (!order || !pending.amountCents) throw new Error("缺少开单或续充信息");
-          await requestJson("/api/customer-finance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
-            customerOrderId: order.id, occurredOn: pending.today, kind: "RECHARGE", amountCents: pending.amountCents,
-            depositMethod: "CRYPTO", continuationNumber: order.nextContinuationNumber,
-          }) });
-        } else {
-          await requestJson("/api/legacy-customers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
-            phone: pending.phoneTail, channelId: pending.channel.id, receptionOwnerId: pending.receptionOwner.id,
-            groupOperatorOwnerId: pending.groupOperator.id, ...(pending.expert ? { expertOwnerId: pending.expert.id } : {}),
-            baselineStage: pending.event === "JOINED" ? "REPLIED" : "REGISTERED", baselineOn: pending.sourceDate,
-            currentEvent: pending.event, occurredOn: pending.today,
-            ...(pending.event === "ORDERED" && pending.amountCents ? { initialDepositCents: pending.amountCents, initialDepositMethod: "CRYPTO" } : {}),
-            notes: `AI录入：${pending.original.slice(0, 500)}`,
-          }) });
+        if (!canonicalSaved) {
+          if (pending.event === "RECHARGE") {
+            const order = pending.existingCustomer?.order;
+            if (!order || !pending.amountCents) throw new Error("缺少开单或续充信息");
+            await requestJson("/api/customer-finance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+              customerOrderId: order.id, occurredOn: pending.today, kind: "RECHARGE", amountCents: pending.amountCents,
+              depositMethod: pending.depositMethod, continuationNumber: order.nextContinuationNumber,
+            }) });
+          } else {
+            await requestJson("/api/legacy-customers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+              phone: pending.phoneTail, channelId: pending.channel.id, receptionOwnerId: pending.receptionOwner.id,
+              groupOperatorOwnerId: pending.groupOperator.id, ...(pending.expert ? { expertOwnerId: pending.expert.id } : {}),
+              baselineStage: pending.event === "JOINED" ? "REPLIED" : "REGISTERED", baselineOn: pending.sourceDate,
+              currentEvent: pending.event, occurredOn: pending.today,
+              ...(pending.event === "ORDERED" && pending.amountCents ? { initialDepositCents: pending.amountCents, initialDepositMethod: pending.depositMethod } : {}),
+              notes: `AI录入：${pending.original.slice(0, 500)}`,
+            }) });
+          }
+          canonicalSaved = true;
+          setPending((value) => value?.kind === "legacy_event" ? { ...value, canonicalSaved: true } : value);
         }
         await syncLegacyDailyImpact(pending);
         reply(`客户 ${pending.phoneTail} 已完成${eventLabel(pending.event)}。历史来源日期保持 ${pending.sourceDate}，今天报表只增加本次事件。`);
@@ -358,7 +367,8 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
       window.dispatchEvent(new CustomEvent("ai-data-updated"));
       setPending(null);
     } catch (caught) {
-      const messageText = caught instanceof Error ? caught.message : "保存失败，请稍后再试";
+      const rawMessage = caught instanceof Error ? caught.message : "保存失败，请稍后再试";
+      const messageText = canonicalSaved ? `客户进度已经保存，但报表同步暂时失败：${rawMessage}。请不要重新录入，直接点击“继续同步报表”。` : rawMessage;
       setError(messageText); reply(messageText);
     } finally { setBusy(false); }
   }
@@ -384,8 +394,8 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
     if (action.event === "LEFT_ABNORMAL") { values.abnormalLeaveCount += 1; values.currentInGroupCount = Math.max(0, values.currentInGroupCount - 1); }
     if (action.event === "INTRODUCED") values.expertIntroCount += 1;
     if (action.event === "REGISTERED") values.registrationCount += 1;
-    if (action.event === "ORDERED") { values.orderCount += 1; values.cryptoInitialDepositCents += action.amountCents ?? 0; }
-    if (action.event === "RECHARGE") values.cryptoRechargeCents += action.amountCents ?? 0;
+    if (action.event === "ORDERED") { values.orderCount += 1; values[action.depositMethod === "BANK" ? "bankInitialDepositCents" : "cryptoInitialDepositCents"] += action.amountCents ?? 0; }
+    if (action.event === "RECHARGE") values[action.depositMethod === "BANK" ? "bankRechargeCents" : "cryptoRechargeCents"] += action.amountCents ?? 0;
     if (action.event === "WITHDRAWAL") values.withdrawalCents += action.amountCents ?? 0;
     await requestJson("/api/daily-stats", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
       ...(existing ? { entryId: existing.id } : {}), businessDate: action.today, expectedStatisticsDate: context.today, position,
@@ -407,9 +417,9 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
       values.currentInGroupCount += 1;
     } else if (action.event === "ORDERED") {
       values.orderCount += 1;
-      values.cryptoInitialDepositCents += action.amountCents ?? 0;
+      values[action.depositMethod === "BANK" ? "bankInitialDepositCents" : "cryptoInitialDepositCents"] += action.amountCents ?? 0;
     } else {
-      values.cryptoRechargeCents += action.amountCents ?? 0;
+      values[action.depositMethod === "BANK" ? "bankRechargeCents" : "cryptoRechargeCents"] += action.amountCents ?? 0;
     }
     await requestJson("/api/daily-stats", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
       ...(existing ? { entryId: existing.id } : {}), businessDate: action.today, expectedStatisticsDate: context.today,
@@ -453,7 +463,7 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
           <label><span>来源渠道</span><select value={legacyGuide.channelId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, channelId: event.target.value } : value)}>{legacyGuide.context.channels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label><span>接粉归属</span><select value={legacyGuide.receptionOwnerId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, receptionOwnerId: event.target.value } : value)}>{legacyGuide.context.members.reception.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label><span>炒群负责人</span><select value={legacyGuide.groupOperatorId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, groupOperatorId: event.target.value } : value)}>{legacyGuide.context.members.groupOperator.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          {legacyGuide.event === "ORDERED" ? <><label><span>专家负责人</span><select value={legacyGuide.expertId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, expertId: event.target.value } : value)}>{legacyGuide.context.members.expert.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>首充金额（美元）</span><input type="number" min="0" step="0.01" value={legacyGuide.amount} onChange={(event) => setLegacyGuide((value) => value ? { ...value, amount: Math.max(0, Number(event.target.value) || 0) } : value)} /></label></> : null}
+          {legacyGuide.event === "ORDERED" ? <><label><span>专家负责人</span><select value={legacyGuide.expertId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, expertId: event.target.value } : value)}>{legacyGuide.context.members.expert.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>首充金额（美元）</span><input type="number" min="0" step="0.01" value={legacyGuide.amount} onChange={(event) => setLegacyGuide((value) => value ? { ...value, amount: Math.max(0, Number(event.target.value) || 0) } : value)} /></label><label><span>入金方式</span><select value={legacyGuide.depositMethod} onChange={(event) => setLegacyGuide((value) => value ? { ...value, depositMethod: event.target.value as "CRYPTO" | "BANK" } : value)}><option value="CRYPTO">加密货币</option><option value="BANK">银行卡</option></select></label></> : null}
         </div>
         <footer><button type="button" onClick={() => setLegacyGuide(null)}>取消</button><button type="submit" className={styles.confirm}>生成保存预览</button></footer>
       </form> : null}
@@ -471,7 +481,7 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
             <span>客户归属<b>{pending.customer.attributionOwner?.name ?? pending.customer.owner?.name ?? "未分配"}</b><small>保存后不会改变</small></span>
             <span>发生日期<b>{pending.today}</b><small>计入今天报表</small></span>
             <span>来源渠道<b>{pending.customer.batch.channel.name}</b><small>按原客户线路统计</small></span>
-            {pending.amountCents ? <span>本次金额<b>{formatAssistantValue(pending.amountCents, true)}</b><small>{pending.event === "WITHDRAWAL" ? "计入出金并扣减净业绩" : "计入对应入金与净业绩"}</small></span> : null}
+            {pending.amountCents ? <span>本次金额<b>{formatAssistantValue(pending.amountCents, true)}</b><small>{pending.event === "WITHDRAWAL" ? "计入出金并扣减净业绩" : `${pending.depositMethod === "BANK" ? "银行卡" : "加密货币"}入金`}</small></span> : null}
           </div>
         </> : <>
           <p>客户 {pending.phoneTail} · {eventLabel(pending.event)}</p>
@@ -479,10 +489,10 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
             <span>历史来源日期<b>{pending.sourceDate}</b><small>只展示，不重复统计添加</small></span>
             <span>本次发生日期<b>{pending.today}</b><small>计入今天报表</small></span>
             <span>来源与归属<b>{pending.channel.name} · {pending.receptionOwner.name}</b><small>炒群：{pending.groupOperator.name}{pending.expert ? ` · 专家：${pending.expert.name}` : ""}</small></span>
-            {pending.amountCents ? <span>本次金额<b>{formatAssistantValue(pending.amountCents, true)}</b><small>{pending.event === "RECHARGE" ? "只增加续充与净业绩" : "增加开单、首充与净业绩"}</small></span> : null}
+            {pending.amountCents ? <span>本次金额<b>{formatAssistantValue(pending.amountCents, true)}</b><small>{pending.depositMethod === "BANK" ? "银行卡" : "加密货币"} · {pending.event === "RECHARGE" ? "只增加续充与净业绩" : "增加开单、首充与净业绩"}</small></span> : null}
           </div>
         </>}
-        <footer><button type="button" onClick={() => setPending(null)}>取消</button><button type="button" className={styles.confirm} disabled={busy} onClick={() => void confirm()}><Check size={15} weight="bold" />{busy ? "保存中…" : "确认保存"}</button></footer>
+        <footer><button type="button" onClick={() => setPending(null)}>取消</button><button type="button" className={styles.confirm} disabled={busy} onClick={() => void confirm()}><Check size={15} weight="bold" />{busy ? "保存中…" : (pending.kind === "customer_event" || pending.kind === "legacy_event") && pending.canonicalSaved ? "继续同步报表" : "确认保存"}</button></footer>
       </div> : null}
       {error ? <div className={styles.error}>{error}</div> : null}
       <div className={styles.samples}>{samples.map((sample) => <button type="button" key={sample} onClick={() => { setResourceGuide(null); setInput(sample); void understand(sample); }}>{sample}</button>)}</div>

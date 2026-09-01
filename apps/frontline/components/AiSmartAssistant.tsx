@@ -48,7 +48,7 @@ type DailyContext = {
 };
 
 type Message = { id: number; role: "assistant" | "user"; text: string };
-type Phase = "idle" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done"
+type Phase = "idle" | "template" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done"
   | "customer-loading" | "customer-mode" | "customer-phone" | "customer-name" | "customer-channel" | "customer-operator" | "customer-device" | "customer-preview" | "customer-saving" | "customer-done"
   | "customer-batch-input" | "customer-batch-preview" | "customer-batch-saving" | "customer-batch-done"
   | "progress-loading" | "progress-phone" | "progress-action" | "progress-text" | "progress-person" | "progress-amount" | "progress-method" | "progress-preview" | "progress-saving" | "progress-done"
@@ -125,6 +125,26 @@ const LAWYER_FIELDS: Field[] = [
 ];
 
 const quickActions = ["添加今日数据", "新增客户", "录入老客户进度", "更新客户进度", "查询或纠正数据"];
+type NaturalIntent = "DAILY" | "CUSTOMER" | "LEGACY" | "PROGRESS";
+const NATURAL_TEMPLATES: Record<NaturalIntent, Array<{ label: string; text: string }>> = {
+  DAILY: [
+    { label: "今日数据", text: "今天 FB-M：添加20，撞粉1，低金额2，无WS0，人工无效0，回复8，进群3，正常退群0，异常退群0，推专家2，注册1，开单1，首充1000，续充0，出金0" },
+  ],
+  CUSTOMER: [
+    { label: "新增一个客户", text: "新增客户112233，姓名张三，渠道FB-M，炒群吴天，设备B22" },
+  ],
+  LEGACY: [
+    { label: "老粉今天进群", text: "老客户112233，8月20日接粉，渠道FB-M，归属演示接粉，今天进群，炒群吴天，设备B22" },
+    { label: "老粉今天开单", text: "老客户112233，8月20日接粉，渠道FB-M，归属演示接粉，今天开单，专家西瓜，炒群吴天，首充1000，加密货币" },
+    { label: "老粉今天续充", text: "老客户112233，8月20日接粉，渠道FB-M，归属演示接粉，历史已开单，今天续充500，银行卡，专家西瓜，炒群吴天" },
+  ],
+  PROGRESS: [
+    { label: "登记注册", text: "客户112233今天注册" },
+    { label: "登记开单", text: "客户112233今天开单，首充1000，加密货币" },
+    { label: "新增续充", text: "客户112233今天续充500，银行卡" },
+    { label: "登记出金", text: "客户112233今天出金100" },
+  ],
+};
 
 type CustomerContext = {
   today: string;
@@ -237,6 +257,7 @@ type AiSmartAssistantProps = {
 
 export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAssistantProps) {
   const [input, setInput] = useState("");
+  const [naturalIntent, setNaturalIntent] = useState<NaturalIntent | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [messages, setMessages] = useState<Message[]>([]);
   const [context, setContext] = useState<DailyContext | null>(null);
@@ -282,13 +303,139 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   }
 
   function reset() {
-    setInput(""); setPhase("idle"); setMessages([]); setContext(null); setChannelId(""); setEntryId(null);
+    setInput(""); setNaturalIntent(null); setPhase("idle"); setMessages([]); setContext(null); setChannelId(""); setEntryId(null);
     setDraft({ ...EMPTY_VALUES }); setFieldIndex(0); setEditingIndex(null); setValidationError("");
     setCustomerContext(null); setCustomerDraft({ ...EMPTY_CUSTOMER });
     setCustomerMode(null); setCustomerBatchText(""); setCustomerBatchPreview(null); setCustomerBatchCreated(0);
     setProgressContext(null); setProgressCustomer(null); setProgressDraft({ ...EMPTY_PROGRESS });
     setLegacyContext(null); setLegacyDraft({ ...EMPTY_LEGACY });
     messageIdRef.current = 1;
+  }
+
+  function openNaturalTemplate(intent: NaturalIntent, title: string) {
+    setNaturalIntent(intent); setPhase("template"); setInput("");
+    setMessages([{ id: 0, role: "user", text: title }, { id: 1, role: "assistant", text: "可以直接说完整内容，也可以点击下面的模板，把示例改成你的真实数据后发送。我会先生成预览，不会直接保存。" }]);
+    messageIdRef.current = 2;
+  }
+
+  function optionInText<T extends { id: string; name: string }>(text: string, options: T[]) {
+    return [...options].sort((a, b) => b.name.length - a.name.length).find((item) => text.includes(item.name)) ?? null;
+  }
+
+  function optionAfter<T extends { id: string; name: string }>(text: string, label: string, options: T[]) {
+    const start = text.indexOf(label); if (start < 0) return null;
+    const segment = text.slice(start + label.length).split(/[，,；;。\n]/)[0] ?? "";
+    return optionInText(segment, options);
+  }
+
+  function numberAfter(text: string, labels: string[]) {
+    for (const label of labels) {
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const matched = text.match(new RegExp(`${escaped}\\s*[:：]?\\s*\\$?([\\d,]+(?:\\.\\d+)?)`, "i"));
+      if (matched) return Number(matched[1].replace(/,/g, ""));
+    }
+    return null;
+  }
+
+  function phoneIn(text: string) {
+    const matched = text.match(/(?:老客户|客户|号码)\s*[:：]?\s*([+\d][\d\s()+-]{5,})/);
+    const digits = matched?.[1].replace(/\D/g, "") ?? "";
+    return digits.length >= 6 ? digits.slice(-6) : "";
+  }
+
+  function textAfter(text: string, label: string) {
+    const start = text.indexOf(label); if (start < 0) return "";
+    return (text.slice(start + label.length).split(/[，,；;。\n]/)[0] ?? "").replace(/^[:：\s]+/, "").trim();
+  }
+
+  async function parseNaturalDaily(text: string) {
+    setPhase("loading"); addMessage("user", text); addMessage("assistant", "正在识别渠道和指标…"); setInput("");
+    try {
+      const next = await requestJson<DailyContext>("/api/daily-stats");
+      const channel = optionInText(text, next.channels) ?? (next.channels.length === 1 ? next.channels[0] : null);
+      if (!channel) { addMessage("assistant", `没有识别出渠道，请在内容里写上渠道名称。可选：${next.channels.map((item) => item.name).join("、")}`); setPhase("template"); return; }
+      const existing = next.unifiedEntries.find((item) => item.businessDate === next.today && item.channel.id === channel.id) ?? null;
+      let values = existing ? { ...EMPTY_VALUES, ...existing.values } : { ...EMPTY_VALUES }; let found = 0;
+      const mappings: Array<{ key: keyof Values; labels: string[]; money?: boolean }> = next.groupType === "LAWYER" ? [
+        { key: "dispatchCount", labels: ["接粉"] }, { key: "replyCount", labels: ["回复"] }, { key: "lowAmountCount", labels: ["接粉小金额", "小金额"] },
+        { key: "lawyerRealCaseCount", labels: ["接粉真实案件", "真实案件"] }, { key: "lawyerAddedCount", labels: ["添加律师"] }, { key: "lawyerExpertAddedCount", labels: ["添加专家"] },
+        { key: "customerServicePushCount", labels: ["总推客服", "推客服"] }, { key: "registrationCount", labels: ["总注册", "注册"] }, { key: "orderCount", labels: ["总开单", "开单"] },
+        { key: "cryptoInitialDepositCents", labels: ["加密货币充值", "加密充值"], money: true }, { key: "bankInitialDepositCents", labels: ["银行卡充值", "银行充值"], money: true }, { key: "withdrawalCents", labels: ["出金"], money: true },
+      ] : [
+        { key: "dispatchCount", labels: ["添加数据", "添加"] }, { key: "duplicateCount", labels: ["撞粉"] }, { key: "lowAmountCount", labels: ["低金额"] }, { key: "noWsCount", labels: ["无WS", "无 WS", "无号码"] },
+        { key: "manualInvalidCount", labels: ["人工无效"] }, { key: "replyCount", labels: ["回复"] }, { key: "joinCount", labels: ["进群"] }, { key: "normalLeaveCount", labels: ["正常退群"] },
+        { key: "abnormalLeaveCount", labels: ["异常退群"] }, { key: "expertIntroCount", labels: ["推专家"] }, { key: "registrationCount", labels: ["注册"] }, { key: "orderCount", labels: ["开单"] },
+        { key: "cryptoInitialDepositCents", labels: ["首充"], money: true }, { key: "cryptoRechargeCents", labels: ["续充"], money: true }, { key: "withdrawalCents", labels: ["出金"], money: true },
+      ];
+      for (const mapping of mappings) {
+        const value = numberAfter(text, mapping.labels); if (value === null) continue;
+        values = { ...values, [mapping.key]: mapping.money ? Math.round(value * 100) : Math.round(value) }; found += 1;
+      }
+      if (!found) { addMessage("assistant", "没有识别出任何指标。请点击模板后修改数字再发送。"); setPhase("template"); return; }
+      setContext(next); setChannelId(channel.id); setEntryId(existing?.entryId ?? null); setDraft(values); setValidationError(validate(values, next.groupType === "LAWYER")); setPhase("preview");
+      addMessage("assistant", `已识别 ${found} 个指标，未提到的指标保持原值。请核对预览后确认保存。`);
+    } catch (caught) { addMessage("assistant", caught instanceof Error ? caught.message : "数据识别失败，请重试。"); setPhase("template"); }
+  }
+
+  async function parseNaturalCustomer(text: string) {
+    setPhase("customer-loading"); addMessage("user", text); addMessage("assistant", "正在识别客户号码、渠道和负责人…"); setInput("");
+    try {
+      const next = await requestJson<CustomerContext>("/api/lead/customer-reporting?stage=group&page=1");
+      const phone = phoneIn(text); const channel = optionAfter(text, "渠道", next.channelOptions) ?? optionInText(text, next.channelOptions);
+      const operator = optionAfter(text, "炒群", next.memberOptions); const deviceCode = textAfter(text, "设备") || textAfter(text, "设备号"); const customerName = textAfter(text, "姓名");
+      const missing = [!phone && "客户号码", !channel && "来源渠道", !operator && "炒群负责人", !deviceCode && "设备号"].filter(Boolean);
+      if (missing.length) { setCustomerContext(next); addMessage("assistant", `还缺少：${missing.join("、")}。请补充完整后重新发送，或继续使用逐步引导。`); setPhase("template"); return; }
+      setCustomerContext(next); setCustomerMode("single"); setCustomerDraft({ phone, customerName, channelId: channel!.id, joinedOn: next.today, groupOperatorOwnerId: operator!.id, deviceCode }); setPhase("customer-preview");
+      addMessage("assistant", "客户资料已一次识别完成，请核对预览后确认新增。");
+    } catch (caught) { addMessage("assistant", caught instanceof Error ? caught.message : "客户资料识别失败。"); setPhase("template"); }
+  }
+
+  async function parseNaturalLegacy(text: string) {
+    setPhase("legacy-loading"); addMessage("user", text); addMessage("assistant", "正在识别老客户历史底账和今天的新进度…"); setInput("");
+    try {
+      const next = await requestJson<LegacyContext>("/api/lead/customer-reporting?stage=group&page=1");
+      const scenario: LegacyScenario | null = /续充/.test(text) ? "RECHARGE" : /开单|首充/.test(text) ? "ORDER" : /进群/.test(text) ? "JOIN" : null;
+      const phone = phoneIn(text); const dateRaw = text.match(/((?:(?:\d{4})[年./-])?\d{1,2}[月./-]\d{1,2}(?:日|号)?)\s*接粉/)?.[1] ?? "";
+      const sourceDate = aiDate(dateRaw, next.today); const channel = optionAfter(text, "渠道", next.channelOptions) ?? optionInText(text, next.channelOptions);
+      const reception = optionAfter(text, "归属", next.memberOptions) ?? next.memberOptions.find((item) => item.id === next.actorId) ?? null;
+      const operator = optionAfter(text, "炒群", next.memberOptions); const expert = optionAfter(text, "专家", next.expertOptions);
+      const deviceCode = textAfter(text, "设备号") || textAfter(text, "设备"); const amountValue = numberAfter(text, scenario === "ORDER" ? ["首充"] : ["续充"]);
+      const missing = [!scenario && "今天发生的场景", !phone && "客户号码", !sourceDate && "接粉日期", !channel && "来源渠道", !reception && "接粉归属", !operator && "炒群负责人", scenario !== "JOIN" && !expert && "专家负责人", scenario !== "JOIN" && !amountValue && "金额"].filter(Boolean);
+      if (missing.length) { setLegacyContext(next); addMessage("assistant", `还缺少：${missing.join("、")}。请点击对应模板补齐后重新发送。`); setPhase("template"); return; }
+      setLegacyContext(next); setLegacyDraft({ scenario, phone, customerName: textAfter(text, "姓名"), sourceDate: sourceDate!, channelId: channel!.id, receptionOwnerId: reception!.id, deviceCode, baselineOn: sourceDate!, groupOperatorOwnerId: operator!.id, expertOwnerId: expert?.id ?? "", occurredOn: next.today, amountCents: amountValue ? Math.round(amountValue * 100) : 0, depositMethod: /银行卡|银行/.test(text) ? "BANK" : "CRYPTO" }); setPhase("legacy-preview");
+      addMessage("assistant", "老客户资料已一次识别完成。历史状态日期默认采用接粉日期，只保留底账；今天的新进度才进入统计。请核对预览。");
+    } catch (caught) { addMessage("assistant", caught instanceof Error ? caught.message : "老客户资料识别失败。"); setPhase("template"); }
+  }
+
+  async function parseNaturalProgress(text: string) {
+    setPhase("progress-loading"); addMessage("user", text); addMessage("assistant", "正在查找客户并识别本次进度…"); setInput("");
+    try {
+      const phone = phoneIn(text); if (!phone) { addMessage("assistant", "没有识别出客户号码，请使用模板补上号码后重新发送。"); setPhase("template"); return; }
+      const result = await requestJson<ProgressContext>(`/api/lead/customer-reporting?stage=group&page=1&q=${encodeURIComponent(phone)}`); const customer = result.customers.find((item) => item.phone === phone) ?? null;
+      if (!customer) { addMessage("assistant", `本组共享客户表没有找到 ${phone}。`); setPhase("template"); return; }
+      const action: ProgressAction | null = /续充/.test(text) ? "recharge" : /出金/.test(text) ? "withdrawal" : /开单|首充/.test(text) ? "initial" : /注册/.test(text) ? "register" : /异常退群/.test(text) ? "abnormalLeave" : /正常退群|退群/.test(text) ? "normalLeave" : null;
+      if (!action) { addMessage("assistant", "没有识别出要更新的进度。目前模板支持注册、开单、续充和出金。"); setPhase("template"); return; }
+      if (action === "initial" && (!customer.registeredOn || customer.order)) { addMessage("assistant", customer.order ? "该客户已经开单，不能重复登记首充。" : "该客户尚未登记注册，请先登记注册。"); setPhase("template"); return; }
+      if ((action === "recharge" || action === "withdrawal") && !customer.order) { addMessage("assistant", "该客户还没有开单，不能登记续充或出金。"); setPhase("template"); return; }
+      const amountValue = ["initial", "recharge", "withdrawal"].includes(action) ? numberAfter(text, action === "initial" ? ["首充", "开单"] : action === "recharge" ? ["续充"] : ["出金"]) : 0;
+      if (["initial", "recharge", "withdrawal"].includes(action) && !amountValue) { addMessage("assistant", "没有识别出本次金额，请在首充、续充或出金后面填写金额。"); setPhase("template"); return; }
+      setProgressContext(result); setProgressCustomer(customer); setProgressDraft({ action, text: "", userId: "", amountCents: amountValue ? Math.round(amountValue * 100) : 0, depositMethod: /银行卡|银行/.test(text) ? "BANK" : "CRYPTO" }); setPhase("progress-preview");
+      addMessage("assistant", `已识别“${PROGRESS_LABELS[action]}”，请核对预览后确认更新。`);
+    } catch (caught) { addMessage("assistant", caught instanceof Error ? caught.message : "客户进度识别失败。"); setPhase("template"); }
+  }
+
+  function parseNaturalEntry(text: string) {
+    if (naturalIntent === "DAILY") { void parseNaturalDaily(text); return; }
+    if (naturalIntent === "CUSTOMER") { void parseNaturalCustomer(text); return; }
+    if (naturalIntent === "LEGACY") { void parseNaturalLegacy(text); return; }
+    if (naturalIntent === "PROGRESS") { void parseNaturalProgress(text); }
+  }
+
+  function startGuidedFallback() {
+    if (naturalIntent === "DAILY") { void startDailyFlow(); return; }
+    if (naturalIntent === "CUSTOMER") { void startCustomerFlow(); return; }
+    if (naturalIntent === "LEGACY") { void startLegacyFlow(); return; }
+    if (naturalIntent === "PROGRESS") startProgressFlow();
   }
 
   async function startLegacyFlow() {
@@ -863,10 +1010,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
   }
 
   function handleQuickAction(action: string) {
-    if (action === "添加今日数据") { void startDailyFlow(); return; }
-    if (action === "新增客户") { void startCustomerFlow(); return; }
-    if (action === "录入老客户进度") { void startLegacyFlow(); return; }
-    if (action === "更新客户进度") { startProgressFlow(); return; }
+    if (action === "添加今日数据") { openNaturalTemplate("DAILY", action); return; }
+    if (action === "新增客户") { openNaturalTemplate("CUSTOMER", action); return; }
+    if (action === "录入老客户进度") { openNaturalTemplate("LEGACY", action); return; }
+    if (action === "更新客户进度") { openNaturalTemplate("PROGRESS", action); return; }
     addMessage("user", action);
     addMessage("assistant", "这个入口会在下一步接入。目前可以使用“添加今日数据”“新增客户”和“更新客户进度”。");
   }
@@ -875,6 +1022,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     const raw = input.trim();
     if (!raw || phase === "loading" || phase === "saving" || phase === "customer-loading" || phase === "customer-saving") return;
     if (phase === "metrics" || phase === "editing") { acceptMetric(raw); return; }
+    if (phase === "template") { parseNaturalEntry(raw); return; }
     if (phase === "customer-phone") { acceptCustomerPhone(raw); return; }
     if (phase === "customer-name") { acceptCustomerName(raw); return; }
     if (phase === "customer-device") { void acceptCustomerDevice(raw); return; }
@@ -889,7 +1037,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
     setInput("");
   }
 
-  const inputEnabled = phase === "idle" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name" || phase === "customer-device" || phase === "progress-phone" || phase === "progress-text" || phase === "progress-amount" || ["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase);
+  const inputEnabled = phase === "idle" || phase === "template" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name" || phase === "customer-device" || phase === "progress-phone" || phase === "progress-text" || phase === "progress-amount" || ["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase);
 
   return <section className={styles.assistant} data-open={open}>
     <button type="button" className={styles.trigger} onClick={() => onOpenChange(!open)} aria-label="AI 智能助手" aria-expanded={open} aria-controls="ai-assistant-drawer">
@@ -910,6 +1058,12 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
           ? <div className={styles.welcome}><span><MagicWand size={22} weight="fill" /></span><strong>需要处理什么？</strong><p>选择一个入口，或者直接在下方输入。</p></div>
           : <div className={styles.messages}>{messages.map((message) => <div key={message.id} className={styles.message} data-role={message.role}>{message.text}</div>)}</div>}
         {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action) => <button key={action} type="button" data-ready={action !== "查询或纠正数据"} onClick={() => handleQuickAction(action)}>{action}{action === "查询或纠正数据" ? <small>稍后接入</small> : null}</button>)}</div> : null}
+
+        {phase === "template" && naturalIntent ? <div className={styles.templateList} aria-label="自然语言填写模板">
+          <strong>选择一个模板</strong>
+          {NATURAL_TEMPLATES[naturalIntent].map((template) => <button type="button" key={template.label} onClick={() => setInput(template.text)}><span>{template.label}</span><small>{template.text}</small></button>)}
+          <p>点击模板后，在下方把号码、人员、渠道和数字改成真实内容，再发送。</p>
+        </div> : null}
 
         {phase === "legacy-scenario" ? <div className={styles.choiceList} aria-label="选择老客户场景">
           {(Object.keys(LEGACY_SCENARIOS) as LegacyScenario[]).map((scenario) => <button type="button" key={scenario} onClick={() => chooseLegacyScenario(scenario)}><strong>{LEGACY_SCENARIOS[scenario].label}</strong><small>{LEGACY_SCENARIOS[scenario].note}</small></button>)}
@@ -1055,6 +1209,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
       </div>
 
       <div className={styles.flowActions}>
+        {phase === "template" ? <button type="button" onClick={startGuidedFallback}>改用逐步引导</button> : null}
         {phase === "preview" ? <><button type="button" onClick={() => setPhase("edit-select")}>修改数据</button><button type="button" data-primary="true" disabled={Boolean(validationError)} onClick={() => void save()}>确认保存</button></> : null}
         {phase === "edit-select" ? <button type="button" onClick={() => setPhase("preview")}>返回预览</button> : null}
         {phase === "done" ? <><button type="button" onClick={() => { setPhase("channel"); setChannelId(""); setEntryId(null); addMessage("assistant", "请选择下一个需要填写的来源渠道。" ); }}>继续填写其他渠道</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
@@ -1069,7 +1224,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAs
         {phase === "legacy-done" ? <><button type="button" onClick={() => void startLegacyFlow()}>继续录入老客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
       </div>
       <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" || phase === "progress-phone" || phase === "legacy-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" || phase === "legacy-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" || phase === "legacy-device" ? "输入设备账号，或回复“跳过”" : phase === "progress-text" ? "输入新的进度内容" : phase === "progress-amount" || phase === "legacy-amount" ? "输入金额，例如 1000" : ["legacy-source-date", "legacy-baseline-date", "legacy-occurred-date"].includes(phase) ? "输入日期，例如 2026-08-20" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />
+        {phase === "template" ? <textarea aria-label="AI 对话输入框" rows={3} placeholder="点击上方模板，修改后发送；也可以直接说完整内容" value={input} onChange={(event) => setInput(event.target.value)} /> : <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" || phase === "progress-phone" || phase === "legacy-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" || phase === "legacy-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" || phase === "legacy-device" ? "输入设备账号，或回复“跳过”" : phase === "progress-text" ? "输入新的进度内容" : phase === "progress-amount" || phase === "legacy-amount" ? "输入金额，例如 1000" : ["legacy-source-date", "legacy-baseline-date", "legacy-occurred-date"].includes(phase) ? "输入日期，例如 2026-08-20" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />}
         <button type="submit" aria-label="发送" disabled={!input.trim() || !inputEnabled}><PaperPlaneTilt size={16} weight="fill" /></button>
       </form>
     </aside> : null}

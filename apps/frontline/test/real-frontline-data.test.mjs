@@ -56,6 +56,13 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /requestJson<DailyContext>\("\/api\/daily-stats"\)/);
   assert.match(source, /method: "POST"/);
   assert.match(source, /AI 不会在你确认前写入数据/);
+  assert.match(source, /自然语言填写模板/);
+  assert.match(source, /今天 FB-M：添加20/);
+  assert.match(source, /新增客户112233/);
+  assert.match(source, /老客户112233/);
+  assert.match(source, /客户112233今天注册/);
+  assert.match(source, /未提到的指标保持原值/);
+  assert.match(source, /改用逐步引导/);
   assert.match(source, /确认保存/);
   assert.match(source, /requestJson<CustomerContext>\("\/api\/lead\/customer-reporting\?stage=group&page=1"\)/);
   assert.match(source, /客户号码至少需要 6 位/);

@@ -43,7 +43,11 @@ test("组员AI通过右侧引导对话预览并保存真实今日数据和已进
   assert.match(source, /添加今日数据/);
   assert.match(source, /更新客户进度/);
   assert.match(source, /录入老客户进度/);
-  assert.match(source, /onOpenLegacyCustomer/);
+  assert.match(source, /老粉今天进群/);
+  assert.match(source, /老粉今天开单/);
+  assert.match(source, /已开单老粉今天续充/);
+  assert.match(source, /接粉日期只留作历史底账/);
+  assert.match(source, /\/api\/legacy-customers/);
   assert.match(source, /收起 AI 助手/);
   assert.match(source, /requestJson<DailyContext>\("\/api\/daily-stats"\)/);
   assert.match(source, /method: "POST"/);

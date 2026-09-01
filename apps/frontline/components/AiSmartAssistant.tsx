@@ -51,7 +51,8 @@ type Message = { id: number; role: "assistant" | "user"; text: string };
 type Phase = "idle" | "loading" | "channel" | "metrics" | "preview" | "edit-select" | "editing" | "saving" | "done"
   | "customer-loading" | "customer-mode" | "customer-phone" | "customer-name" | "customer-channel" | "customer-operator" | "customer-device" | "customer-preview" | "customer-saving" | "customer-done"
   | "customer-batch-input" | "customer-batch-preview" | "customer-batch-saving" | "customer-batch-done"
-  | "progress-loading" | "progress-phone" | "progress-action" | "progress-text" | "progress-person" | "progress-amount" | "progress-method" | "progress-preview" | "progress-saving" | "progress-done";
+  | "progress-loading" | "progress-phone" | "progress-action" | "progress-text" | "progress-person" | "progress-amount" | "progress-method" | "progress-preview" | "progress-saving" | "progress-done"
+  | "legacy-loading" | "legacy-scenario" | "legacy-source-date" | "legacy-phone" | "legacy-name" | "legacy-channel" | "legacy-reception" | "legacy-device" | "legacy-baseline-date" | "legacy-operator" | "legacy-expert" | "legacy-occurred-date" | "legacy-amount" | "legacy-method" | "legacy-preview" | "legacy-saving" | "legacy-done";
 type Field = {
   key: string;
   label: string;
@@ -152,6 +153,20 @@ const PROGRESS_LABELS: Record<ProgressAction, string> = {
   initial: "登记首充", recharge: "新增续充", withdrawal: "登记出金",
 };
 
+type LegacyScenario = "JOIN" | "ORDER" | "RECHARGE";
+type LegacyContext = CustomerContext & { actorId: string; expertOptions: Array<{ id: string; name: string }> };
+type LegacyDraft = {
+  scenario: LegacyScenario | null; phone: string; customerName: string; sourceDate: string; channelId: string;
+  receptionOwnerId: string; deviceCode: string; baselineOn: string; groupOperatorOwnerId: string;
+  expertOwnerId: string; occurredOn: string; amountCents: number; depositMethod: "CRYPTO" | "BANK";
+};
+const EMPTY_LEGACY: LegacyDraft = { scenario: null, phone: "", customerName: "", sourceDate: "", channelId: "", receptionOwnerId: "", deviceCode: "", baselineOn: "", groupOperatorOwnerId: "", expertOwnerId: "", occurredOn: "", amountCents: 0, depositMethod: "CRYPTO" };
+const LEGACY_SCENARIOS: Record<LegacyScenario, { label: string; note: string; baselineStage: "REPLIED" | "REGISTERED" | "ORDERED"; currentEvent: "JOINED" | "ORDERED" | "RECHARGE" }> = {
+  JOIN: { label: "老粉今天进群", note: "历史接粉不重算，只增加本次进群", baselineStage: "REPLIED", currentEvent: "JOINED" },
+  ORDER: { label: "老粉今天开单", note: "历史进度不重算，只增加本次开单和首充", baselineStage: "REGISTERED", currentEvent: "ORDERED" },
+  RECHARGE: { label: "已开单老粉今天续充", note: "历史开单不重算，只增加本次续充", baselineStage: "ORDERED", currentEvent: "RECHARGE" },
+};
+
 function amount(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value / 100);
 }
@@ -217,11 +232,10 @@ function parseAnswer(raw: string, money = false) {
 type AiSmartAssistantProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onOpenLegacyCustomer: () => void;
   contextLabel: string;
 };
 
-export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, contextLabel }: AiSmartAssistantProps) {
+export function AiSmartAssistant({ open, onOpenChange, contextLabel }: AiSmartAssistantProps) {
   const [input, setInput] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -241,6 +255,8 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
   const [progressContext, setProgressContext] = useState<ProgressContext | null>(null);
   const [progressCustomer, setProgressCustomer] = useState<ProgressCustomer | null>(null);
   const [progressDraft, setProgressDraft] = useState<ProgressDraft>({ ...EMPTY_PROGRESS });
+  const [legacyContext, setLegacyContext] = useState<LegacyContext | null>(null);
+  const [legacyDraft, setLegacyDraft] = useState<LegacyDraft>({ ...EMPTY_LEGACY });
   const messageIdRef = useRef(1);
   const conversationRef = useRef<HTMLDivElement>(null);
 
@@ -249,6 +265,10 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
   const selectedChannel = context?.channels.find((channel) => channel.id === channelId) ?? null;
   const selectedCustomerChannel = customerContext?.channelOptions.find((channel) => channel.id === customerDraft.channelId) ?? null;
   const selectedCustomerOperator = customerContext?.memberOptions.find((member) => member.id === customerDraft.groupOperatorOwnerId) ?? null;
+  const selectedLegacyChannel = legacyContext?.channelOptions.find((item) => item.id === legacyDraft.channelId) ?? null;
+  const selectedLegacyReception = legacyContext?.memberOptions.find((item) => item.id === legacyDraft.receptionOwnerId) ?? null;
+  const selectedLegacyOperator = legacyContext?.memberOptions.find((item) => item.id === legacyDraft.groupOperatorOwnerId) ?? null;
+  const selectedLegacyExpert = legacyContext?.expertOptions.find((item) => item.id === legacyDraft.expertOwnerId) ?? null;
   const summary = useMemo(() => calculated(draft, Boolean(lawyer)), [draft, lawyer]);
 
   useEffect(() => {
@@ -267,7 +287,132 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
     setCustomerContext(null); setCustomerDraft({ ...EMPTY_CUSTOMER });
     setCustomerMode(null); setCustomerBatchText(""); setCustomerBatchPreview(null); setCustomerBatchCreated(0);
     setProgressContext(null); setProgressCustomer(null); setProgressDraft({ ...EMPTY_PROGRESS });
+    setLegacyContext(null); setLegacyDraft({ ...EMPTY_LEGACY });
     messageIdRef.current = 1;
+  }
+
+  async function startLegacyFlow() {
+    if (phase === "legacy-loading" || phase === "legacy-saving") return;
+    setPhase("legacy-loading");
+    setMessages([{ id: 0, role: "user", text: "录入老客户进度" }, { id: 1, role: "assistant", text: "正在读取本组渠道和人员，请稍候…" }]);
+    messageIdRef.current = 2;
+    setLegacyDraft({ ...EMPTY_LEGACY });
+    try {
+      const next = await requestJson<LegacyContext>("/api/lead/customer-reporting?stage=group&page=1");
+      setLegacyContext(next);
+      if (!next.channelOptions.length || !next.memberOptions.length) {
+        addMessage("assistant", "当前小组缺少可用渠道或组员，暂时不能录入老客户。");
+        setPhase("idle"); return;
+      }
+      setLegacyDraft({ ...EMPTY_LEGACY, occurredOn: next.today, receptionOwnerId: next.memberOptions.find((item) => item.id === next.actorId)?.id ?? next.memberOptions[0]?.id ?? "" });
+      addMessage("assistant", "请选择这位老客户今天发生的真实场景。历史事实只留档，不会重复计算。");
+      setPhase("legacy-scenario");
+    } catch (caught) {
+      addMessage("assistant", caught instanceof Error ? `资料读取失败：${caught.message}` : "资料读取失败，请稍后重试。");
+      setPhase("idle");
+    }
+  }
+
+  function chooseLegacyScenario(scenario: LegacyScenario) {
+    const meta = LEGACY_SCENARIOS[scenario];
+    setLegacyDraft((current) => ({ ...EMPTY_LEGACY, scenario, occurredOn: legacyContext?.today ?? current.occurredOn, receptionOwnerId: legacyContext?.memberOptions.find((item) => item.id === legacyContext.actorId)?.id ?? legacyContext?.memberOptions[0]?.id ?? "" }));
+    addMessage("user", meta.label);
+    addMessage("assistant", "请填写这位客户最早的接粉日期，例如 2026-08-20。这个日期只作为来源底账，不增加今天接粉量。");
+    setPhase("legacy-source-date");
+  }
+
+  function aiDate(raw: string) {
+    const value = raw.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) return null;
+    return value;
+  }
+
+  function acceptLegacyText(raw: string) {
+    if (!legacyContext || !legacyDraft.scenario) return;
+    const value = raw.trim();
+    if (phase === "legacy-source-date") {
+      const date = aiDate(value); if (!date || date > legacyContext.today) { addMessage("assistant", `请输入不晚于 ${legacyContext.today} 的真实日期，格式为 YYYY-MM-DD。`); return; }
+      setLegacyDraft((current) => ({ ...current, sourceDate: date })); addMessage("user", date);
+      addMessage("assistant", "请输入客户完整号码或号码后 6 位。完整号码保存时只保留最后 6 位。"); setInput(""); setPhase("legacy-phone"); return;
+    }
+    if (phase === "legacy-phone") {
+      const digits = value.replace(/\D/g, ""); if (digits.length < 6) { addMessage("assistant", "客户号码至少需要 6 位数字。"); return; }
+      const phone = digits.slice(-6); setLegacyDraft((current) => ({ ...current, phone })); addMessage("user", value);
+      addMessage("assistant", `号码将保存为 ${phone}。请输入客户姓名，不填写请回复“跳过”。`); setInput(""); setPhase("legacy-name"); return;
+    }
+    if (phase === "legacy-name") {
+      const customerName = /^(跳过|没有|无|不填|-)$/.test(value) ? "" : value.slice(0, 100);
+      setLegacyDraft((current) => ({ ...current, customerName })); addMessage("user", value);
+      addMessage("assistant", "请选择这位客户最初的来源渠道。"); setInput(""); setPhase("legacy-channel"); return;
+    }
+    if (phase === "legacy-device") {
+      const deviceCode = /^(跳过|没有|无|不填|-)$/.test(value) ? "" : value.slice(0, 100);
+      setLegacyDraft((current) => ({ ...current, deviceCode })); addMessage("user", value);
+      addMessage("assistant", "请填写系统启用前最后状态的发生日期。该日期只留历史，不计入新统计。"); setInput(""); setPhase("legacy-baseline-date"); return;
+    }
+    if (phase === "legacy-baseline-date") {
+      const date = aiDate(value); if (!date || date < legacyDraft.sourceDate || date > legacyContext.today) { addMessage("assistant", `日期必须在接粉日期 ${legacyDraft.sourceDate} 和 ${legacyContext.today} 之间。`); return; }
+      setLegacyDraft((current) => ({ ...current, baselineOn: date })); addMessage("user", date);
+      addMessage("assistant", "请选择负责这位客户的炒群负责人。"); setInput(""); setPhase("legacy-operator"); return;
+    }
+    if (phase === "legacy-occurred-date") {
+      const date = aiDate(value); if (!date || date < legacyDraft.baselineOn || date > legacyContext.today) { addMessage("assistant", `本次日期必须在 ${legacyDraft.baselineOn} 和 ${legacyContext.today} 之间。`); return; }
+      setLegacyDraft((current) => ({ ...current, occurredOn: date })); addMessage("user", date); setInput("");
+      if (legacyDraft.scenario === "JOIN") { addMessage("assistant", "资料已经整理完成，请核对后确认保存。"); setPhase("legacy-preview"); return; }
+      addMessage("assistant", `请输入本次${legacyDraft.scenario === "ORDER" ? "首充" : "续充"}金额，例如 1000。`); setPhase("legacy-amount"); return;
+    }
+    if (phase === "legacy-amount") {
+      const parsed = parseAnswer(value, true); if (parsed.error || !parsed.value || parsed.value <= 0) { addMessage("assistant", parsed.error ?? "金额必须大于 0。"); return; }
+      setLegacyDraft((current) => ({ ...current, amountCents: Math.round(parsed.value! * 100) })); addMessage("user", value);
+      addMessage("assistant", "请选择本次入金方式。"); setInput(""); setPhase("legacy-method");
+    }
+  }
+
+  function chooseLegacyChannel(id: string) {
+    const item = legacyContext?.channelOptions.find((option) => option.id === id); if (!item) return;
+    setLegacyDraft((current) => ({ ...current, channelId: id })); addMessage("user", item.name);
+    addMessage("assistant", "请选择最初接到这位客户的归属组员。"); setPhase("legacy-reception");
+  }
+
+  function chooseLegacyReception(id: string) {
+    const item = legacyContext?.memberOptions.find((option) => option.id === id); if (!item) return;
+    setLegacyDraft((current) => ({ ...current, receptionOwnerId: id })); addMessage("user", item.name);
+    addMessage("assistant", "请输入设备账号或设备号；暂时没有请回复“跳过”。"); setPhase("legacy-device");
+  }
+
+  function chooseLegacyOperator(id: string) {
+    const item = legacyContext?.memberOptions.find((option) => option.id === id); if (!item) return;
+    setLegacyDraft((current) => ({ ...current, groupOperatorOwnerId: id })); addMessage("user", item.name);
+    if (legacyDraft.scenario === "JOIN") { addMessage("assistant", `请填写本次进群实际发生日期，今天是 ${legacyContext?.today}。`); setPhase("legacy-occurred-date"); return; }
+    addMessage("assistant", "请选择这位客户的专家负责人。"); setPhase("legacy-expert");
+  }
+
+  function chooseLegacyExpert(id: string) {
+    const item = legacyContext?.expertOptions.find((option) => option.id === id); if (!item) return;
+    setLegacyDraft((current) => ({ ...current, expertOwnerId: id })); addMessage("user", item.name);
+    addMessage("assistant", `请填写本次${legacyDraft.scenario === "ORDER" ? "开单" : "续充"}实际发生日期，今天是 ${legacyContext?.today}。`); setPhase("legacy-occurred-date");
+  }
+
+  function chooseLegacyMethod(method: "CRYPTO" | "BANK") {
+    setLegacyDraft((current) => ({ ...current, depositMethod: method })); addMessage("user", method === "CRYPTO" ? "加密货币" : "银行卡");
+    addMessage("assistant", "资料已经整理完成，请核对。AI 不会在你确认前写入数据。"); setPhase("legacy-preview");
+  }
+
+  async function saveLegacyCustomer() {
+    if (!legacyContext || !legacyDraft.scenario) return;
+    const meta = LEGACY_SCENARIOS[legacyDraft.scenario]; setPhase("legacy-saving"); addMessage("assistant", "正在保存老客户档案和本次真实进度…");
+    try {
+      await requestJson("/api/legacy-customers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+        phone: legacyDraft.phone, customerName: legacyDraft.customerName, sourceDate: legacyDraft.sourceDate, channelId: legacyDraft.channelId,
+        receptionOwnerId: legacyDraft.receptionOwnerId, groupOperatorOwnerId: legacyDraft.groupOperatorOwnerId,
+        ...(legacyDraft.expertOwnerId ? { expertOwnerId: legacyDraft.expertOwnerId } : {}), ...(legacyDraft.deviceCode ? { deviceCode: legacyDraft.deviceCode } : {}),
+        baselineStage: meta.baselineStage, baselineOn: legacyDraft.baselineOn, currentEvent: meta.currentEvent, occurredOn: legacyDraft.occurredOn,
+        ...(legacyDraft.amountCents ? { amountCents: legacyDraft.amountCents, initialDepositMethod: legacyDraft.depositMethod } : {}),
+      }) });
+      setPhase("legacy-done"); addMessage("assistant", `${legacyDraft.phone} 已保存成功。${meta.note}，客户进度表和汇总已同步刷新。`); window.dispatchEvent(new Event("ai-data-updated"));
+    } catch (caught) {
+      setPhase("legacy-preview"); addMessage("assistant", caught instanceof Error ? `保存失败：${caught.message}` : "老客户保存失败，请稍后重试。");
+    }
   }
 
   async function startCustomerFlow() {
@@ -703,7 +848,7 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
   function handleQuickAction(action: string) {
     if (action === "添加今日数据") { void startDailyFlow(); return; }
     if (action === "新增客户") { void startCustomerFlow(); return; }
-    if (action === "录入老客户进度") { reset(); onOpenLegacyCustomer(); return; }
+    if (action === "录入老客户进度") { void startLegacyFlow(); return; }
     if (action === "更新客户进度") { startProgressFlow(); return; }
     addMessage("user", action);
     addMessage("assistant", "这个入口会在下一步接入。目前可以使用“添加今日数据”“新增客户”和“更新客户进度”。");
@@ -718,6 +863,7 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
     if (phase === "customer-device") { void acceptCustomerDevice(raw); return; }
     if (phase === "progress-phone") { void acceptProgressPhone(raw); return; }
     if (phase === "progress-text" || phase === "progress-amount") { acceptProgressValue(raw); return; }
+    if (["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase)) { acceptLegacyText(raw); return; }
     if (phase === "idle" && /今日|当天|添加.*数据|填.*数据/.test(raw)) { setInput(""); void startDailyFlow(); return; }
     if (phase === "idle" && /新增.*客户|添加.*客户|录入.*客户/.test(raw)) { setInput(""); void startCustomerFlow(); return; }
     addMessage("user", raw);
@@ -726,7 +872,7 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
     setInput("");
   }
 
-  const inputEnabled = phase === "idle" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name" || phase === "customer-device" || phase === "progress-phone" || phase === "progress-text" || phase === "progress-amount";
+  const inputEnabled = phase === "idle" || phase === "metrics" || phase === "editing" || phase === "customer-phone" || phase === "customer-name" || phase === "customer-device" || phase === "progress-phone" || phase === "progress-text" || phase === "progress-amount" || ["legacy-source-date", "legacy-phone", "legacy-name", "legacy-device", "legacy-baseline-date", "legacy-occurred-date", "legacy-amount"].includes(phase);
 
   return <section className={styles.assistant} data-open={open}>
     <button type="button" className={styles.trigger} onClick={() => onOpenChange(!open)} aria-label="AI 智能助手" aria-expanded={open} aria-controls="ai-assistant-drawer">
@@ -747,6 +893,31 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
           ? <div className={styles.welcome}><span><MagicWand size={22} weight="fill" /></span><strong>需要处理什么？</strong><p>选择一个入口，或者直接在下方输入。</p></div>
           : <div className={styles.messages}>{messages.map((message) => <div key={message.id} className={styles.message} data-role={message.role}>{message.text}</div>)}</div>}
         {phase === "idle" ? <div className={styles.quickActions}>{quickActions.map((action) => <button key={action} type="button" data-ready={action !== "查询或纠正数据"} onClick={() => handleQuickAction(action)}>{action}{action === "查询或纠正数据" ? <small>稍后接入</small> : null}</button>)}</div> : null}
+
+        {phase === "legacy-scenario" ? <div className={styles.choiceList} aria-label="选择老客户场景">
+          {(Object.keys(LEGACY_SCENARIOS) as LegacyScenario[]).map((scenario) => <button type="button" key={scenario} onClick={() => chooseLegacyScenario(scenario)}><strong>{LEGACY_SCENARIOS[scenario].label}</strong><small>{LEGACY_SCENARIOS[scenario].note}</small></button>)}
+        </div> : null}
+
+        {phase === "legacy-channel" && legacyContext ? <div className={styles.choiceList} aria-label="选择老客户来源渠道">
+          {legacyContext.channelOptions.map((item) => <button type="button" key={item.id} onClick={() => chooseLegacyChannel(item.id)}><strong>{item.name}</strong><small>原始来源渠道</small></button>)}
+        </div> : null}
+
+        {phase === "legacy-reception" && legacyContext ? <div className={styles.choiceList} aria-label="选择老客户接粉归属">
+          {legacyContext.memberOptions.map((item) => <button type="button" key={item.id} onClick={() => chooseLegacyReception(item.id)}><strong>{item.name}</strong><small>{item.id === legacyContext.actorId ? "当前账号" : "本组成员"}</small></button>)}
+        </div> : null}
+
+        {phase === "legacy-operator" && legacyContext ? <div className={styles.choiceList} aria-label="选择老客户炒群负责人">
+          {legacyContext.memberOptions.map((item) => <button type="button" key={item.id} onClick={() => chooseLegacyOperator(item.id)}><strong>{item.name}</strong><small>炒群负责人</small></button>)}
+        </div> : null}
+
+        {phase === "legacy-expert" && legacyContext ? <div className={styles.choiceList} aria-label="选择老客户专家负责人">
+          {legacyContext.expertOptions.map((item) => <button type="button" key={item.id} onClick={() => chooseLegacyExpert(item.id)}><strong>{item.name}</strong><small>专家/组长</small></button>)}
+        </div> : null}
+
+        {phase === "legacy-method" ? <div className={styles.choiceList} aria-label="选择老客户入金方式">
+          <button type="button" onClick={() => chooseLegacyMethod("CRYPTO")}><strong>加密货币</strong><small>CRYPTO</small></button>
+          <button type="button" onClick={() => chooseLegacyMethod("BANK")}><strong>银行卡</strong><small>BANK</small></button>
+        </div> : null}
 
         {phase === "customer-mode" ? <div className={styles.choiceList} aria-label="选择新增客户方式">
           <button type="button" onClick={() => chooseCustomerMode("single")}><strong>单个新增</strong><small>录入 1 个客户</small></button>
@@ -837,6 +1008,25 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
           </div>
           <div className={styles.customerNotice}>确认前不会修改客户数据；保存后会同步刷新共享客户进度表。</div>
         </div> : null}
+
+        {(phase === "legacy-preview" || phase === "legacy-saving" || phase === "legacy-done") && legacyContext && legacyDraft.scenario && selectedLegacyChannel ? <div className={styles.preview}>
+          <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>老客户导入预览</strong><small>{LEGACY_SCENARIOS[legacyDraft.scenario].label}</small></div></header>
+          <div className={styles.customerPreview}>
+            <div><span>客户号码</span><strong>{legacyDraft.phone}</strong></div>
+            <div><span>客户姓名</span><strong>{legacyDraft.customerName || "未填写"}</strong></div>
+            <div><span>接粉日期</span><strong>{legacyDraft.sourceDate}</strong></div>
+            <div><span>来源渠道</span><strong>{selectedLegacyChannel.name}</strong></div>
+            <div><span>接粉归属</span><strong>{selectedLegacyReception?.name ?? "—"}</strong></div>
+            <div><span>设备号</span><strong>{legacyDraft.deviceCode || "未填写"}</strong></div>
+            <div><span>历史状态日期</span><strong>{legacyDraft.baselineOn}</strong></div>
+            <div><span>炒群负责人</span><strong>{selectedLegacyOperator?.name ?? "—"}</strong></div>
+            {selectedLegacyExpert ? <div><span>专家负责人</span><strong>{selectedLegacyExpert.name}</strong></div> : null}
+            <div><span>本次发生日期</span><strong>{legacyDraft.occurredOn}</strong></div>
+            {legacyDraft.amountCents ? <div><span>{legacyDraft.scenario === "ORDER" ? "首充金额" : "续充金额"}</span><strong>{amount(legacyDraft.amountCents)}</strong></div> : null}
+            {legacyDraft.amountCents ? <div><span>入金方式</span><strong>{legacyDraft.depositMethod === "CRYPTO" ? "加密货币" : "银行卡"}</strong></div> : null}
+          </div>
+          <div className={styles.customerNotice}>{LEGACY_SCENARIOS[legacyDraft.scenario].note}；接粉日期只留作历史底账。</div>
+        </div> : null}
       </div>
 
       <div className={styles.flowActions}>
@@ -850,9 +1040,11 @@ export function AiSmartAssistant({ open, onOpenChange, onOpenLegacyCustomer, con
         {phase === "customer-batch-done" ? <><button type="button" onClick={() => void startCustomerFlow()}>继续新增客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
         {phase === "progress-preview" ? <><button type="button" onClick={() => { setPhase("progress-action"); setProgressDraft({ ...EMPTY_PROGRESS }); addMessage("assistant", "请重新选择需要更新的项目。" ); }}>重新选择</button><button type="button" data-primary="true" onClick={() => void saveProgressUpdate()}>确认更新</button></> : null}
         {phase === "progress-done" ? <><button type="button" onClick={startProgressFlow}>继续更新其他客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
+        {phase === "legacy-preview" ? <><button type="button" onClick={() => void startLegacyFlow()}>重新填写</button><button type="button" data-primary="true" onClick={() => void saveLegacyCustomer()}>确认导入老客户</button></> : null}
+        {phase === "legacy-done" ? <><button type="button" onClick={() => void startLegacyFlow()}>继续录入老客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
       </div>
       <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" || phase === "progress-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" ? "输入设备账号或设备号" : phase === "progress-text" ? "输入新的进度内容" : phase === "progress-amount" ? "输入金额，例如 1000" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />
+        <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" || phase === "progress-phone" || phase === "legacy-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" || phase === "legacy-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" || phase === "legacy-device" ? "输入设备账号，或回复“跳过”" : phase === "progress-text" ? "输入新的进度内容" : phase === "progress-amount" || phase === "legacy-amount" ? "输入金额，例如 1000" : ["legacy-source-date", "legacy-baseline-date", "legacy-occurred-date"].includes(phase) ? "输入日期，例如 2026-08-20" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />
         <button type="submit" aria-label="发送" disabled={!input.trim() || !inputEnabled}><PaperPlaneTilt size={16} weight="fill" /></button>
       </form>
     </aside> : null}

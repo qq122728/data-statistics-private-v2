@@ -21,6 +21,8 @@ type ScopedAccount = {
   department: { id: string; name: string; companyId: string | null } | null;
   companyId: string | null;
   resourceChannelAccess: Array<{ channelId: string }>;
+  roleAssignments: Array<{ role: Role }>;
+  updatedAt: Date;
 };
 
 const accountSelect = {
@@ -35,6 +37,8 @@ const accountSelect = {
   department: { select: { id: true, name: true, companyId: true } },
   companyId: true,
   resourceChannelAccess: { select: { channelId: true }, orderBy: { channelId: "asc" } },
+  roleAssignments: { select: { role: true }, orderBy: { createdAt: "asc" } },
+  updatedAt: true,
 } as const;
 
 function canManageAccount(actor: SessionUser, target: ScopedAccount): boolean {
@@ -72,6 +76,8 @@ export async function GET() {
     groupName: account.group?.name ?? null,
     departmentName: account.department?.name ?? null,
     resourceChannelIds: account.resourceChannelAccess.map((item) => item.channelId),
+    secondaryRoles: account.roleAssignments.map((item) => item.role).filter((role) => role !== account.role),
+    updatedAt: account.updatedAt,
   })));
 }
 

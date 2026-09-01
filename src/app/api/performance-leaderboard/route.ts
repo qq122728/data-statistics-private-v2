@@ -25,6 +25,7 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params))
     return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
+  const managedScope = params.get("scope") === "managed";
 
   const settings = await getSystemSettings();
   const groupWhere = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
@@ -39,7 +40,9 @@ export async function GET(request: Request) {
               departmentId: actor.departmentId ?? "__missing_department__",
               ...(actor.managementCountryCode ? { OR: [{ countryCode: actor.managementCountryCode }, { countryCode: null, department: { countryCode: actor.managementCountryCode } }] } : {}),
             }
-          : { active: true };
+          : actor.role === "LEAD" && managedScope
+            ? { active: true, id: actor.groupId ?? "__missing_group__" }
+            : { active: true };
   const groups = await db.teamGroup.findMany({
       where: groupWhere,
       select: {

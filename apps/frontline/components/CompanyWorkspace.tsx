@@ -12,10 +12,12 @@ import flow from "./CompanyOrganizationFlow.module.css";
 import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import { OrgGroupMetricMatrix } from "@/components/MetricMatrixTable";
 import { AiSmartAssistant } from "@/components/AiSmartAssistant";
+import { Leaderboard } from "@/components/Leaderboard";
+import ScopedPersonnelManagement from "@/components/ScopedPersonnelManagement";
 
-type View = "dashboard" | "summary" | "customers" | "organization" | "resources" | "notifications";
+type View = "dashboard" | "summary" | "customers" | "organization" | "rankings" | "resources" | "notifications";
 type SummaryMode = "department" | "group" | "member" | "channel" | "day";
-type OrganizationMode = "structure" | "accounts" | "transfer";
+type OrganizationMode = "structure" | "accounts" | "personnel" | "transfer";
 type ResourceMode = "devices" | "channels";
 type Metrics = { added: number; collision: number; lowAmount: number; noWs: number; manualInvalid?: number; lawyerRealCase?: number; lawyerAdded?: number; lawyerExpertAdded?: number; customerServicePush?: number; effective: number; replied: number; joined: number; leftNormal: number; leftAbnormal: number; inGroup: number; pushed: number; registered: number; ordered: number; initialDepositCents?: number; rechargeCents?: number; withdrawalCents: number; netCents: number; cryptoDepositCents?: number; bankDepositCents?: number };
 type ReportGroup = { id: string; name: string; groupType: "HACKER" | "LAWYER"; department: { id: string; name: string }; activePeople: number; totals: Metrics };
@@ -105,12 +107,13 @@ export default function CompanyWorkspace({ user, onLogout }: { user: BackendUser
         : summaryMode === "channel" ? (report?.channels ?? []).filter((channel) => channel.groupType === groupTypeFilter).map((channel) => ({ name: channel.name, sub: `覆盖 ${channel.groupCount} 个小组`, totals: channel.totals }))
           : (report?.days ?? []).map((day) => ({ name: day.date, totals: sum(day.groups.filter((group) => group.groupType === groupTypeFilter)) }));
 
-  const title = view === "dashboard" ? "公司工作台" : view === "summary" ? "数据汇总" : view === "customers" ? "客户进度" : view === "organization" ? "组织管理" : view === "resources" ? "资源管理" : "通知中心";
+  const title = view === "dashboard" ? "公司工作台" : view === "summary" ? "数据汇总" : view === "customers" ? "客户进度" : view === "organization" ? "组织管理" : view === "rankings" ? "员工排名预警" : view === "resources" ? "资源管理" : "通知中心";
   return <WorkspaceShell mark="司" workspaceLabel="公司管理员" title={title} subtitle="只显示当前公司范围内的真实数据" userName={user.name} userLabel="公司管理员" onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={{ label: "公司管理范围", value: company?.name ?? user.companyName ?? "所属公司" }} navigation={<>
       <Nav active={view === "dashboard"} icon="dashboard" label="公司工作台" onClick={() => setView("dashboard")} />
       <Nav active={view === "summary"} icon="summary" label="数据汇总" onClick={() => setView("summary")} />
       <Nav active={view === "customers"} icon="search" label="客户进度" onClick={() => setView("customers")} />
       <Nav active={view === "organization"} icon="organization" label="组织管理" onClick={() => setView("organization")} />
+      <Nav active={view === "rankings"} icon="summary" label="员工排名预警" onClick={() => setView("rankings")} />
       <Nav active={view === "resources"} icon="devices" label="资源管理" onClick={() => setView("resources")} />
       <Nav active={view === "notifications"} icon="notifications" label={<>通知中心<NotificationBadge count={notificationUnread} /></>} onClick={() => setView("notifications")} />
     </>}>
@@ -121,7 +124,8 @@ export default function CompanyWorkspace({ user, onLogout }: { user: BackendUser
         {!loading && view === "dashboard" ? <><section className={styles.kpis}>{(groupTypeFilter === "LAWYER" ? [["部门", departments.length], ["律师组", filteredGroups.length], ["接粉", companyTotals.added], ["真实案件", companyTotals.lawyerRealCase ?? 0], ["添加律师", companyTotals.lawyerAdded ?? 0], ["总开单", companyTotals.ordered]] : [["部门", departments.length], ["黑客组", filteredGroups.length], ["有效数据", companyTotals.effective], ["进群", companyTotals.joined], ["开单", companyTotals.ordered], ["净业绩", money(companyTotals.netCents)]]).map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><AdaptiveMetricTable groupType={groupTypeFilter} title="部门经营概况" rows={departmentRows} /></> : null}
         {!loading && view === "summary" ? <><Tabs values={[["department", "按部门"], ["group", "按小组"], ["member", "按归属个人"], ["channel", "按渠道"], ["day", "按日期"]]} active={summaryMode} onChange={(value) => { setSummaryMode(value as SummaryMode); setDetailGroupId(""); }} /><AdaptiveMetricTable groupType={groupTypeFilter} title={`${summaryMode === "member" ? "个人归属数据汇总（每人一行）" : "公司数据汇总"} · ${report?.range.label ?? ""}`} rows={summaryRows} onRowClick={summaryMode === "group" ? setDetailGroupId : undefined} />{summaryMode === "group" && detailGroupId ? <OrgGroupMetricMatrix groupId={detailGroupId} groupName={filteredGroups.find((group) => group.id === detailGroupId)?.name ?? "小组"} groupType={filteredGroups.find((group) => group.id === detailGroupId)?.groupType ?? groupTypeFilter} range={range} from={from} to={to} onClose={() => setDetailGroupId("")} /> : null}</> : null}
         {!loading && view === "customers" ? <><div className={styles.selector}><div><strong>客户所属部门</strong><span>先选部门，再在共享表内选小组</span></div><select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></div><DepartmentCustomerProgress groups={(selectedDepartment?.groups ?? []).map(({ id, name }) => ({ id, name }))} /></> : null}
-        {!loading && view === "organization" ? <><Tabs values={[["structure", "部门与小组"], ["accounts", "管理员账号"], ["transfer", "人员调动"]]} active={organizationMode} onChange={(value) => setOrganizationMode(value as OrganizationMode)} />{organizationMode === "structure" ? <StructurePanel company={company} onDone={(message) => { setNotice(message); void load(); }} /> : organizationMode === "accounts" ? <ManagerPanel departments={departments} accounts={accounts} onDone={(message) => { setNotice(message); void load(); }} /> : <DepartmentPersonnelTransfer />}</> : null}
+        {!loading && view === "organization" ? <><Tabs values={[["structure", "部门与小组"], ["accounts", "管理员账号"], ["personnel", "人员与岗位"], ["transfer", "人员调动"]]} active={organizationMode} onChange={(value) => setOrganizationMode(value as OrganizationMode)} />{organizationMode === "structure" ? <StructurePanel company={company} onDone={(message) => { setNotice(message); void load(); }} /> : organizationMode === "accounts" ? <ManagerPanel departments={departments} accounts={accounts} onDone={(message) => { setNotice(message); void load(); }} /> : organizationMode === "personnel" ? <ScopedPersonnelManagement scopeLabel="本公司" onTransfer={() => setOrganizationMode("transfer")} /> : <DepartmentPersonnelTransfer />}</> : null}
+        {!loading && view === "rankings" ? <Leaderboard managedScope /> : null}
         {!loading && view === "resources" ? <><Tabs values={[["devices", "设备账号"], ["channels", "渠道与单价"]]} active={resourceMode} onChange={(value) => setResourceMode(value as ResourceMode)} />{resourceMode === "devices" ? <AssetsPanel assets={assets} /> : <ChannelPanel assets={assets} />}</> : null}
         {!loading && view === "notifications" ? <UnifiedNotificationCenter onUnreadChange={setNotificationUnread} /> : null}
   </WorkspaceShell>;

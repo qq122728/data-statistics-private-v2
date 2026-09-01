@@ -12,8 +12,9 @@ import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "
 import { OrgGroupMetricMatrix } from "@/components/MetricMatrixTable";
 import styles from "./HeadquartersWorkspace.module.css";
 import { AiSmartAssistant } from "@/components/AiSmartAssistant";
+import { Leaderboard } from "@/components/Leaderboard";
 
-type View = "dashboard" | "summary" | "customers" | "companies" | "groups" | "admins" | "transfer" | "devices" | "channels" | "notices";
+type View = "dashboard" | "summary" | "customers" | "companies" | "groups" | "admins" | "transfer" | "rankings" | "devices" | "channels" | "notices";
 type SummaryMode = "company" | "department" | "group" | "member" | "channel" | "day";
 type Metrics = {
   added: number; collision: number; lowAmount: number; noWs: number; manualInvalid?: number;
@@ -32,7 +33,7 @@ type GroupNode = { id: string; name: string; groupType: "HACKER" | "LAWYER"; act
 type DepartmentNode = { id: string; name: string; active: boolean; timezone: string; countryCode: string; companyId: string | null; groups: GroupNode[] };
 type CompanyNode = { id: string; name: string; active: boolean; departments: DepartmentNode[] };
 type Structure = { companies?: CompanyNode[]; unassignedDepartments?: DepartmentNode[] };
-type Account = { id: string; name: string; username: string; role: string; duty: string | null; active: boolean; groupName: string | null; departmentName: string | null; resourceChannelIds?: string[] };
+type Account = { id: string; name: string; username: string; role: string; duty: string | null; active: boolean; groupName: string | null; departmentName: string | null; resourceChannelIds?: string[]; secondaryRoles?: string[]; updatedAt?: string };
 type ChannelCatalogItem = { id: string; name: string; active: boolean; channelType: "SMS" | "ADS" | "REBATE"; groupCount: number; batchCount: number };
 type TableRow = { id: string; name: string; sub?: string; people?: number; totals: Metrics };
 
@@ -147,13 +148,13 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
       department: group.department, company: group.company, channel: { name: "暂无渠道数据" }, activePeople: group.activePeople, totals: group.totals,
     }))].sort((left, right) => `${left.company?.name ?? ""}-${left.department.name}-${left.groupName}-${left.channel.name}`.localeCompare(`${right.company?.name ?? ""}-${right.department.name}-${right.groupName}-${right.channel.name}`, "zh-CN"));
   }, [groupTypeFilter, report]);
-  const title: Record<View, string> = { dashboard: "总公司工作台", summary: "数据汇总", customers: "客户进度", companies: "公司与部门", groups: "小组管理", admins: "管理员账号", transfer: "人员调动", devices: "设备账号", channels: "渠道与单价", notices: "通知中心" };
+  const title: Record<View, string> = { dashboard: "总公司工作台", summary: "数据汇总", customers: "客户进度", companies: "公司与部门", groups: "小组管理", admins: "人员与岗位", transfer: "人员调动", rankings: "员工排名预警", devices: "设备账号", channels: "渠道与单价", notices: "通知中心" };
 
   return <WorkspaceShell mark="总" workspaceLabel="总公司管理员" title={title[view]} subtitle="总公司权限 · 所有写操作仍由后端再次核验范围" userName={user.name} userLabel="总公司管理员" onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title[view]}`} user={user} />} scope={{ label: "管理范围", value: `全部公司 · ${companies.length} 家` }} navigation={<>
         <NavButton active={view === "dashboard"} label="总公司工作台" icon="dashboard" onClick={() => setView("dashboard")} />
         <NavButton active={view === "summary"} label="数据汇总" icon="summary" onClick={() => setView("summary")} />
         <NavButton active={view === "customers"} label="客户进度" icon="search" onClick={() => setView("customers")} />
-        <NavGroup title="组织管理"><NavButton active={view === "companies"} label="公司与部门" icon="organization" onClick={() => setView("companies")} /><NavButton active={view === "groups"} label="小组管理" icon="settings" onClick={() => setView("groups")} /><NavButton active={view === "admins"} label="管理员账号" icon="accounts" onClick={() => setView("admins")} /><NavButton active={view === "transfer"} label="人员调动" icon="transfer" onClick={() => setView("transfer")} /></NavGroup>
+        <NavGroup title="组织管理"><NavButton active={view === "companies"} label="公司与部门" icon="organization" onClick={() => setView("companies")} /><NavButton active={view === "groups"} label="小组管理" icon="settings" onClick={() => setView("groups")} /><NavButton active={view === "admins"} label="人员与岗位" icon="accounts" onClick={() => setView("admins")} /><NavButton active={view === "transfer"} label="人员调动" icon="transfer" onClick={() => setView("transfer")} /><NavButton active={view === "rankings"} label="员工排名预警" icon="summary" onClick={() => setView("rankings")} /></NavGroup>
         <NavGroup title="资源管理"><NavButton active={view === "devices"} label="设备账号" icon="devices" onClick={() => setView("devices")} /><NavButton active={view === "channels"} label="渠道与单价" icon="channel" onClick={() => setView("channels")} /></NavGroup>
         <NavButton active={view === "notices"} label={<>通知中心<NotificationBadge count={notificationUnread} /></>} icon="notifications" onClick={() => setView("notices")} />
       </>}>
@@ -166,8 +167,9 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
         {!loading && view === "customers" ? <HeadquartersCustomers companies={companies} /> : null}
         {!loading && view === "companies" ? <CompaniesDepartments companies={companies} reload={load} notify={setNotice} /> : null}
         {!loading && view === "groups" ? <GroupManagement companies={companies} reload={load} notify={setNotice} /> : null}
-        {!loading && view === "admins" ? <ManagerAccounts companies={companies} notify={setNotice} /> : null}
+        {!loading && view === "admins" ? <ManagerAccounts companies={companies} notify={setNotice} onTransfer={() => setView("transfer")} /> : null}
         {!loading && view === "transfer" ? <DepartmentPersonnelTransfer /> : null}
+        {!loading && view === "rankings" ? <Leaderboard /> : null}
         {!loading && view === "devices" ? <DepartmentDeviceAccounts /> : null}
         {!loading && view === "channels" ? <ChannelResources /> : null}
         {!loading && view === "notices" ? <UnifiedNotificationCenter onUnreadChange={setNotificationUnread} /> : null}
@@ -301,7 +303,7 @@ function GroupManagement({ companies, reload, notify }: { companies: CompanyNode
   return <><form className={styles.inlineCreate} onSubmit={create}><strong>第 1 步 · 创建小组</strong><label>所属部门<select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>{departments.map((department) => <option value={department.id} key={department.id}>{department.companyName} · {department.name}</option>)}</select></label><label>小组名称<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label>小组类型<select value={groupType} onChange={(event) => setGroupType(event.target.value as "HACKER" | "LAWYER")}><option value="HACKER">黑客组</option><option value="LAWYER">律师组</option></select></label><button disabled={busy || !departmentId}>＋ 创建小组</button></form><form className={styles.inlineCreate} onSubmit={createLead}><strong>第 2 步 · 给已有小组创建组长账号</strong><label>无组长小组<select value={leadGroupId} onChange={(event) => setLeadGroupId(event.target.value)} required><option value="">请选择</option>{groupsWithoutLead.map((group) => <option key={group.id} value={group.id}>{group.companyName} · {group.departmentName} · {group.name}</option>)}</select></label><label>组长姓名<input name="leadName" required /></label><label>登录账号<input name="username" required /></label><label>生效日期<input name="effectiveOn" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></label><label>临时密码<div className={styles.password}><input readOnly value={leadPassword} /><button type="button" onClick={() => setLeadPassword(temporaryPassword())}>换一个</button></div></label><button disabled={busy || !leadGroupId}>创建组长账号</button></form>{error ? <div className={styles.error}>{error}</div> : null}<section className={styles.card}><div className={styles.tableWrap}><table><thead><tr><th>公司</th><th>部门</th><th>小组</th><th>类型</th><th>组长</th><th>状态</th><th>操作</th></tr></thead><tbody>{departments.flatMap((department) => department.groups.map((group) => <tr key={group.id}><td>{department.companyName}</td><td>{department.name}</td><td><strong>{group.name}</strong></td><td>{group.groupType === "LAWYER" ? "律师组" : "黑客组"}</td><td>{group.leadName ?? "待任命"}</td><td>{group.active ? "启用" : "停用"}</td><td><button type="button" disabled={busy} onClick={() => void toggle(group)}>{group.active ? "停用" : "启用"}</button></td></tr>))}</tbody></table></div></section></>;
 }
 
-function ManagerAccounts({ companies, notify }: { companies: CompanyNode[]; notify: (value: string) => void }) {
+function ManagerAccounts({ companies, notify, onTransfer }: { companies: CompanyNode[]; notify: (value: string) => void; onTransfer: () => void }) {
   const departments = useMemo(() => companies.flatMap((company) => company.departments.map((department) => ({ ...department, companyName: company.name }))), [companies]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [channels, setChannels] = useState<ChannelCatalogItem[]>([]);
@@ -310,6 +312,7 @@ function ManagerAccounts({ companies, notify }: { companies: CompanyNode[]; noti
   const [resourceType, setResourceType] = useState<"ADS" | "SMS">("ADS");
   const [resourceChannelIds, setResourceChannelIds] = useState<string[]>([]);
   const [name, setName] = useState(""); const [username, setUsername] = useState(""); const [password, setPassword] = useState(temporaryPassword); const [error, setError] = useState(""); const [busy, setBusy] = useState(false); const [statusBusyId, setStatusBusyId] = useState("");
+  const [accountSearch, setAccountSearch] = useState(""); const [accountRole, setAccountRole] = useState(""); const [accountStatus, setAccountStatus] = useState("active");
   const load = useCallback(async () => {
     const [nextAccounts, catalog] = await Promise.all([
       requestJson<Account[]>("/api/org/accounts"),
@@ -338,7 +341,14 @@ function ManagerAccounts({ companies, notify }: { companies: CompanyNode[]; noti
     catch (caught) { setError(caught instanceof Error ? caught.message : "账号状态修改失败"); }
     finally { setStatusBusyId(""); }
   }
-  const listedAccounts = accounts.filter((account) => account.duty === "COMPANY_MANAGER" || account.duty === "DEPARTMENT_MANAGER" || account.role === "RESOURCE_MANAGER");
+  const roleLabel = (account: Account) => account.duty === "COMPANY_MANAGER" ? "公司管理员" : account.duty === "DEPARTMENT_MANAGER" ? "部门管理员" : account.duty === "HQ_MANAGER" ? "总公司管理员" : account.role === "RESOURCE_MANAGER" ? "资源部" : account.role === "RECEPTION" ? "接粉" : account.role === "GROUP_OPERATOR" ? "炒群" : account.role === "EXPERT" ? "专家" : account.role === "LEAD" ? "组长" : account.role;
+  const secondaryRoleLabel = (role: string) => ({ RECEPTION: "接粉", GROUP_OPERATOR: "炒群", EXPERT: "专家", LEAD: "组长" } as Record<string, string>)[role] ?? role;
+  const listedAccounts = accounts.filter((account) => {
+    const keyword = `${account.name} ${account.username} ${account.groupName ?? ""} ${account.departmentName ?? ""} ${roleLabel(account)}`.toLowerCase();
+    return (!accountSearch.trim() || keyword.includes(accountSearch.trim().toLowerCase()))
+      && (!accountRole || account.role === accountRole || account.secondaryRoles?.includes(accountRole))
+      && (accountStatus === "all" || (accountStatus === "active" ? account.active : !account.active));
+  });
   return <>
     <section className={styles.info}><strong>账号开设顺序</strong><span>公司先创建公司，再开公司管理员；资源部先创建渠道，再开对应的投流或短信账号。</span></section>
     <form className={styles.inlineCreate} onSubmit={create}>
@@ -350,7 +360,7 @@ function ManagerAccounts({ companies, notify }: { companies: CompanyNode[]; noti
       <label>姓名<input value={name} onChange={(event) => setName(event.target.value)} required /></label><label>登录账号<input value={username} onChange={(event) => setUsername(event.target.value)} required /></label><label>临时密码<div className={styles.password}><input readOnly value={password} /><button type="button" onClick={() => setPassword(temporaryPassword())}>换一个</button></div></label><button disabled={busy || (kind === "resource" ? !resourceChannelIds.length : !scopeId)}>创建账号</button>
     </form>
     {error ? <div className={styles.error}>{error}</div> : null}
-    <section className={styles.card}><div className={styles.cardHead}><div><h2>管理账号</h2><p>资源账号只显示被授权的渠道，不会跨到另一种资源类型</p></div><strong>{listedAccounts.length} 个</strong></div><div className={styles.tableWrap}><table><thead><tr><th>姓名</th><th>登录账号</th><th>身份</th><th>管理范围</th><th>状态</th><th>操作</th></tr></thead><tbody>{listedAccounts.map((account) => <tr key={account.id}><td><strong>{account.name}</strong></td><td>{account.username}</td><td>{account.role === "RESOURCE_MANAGER" ? "资源部管理员" : account.duty === "COMPANY_MANAGER" ? "公司管理员" : "部门管理员"}</td><td>{account.role === "RESOURCE_MANAGER" ? (account.resourceChannelIds ?? []).map((id) => channelNames.get(id) ?? id).join("、") || "未授权渠道" : account.departmentName ?? account.groupName ?? "公司范围"}</td><td>{account.active ? "启用" : "停用"}</td><td><button type="button" disabled={Boolean(statusBusyId)} onClick={() => void toggleAccount(account)}>{statusBusyId === account.id ? "处理中…" : account.active ? "停用" : "启用"}</button></td></tr>)}</tbody></table></div></section>
+    <section className={styles.card}><div className={styles.cardHead}><div><h2>全公司人员与岗位</h2><p>停用只会禁止登录和修改，历史客户、业绩和操作记录全部保留</p></div><strong>{listedAccounts.length} 人</strong></div><div className={styles.accountFilters}><input value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} placeholder="搜索姓名、账号、小组或部门" /><select value={accountRole} onChange={(event) => setAccountRole(event.target.value)}><option value="">全部岗位</option><option value="RECEPTION">接粉</option><option value="GROUP_OPERATOR">炒群</option><option value="EXPERT">专家</option><option value="LEAD">组长</option><option value="RESOURCE_MANAGER">资源部</option><option value="COMPANY_MANAGER">管理人员</option></select><select value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}><option value="active">在职账号</option><option value="inactive">已停用</option><option value="all">全部状态</option></select></div><div className={styles.tableWrap}><table><thead><tr><th>姓名 / 账号</th><th>组织范围</th><th>主岗位</th><th>兼职岗位</th><th>状态</th><th>最后变更</th><th>操作</th></tr></thead><tbody>{listedAccounts.map((account) => <tr key={account.id}><td><strong>{account.name}</strong><small className={styles.accountSub}>{account.username}</small></td><td>{account.role === "RESOURCE_MANAGER" ? (account.resourceChannelIds ?? []).map((id) => channelNames.get(id) ?? id).join("、") || "未授权渠道" : account.groupName ?? account.departmentName ?? "公司范围"}</td><td>{roleLabel(account)}</td><td>{account.secondaryRoles?.length ? account.secondaryRoles.map(secondaryRoleLabel).join("、") : "—"}</td><td><span className={styles.accountState} data-active={account.active}>{account.active ? "在职" : "已停用"}</span></td><td>{account.updatedAt ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "short" }).format(new Date(account.updatedAt)) : "—"}</td><td><div className={styles.accountActions}>{account.groupName ? <button type="button" onClick={onTransfer}>调整岗位</button> : <span className={styles.accountFixedRole}>组织岗位</span>}<button type="button" disabled={Boolean(statusBusyId)} data-danger={account.active} onClick={() => void toggleAccount(account)}>{statusBusyId === account.id ? "处理中…" : account.active ? "停用账号" : "恢复账号"}</button></div></td></tr>)}{!listedAccounts.length ? <tr><td colSpan={7}>当前筛选范围没有人员</td></tr> : null}</tbody></table></div></section>
   </>;
 }
 

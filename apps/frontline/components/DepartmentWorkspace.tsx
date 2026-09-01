@@ -12,8 +12,10 @@ import DepartmentDeviceAccounts from "@/components/DepartmentDeviceAccounts";
 import { localCalendarDate, SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import { OrgGroupMetricMatrix } from "@/components/MetricMatrixTable";
 import { AiSmartAssistant } from "@/components/AiSmartAssistant";
+import { Leaderboard } from "@/components/Leaderboard";
+import ScopedPersonnelManagement from "@/components/ScopedPersonnelManagement";
 
-type View = "dashboard" | "summary" | "customers" | "groups" | "transfer" | "devices" | "notifications";
+type View = "dashboard" | "summary" | "customers" | "groups" | "personnel" | "transfer" | "rankings" | "devices" | "notifications";
 type Metrics = {
   added: number; collision: number; lowAmount: number; noWs: number; manualInvalid?: number;
   lawyerRealCase?: number; lawyerAdded?: number; lawyerExpertAdded?: number; customerServicePush?: number;
@@ -119,7 +121,7 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
   const selectedGroup = report?.groups.find((group) => group.id === groupFilter);
   const visibleChannels = (groupFilter ? (filteredChannelReport?.channels ?? []) : (report?.channels ?? [])).filter((channel) => channel.groupType === groupTypeFilter);
 
-  const title = view === "dashboard" ? "部门工作台" : view === "summary" ? "数据汇总" : view === "customers" ? "客户进度" : view === "groups" ? "小组管理" : view === "transfer" ? "人员调动" : view === "devices" ? "设备账号" : "通知中心";
+  const title = view === "dashboard" ? "部门工作台" : view === "summary" ? "数据汇总" : view === "customers" ? "客户进度" : view === "groups" ? "小组管理" : view === "personnel" ? "人员与岗位" : view === "transfer" ? "人员调动" : view === "rankings" ? "员工排名预警" : view === "devices" ? "设备账号" : "通知中心";
   const subtitle = view === "dashboard" ? "先看部门整体，再定位需要处理的小组" : view === "summary" ? "按小组、个人和日期查看真实汇总" : view === "groups" ? "先开设小组，再为已存在的小组单独开设组长账号" : "只查看本部门权限范围内的数据";
 
   return <WorkspaceShell mark="部" workspaceLabel="部门管理员" title={title} subtitle={subtitle} userName={user.name} userLabel="部门管理员" onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={{ label: "部门管理权限", value: structure?.name ?? user.departmentName ?? "所属部门" }} navigation={<>
@@ -127,7 +129,9 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
         <WorkspaceNavButton active={view === "summary"} icon="summary" onClick={() => setView("summary")}>数据汇总</WorkspaceNavButton>
         <WorkspaceNavButton active={view === "customers"} icon="search" onClick={() => setView("customers")}>客户进度</WorkspaceNavButton>
         <WorkspaceNavButton active={view === "groups"} icon="settings" onClick={() => setView("groups")}>小组管理</WorkspaceNavButton>
+        <WorkspaceNavButton active={view === "personnel"} icon="organization" onClick={() => setView("personnel")}>人员与岗位</WorkspaceNavButton>
         <WorkspaceNavButton active={view === "transfer"} icon="transfer" onClick={() => setView("transfer")}>人员调动</WorkspaceNavButton>
+        <WorkspaceNavButton active={view === "rankings"} icon="summary" onClick={() => setView("rankings")}>员工排名预警</WorkspaceNavButton>
         <WorkspaceNavButton active={view === "devices"} icon="devices" onClick={() => setView("devices")}>设备账号</WorkspaceNavButton>
         <WorkspaceNavButton active={view === "notifications"} icon="notifications" onClick={() => setView("notifications")}>通知中心<NotificationBadge count={notificationUnread} /></WorkspaceNavButton>
       </>}>
@@ -150,7 +154,9 @@ export default function DepartmentWorkspace({ user, onLogout }: { user: BackendU
         </> : null}
         {!loading && !error && view === "customers" ? <DepartmentCustomerProgress groups={(report?.groups ?? []).map(({ id, name }) => ({ id, name }))} /> : null}
         {!loading && !error && view === "groups" ? <DepartmentGroupManagement /> : null}
+        {!loading && !error && view === "personnel" ? <ScopedPersonnelManagement scopeLabel="本部门" onTransfer={() => setView("transfer")} /> : null}
         {!loading && !error && view === "transfer" ? <DepartmentPersonnelTransfer /> : null}
+        {!loading && !error && view === "rankings" ? <Leaderboard managedScope /> : null}
         {!loading && !error && view === "devices" ? <DepartmentDeviceAccounts /> : null}
         {!loading && !error && view === "notifications" ? <UnifiedNotificationCenter onUnreadChange={setNotificationUnread} /> : null}
   </WorkspaceShell>;

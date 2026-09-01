@@ -35,3 +35,13 @@ test("客户进度统一使用真实共享表格", () => {
   assert.match(source, /user\.groupId/);
   assert.doesNotMatch(source, /GroupOperatorWorkbench|ExpertWorkbench|RealReceptionProgress/);
 });
+
+test("组员AI提供资源引导、号码跟进、查询、纠错和遗漏检查", () => {
+  const source = read("AiSmartAssistant.tsx");
+  for (const task of ["填写资源数据", "更新客户进度", "查询客户", "纠正错误", "老客户新进度", "检查今日遗漏"]) {
+    assert.match(source, new RegExp(task));
+  }
+  assert.match(source, /kind:\s*"customer_event"/);
+  assert.match(source, /syncCustomerEventDailyImpact/);
+  assert.match(source, /有效数据自动计算/);
+});

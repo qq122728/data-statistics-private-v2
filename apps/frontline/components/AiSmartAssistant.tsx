@@ -29,7 +29,7 @@ type Option = { id: string; name: string };
 type HistoricalContext = { today: string; channels: Option[]; members: { reception: Option[]; groupOperator: Option[]; expert: Option[] } };
 type Customer = {
   id: string; phone: string; customerName: string | null; joinedOn: string | null; registeredOn: string | null;
-  groupStatus: string; expertIntroducedOn: string | null; expertNotes: string | null; nextPlan: string | null;
+  repliedOn?: string | null; leftOn?: string | null; groupStatus: string; expertIntroducedOn: string | null; expertNotes: string | null; nextPlan: string | null;
   owner: Option | null; attributionOwner: Option | null;
   groupOperatorOwner: Option | null; expertOwner: Option | null;
   batch: { id: string; sourceDate: string; channel: { name: string } };
@@ -41,12 +41,15 @@ type Change = MetricUpdate & { before: number };
 type PendingAction =
   | { kind: "daily"; channelId: string; channelName: string; date: string; entryId: string | null; current: DailyValues; changes: Change[]; correction: boolean; original: string; today: string }
   | { kind: "customer_note"; customer: Customer; noteKind: "group" | "expert"; before: string; after: string; original: string }
+  | { kind: "customer_event"; customer: Customer; event: "REPLIED" | "JOINED" | "LEFT_NORMAL" | "LEFT_ABNORMAL" | "INTRODUCED" | "REGISTERED" | "ORDERED" | "RECHARGE" | "WITHDRAWAL"; amountCents: number | null; today: string; original: string }
   | {
     kind: "legacy_event"; event: "JOINED" | "ORDERED" | "RECHARGE"; phoneTail: string; sourceDate: string; today: string;
     channel: Option; receptionOwner: Option; groupOperator: Option; expert: Option | null; amountCents: number | null;
     existingCustomer: Customer | null; original: string;
   };
 type ChatItem = { id: number; from: "user" | "assistant"; text: string };
+type ResourceGuide = { today: string; channels: Array<{ id: string; name: string }>; channelId: string; dispatchCount: number; duplicateCount: number; lowAmountCount: number; noWsCount: number; manualInvalidCount: number };
+type LegacyGuide = { today: string; phone: string; sourceDate: string; event: "JOINED" | "ORDERED"; channelId: string; receptionOwnerId: string; groupOperatorId: string; expertId: string; amount: number; context: HistoricalContext };
 
 const samples = [
   "今天 FB-M 添加20，回复8，进群3",
@@ -80,11 +83,18 @@ function eventLabel(event: "JOINED" | "ORDERED" | "RECHARGE") {
   return event === "JOINED" ? "今天进群" : event === "ORDERED" ? "今天开单并首充" : "今天续充";
 }
 
+function customerEventLabel(event: Extract<PendingAction, { kind: "customer_event" }>["event"]) {
+  const labels = { REPLIED: "回复", JOINED: "进群", LEFT_NORMAL: "正常退群", LEFT_ABNORMAL: "异常退群", INTRODUCED: "推专家", REGISTERED: "注册", ORDERED: "开单并首充", RECHARGE: "续充", WITHDRAWAL: "出金" } as const;
+  return labels[event];
+}
+
 export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNavigate: (view: "statistics" | "customers") => void }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
+  const [resourceGuide, setResourceGuide] = useState<ResourceGuide | null>(null);
+  const [legacyGuide, setLegacyGuide] = useState<LegacyGuide | null>(null);
   const [error, setError] = useState("");
   const [chat, setChat] = useState<ChatItem[]>([{ id: 1, from: "assistant", text: "你直接说人话就行。我会先查现有数据，再把准备修改的内容列出来，只有你确认后才保存。" }]);
   const nextId = useMemo(() => Math.max(0, ...chat.map((item) => item.id)) + 1, [chat]);
@@ -95,9 +105,87 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
 
   async function findCustomer(tail: string) {
     if (!user.groupId) throw new Error("当前账号没有绑定小组，不能查询客户");
-    const params = new URLSearchParams({ groupId: user.groupId, stage: "group", page: "1", q: tail });
-    const result = await requestJson<CustomerPayload>(`/api/lead/customer-reporting?${params}`);
-    return result.customers.find((item) => item.phone.replace(/\D/g, "").endsWith(tail)) ?? result.customers[0] ?? null;
+    for (const stage of ["group", "reception", "expert"] as const) {
+      const params = new URLSearchParams({ groupId: user.groupId, stage, page: "1", q: tail });
+      const result = await requestJson<CustomerPayload>(`/api/lead/customer-reporting?${params}`);
+      const customer = result.customers.find((item) => item.phone.replace(/\D/g, "").endsWith(tail)) ?? result.customers[0] ?? null;
+      if (customer) return customer;
+    }
+    return null;
+  }
+
+  async function startResourceGuide() {
+    setOpen(true); setBusy(true); setError(""); setPending(null); setLegacyGuide(null);
+    try {
+      const context = await requestJson<DailyContext>("/api/daily-stats");
+      setResourceGuide({ today: context.today, channels: context.channels, channelId: context.channels[0]?.id ?? "", dispatchCount: 0, duplicateCount: 0, lowAmountCount: 0, noWsCount: 0, manualInvalidCount: 0 });
+      reply("先选择渠道，再填写今天收到的资源总数和无效分类。有效数据会由系统自动计算。");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "读取渠道失败"); }
+    finally { setBusy(false); }
+  }
+
+  async function startLegacyGuide() {
+    setOpen(true); setBusy(true); setError(""); setPending(null); setResourceGuide(null);
+    try {
+      const daily = await requestJson<DailyContext>("/api/daily-stats");
+      const context = await requestJson<HistoricalContext>(`/api/historical-claims?baselineOn=${encodeURIComponent(daily.today)}`);
+      setLegacyGuide({ today: context.today, phone: "", sourceDate: context.today, event: "JOINED", channelId: context.channels[0]?.id ?? "", receptionOwnerId: context.members.reception.find((item) => item.id === user.id)?.id ?? context.members.reception[0]?.id ?? "", groupOperatorId: context.members.groupOperator.find((item) => item.id === user.id)?.id ?? context.members.groupOperator[0]?.id ?? "", expertId: context.members.expert.find((item) => item.id === user.id)?.id ?? context.members.expert[0]?.id ?? "", amount: 0, context });
+      reply("老客户先填原始来源日期，再选择今天新发生的进度。以前已经发生的步骤只作为底账，不会倒灌到今天统计。");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "读取老客户选项失败"); }
+    finally { setBusy(false); }
+  }
+
+  async function prepareLegacyGuide() {
+    if (!legacyGuide || busy) return;
+    setError("");
+    const digits = legacyGuide.phone.replace(/\D/g, "");
+    if (digits.length < 4) { setError("请输入至少 4 位客户号码"); return; }
+    const channel = legacyGuide.context.channels.find((item) => item.id === legacyGuide.channelId);
+    const receptionOwner = legacyGuide.context.members.reception.find((item) => item.id === legacyGuide.receptionOwnerId);
+    const groupOperator = legacyGuide.context.members.groupOperator.find((item) => item.id === legacyGuide.groupOperatorId);
+    const expert = legacyGuide.context.members.expert.find((item) => item.id === legacyGuide.expertId) ?? null;
+    if (!channel || !receptionOwner || !groupOperator) { setError("请完整选择渠道、接粉归属和炒群负责人"); return; }
+    if (legacyGuide.event === "ORDERED" && (!expert || legacyGuide.amount <= 0)) { setError("今天开单必须选择专家并填写首充金额"); return; }
+    const existing = await findCustomer(digits.slice(-6));
+    if (existing) {
+      setPending({ kind: "customer_event", customer: existing, event: legacyGuide.event, amountCents: legacyGuide.event === "ORDERED" ? Math.round(legacyGuide.amount * 100) : null, today: legacyGuide.today, original: "AI引导老客户新进度" });
+      reply("该号码已经存在，不重复导入，只新增今天发生的进度。");
+    } else {
+      setPending({ kind: "legacy_event", event: legacyGuide.event, phoneTail: digits, sourceDate: legacyGuide.sourceDate, today: legacyGuide.today, channel, receptionOwner, groupOperator, expert: legacyGuide.event === "ORDERED" ? expert : null, amountCents: legacyGuide.event === "ORDERED" ? Math.round(legacyGuide.amount * 100) : null, existingCustomer: null, original: "AI引导老客户新进度" });
+      reply("已生成老客户保存预览：原始日期只建历史底账，今天事件才进入今天报表。");
+    }
+    setLegacyGuide(null);
+  }
+
+  async function prepareResourceGuide() {
+    if (!resourceGuide?.channelId || busy) return;
+    setBusy(true); setError("");
+    try {
+      const context = await requestJson<DailyContext>("/api/daily-stats");
+      const channel = context.channels.find((item) => item.id === resourceGuide.channelId);
+      if (!channel) throw new Error("请选择一个有效渠道");
+      const existing = context.unifiedEntries.find((item) => item.businessDate === context.today && item.channel.id === channel.id);
+      const displayed = { ...EMPTY_DAILY_VALUES, ...(existing?.values ?? {}) };
+      const primaryEntry = existing?.entryId ? context.entries.find((entry) => entry.id === existing.entryId) : null;
+      const current = { ...EMPTY_DAILY_VALUES, ...(primaryEntry?.currentRevision ?? primaryEntry?.approvedRevision ?? {}) };
+      const keys = ["dispatchCount", "duplicateCount", "lowAmountCount", "noWsCount", "manualInvalidCount"] as const;
+      const labels = { dispatchCount: "添加数据", duplicateCount: "撞粉", lowAmountCount: "低金额", noWsCount: "无 WS 号码", manualInvalidCount: "人工无效" } as const;
+      const changes = keys.map((key) => ({ key, label: labels[key], value: resourceGuide[key], before: displayed[key] }));
+      setPending({ kind: "daily", channelId: channel.id, channelName: channel.name, date: context.today, entryId: existing?.entryId ?? null, current, changes, correction: Boolean(existing), original: "AI引导填写资源数据", today: context.today });
+      setResourceGuide(null); reply("资源数据已整理成保存预览。请确认渠道和数量，确认后才会写入。");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "生成预览失败"); }
+    finally { setBusy(false); }
+  }
+
+  async function checkTodayMissing() {
+    setOpen(true); setBusy(true); setError(""); setPending(null); setResourceGuide(null); setLegacyGuide(null);
+    try {
+      const context = await requestJson<DailyContext>("/api/daily-stats");
+      const filled = new Set(context.unifiedEntries.filter((item) => item.businessDate === context.today && item.entryId).map((item) => item.channel.id));
+      const missing = context.channels.filter((item) => !filled.has(item.id));
+      reply(missing.length ? `今天还有 ${missing.length} 个渠道没有填写：${missing.map((item) => item.name).join("、")}。` : "今天所有已启用渠道都已经填写过资源数据。");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "检查失败"); }
+    finally { setBusy(false); }
   }
 
   async function understand(raw: string) {
@@ -145,18 +233,33 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
         reply(`已找到客户 ${customer.phone}。我只会修改${intent.noteKind === "group" ? "炒群情况" : "专家情况"}，请先核对前后差异。`);
         return;
       }
+      if (intent.kind === "customer_event") {
+        const customer = await findCustomer(intent.phoneTail);
+        if (!customer) { reply(`没有找到号码后 ${intent.phoneTail.length} 位为 ${intent.phoneTail} 的客户。若这是老客户，请使用“老客户今天有新进度”并补充原始日期和渠道。`); return; }
+        if (["ORDERED", "RECHARGE", "WITHDRAWAL"].includes(intent.event) && !intent.amountCents) {
+          reply(`我知道客户要${customerEventLabel(intent.event)}，但还缺金额。请补充金额后再发送。`); return;
+        }
+        if (["RECHARGE", "WITHDRAWAL"].includes(intent.event) && !customer.order) {
+          reply(`客户 ${customer.phone} 还没有有效开单，不能登记${customerEventLabel(intent.event)}。`); return;
+        }
+        const daily = await requestJson<DailyContext>("/api/daily-stats");
+        setPending({ kind: "customer_event", customer, event: intent.event, amountCents: intent.amountCents ?? null, today: daily.today, original: message });
+        reply(`已找到客户 ${customer.phone}。这次只新增“${customerEventLabel(intent.event)}”事件，原始接粉归属不会改变。`);
+        return;
+      }
       if (intent.kind === "legacy_event") {
         const daily = await requestJson<DailyContext>("/api/daily-stats");
-        const existingCustomer = intent.event === "RECHARGE" ? await findCustomer(intent.phoneTail) : null;
+        const existingCustomer = await findCustomer(intent.phoneTail);
+        if (existingCustomer) {
+          const mappedEvent = intent.event;
+          if (mappedEvent === "RECHARGE" && !existingCustomer.order) { reply(`客户 ${intent.phoneTail} 没有有效开单记录，不能直接续充。请先核对号码或先登记开单。`); return; }
+          if ((mappedEvent === "ORDERED" || mappedEvent === "RECHARGE") && !intent.amountCents) { reply(`我知道这是今天${mappedEvent === "ORDERED" ? "开单" : "续充"}，但还缺金额。`); return; }
+          setPending({ kind: "customer_event", customer: existingCustomer, event: mappedEvent, amountCents: intent.amountCents ?? null, today: daily.today, original: message });
+          reply(`这个号码已经在客户库中，不会重复导入。今天只新增“${customerEventLabel(mappedEvent)}”事件。`);
+          return;
+        }
         if (intent.event === "RECHARGE") {
-          if (!existingCustomer?.order) { reply(`客户 ${intent.phoneTail} 没有有效开单记录，不能直接续充。请先核对号码或先登记开单。`); return; }
-          if (!intent.amountCents) { reply("我知道这是今天续充，但还缺续充金额。请补充，例如：续充500美元。"); return; }
-          const channel = daily.channels.find((item) => item.name === existingCustomer.batch.channel.name);
-          const receptionOwner = existingCustomer.attributionOwner ?? existingCustomer.owner;
-          const groupOperator = existingCustomer.groupOperatorOwner;
-          if (!channel || !receptionOwner || !groupOperator) { reply("这位客户的渠道或负责人资料不完整，请先在客户共享表补全。 "); return; }
-          setPending({ kind: "legacy_event", event: intent.event, phoneTail: intent.phoneTail, sourceDate: existingCustomer.batch.sourceDate, today: daily.today, channel, receptionOwner, groupOperator, expert: existingCustomer.expertOwner, amountCents: intent.amountCents, existingCustomer, original: message });
-          reply(`已读取客户 ${existingCustomer.phone} 的历史开单和资金记录。今天只新增一笔续充，不会重复增加开单。`);
+          reply(`号码 ${intent.phoneTail} 还不在客户库中，不能直接从“续充”开始。请先用老客户入口建立历史开单底账。`);
           return;
         }
         const historical = await requestJson<HistoricalContext>(`/api/historical-claims?baselineOn=${encodeURIComponent(intent.sourceDate)}`);
@@ -215,6 +318,21 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
         });
         reply(`客户 ${pending.customer.phone} 的${pending.noteKind === "group" ? "炒群情况" : "专家情况"}已更新，并记录了操作账号和时间。`);
         onNavigate("customers");
+      } else if (pending.kind === "customer_event") {
+        const { customer, event, amountCents, today } = pending;
+        if (event === "ORDERED") {
+          if (!amountCents) throw new Error("缺少首充金额");
+          await requestJson("/api/customer-orders", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ batchId: customer.batch.id, leadId: customer.id, openedOn: today, phone: customer.phone, initialDepositCents: amountCents, initialDepositMethod: "CRYPTO" }) });
+        } else if (event === "RECHARGE" || event === "WITHDRAWAL") {
+          if (!customer.order || !amountCents) throw new Error("缺少开单或金额信息");
+          await requestJson("/api/customer-finance", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ customerOrderId: customer.order.id, occurredOn: today, kind: event, amountCents, ...(event === "RECHARGE" ? { depositMethod: "CRYPTO", continuationNumber: customer.order.nextContinuationNumber } : {}) }) });
+        } else {
+          const action = { REPLIED: "reply", JOINED: "joinGroup", LEFT_NORMAL: "leaveGroup", LEFT_ABNORMAL: "leaveGroup", INTRODUCED: "introduceExpert", REGISTERED: "register" }[event];
+          await requestJson(`/api/leads/${customer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, occurredOn: today, ...(event === "LEFT_NORMAL" ? { leaveNote: "正常退群（AI录入）" } : event === "LEFT_ABNORMAL" ? { leaveNote: "异常退群（AI录入）" } : {}) }) });
+        }
+        await syncCustomerEventDailyImpact(pending);
+        reply(`客户 ${customer.phone} 已记录${customerEventLabel(event)}；客户表和今天报表已同步，接粉归属仍是 ${customer.attributionOwner?.name ?? customer.owner?.name ?? "原归属人"}。`);
+        onNavigate("customers");
       } else {
         if (pending.event === "RECHARGE") {
           const order = pending.existingCustomer?.order;
@@ -243,6 +361,38 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
       const messageText = caught instanceof Error ? caught.message : "保存失败，请稍后再试";
       setError(messageText); reply(messageText);
     } finally { setBusy(false); }
+  }
+
+  async function syncCustomerEventDailyImpact(action: Extract<PendingAction, { kind: "customer_event" }>) {
+    const context = await requestJson<DailyContext>("/api/daily-stats");
+    const channel = context.channels.find((item) => item.name === action.customer.batch.channel.name);
+    const reception = action.customer.attributionOwner ?? action.customer.owner;
+    if (!channel || !reception) return;
+    const position = action.event === "REPLIED" ? "RECEPTION" as const
+      : ["JOINED", "LEFT_NORMAL", "LEFT_ABNORMAL", "INTRODUCED"].includes(action.event) ? "GROUP_OPERATOR" as const
+      : "EXPERT" as const;
+    // 回复只能写进本人接粉主行；其他岗位事件使用来源归属行，确保代填也不改变粉的归属。
+    if (position === "RECEPTION" && reception.id !== user.id) return;
+    const existing = context.entries.find((entry) => entry.businessDate === action.today && entry.position === position
+      && entry.channel.id === channel.id
+      && (position === "RECEPTION" || entry.sourceReception?.id === reception.id)
+      && (position !== "EXPERT" || entry.sourceGroupOperator?.id === action.customer.groupOperatorOwner?.id));
+    const values = { ...EMPTY_DAILY_VALUES, ...(existing?.currentRevision ?? existing?.approvedRevision ?? {}) };
+    if (action.event === "REPLIED") values.replyCount += 1;
+    if (action.event === "JOINED") { values.operatorReceivedCount += 1; values.currentInGroupCount += 1; }
+    if (action.event === "LEFT_NORMAL") { values.normalLeaveCount += 1; values.currentInGroupCount = Math.max(0, values.currentInGroupCount - 1); }
+    if (action.event === "LEFT_ABNORMAL") { values.abnormalLeaveCount += 1; values.currentInGroupCount = Math.max(0, values.currentInGroupCount - 1); }
+    if (action.event === "INTRODUCED") values.expertIntroCount += 1;
+    if (action.event === "REGISTERED") values.registrationCount += 1;
+    if (action.event === "ORDERED") { values.orderCount += 1; values.cryptoInitialDepositCents += action.amountCents ?? 0; }
+    if (action.event === "RECHARGE") values.cryptoRechargeCents += action.amountCents ?? 0;
+    if (action.event === "WITHDRAWAL") values.withdrawalCents += action.amountCents ?? 0;
+    await requestJson("/api/daily-stats", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({
+      ...(existing ? { entryId: existing.id } : {}), businessDate: action.today, expectedStatisticsDate: context.today, position,
+      channelId: channel.id, sourceReceptionId: position === "RECEPTION" ? null : reception.id,
+      sourceGroupOperatorId: position === "EXPERT" ? action.customer.groupOperatorOwner?.id ?? null : null,
+      changeReason: `AI客户事件同步：${action.original.slice(0, 180)}`, values,
+    }) });
   }
 
   async function syncLegacyDailyImpact(action: Extract<PendingAction, { kind: "legacy_event" }>) {
@@ -277,7 +427,36 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
     </button>
     {open ? <div className={styles.panel}>
       <header><div><MagicWand size={18} weight="fill" /><strong>数据助手</strong><span>测试版</span></div><button type="button" onClick={() => setOpen(false)}><X size={16} /></button></header>
+      <div className={styles.tasks}>
+        <button type="button" onClick={() => void startResourceGuide()}><b>填写资源数据</b><small>渠道＋添加/无效分类</small></button>
+        <button type="button" onClick={() => { setResourceGuide(null); setInput("客户123456今天进群"); }}><b>更新客户进度</b><small>按号码记录今天事件</small></button>
+        <button type="button" onClick={() => { setResourceGuide(null); setInput("查客户123456的进度"); }}><b>查询客户</b><small>看归属、阶段和业绩</small></button>
+        <button type="button" onClick={() => { setResourceGuide(null); setInput("JH 回复写错了，改成8"); }}><b>纠正错误</b><small>先看差异再保存</small></button>
+        <button type="button" onClick={() => void startLegacyGuide()}><b>老客户新进度</b><small>历史底账＋今天事件</small></button>
+        <button type="button" onClick={() => void checkTodayMissing()}><b>检查今日遗漏</b><small>找出未填渠道</small></button>
+      </div>
       <div className={styles.messages}>{chat.slice(-5).map((item) => <div key={item.id} className={styles.message} data-from={item.from}>{item.text}</div>)}</div>
+      {resourceGuide ? <form className={styles.guide} onSubmit={(event) => { event.preventDefault(); void prepareResourceGuide(); }}>
+        <div className={styles.guideTitle}><strong>引导填写资源数据</strong><small>{resourceGuide.today} · 有效数据自动计算</small></div>
+        <label className={styles.channelField}><span>来源渠道</span><select value={resourceGuide.channelId} onChange={(event) => setResourceGuide((value) => value ? { ...value, channelId: event.target.value } : value)}>{resourceGuide.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>
+        <div className={styles.guideMetrics}>{([
+          ["dispatchCount", "添加数据"], ["duplicateCount", "撞粉"], ["lowAmountCount", "低金额"], ["noWsCount", "无 WS"], ["manualInvalidCount", "人工无效"],
+        ] as const).map(([key, label]) => <label key={key}><span>{label}</span><input type="number" min="0" step="1" value={resourceGuide[key]} onChange={(event) => setResourceGuide((value) => value ? { ...value, [key]: Math.max(0, Math.round(Number(event.target.value) || 0)) } : value)} /></label>)}</div>
+        <footer><button type="button" onClick={() => setResourceGuide(null)}>取消</button><button type="submit" className={styles.confirm} disabled={busy || !resourceGuide.channelId}>生成保存预览</button></footer>
+      </form> : null}
+      {legacyGuide ? <form className={styles.guide} onSubmit={(event) => { event.preventDefault(); void prepareLegacyGuide(); }}>
+        <div className={styles.guideTitle}><strong>老客户今天有新进度</strong><small>历史不倒灌 · 今天才统计</small></div>
+        <div className={styles.legacyFields}>
+          <label><span>客户号码</span><input value={legacyGuide.phone} onChange={(event) => setLegacyGuide((value) => value ? { ...value, phone: event.target.value } : value)} placeholder="输入号码或后 6 位" /></label>
+          <label><span>原始来源日期</span><input type="date" max={legacyGuide.today} value={legacyGuide.sourceDate} onChange={(event) => setLegacyGuide((value) => value ? { ...value, sourceDate: event.target.value } : value)} /></label>
+          <label><span>今天新进度</span><select value={legacyGuide.event} onChange={(event) => setLegacyGuide((value) => value ? { ...value, event: event.target.value as "JOINED" | "ORDERED" } : value)}><option value="JOINED">今天进群</option><option value="ORDERED">今天开单并首充</option></select></label>
+          <label><span>来源渠道</span><select value={legacyGuide.channelId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, channelId: event.target.value } : value)}>{legacyGuide.context.channels.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label><span>接粉归属</span><select value={legacyGuide.receptionOwnerId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, receptionOwnerId: event.target.value } : value)}>{legacyGuide.context.members.reception.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label><span>炒群负责人</span><select value={legacyGuide.groupOperatorId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, groupOperatorId: event.target.value } : value)}>{legacyGuide.context.members.groupOperator.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          {legacyGuide.event === "ORDERED" ? <><label><span>专家负责人</span><select value={legacyGuide.expertId} onChange={(event) => setLegacyGuide((value) => value ? { ...value, expertId: event.target.value } : value)}>{legacyGuide.context.members.expert.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>首充金额（美元）</span><input type="number" min="0" step="0.01" value={legacyGuide.amount} onChange={(event) => setLegacyGuide((value) => value ? { ...value, amount: Math.max(0, Number(event.target.value) || 0) } : value)} /></label></> : null}
+        </div>
+        <footer><button type="button" onClick={() => setLegacyGuide(null)}>取消</button><button type="submit" className={styles.confirm}>生成保存预览</button></footer>
+      </form> : null}
       {pending ? <div className={styles.preview}>
         <div className={styles.previewTitle}><ShieldCheck size={18} /><div><strong>保存前确认</strong><small>AI 不会直接改数据，确认后才写入</small></div></div>
         {pending.kind === "daily" ? <>
@@ -286,6 +465,14 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
         </> : pending.kind === "customer_note" ? <>
           <p>客户 {pending.customer.phone} · {pending.noteKind === "group" ? "炒群情况" : "专家情况"}</p>
           <div className={styles.noteChange}><del>{pending.before}</del><ArrowRight size={14} /><b>{pending.after}</b></div>
+        </> : pending.kind === "customer_event" ? <>
+          <p>客户 {pending.customer.phone} · {customerEventLabel(pending.event)}</p>
+          <div className={styles.legacyPreview}>
+            <span>客户归属<b>{pending.customer.attributionOwner?.name ?? pending.customer.owner?.name ?? "未分配"}</b><small>保存后不会改变</small></span>
+            <span>发生日期<b>{pending.today}</b><small>计入今天报表</small></span>
+            <span>来源渠道<b>{pending.customer.batch.channel.name}</b><small>按原客户线路统计</small></span>
+            {pending.amountCents ? <span>本次金额<b>{formatAssistantValue(pending.amountCents, true)}</b><small>{pending.event === "WITHDRAWAL" ? "计入出金并扣减净业绩" : "计入对应入金与净业绩"}</small></span> : null}
+          </div>
         </> : <>
           <p>客户 {pending.phoneTail} · {eventLabel(pending.event)}</p>
           <div className={styles.legacyPreview}>
@@ -298,7 +485,7 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
         <footer><button type="button" onClick={() => setPending(null)}>取消</button><button type="button" className={styles.confirm} disabled={busy} onClick={() => void confirm()}><Check size={15} weight="bold" />{busy ? "保存中…" : "确认保存"}</button></footer>
       </div> : null}
       {error ? <div className={styles.error}>{error}</div> : null}
-      <div className={styles.samples}>{samples.map((sample) => <button type="button" key={sample} onClick={() => { setInput(sample); void understand(sample); }}>{sample}</button>)}</div>
+      <div className={styles.samples}>{samples.map((sample) => <button type="button" key={sample} onClick={() => { setResourceGuide(null); setInput(sample); void understand(sample); }}>{sample}</button>)}</div>
       <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); void understand(input); }}>
         <input aria-label="告诉 AI 要填写或修改什么" value={input} onChange={(event) => setInput(event.target.value)} placeholder="例如：今天 FB-M 添加20，回复8，进群3" />
         <button type="submit" disabled={busy || !input.trim()}>{busy ? "理解中…" : <><PaperPlaneTilt size={16} weight="fill" />发送</>}</button>

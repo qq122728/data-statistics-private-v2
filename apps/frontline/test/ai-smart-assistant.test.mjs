@@ -41,6 +41,12 @@ test("识别客户炒群情况更新", () => {
   assert.deepEqual(result, { kind: "customer_note", phoneTail: "123456", noteKind: "group", note: "客户今晚会继续沟通" });
 });
 
+test("识别按号码更新客户进度", () => {
+  assert.deepEqual(interpretAssistantMessage("客户123456今天拉群"), { kind: "customer_event", phoneTail: "123456", event: "JOINED" });
+  assert.deepEqual(interpretAssistantMessage("客户123456今天续充500"), { kind: "customer_event", phoneTail: "123456", event: "RECHARGE", amountCents: 50000 });
+  assert.deepEqual(interpretAssistantMessage("客户123456今天异常退群"), { kind: "customer_event", phoneTail: "123456", event: "LEFT_ABNORMAL" });
+});
+
 test("重新计算有效数据和当前在群", () => {
   const values = withComputedValues({ ...EMPTY_DAILY_VALUES, dispatchCount: 20, duplicateCount: 2, joinCount: 6, abnormalLeaveCount: 1 });
   assert.equal(values.effectiveCount, 18);

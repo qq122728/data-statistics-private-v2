@@ -13,9 +13,30 @@
 .panel > header span { padding: 2px 6px; border-radius: 20px; background: #eee9ff; color: #6a49cf; font-size: 10px; }
 .panel > header button { border: 0; background: transparent; color: #8591a3; cursor: pointer; }
 .messages { max-height: 190px; overflow: auto; padding: 12px 2px 5px; display: grid; gap: 8px; }
+.tasks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 10px 0 2px; }
+.tasks button { min-width: 0; display: grid; gap: 2px; text-align: left; border: 1px solid #dbe5f3; background: #f8fbff; border-radius: 9px; padding: 8px; color: #29405f; cursor: pointer; }
+.tasks button:hover { border-color: #8db7f3; background: #f0f6ff; }
+.tasks b { font-size: 11px; white-space: nowrap; }
+.tasks small { color: #8290a4; font-size: 9px; line-height: 1.35; }
 .message { width: fit-content; max-width: 88%; padding: 9px 11px; border-radius: 10px; background: #f1f4f8; color: #3b485c; font-size: 13px; line-height: 1.55; }
 .message[data-from="user"] { margin-left: auto; background: #eaf2ff; color: #1858ba; }
 .preview { margin: 8px 0; border: 1px solid #bcd3f5; border-radius: 12px; background: #f8fbff; padding: 12px; }
+.guide { margin: 8px 0; border: 1px solid #c9dbf5; border-radius: 12px; background: #f8fbff; padding: 12px; }
+.guideTitle { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 9px; }
+.guideTitle strong { color: #25344a; font-size: 13px; }
+.guideTitle small { color: #718097; font-size: 10px; }
+.channelField { display: grid; grid-template-columns: 80px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
+.channelField span, .guideMetrics span { color: #64738a; font-size: 11px; }
+.channelField select, .guideMetrics input { min-width: 0; border: 1px solid #c5d3e6; border-radius: 7px; background: #fff; padding: 7px 8px; color: #26364b; }
+.guideMetrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.guideMetrics label { display: grid; gap: 4px; }
+.legacyFields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.legacyFields label { display: grid; gap: 4px; }
+.legacyFields span { color: #64738a; font-size: 11px; }
+.legacyFields input, .legacyFields select { min-width: 0; border: 1px solid #c5d3e6; border-radius: 7px; background: #fff; padding: 7px 8px; color: #26364b; }
+.guide footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.guide footer button { border: 1px solid #ccd5e2; background: #fff; border-radius: 8px; padding: 7px 12px; cursor: pointer; }
+.guide footer .confirm { background: #176fe8; border-color: #176fe8; color: #fff; }
 .previewTitle { display: flex; align-items: center; gap: 8px; color: #18734c; }
 .previewTitle div { display: grid; }
 .previewTitle strong { color: #25344a; font-size: 13px; }
@@ -42,4 +63,4 @@
 .composer button:disabled { opacity: .55; cursor: not-allowed; }
 .safety { margin: 7px 2px 0; color: #8994a5; font-size: 11px; }
 .error { color: #b42332; background: #fff1f1; border-radius: 7px; padding: 7px 9px; font-size: 12px; }
-@media (max-width: 760px) { .assistant { margin: 8px 10px 0; } .bar small { display: none; } .panel { position: fixed; inset: 70px 10px auto; width: auto; border: 1px solid #cbdcf8; border-radius: 14px; } .changes { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .assistant { margin: 8px 10px 0; } .bar small { display: none; } .panel { position: fixed; inset: 70px 10px auto; width: auto; border: 1px solid #cbdcf8; border-radius: 14px; } .tasks { grid-template-columns: repeat(2, minmax(0, 1fr)); } .guideMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .changes { grid-template-columns: 1fr; } }

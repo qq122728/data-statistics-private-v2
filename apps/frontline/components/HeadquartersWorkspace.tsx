@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { BackendUser } from "@/lib/backend";
 import { requestJson } from "@/lib/backend";
 import { DepartmentCustomerProgress } from "@/components/DepartmentCustomerProgress";
@@ -187,18 +187,65 @@ function ScopeFilters({ groupType, companies, companyId, departmentId, groupId, 
 }
 
 function Dashboard({ groupType, rows, groups }: { groupType: "HACKER" | "LAWYER"; rows: ReportGroupChannel[]; groups: ReportGroup[] }) {
-  const totals = sumMetrics(rows.map((row) => row.totals));
-  const totalRates = metricRates(totals);
+  const totals = sumMetrics(groups.map((group) => group.totals));
   const companyCount = new Set(groups.map((group) => group.company?.id).filter(Boolean)).size;
-  const people = groups.reduce((sum, group) => sum + group.activePeople, 0);
-  const hierarchyHead = <><th>公司</th><th>部门</th><th>小组</th><th>渠道</th><th>小组人数</th></>;
-  const hierarchyCells = (row: ReportGroupChannel) => <><td><strong>{row.company?.name ?? "未归属公司"}</strong></td><td>{row.department.name}</td><td><strong>{row.groupName}</strong></td><td><span className={styles.channelName}>{row.channel.name}</span></td><td>{row.activePeople}</td></>;
+  const channelRows = rows.filter((row) => row.channel.name !== "暂无渠道数据");
+  const channelNames = [...new Set(channelRows.map((row) => row.channel.name))].sort((left, right) => left.localeCompare(right, "zh-CN"));
+  const rowsByGroupAndChannel = new Map(channelRows.map((row) => [`${row.groupId}\u0000${row.channel.name}`, row.totals]));
+  const sections = [...new Map(groups.map((group) => {
+    const key = `${group.company?.id ?? "unassigned"}\u0000${group.department.id}`;
+    return [key, { key, companyId: group.company?.id ?? "unassigned", companyName: group.company?.name ?? "未归属公司", department: group.department }];
+  })).values()]
+    .map((section) => ({ ...section, groups: groups.filter((group) => group.department.id === section.department.id && (group.company?.id ?? "unassigned") === section.companyId).sort((left, right) => left.name.localeCompare(right.name, "zh-CN")) }))
+    .sort((left, right) => `${left.companyName}-${left.department.name}`.localeCompare(`${right.companyName}-${right.department.name}`, "zh-CN"));
+  const channelMetrics = (selectedGroups: ReportGroup[], channelName: string) => sumMetrics(selectedGroups.map((group) => rowsByGroupAndChannel.get(`${group.id}\u0000${channelName}`) ?? emptyMetrics()));
+  const hasChannel = (selectedGroups: ReportGroup[], channelName: string) => selectedGroups.some((group) => rowsByGroupAndChannel.has(`${group.id}\u0000${channelName}`));
+  const kpis = groupType === "LAWYER"
+    ? [["公司", companyCount], ["接粉", totals.added], ["真实案件", totals.lawyerRealCase ?? 0], ["添加律师", totals.lawyerAdded ?? 0], ["总开单", totals.ordered]]
+    : [["公司", companyCount], ["有效数据", totals.effective], ["进群", totals.joined], ["开单", totals.ordered], ["净业绩", money(totals.netCents)]];
 
-  if (groupType === "LAWYER") {
-    return <><section className={styles.kpis}>{[["公司", companyCount], ["接粉", totals.added], ["真实案件", totals.lawyerRealCase ?? 0], ["添加律师", totals.lawyerAdded ?? 0], ["总开单", totals.ordered]].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><section className={styles.card}><div className={styles.cardHead}><div><h2>公司、部门、小组与渠道明细</h2><p>每个小组的每个渠道单独一行，数据不会混在一起</p></div><strong>{rows.length} 行</strong></div><div className={styles.tableWrap}><table className={styles.hierarchyTable}><thead><tr>{hierarchyHead}<th>接粉</th><th>回复</th><th>未回复</th><th>接粉小金额</th><th>真实案件</th><th>回复率</th><th>添加律师</th><th>添加专家</th><th>添加律师率</th><th>添加专家率</th><th>推客服</th><th>注册</th><th>开单</th><th>加密货币入金</th><th>银行卡入金</th><th>出金</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}>{hierarchyCells(row)}<td>{row.totals.added}</td><td>{row.totals.replied}</td><td>{Math.max(0, row.totals.added - row.totals.replied)}</td><td>{row.totals.lowAmount}</td><td>{row.totals.lawyerRealCase ?? 0}</td><td>{rate(row.totals.replied, row.totals.added)}</td><td>{row.totals.lawyerAdded ?? 0}</td><td>{row.totals.lawyerExpertAdded ?? 0}</td><td>{rate(row.totals.lawyerAdded ?? 0, row.totals.added)}</td><td>{rate(row.totals.lawyerExpertAdded ?? 0, row.totals.added)}</td><td>{row.totals.customerServicePush ?? 0}</td><td>{row.totals.registered}</td><td>{row.totals.ordered}</td><td>{money(row.totals.cryptoDepositCents)}</td><td>{money(row.totals.bankDepositCents)}</td><td>{money(row.totals.withdrawalCents)}</td></tr>)}<tr className={styles.total}><td><strong>合计</strong></td><td>—</td><td>{groups.length} 个小组</td><td>{rows.length} 条渠道</td><td>{people}</td><td>{totals.added}</td><td>{totals.replied}</td><td>{Math.max(0, totals.added - totals.replied)}</td><td>{totals.lowAmount}</td><td>{totals.lawyerRealCase ?? 0}</td><td>{rate(totals.replied, totals.added)}</td><td>{totals.lawyerAdded ?? 0}</td><td>{totals.lawyerExpertAdded ?? 0}</td><td>{rate(totals.lawyerAdded ?? 0, totals.added)}</td><td>{rate(totals.lawyerExpertAdded ?? 0, totals.added)}</td><td>{totals.customerServicePush ?? 0}</td><td>{totals.registered}</td><td>{totals.ordered}</td><td>{money(totals.cryptoDepositCents)}</td><td>{money(totals.bankDepositCents)}</td><td>{money(totals.withdrawalCents)}</td></tr></tbody></table></div></section></>;
-  }
+  return <>
+    <section className={styles.kpis}>{kpis.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
+    <section className={styles.card}>
+      <div className={styles.cardHead}><div><h2>部门、小组与渠道横向汇总</h2><p>左边按公司、部门和小组排列；上方每个渠道一列，最右侧是全部渠道合计</p></div><strong>{groups.length} 个小组</strong></div>
+      <div className={styles.tableWrap}>
+        <table className={styles.channelPivotTable}>
+          <thead><tr><th>部门 / 小组</th><th>人数</th>{channelNames.map((channelName) => <th key={channelName}><span className={styles.channelName}>{channelName}</span><small>渠道汇总</small></th>)}<th>小组合计</th></tr></thead>
+          <tbody>
+            {sections.map((section, sectionIndex) => {
+              const showCompany = sectionIndex === 0 || sections[sectionIndex - 1]?.companyId !== section.companyId;
+              const departmentTotals = sumMetrics(section.groups.map((group) => group.totals));
+              return <Fragment key={section.key}>
+                {showCompany ? <tr className={styles.companyDivider}><td colSpan={channelNames.length + 3}>{section.companyName}</td></tr> : null}
+                <tr className={styles.departmentDivider}><td colSpan={channelNames.length + 3}>{section.department.name}</td></tr>
+                {section.groups.map((group) => <tr key={group.id}>
+                  <td><strong>{group.name}</strong><small>{section.department.name}</small></td><td>{group.activePeople}</td>
+                  {channelNames.map((channelName) => { const value = rowsByGroupAndChannel.get(`${group.id}\u0000${channelName}`); return <td key={channelName}><ChannelSummaryCell groupType={groupType} totals={value} /></td>; })}
+                  <td className={styles.allChannelCell}><ChannelSummaryCell groupType={groupType} totals={group.totals} /></td>
+                </tr>)}
+                <tr className={styles.departmentTotal}><td><strong>{section.department.name}合计</strong></td><td>{section.groups.reduce((sum, group) => sum + group.activePeople, 0)}</td>
+                  {channelNames.map((channelName) => <td key={channelName}><ChannelSummaryCell groupType={groupType} totals={channelMetrics(section.groups, channelName)} empty={!hasChannel(section.groups, channelName)} /></td>)}
+                  <td><ChannelSummaryCell groupType={groupType} totals={departmentTotals} /></td>
+                </tr>
+              </Fragment>;
+            })}
+            <tr className={styles.grandTotal}><td><strong>全部合计</strong></td><td>{groups.reduce((sum, group) => sum + group.activePeople, 0)}</td>
+              {channelNames.map((channelName) => <td key={channelName}><ChannelSummaryCell groupType={groupType} totals={channelMetrics(groups, channelName)} empty={!hasChannel(groups, channelName)} /></td>)}
+              <td><ChannelSummaryCell groupType={groupType} totals={totals} /></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </>;
+}
 
-  return <><section className={styles.kpis}>{[["公司", companyCount], ["有效数据", totals.effective], ["进群", totals.joined], ["开单", totals.ordered], ["净业绩", money(totals.netCents)]].map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><section className={styles.card}><div className={styles.cardHead}><div><h2>公司、部门、小组与渠道明细</h2><p>每个小组的每个渠道单独一行，数据和资金都按当前日期范围汇总</p></div><strong>{rows.length} 行</strong></div><div className={styles.tableWrap}><table className={styles.hierarchyTable}><thead><tr>{hierarchyHead}<th>有效数据</th><th>回复率</th><th>进群率</th><th>异常退群率</th><th>注册率</th><th>开单率</th><th>开单</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{rows.map((row) => { const rates = metricRates(row.totals); return <tr key={row.id}>{hierarchyCells(row)}<td>{row.totals.effective}</td><td>{rates.reply}</td><td>{rates.joined}</td><td>{rates.abnormalLeave}</td><td>{rates.registered}</td><td>{rates.ordered}</td><td>{row.totals.ordered}</td><td>{money(row.totals.initialDepositCents)}</td><td>{money(row.totals.rechargeCents)}</td><td>{money(row.totals.withdrawalCents)}</td><td><strong>{money(row.totals.netCents)}</strong></td></tr>; })}<tr className={styles.total}><td><strong>合计</strong></td><td>—</td><td>{groups.length} 个小组</td><td>{rows.length} 条渠道</td><td>{people}</td><td>{totals.effective}</td><td>{totalRates.reply}</td><td>{totalRates.joined}</td><td>{totalRates.abnormalLeave}</td><td>{totalRates.registered}</td><td>{totalRates.ordered}</td><td>{totals.ordered}</td><td>{money(totals.initialDepositCents)}</td><td>{money(totals.rechargeCents)}</td><td>{money(totals.withdrawalCents)}</td><td><strong>{money(totals.netCents)}</strong></td></tr></tbody></table></div></section></>;
+function ChannelSummaryCell({ groupType, totals, empty = false }: { groupType: "HACKER" | "LAWYER"; totals?: Metrics; empty?: boolean }) {
+  if (!totals || empty) return <span className={styles.noChannelData}>—</span>;
+  const items = groupType === "LAWYER"
+    ? [["接粉", totals.added], ["回复", totals.replied], ["真实案件", totals.lawyerRealCase ?? 0], ["加律师", totals.lawyerAdded ?? 0], ["开单", totals.ordered], ["充值", money((totals.cryptoDepositCents ?? 0) + (totals.bankDepositCents ?? 0))]]
+    : [["添加", totals.added], ["有效", totals.effective], ["回复", totals.replied], ["进群", totals.joined], ["开单", totals.ordered], ["净业绩", money(totals.netCents)]];
+  return <div className={styles.channelSummary}>{items.map(([label, value]) => <span key={label}><small>{label}</small><strong>{value}</strong></span>)}</div>;
 }
 
 function LegacyCompanyDashboard({ groupType, rows }: { groupType: "HACKER" | "LAWYER"; rows: Array<{ company: CompanyNode; groups: number; departments: number; people: number; totals: Metrics }> }) {

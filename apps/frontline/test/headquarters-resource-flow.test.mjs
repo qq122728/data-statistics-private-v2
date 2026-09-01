@@ -15,9 +15,9 @@ test("总公司按先建渠道再开资源账号的顺序展示真实入口", as
   assert.match(source, /<option value="REBATE">底料<\/option>/);
 });
 
-test("总公司首页直接列出公司部门小组和渠道", async () => {
+test("总公司首页按部门和小组纵向排列、按渠道横向汇总", async () => {
   const source = await readFile(new URL("components/HeadquartersWorkspace.tsx", root), "utf8");
-  for (const text of ["公司、部门、小组与渠道明细", "每个小组的每个渠道单独一行", "row.company?.name", "row.department.name", "row.groupName", "row.channel.name"]) assert.ok(source.includes(text));
+  for (const text of ["部门、小组与渠道横向汇总", "部门 / 小组", "渠道汇总", "小组合计", "departmentDivider", "departmentTotal", "ChannelSummaryCell"]) assert.ok(source.includes(text));
   assert.match(source, /report\?\.groupChannels/);
 });
 

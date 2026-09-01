@@ -46,6 +46,7 @@ type Context = {
   actorId: string;
   groupType: "HACKER" | "LAWYER";
   today: string;
+  timezone: string;
   channels: Array<{ id: string; name: string; channelType: string }>;
   entries: Entry[];
   unifiedEntries: Array<{
@@ -338,6 +339,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
         <span>{mode === "finance" ? "按渠道填写首充、续充和出金" : "每个渠道单独填写；比例与绿色数据由系统计算"}</span>
       </div>
       <label><span>统计日期</span><input className="field" type="date" max={context.today} value={date} onChange={(event) => setDate(event.target.value)} /></label>
+      <span style={{ padding: "6px 9px", borderRadius: 999, background: "#edf4ff", color: "#315b93", fontSize: 10.5, whiteSpace: "nowrap" }}>按 {context.timezone} 切日</span>
       <span className="unified-save-state" data-state={error ? "error" : dirty.size || saving.size ? "saving" : "saved"}>
         {error ? "保存失败" : dirty.size || saving.size ? "正在自动保存…" : savedAt ? `${savedAt} 已保存` : "已同步"}
       </span>

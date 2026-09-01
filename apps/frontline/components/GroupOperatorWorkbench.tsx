@@ -69,6 +69,7 @@ export function GroupOperatorWorkbench() {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       setSuccess(message);
+      window.dispatchEvent(new Event("customer-data-updated"));
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败，请稍后重试");
@@ -86,6 +87,7 @@ export function GroupOperatorWorkbench() {
         body: JSON.stringify({ action: "updateGroupProgress", progressNote, occurredOn: localToday() }),
       });
       setSuccess(`${customer.phone} 的炒群情况已自动保存`);
+      window.dispatchEvent(new Event("customer-data-updated"));
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "炒群情况自动保存失败");

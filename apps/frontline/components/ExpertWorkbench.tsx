@@ -71,6 +71,7 @@ export function ExpertWorkbench() {
     try {
       await requestJson(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       setSuccess(message);
+      window.dispatchEvent(new Event("customer-data-updated"));
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败，请稍后重试");
@@ -86,6 +87,7 @@ export function ExpertWorkbench() {
     try {
       await requestJson(`/api/leads/${customer.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       setSuccess(message);
+      window.dispatchEvent(new Event("customer-data-updated"));
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败，请稍后重试");
@@ -103,6 +105,7 @@ export function ExpertWorkbench() {
         body: JSON.stringify({ action: "updateExpertDetails", expertNotes, occurredOn: localToday() }),
       });
       setSuccess(`${customer.phone} 的专家情况已自动保存`);
+      window.dispatchEvent(new Event("customer-data-updated"));
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "专家情况自动保存失败");

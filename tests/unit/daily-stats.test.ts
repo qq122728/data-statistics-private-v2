@@ -6,6 +6,7 @@ import { GET as GET_RESOURCE_REVIEW, PATCH as RESOURCE_REVIEW } from "../../src/
 import { GET as GET_RESOURCE_REPORTING } from "../../src/app/api/resource/reporting/route";
 import { GET as GET_PERSONAL_PERFORMANCE } from "../../src/app/api/personal-performance/route";
 import { db } from "../../src/lib/db";
+import { incrementCustomerEventDailyStat } from "../../src/lib/daily-stats";
 
 const prefix = "daily-stat-test-";
 
@@ -81,6 +82,39 @@ const emptyValues = {
 };
 
 describe.sequential("独立每日数据填写、修改与审核", () => {
+  it("当天添加为 0 时，老客户进群、注册和开单仍按发生日自动统计", async () => {
+    const data = await fixture();
+    await db.$transaction(async (tx) => {
+      await incrementCustomerEventDailyStat(tx, {
+        ownerId: data.operator.id, groupId: data.groupId, channelId: data.channelId,
+        businessDate: "2026-09-02", position: "GROUP_OPERATOR", sourceReceptionId: data.reception.id,
+        reason: "老客户今天进群", increment: { operatorReceivedCount: 1 }, currentInGroupSnapshot: 1,
+      });
+      await incrementCustomerEventDailyStat(tx, {
+        ownerId: data.expert.id, groupId: data.groupId, channelId: data.channelId,
+        businessDate: "2026-09-02", position: "EXPERT", sourceReceptionId: data.reception.id, sourceGroupOperatorId: data.operator.id,
+        reason: "老客户今天注册", increment: { registrationCount: 1 },
+      });
+      await incrementCustomerEventDailyStat(tx, {
+        ownerId: data.expert.id, groupId: data.groupId, channelId: data.channelId,
+        businessDate: "2026-09-02", position: "EXPERT", sourceReceptionId: data.reception.id, sourceGroupOperatorId: data.operator.id,
+        reason: "老客户今天开单", increment: { orderCount: 1 },
+      });
+    });
+
+    const entries = await db.dailyStatEntry.findMany({
+      where: { groupId: data.groupId, businessDate: "2026-09-02" },
+      include: { currentRevision: true },
+    });
+    expect(entries).toHaveLength(2);
+    expect(entries.find((entry) => entry.position === "GROUP_OPERATOR")?.currentRevision).toMatchObject({
+      dispatchCount: 0, operatorReceivedCount: 1, currentInGroupCount: 1,
+    });
+    expect(entries.find((entry) => entry.position === "EXPERT")?.currentRevision).toMatchObject({
+      dispatchCount: 0, registrationCount: 1, orderCount: 1,
+    });
+  });
+
   it("律师组保存独立指标，并按接粉数校验回复和添加数", async () => {
     const data = await fixture("LAWYER");
     signInAs(data.reception);

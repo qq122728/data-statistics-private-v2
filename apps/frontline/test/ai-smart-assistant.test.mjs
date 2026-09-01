@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { interpretAssistantMessage, withComputedValues, EMPTY_DAILY_VALUES } from "../lib/ai-smart-assistant.ts";
+import { interpretAssistantMessage, valueToStoreForUnifiedTotal, withComputedValues, EMPTY_DAILY_VALUES } from "../lib/ai-smart-assistant.ts";
 
 test("识别同一句里的多项每日数据", () => {
   const result = interpretAssistantMessage("今天 FB-M 添加20，回复8，进群3，首充1000");
@@ -20,6 +20,12 @@ test("把员工口语中的拉群识别为进群", () => {
       { key: "joinCount", label: "进群", value: 2, money: undefined },
     ],
   });
+});
+
+test("保存汇总目标值时扣除客户事件自动贡献，避免重复累加", () => {
+  assert.equal(valueToStoreForUnifiedTotal(2, 5, 4), 1);
+  assert.equal(valueToStoreForUnifiedTotal(8, 8, 8), 8);
+  assert.equal(valueToStoreForUnifiedTotal(0, 1, 0), 0);
 });
 
 test("识别纠错语句", () => {

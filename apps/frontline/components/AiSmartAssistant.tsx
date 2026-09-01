@@ -8,6 +8,7 @@ import {
   EMPTY_DAILY_VALUES,
   formatAssistantValue,
   interpretAssistantMessage,
+  valueToStoreForUnifiedTotal,
   withComputedValues,
   type DailyValues,
   type MetricUpdate,
@@ -123,8 +124,10 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
         }
         const date = dateFromMessage(message, context.today);
         const existing = context.unifiedEntries.find((item) => item.businessDate === date && item.channel.id === channel.id);
-        const current = { ...EMPTY_DAILY_VALUES, ...(existing?.values ?? {}) };
-        const changes = intent.updates.map((update) => ({ ...update, before: current[update.key] }));
+        const displayed = { ...EMPTY_DAILY_VALUES, ...(existing?.values ?? {}) };
+        const primaryEntry = existing?.entryId ? context.entries.find((entry) => entry.id === existing.entryId) : null;
+        const current = { ...EMPTY_DAILY_VALUES, ...(primaryEntry?.currentRevision ?? primaryEntry?.approvedRevision ?? (existing ? {} : displayed)) };
+        const changes = intent.updates.map((update) => ({ ...update, before: displayed[update.key] }));
         setPending({ kind: "daily", channelId: channel.id, channelName: channel.name, date, entryId: existing?.entryId ?? null, current, changes, correction: intent.correction || Boolean(existing) || date < context.today, original: message, today: context.today });
         reply(`已读取 ${date} 的 ${channel.name} 数据。下面是保存前预览，请核对后再确认。`);
         return;
@@ -188,7 +191,9 @@ export function AiSmartAssistant({ user, onNavigate }: { user: BackendUser; onNa
     try {
       if (pending.kind === "daily") {
         const values = { ...pending.current };
-        for (const change of pending.changes) values[change.key] = change.value;
+        for (const change of pending.changes) {
+          values[change.key] = valueToStoreForUnifiedTotal(change.value, change.before, pending.current[change.key]);
+        }
         await requestJson("/api/daily-stats", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({

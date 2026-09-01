@@ -113,6 +113,11 @@ export function withComputedValues(values: DailyValues): DailyValues {
   };
 }
 
+export function valueToStoreForUnifiedTotal(desired: number, displayed: number, stored: number) {
+  const automaticContribution = Math.max(0, displayed - stored);
+  return Math.max(0, desired - automaticContribution);
+}
+
 export function formatAssistantValue(value: number, money?: boolean) {
   return money
     ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value / 100)

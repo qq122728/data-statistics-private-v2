@@ -6,6 +6,7 @@ import { hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
+import { activeCustomerTrackingWhere } from "../../../../lib/customer-tracking-archive";
 
 const stages = ["reply", "group", "archived"] as const;
 type Stage = (typeof stages)[number];
@@ -58,7 +59,7 @@ export async function GET(request: Request) {
     // 扣粉/无效号码仍保留在客户档案，但不能混进正常回复与入群待办。
     invalid: false,
     receptionCategory: { notIn: ["INVALID", "LOW_AMOUNT", "NO_WS"] },
-    AND: [customerCurrentGroupWhere(actor.groupId)],
+    AND: [customerCurrentGroupWhere(actor.groupId), activeCustomerTrackingWhere()],
     ...(query ? { OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] } : {}),
   };
   const where: Prisma.LeadCustomerWhereInput = { AND: [baseWhere, stageWhere(stage)] };

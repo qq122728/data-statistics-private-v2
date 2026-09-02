@@ -218,6 +218,7 @@ export async function loadManagementOverview(
     db.leadCustomer.findMany({
       where: {
         invalid: false,
+        trackingArchivedAt: null,
         // 客户预警只服务于正常漏斗。历史补录的开单/资金仍由上面的
         // canonical events 进入财务汇总，不能生成待跟进预警。
         isHistoricalRecord: false,

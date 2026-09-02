@@ -31,15 +31,18 @@ function normalizeCustomerOrderIdentifier(value: string): string {
 }
 
 function customerScope(user: { id: string; role: Parameters<typeof getAssignedRoles>[0]["role"]; groupId: string | null; active: boolean; roleAssignments?: Array<{ role: Parameters<typeof getAssignedRoles>[0]["role"] }> }): Prisma.CustomerOrderWhereInput {
-  if (user.role === "ADMIN") return {};
+  if (user.role === "ADMIN") return { lead: { trackingArchivedAt: null } };
   const roles = getAssignedRoles(user);
-  if (roles.includes("LEAD")) return { lead: { OR: [{ currentGroupId: user.groupId ?? "__none__" }, { currentGroupId: null, batch: { groupId: user.groupId ?? "__none__" } }] } };
+  if (roles.includes("LEAD")) return { lead: { AND: [
+    { trackingArchivedAt: null },
+    { OR: [{ currentGroupId: user.groupId ?? "__none__" }, { currentGroupId: null, batch: { groupId: user.groupId ?? "__none__" } }] },
+  ] } };
   if (!isFrontlineGroupMember(user)) return { id: "__none__" };
   const currentGroup = { OR: [
     { currentGroupId: user.groupId ?? "__none__" },
     { currentGroupId: null, batch: { groupId: user.groupId ?? "__none__" } },
   ] } satisfies Prisma.LeadCustomerWhereInput;
-  return { lead: { AND: [{ OR: [
+  return { lead: { AND: [{ trackingArchivedAt: null }, { OR: [
     { attributionOwnerId: user.id },
     { ownerId: user.id },
     { groupOperatorOwnerId: user.id },
@@ -125,7 +128,7 @@ export async function POST(request: Request) {
       const leadIds = validRows.map(({ row }) => row.leadId);
       const leads = await transaction.leadCustomer.findMany({
         where: { id: { in: leadIds } },
-        select: { id: true, phone: true, batchId: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, invalid: true, groupStatus: true, registeredOn: true, isHistoricalRecord: true },
+        select: { id: true, phone: true, batchId: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, invalid: true, groupStatus: true, registeredOn: true, isHistoricalRecord: true, trackingArchivedAt: true },
       });
       const leadById = new Map(leads.map((lead) => [lead.id, lead]));
       for (const { row, index } of validRows) {
@@ -134,7 +137,7 @@ export async function POST(request: Request) {
         else if (!batch.group.active || !batch.channel.active) fields[`rows.${index}.batchId`] = ["来源批次已停用"];
         const lead = leadById.get(row.leadId);
         const canOpen = Boolean(lead && batch && canWriteCustomerRevenue(actor, { batch, lead }));
-        if (!lead || !canOpen) fields[`rows.${index}.leadId`] = ["只能为自己负责的客户开单"];
+        if (!lead || lead.trackingArchivedAt || !canOpen) fields[`rows.${index}.leadId`] = ["只能为当前跟进中的客户开单"];
         else if (lead.groupStatus === "NOT_JOINED" || !lead.registeredOn) fields[`rows.${index}.leadId`] = ["客户进过群并注册后才能开单"];
         else if (row.openedOn < lead.registeredOn) fields[`rows.${index}.openedOn`] = ["开单日期不能早于注册日期"];
         else if (lead.batchId !== row.batchId || lead.phone !== row.phone) fields[`rows.${index}.leadId`] = ["开单号码与客户档案不一致"];

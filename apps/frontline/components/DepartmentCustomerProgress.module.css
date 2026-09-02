@@ -179,7 +179,6 @@
   gap: 6px;
   white-space: nowrap;
 }
-.legacyButton,
 .addButton {
   height: 34px;
   display: inline-flex;
@@ -193,17 +192,11 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.legacyButton {
-  border: 1px solid #aebed3;
-  background: #fff;
-  color: #34506f;
-}
 .addButton {
   border: 1px solid #1769d2;
   background: #1769d2;
   color: #fff;
 }
-.legacyButton:disabled,
 .addButton:disabled {
   opacity: 0.5;
   cursor: default;

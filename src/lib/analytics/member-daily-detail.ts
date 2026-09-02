@@ -167,6 +167,7 @@ export async function loadMemberDailyDetail(input: {
       expertIntroducedOn: true,
       expertContactedOn: true,
       registeredOn: true,
+      trackingArchivedAt: true,
       activities: {
         where: { kind: "EXPERT_INTRODUCED", occurredOn: { lte: input.to } },
         select: { actorId: true, kind: true, occurredOn: true },
@@ -236,6 +237,7 @@ export async function loadMemberDailyDetail(input: {
         joinedOn: true,
         leftOn: true,
         expertIntroducedOn: true,
+        trackingArchivedAt: true,
         activities: {
           where: { kind: "EXPERT_INTRODUCED", occurredOn: { lte: input.to } },
           select: { actorId: true, kind: true, occurredOn: true },
@@ -313,8 +315,10 @@ export async function loadMemberDailyDetail(input: {
 
   if (input.role === "GROUP_OPERATOR") {
     for (const row of rows.values()) {
-      row.inGroup = attributedInGroupLeads.filter((lead) => isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= row.date && (!lead.leftOn || lead.leftOn > row.date)).length;
-      row.eligibleForExpert = attributedInGroupLeads.filter((lead) => isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= addDays(row.date, -2) && (!lead.leftOn || lead.leftOn > row.date) && (!lead.expertIntroducedOn || lead.expertIntroducedOn > row.date)).length;
+      const activeOnDate = (lead: (typeof attributedInGroupLeads)[number]) =>
+        !lead.trackingArchivedAt || lead.trackingArchivedAt.toISOString().slice(0, 10) > row.date;
+      row.inGroup = attributedInGroupLeads.filter((lead) => activeOnDate(lead) && isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= row.date && (!lead.leftOn || lead.leftOn > row.date)).length;
+      row.eligibleForExpert = attributedInGroupLeads.filter((lead) => activeOnDate(lead) && isResourceEligible(lead) && lead.joinedOn && lead.joinedOn <= addDays(row.date, -2) && (!lead.leftOn || lead.leftOn > row.date) && (!lead.expertIntroducedOn || lead.expertIntroducedOn > row.date)).length;
     }
   }
   for (const row of rows.values()) row.netCents = row.depositCents - row.withdrawalCents;

@@ -26,7 +26,7 @@ export async function GET(
   const { leadId } = await params;
   if (leadId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "客户参数过长" }, { status: 400 });
   const customer = await db.leadCustomer.findFirst({
-    where: { id: leadId, ownerId: user.id },
+    where: { id: leadId, ownerId: user.id, trackingArchivedAt: null },
     select: {
       id: true,
       phone: true,

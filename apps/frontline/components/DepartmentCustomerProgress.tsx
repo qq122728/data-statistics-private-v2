@@ -5,7 +5,6 @@ import { MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { requestJson, type BackendUser } from "@/lib/backend";
 import { localToday } from "@/lib/frontline-workbench";
 import styles from "./DepartmentCustomerProgress.module.css";
-import { LegacyCustomerImport } from "./LegacyCustomerImport";
 
 export type DepartmentCustomerGroup = { id: string; name: string };
 type Owner = { id: string; name: string } | null;
@@ -326,7 +325,6 @@ export function DepartmentCustomerProgress({
   groups?: DepartmentCustomerGroup[];
   member?: BackendUser;
 }) {
-  const [legacyMode, setLegacyMode] = useState(false);
   const [availableGroups, setAvailableGroups] = useState(groups ?? []);
   const [groupId, setGroupId] = useState(groups?.[0]?.id ?? "");
   const [payload, setPayload] = useState<Payload | null>(null);
@@ -645,7 +643,10 @@ export function DepartmentCustomerProgress({
     setError("");
     try {
       const { expertOwnerId, expertIntroducedOn, ...groupDraft } = draft;
-      await requestJson("/api/lead/customer-reporting", {
+      const result = await requestJson<{
+        resumed?: boolean;
+        counted?: { join?: boolean; expert?: boolean };
+      }>("/api/lead/customer-reporting", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -664,7 +665,11 @@ export function DepartmentCustomerProgress({
       setAdding(false);
       setPage(1);
       setProgress("全部进度");
-      showSaved("客户已加入组内共享表");
+      showSaved(
+        result.resumed
+          ? `8月客户已续接${result.counted?.join ? "，本次进群已计数" : "，原进群不重复计数"}${result.counted?.expert ? "，本次推专家已计数" : ""}`
+          : "客户已加入组内共享表",
+      );
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "新增客户失败");
@@ -837,9 +842,6 @@ export function DepartmentCustomerProgress({
     }
   }
 
-  if (legacyMode)
-    return <LegacyCustomerImport onBack={() => setLegacyMode(false)} canImportExpertStage={canEditExpert} />;
-
   return (
     <div className={styles.sheetWorkspace}>
       <section className={styles.toolbar}>
@@ -1001,16 +1003,6 @@ export function DepartmentCustomerProgress({
         ) : null}
         {member || canCreate ? (
           <div className={styles.toolbarActions}>
-            {member && viewMode === "group" ? (
-              <button
-                type="button"
-                className={styles.legacyButton}
-                disabled={!groupId || loading}
-                onClick={() => setLegacyMode(true)}
-              >
-                老客户导入
-              </button>
-            ) : null}
             {canCreateInView ? (
               <button
                 className={styles.addButton}

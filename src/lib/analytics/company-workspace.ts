@@ -109,7 +109,7 @@ export async function loadCompanyWorkspace(scope: AnalysisScope, today: string):
     }),
     db.leadCustomer.findMany({
       // 健康度只判断常规流程；历史补录只留在开单与资金统计中。
-      where: { isHistoricalRecord: false, batch: { ...batchScope, isHistoricalRecord: false } },
+      where: { isHistoricalRecord: false, trackingArchivedAt: null, batch: { ...batchScope, isHistoricalRecord: false } },
       select: {
         id: true, invalid: true, receptionCategory: true, groupStatus: true, repliedOn: true, joinedOn: true, expertIntroducedOn: true,
         expertContactedOn: true, expertOwnerId: true, registeredOn: true,

@@ -56,6 +56,7 @@
     "20260901040000_default_hacker_member_dual_roles/migration.sql": "b1b2997ce355aa6fc3a13daf4104196cc3deb0d6254b536cb8368474912492bb",
     "20260902010000_add_daily_customer_stage_numbers/migration.sql": "474cb4fc50c5d375d9b216e7e618d69c37c04a54ce015b6e29178c863a316c1f",
     "20260902020000_publish_current_daily_stat_revisions/migration.sql": "ca6c55fdcf636e707ceb41f8b133d1edf3cb8b4378fd07114965236e7cf5e32c",
-    "20260902030000_add_persistent_login_throttle/migration.sql": "f38f266e62e91c89d26a9ae6c1c970bc5f1b914bf55e8d07b865cbf4c2f1cbf2"
+    "20260902030000_add_persistent_login_throttle/migration.sql": "f38f266e62e91c89d26a9ae6c1c970bc5f1b914bf55e8d07b865cbf4c2f1cbf2",
+    "20260902040000_archive_august_customer_tracking/migration.sql": "4a3a6534ab4062b71632040d81d874598fad65d2099e6442acadd5153a67f08c"
   }
 }

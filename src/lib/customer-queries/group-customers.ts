@@ -5,6 +5,7 @@ import { assessGroupLeave } from "../group-leave";
 import { resolveAccessibleReceptionistIds } from "../group-operator-collaboration";
 import type { GroupCustomerRecord } from "./types";
 import { customerCurrentGroupsWhere } from "../customer-current-group";
+import { activeCustomerTrackingWhere } from "../customer-tracking-archive";
 
 type GroupCustomerQuery = {
   groupIds: string[];
@@ -263,6 +264,7 @@ export async function loadGroupCustomerWorkspace(input: GroupCustomerQuery) {
     invalid: false,
     AND: [
       customerCurrentGroupsWhere(groupIds),
+      activeCustomerTrackingWhere(),
       ...(input.isGroupOperator ? [{
         OR: [
           { groupOperatorOwnerId: input.userId },
@@ -495,6 +497,7 @@ export async function loadGroupOperatorCustomerPage(input: {
   const where: Prisma.LeadCustomerWhereInput = {
     // 明细入口用于正常流程处理；历史补录只在客户档案中回查。
     isHistoricalRecord: false,
+    trackingArchivedAt: null,
     batch: {
       groupId: input.groupId,
       isHistoricalRecord: false,

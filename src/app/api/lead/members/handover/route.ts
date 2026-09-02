@@ -7,6 +7,7 @@ import { getActiveLeadGroup, requireLeadRequest } from "../../../../../lib/lead-
 import { recordAudit } from "../../../../../lib/audit";
 import { authorizationDenied } from "../../../../../lib/security-events";
 import { hasAssignedRole } from "../../../../../lib/role-access";
+import { activeCustomerTrackingWhere } from "../../../../../lib/customer-tracking-archive";
 
 const schema = z.object({
   sourceId: z.string().min(1).max(100),
@@ -30,9 +31,10 @@ export async function POST(request: Request) {
     ]);
     if (!source || !target) return { denied: true as const };
     const currentGroup = customerCurrentGroupWhere(group.id);
-    const receptionWhere = { AND: [currentGroup], ownerId: source.id, joinedOn: null, receptionArchivedAt: null };
-    const operatorWhere = { AND: [currentGroup], groupOperatorOwnerId: source.id, expertIntroducedOn: null, leftOn: null };
-    const expertWhere: Prisma.LeadCustomerWhereInput = { AND: [currentGroup], expertOwnerId: source.id, expertIntroducedOn: { not: null }, leftOn: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: ["STALLED", "DECLINED_DEPOSIT"] } }] };
+    const activeTracking = activeCustomerTrackingWhere();
+    const receptionWhere = { AND: [currentGroup, activeTracking], ownerId: source.id, joinedOn: null, receptionArchivedAt: null };
+    const operatorWhere = { AND: [currentGroup, activeTracking], groupOperatorOwnerId: source.id, expertIntroducedOn: null, leftOn: null };
+    const expertWhere: Prisma.LeadCustomerWhereInput = { AND: [currentGroup, activeTracking], expertOwnerId: source.id, expertIntroducedOn: { not: null }, leftOn: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: ["STALLED", "DECLINED_DEPOSIT"] } }] };
     const [reception, operator, expert, physicalDevices, deviceAccounts] = await Promise.all([
       tx.leadCustomer.count({ where: receptionWhere }),
       tx.leadCustomer.count({ where: operatorWhere }),

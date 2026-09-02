@@ -34,6 +34,7 @@ import {
   parseCustomerStageNumberQuery,
 } from "../../../../lib/customer-stage-number";
 import { customerCollaborationWhere } from "../../../../lib/customer-collaboration-visibility";
+import { activeCustomerTrackingWhere } from "../../../../lib/customer-tracking-archive";
 
 const stages = new Set(["reception", "group", "pending-expert", "expert"]);
 const expertStages = [
@@ -310,6 +311,7 @@ export async function GET(request: Request) {
   const baseWhere: Prisma.LeadCustomerWhereInput = {
     AND: [
       customerCurrentGroupWhere(group.id),
+      activeCustomerTrackingWhere(),
       ...(collaborationWhere ? [collaborationWhere] : []),
       ...(dateWhere ? [dateWhere] : []),
       ...(stateWhere ? [stateWhere] : []),
@@ -771,9 +773,7 @@ export async function POST(request: Request) {
           { error: "炒群负责人只能选择本组组长或有炒群权限的在职成员" },
           { status: 400 },
         );
-      const existingPhones = new Set(
-        existing.map((customer) => customer.phone),
-      );
+      const existingPhones = new Set(existing.map((customer) => customer.phone));
       const validPhones = uniquePhones.filter(
         (phone) => !existingPhones.has(phone),
       );

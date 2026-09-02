@@ -17,6 +17,7 @@ import { getSystemSettings } from "../../../../lib/settings";
 import { resolveGroupBusinessDate } from "../../../../lib/business-time";
 import { replaceReceptionistGroupOperatorAssignment } from "../../../../lib/group-operator-collaboration";
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
+import { activeCustomerTrackingWhere } from "../../../../lib/customer-tracking-archive";
 
 type MemberRequest = {
   id?: unknown;
@@ -130,7 +131,7 @@ export async function GET() {
       const memberIds = members.map((member) => member.id);
       const [customers, devices, accounts, filledEntries] = memberIds.length ? await Promise.all([
         client.leadCustomer.findMany({
-          where: { AND: [customerCurrentGroupWhere(group.id)], invalid: false, leftOn: null, receptionArchivedAt: null },
+          where: { AND: [customerCurrentGroupWhere(group.id), activeCustomerTrackingWhere()], invalid: false, leftOn: null, receptionArchivedAt: null },
           select: { ownerId: true, joinedOn: true, groupOperatorOwnerId: true, expertIntroducedOn: true, expertOwnerId: true, expertWorkflowStage: true },
         }),
         client.device.findMany({ where: { groupId: group.id, memberId: { in: memberIds } }, select: { memberId: true } }),

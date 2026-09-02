@@ -146,6 +146,7 @@ export async function PATCH(
         !actor?.active ||
         !actor.groupId ||
         !lead ||
+        lead.trackingArchivedAt ||
         leadCurrentGroupId(lead) !== actor.groupId
       )
         return { status: 404 as const, error: "客户不存在或已不在本组" };

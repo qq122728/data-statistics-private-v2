@@ -7,6 +7,7 @@ import { hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-ac
 import { authorizationDenied } from "../../../../lib/security-events";
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
 import { customerCollaborationWhere } from "../../../../lib/customer-collaboration-visibility";
+import { activeCustomerTrackingWhere } from "../../../../lib/customer-tracking-archive";
 
 const stages = ["active", "introduced", "left"] as const;
 type Stage = (typeof stages)[number];
@@ -64,6 +65,7 @@ export async function GET(request: Request) {
     groupStatus: { in: ["JOINED", "LEFT"] },
     AND: [
       customerCurrentGroupWhere(actor.groupId),
+      activeCustomerTrackingWhere(),
       approvedCustomerWhere(),
       ...(hasAssignedRole(actor, "LEAD")
         ? []

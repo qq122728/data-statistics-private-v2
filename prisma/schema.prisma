@@ -884,6 +884,9 @@ model LeadCustomer {
   historicalLeaveCounted        Boolean                 @default(false)
   historicalExpertIntroCounted  Boolean                 @default(false)
   historicalRegistrationCounted Boolean                 @default(false)
+  // 统计切换前的号码只做历史底账：默认客户表不展示，后续发生新进度时复用原档案并恢复跟踪。
+  trackingArchivedAt            DateTime?
+  trackingArchiveReason        String?
   // 历史补录必须组长审核才生效，未审核前不进任何报表（需求文档7.3，模式抄自 InvalidFanReport）。
   historicalReviewStatus        HistoricalReviewStatus?
   historicalReviewedById        String?
@@ -922,6 +925,7 @@ model LeadCustomer {
   @@index([expertOwnerId, noInitialDepositOn, updatedAt])
   @@index([groupOperatorOwnerId, updatedAt])
   @@index([isHistoricalRecord, historicalReviewStatus])
+  @@index([trackingArchivedAt])
   @@unique([groupQueueGroupId, joinedOn, groupQueueNumber])
   @@unique([expertQueueGroupId, expertIntroducedOn, expertQueueNumber])
   @@unique([registrationQueueGroupId, registeredOn, registrationQueueNumber])

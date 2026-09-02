@@ -32,12 +32,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ev
             select: {
               phone: true,
               batch: { select: { groupId: true, channelId: true } },
-              lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true } },
+              lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, trackingArchivedAt: true } },
             },
           },
         },
       });
       if (!event || !event.customerOrder || !["RECHARGE", "WITHDRAWAL"].includes(event.kind)) return { status: 404 as const, error: "资金流水不存在" };
+      if (event.customerOrder.lead?.trackingArchivedAt) return { status: 404 as const, error: "该客户已经封存" };
       if (event.kind === "RECHARGE" && event.continuationNumber === null) return { status: 400 as const, error: "首充请通过“作废开单”纠错" };
       if (!canWriteCustomerFinance(user, event.customerOrder)) return { status: 403 as const, error: financeScopeError(user.role) };
       if (event.voidedAt) return { status: 400 as const, error: "该资金流水已经作废" };

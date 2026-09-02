@@ -8,6 +8,7 @@ import { hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-ac
 import { authorizationDenied } from "../../../../lib/security-events";
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
 import { customerCollaborationWhere } from "../../../../lib/customer-collaboration-visibility";
+import { activeCustomerTrackingWhere } from "../../../../lib/customer-tracking-archive";
 
 const stages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
 const PAGE_SIZE = 50;
@@ -50,6 +51,7 @@ export async function GET(request: Request) {
     receptionCategory: { notIn: ["INVALID", "LOW_AMOUNT", "NO_WS"] },
     AND: [
       customerCurrentGroupWhere(actor.groupId),
+      activeCustomerTrackingWhere(),
       approvedCustomerWhere(),
       ...(hasAssignedRole(actor, "LEAD")
         ? []

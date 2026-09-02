@@ -25,7 +25,7 @@
   - 普通行更新：`PATCH /api/lead/customer-reporting/[leadId]`，只处理按当前负责人分段授权的客户资料、炒群和专家动作；禁止修改接粉归属、来源渠道、接粉日期。
   - 原始归属纠错：`POST /api/lead/customer-reporting/[leadId]/attribution-correction`，仅本组组长可用，原因必填，并同步搬正统计、记录前后值。
 - 开单与客户资金跟踪：`/api/customer-orders`、`/api/customer-finance/*`
-- 老客户当前导入：`/api/legacy-customers`
+- 号码存在性查询：`GET /api/legacy-customers`（只返回当前跟踪记录的脱敏存在性结果；旧命名待后续兼容期结束后合并）
 - 组员、岗位、配对和交接：`/api/lead/members/*`、`/api/lead/collaborations/*`、`/api/admin/users/transfer`
 - 汇总、日报、排名：`/api/org/reporting`、`/api/lead/channel-reporting`、`/api/lead/channel-report-export`、`/api/lead/daily-business-report`、`/api/performance-leaderboard`
 - 组织和账号：现用 `/api/org/*`
@@ -95,7 +95,9 @@ SQLite→PostgreSQL 正式搬库脚本必须覆盖 `LoginThrottleBucket`，确�
 - `/api/historical-claims/review`
 - `/api/legacy-customer-rows/*`
 
-现行业务统一使用“老客户导入”和“新增专家客户”。其中 `/api/legacy-customers` 是现用接口，必须保留；名字相近的 `/api/legacy-customer-rows/*` 是另一套旧表，现已统一返回 `410 Gone`，不能继续读取或修改。`POST /api/expert-customers/historical` 也已由共享表“新增专家客户”替代并返回 `410 Gone`。
+现行业务统一使用“新增进群客户”和“新增专家客户”。`POST /api/legacy-customers` 已返回 `410 Gone`；同一路径的 `GET` 暂时只供统一新增入口和 AI 做隐私安全的号码存在性判断，不再承担老客户导入。名字相近的 `/api/legacy-customer-rows/*` 是另一套旧表，现已统一返回 `410 Gone`，不能继续读取或修改。`POST /api/expert-customers/historical` 也已由共享表“新增专家客户”替代并返回 `410 Gone`。
+
+2026-09-01 号码切换规则：8 月导入的真实号码全部匿名封存，但 `LeadCustomer`、订单和资金事实行继续保留，以维持已经核准的 8 月汇总。所有客户工作台、待办、预警、人员交接和客户资金写入口必须排除 `trackingArchivedAt` 非空的行；历史报表仍可读取这些匿名事实。原号码在 9 月重新录入时创建新客户行，不恢复旧行，也不重复生成 8 月事件。
 
 `/api/group-customers/historical` 当前是明确拒绝旧写法的兼容壳。可以先保留并记录调用，确认旧页面完全消失后再删。
 

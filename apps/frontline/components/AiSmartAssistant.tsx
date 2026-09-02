@@ -125,7 +125,7 @@ const LAWYER_FIELDS: Field[] = [
     write: (values, value) => ({ ...values, withdrawalCents: Math.round(value * 100) }) },
 ];
 
-const frontlineQuickActions = ["添加今日数据", "新增进群客户", "录入老客户进度", "更新客户进度", "查询或纠正数据", "系统使用帮助", "查看本月排名"];
+const frontlineQuickActions = ["添加今日数据", "新增进群客户", "更新客户进度", "查询或纠正数据", "系统使用帮助", "查看本月排名"];
 const managementQuickActions = ["系统使用帮助", "查看本月排名"];
 
 type LeaderboardPerson = { id: string; name: string; groupName: string; joined: number; orders: number; netCents: number };
@@ -236,6 +236,11 @@ type ProgressCustomer = {
   order: { id: string; nextContinuationNumber: number } | null;
 };
 type ProgressContext = CustomerContext & { customers: ProgressCustomer[]; expertOptions: Array<{ id: string; name: string }> };
+type CustomerLookup = {
+  exists: boolean;
+  sameGroup?: boolean;
+  canAccess?: boolean;
+};
 type ProgressAction = "groupNote" | "assignOperator" | "device" | "assignExpert" | "expertNote" | "register" | "normalLeave" | "abnormalLeave" | "initial" | "recharge" | "withdrawal";
 type ProgressDraft = { action: ProgressAction | null; text: string; userId: string; amountCents: number; depositMethod: "CRYPTO" | "BANK" };
 const EMPTY_PROGRESS: ProgressDraft = { action: null, text: "", userId: "", amountCents: 0, depositMethod: "CRYPTO" };
@@ -245,6 +250,18 @@ const PROGRESS_LABELS: Record<ProgressAction, string> = {
   initial: "登记首充", recharge: "新增续充", withdrawal: "登记出金",
 };
 const EXPERT_PROGRESS_ACTIONS = new Set<ProgressAction>(["expertNote", "register", "initial", "recharge", "withdrawal"]);
+
+async function customerMissingMessage(phone: string) {
+  const lookup = await requestJson<CustomerLookup>(
+    `/api/legacy-customers?phone=${encodeURIComponent(phone)}`,
+  );
+  if (!lookup.exists) return `系统中没有找到号码 ${phone}。`;
+  if (!lookup.sameGroup)
+    return "该号码已经存在于系统中，不能重复新增。";
+  if (lookup.canAccess === false)
+    return "该号码已经存在，但你不在该客户的配合关系中，请联系组长分配。";
+  return "该号码已经存在，但不符合当前筛选条件；请清除日期和进度筛选后再查看。";
+}
 
 type LegacyScenario = "JOIN" | "ORDER" | "RECHARGE";
 type LegacyContext = CustomerContext & { actorId: string; expertOptions: Array<{ id: string; name: string }> };
@@ -550,7 +567,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     try {
       const phone = phoneIn(text); if (!phone) { addMessage("assistant", "没有识别出客户号码，请使用模板补上号码后重新发送。"); setPhase("template"); return; }
       const result = await requestJson<ProgressContext>(`/api/lead/customer-reporting?stage=group&page=1&q=${encodeURIComponent(phone)}`); const customer = result.customers.find((item) => item.phone === phone) ?? null;
-      if (!customer) { addMessage("assistant", `本组共享客户表没有找到 ${phone}。`); setPhase("template"); return; }
+      if (!customer) { addMessage("assistant", await customerMissingMessage(phone)); setPhase("template"); return; }
       const action: ProgressAction | null = /续充/.test(text) ? "recharge" : /出金/.test(text) ? "withdrawal" : /开单|首充/.test(text) ? "initial" : /注册/.test(text) ? "register" : /异常退群/.test(text) ? "abnormalLeave" : /正常退群|退群/.test(text) ? "normalLeave" : /炒群情况|群内情况/.test(text) ? "groupNote" : null;
       if (!action) { addMessage("assistant", "没有识别出要更新的进度。可以使用页面上的模板后再修改内容。"); setPhase("template"); return; }
       if (EXPERT_PROGRESS_ACTIONS.has(action) && !canUseExpertActions) {
@@ -577,7 +594,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         if (phone) {
           const result = await requestJson<ProgressContext>(`/api/lead/customer-reporting?stage=group&page=1&q=${encodeURIComponent(phone)}`);
           const customer = result.customers.find((item) => item.phone === phone) ?? result.customers[0] ?? null;
-          if (!customer) { setProgressContext(result); addMessage("assistant", `本组共享客户表没有找到号码 ${phone}。`); setPhase("template"); return; }
+          if (!customer) { setProgressContext(result); addMessage("assistant", await customerMissingMessage(phone)); setPhase("template"); return; }
           setProgressContext(result); setProgressCustomer(customer); setPhase("query-customer-result");
           addMessage("assistant", `已找到 ${customer.phone} 的当前客户进度。`); return;
         }
@@ -951,7 +968,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
       const result = await requestJson<ProgressContext>(`/api/lead/customer-reporting?stage=group&page=1&q=${encodeURIComponent(phone)}`);
       const customer = result.customers.find((item) => item.phone === phone) ?? null;
       if (!customer) {
-        addMessage("assistant", "没有在本组共享客户表中找到这个号码，请核对后重新输入。" );
+        addMessage("assistant", await customerMissingMessage(phone));
         setPhase("progress-phone"); return;
       }
       setProgressContext(result); setProgressCustomer(customer);
@@ -1067,13 +1084,21 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     setPhase("customer-saving");
     addMessage("assistant", "正在新增进群客户，请稍候…");
     try {
-      await requestJson("/api/lead/customer-reporting", {
+      const result = await requestJson<{
+        resumed?: boolean;
+        counted?: { join?: boolean; expert?: boolean };
+      }>("/api/lead/customer-reporting", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(customerDraft),
       });
       setPhase("customer-done");
-      addMessage("assistant", `客户 ${customerDraft.phone} 已加入组内共享客户进度表，进群日期为 ${customerDraft.joinedOn}。`);
+      addMessage(
+        "assistant",
+        result.resumed
+          ? `客户 ${customerDraft.phone} 已从8月历史底账续接。${result.counted?.join ? `本次进群按 ${customerDraft.joinedOn} 计数。` : "原进群数据没有重复计算。"}`
+          : `客户 ${customerDraft.phone} 已加入组内共享客户进度表，进群日期为 ${customerDraft.joinedOn}。`,
+      );
       window.dispatchEvent(new Event("ai-data-updated"));
     } catch (caught) {
       setPhase("customer-preview");
@@ -1244,7 +1269,6 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     if (action === "查看本月排名") { void sendCasualChat("本月谁的数据最好？谁的业绩最好？"); return; }
     if (action === "添加今日数据") { void openNaturalTemplate("DAILY", action); return; }
     if (action === "新增进群客户") { void openNaturalTemplate("CUSTOMER", action); return; }
-    if (action === "录入老客户进度") { void openNaturalTemplate("LEGACY", action); return; }
     if (action === "更新客户进度") { void openNaturalTemplate("PROGRESS", action); return; }
     if (action === "查询或纠正数据") { void openNaturalTemplate("QUERY", action); }
   }
@@ -1391,7 +1415,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         {(phase === "customer-batch-preview" || phase === "customer-batch-saving" || phase === "customer-batch-done") && customerContext && selectedCustomerChannel && customerBatchPreview ? <div className={styles.preview}>
           <header><span><CheckCircle size={18} weight="fill" /></span><div><strong>批量新增预览</strong><small>{customerDraft.joinedOn} · {selectedCustomerChannel.name}</small></div></header>
           <div className={styles.batchSummary}>
-            <div data-kind="valid"><strong>{phase === "customer-batch-done" ? customerBatchCreated : customerBatchPreview.validPhones.length}</strong><span>{phase === "customer-batch-done" ? "成功新增" : "可以新增"}</span></div>
+            <div data-kind="valid"><strong>{phase === "customer-batch-done" ? customerBatchCreated : customerBatchPreview.validPhones.length}</strong><span>{phase === "customer-batch-done" ? "成功新增" : "可新增"}</span></div>
             <div data-kind="duplicate"><strong>{customerBatchPreview.duplicates.length}</strong><span>重复跳过</span></div>
             <div data-kind="invalid"><strong>{customerBatchPreview.invalid.length}</strong><span>格式错误</span></div>
           </div>

@@ -3,6 +3,7 @@ import { recordAudit } from "../audit";
 import { customerCurrentGroupWhere } from "../customer-current-group";
 import { closeGroupOperatorReceptionAssignmentsForMember } from "../group-operator-collaboration";
 import { canManageDepartment } from "../managed-department-scope";
+import { activeCustomerTrackingWhere } from "../customer-tracking-archive";
 
 export const transferableRoles = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
 export type TransferableRole = (typeof transferableRoles)[number];
@@ -120,20 +121,21 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
     || (currentRoles.has("GROUP_OPERATOR") && !targetRoles.has("GROUP_OPERATOR"));
 
   const currentGroupWhere = customerCurrentGroupWhere(member.groupId);
+  const activeTracking = activeCustomerTrackingWhere();
   const receptionCustomerWhere = {
-    AND: [currentGroupWhere],
+    AND: [currentGroupWhere, activeTracking],
     ownerId: member.id,
     joinedOn: null,
     receptionArchivedAt: null,
   } satisfies Prisma.LeadCustomerWhereInput;
   const operatorCustomerWhere = {
-    AND: [currentGroupWhere],
+    AND: [currentGroupWhere, activeTracking],
     groupOperatorOwnerId: member.id,
     expertIntroducedOn: null,
     leftOn: null,
   } satisfies Prisma.LeadCustomerWhereInput;
   const activeExpertWhere = {
-    AND: [currentGroupWhere],
+    AND: [currentGroupWhere, activeTracking],
     expertOwnerId: member.id,
     expertIntroducedOn: { not: null },
     leftOn: null,
@@ -144,7 +146,7 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
   // （未成交）则相反，只能在未开单时发生。两个分支不能共用同一个 customerOrder
   // 条件，否则 STALLED 客户永远匹配不上，自动交接给组长会静默失效。
   const abandonedExpertWhere = {
-    AND: [currentGroupWhere],
+    AND: [currentGroupWhere, activeTracking],
     expertOwnerId: member.id,
     OR: [
       { expertWorkflowStage: "DECLINED_DEPOSIT" as const, customerOrder: null },
@@ -161,6 +163,7 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
   const movingCustomerWhere = {
     AND: [
       currentGroupWhere,
+      activeTracking,
       { OR: movingResponsibilityWhere.length ? movingResponsibilityWhere : [{ id: "__no_current_responsibility__" }] },
     ],
   } satisfies Prisma.LeadCustomerWhereInput;

@@ -69,14 +69,14 @@ export async function POST(request: Request) {
         where: { id: { in: validRows.map(({ row }) => row.customerOrderId) } },
         include: {
           batch: { select: { groupId: true, channelId: true } },
-          lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, isHistoricalRecord: true } },
+          lead: { select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, isHistoricalRecord: true, trackingArchivedAt: true } },
           events: { where: { kind: "RECHARGE", continuationNumber: { not: null } }, select: { id: true, continuationNumber: true, voidedAt: true } },
         },
       });
       const orderById = new Map(orders.map((order) => [order.id, order]));
       for (const { row, index } of validRows) {
         const order = orderById.get(row.customerOrderId);
-        if (!order || !canWriteCustomerFinance(actor, order)) {
+        if (!order || order.lead?.trackingArchivedAt || !canWriteCustomerFinance(actor, order)) {
           fields[`rows.${index}.customerOrderId`] = [financeScopeError(actor.role)];
           continue;
         }

@@ -186,6 +186,7 @@ async function loadUnboundedInGroupLeadsForOperator(groupIds: string[], today: s
   return db.leadCustomer.findMany({
     where: {
       isHistoricalRecord: false,
+      trackingArchivedAt: null,
       joinedOn: { not: null, lte: today },
       batch: {
         groupId: { in: groupIds },

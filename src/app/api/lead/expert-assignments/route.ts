@@ -32,11 +32,12 @@ export async function PATCH(request: Request) {
           id: true,
           phone: true,
           expertIntroducedOn: true,
+          trackingArchivedAt: true,
           currentGroupId: true,
           batch: { select: { groupId: true } },
         },
       });
-      if (!lead || leadCurrentGroupId(lead) !== user.groupId)
+      if (!lead || lead.trackingArchivedAt || leadCurrentGroupId(lead) !== user.groupId)
         return { status: 404 as const, error: "本组没有这个客户" };
       if (!lead.expertIntroducedOn)
         return { status: 400 as const, error: "客户推专家后才能分配" };

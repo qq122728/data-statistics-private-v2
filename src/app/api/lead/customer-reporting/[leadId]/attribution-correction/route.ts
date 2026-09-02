@@ -68,7 +68,7 @@ export async function POST(
       });
       if (!actor?.active || !actor.groupId || !hasAssignedRole(actor, "LEAD"))
         return { status: 403 as const, error: "组长权限已失效，请重新登录" };
-      if (!lead || leadCurrentGroupId(lead) !== actor.groupId)
+      if (!lead || lead.trackingArchivedAt || leadCurrentGroupId(lead) !== actor.groupId)
         return { status: 404 as const, error: "客户不存在或已不在本组" };
 
       const today = statisticsDate();

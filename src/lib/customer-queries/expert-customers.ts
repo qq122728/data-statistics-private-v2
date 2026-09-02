@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "../db";
 import type { ExpertCustomerRecord } from "./types";
 import { customerCurrentGroupsWhere } from "../customer-current-group";
+import { activeCustomerTrackingWhere } from "../customer-tracking-archive";
 
 type ExpertCustomerQuery = {
   groupIds: string[];
@@ -116,7 +117,7 @@ export async function loadExpertCustomerWorkspace(input: ExpertCustomerQuery) {
   const groupId = groupIds[0];
   const where: Prisma.LeadCustomerWhereInput = {
     // 专家工作台是实时待办：日期范围只筛选上方业绩汇总，不能把尚未进入下一步的老客户藏掉。
-    AND: [customerCurrentGroupsWhere(groupIds)],
+    AND: [customerCurrentGroupsWhere(groupIds), activeCustomerTrackingWhere()],
     expertIntroducedOn: { not: null },
     ...(input.isExpert ? { expertOwnerId: input.userId } : {}),
     ...(input.query ? { OR: [{ phone: { contains: input.query } }, { customerName: { contains: input.query } }] } : {}),
@@ -282,6 +283,7 @@ export async function loadExpertPendingCustomerPage(input: {
   const where: Prisma.LeadCustomerWhereInput = {
     // 待注册/待开单属于正常流程卡点；历史客户只保留已发生的订单和资金。
     isHistoricalRecord: false,
+    trackingArchivedAt: null,
     batch: {
       groupId: input.groupId,
       isHistoricalRecord: false,

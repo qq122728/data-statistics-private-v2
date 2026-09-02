@@ -11,6 +11,7 @@ import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 import { hasValidDailyJobSecret } from "../../../../lib/internal-job-auth";
+import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
@@ -45,6 +46,7 @@ export async function GET(request: Request) {
   if (!group) return actor
     ? authorizationDenied(actor, "当前账号没有可查看的小组")
     : NextResponse.json({ error: "自动日报小组不存在或已停用" }, { status: 404 });
+  const groupType = group.groupType;
 
   const today = statisticsDate();
   const rawRange = params.get("range") ?? undefined;
@@ -108,7 +110,12 @@ export async function GET(request: Request) {
     });
   }
   function accumulate(row: Row, entry: (typeof entries)[number]) {
-    const value = entry.currentRevision ?? entry.approvedRevision;
+    const rawValue = entry.currentRevision ?? entry.approvedRevision;
+    const value = rawValue ? revisionForNumberTracking(rawValue, {
+      businessDate: entry.businessDate,
+      position: entry.position,
+      groupType,
+    }) : null;
     if (!value) return;
     row.totals.newFans += value.dispatchCount;
     row.totals.duplicateFans += value.duplicateCount;
@@ -116,6 +123,11 @@ export async function GET(request: Request) {
     row.totals.noNumber += value.noWsCount;
     row.totals.replies += value.replyCount;
     row.totals.groupJoin += value.joinCount;
+    // 2026-09-02 起，黑客组进群数由号码进群事件写入炒群账。
+    // 汇总时必须读取 operatorReceivedCount，再通过 sourceReceptionId 归回接粉人。
+    if (groupType === "HACKER" && entry.position === "GROUP_OPERATOR" && usesCustomerNumberTracking(entry.businessDate)) {
+      row.totals.groupJoin += value.operatorReceivedCount;
+    }
     row.totals.groupLeave += value.normalLeaveCount + value.abnormalLeaveCount;
     row.totals.abnormalGroupLeave = (row.totals.abnormalGroupLeave ?? 0) + value.abnormalLeaveCount;
     row.totals.expertIntro += value.expertIntroCount;

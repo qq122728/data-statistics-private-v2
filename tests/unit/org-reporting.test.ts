@@ -357,6 +357,16 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     expect(leaderboardBody.receptions.find((row: { id: string }) => row.id === ids.berlinReception)).toMatchObject({ joined: 1, orders: 1 });
 
     await signIn(ids.lead);
+    const leadChannel = await getLeadChannelReporting(new Request(
+      "http://localhost/api/lead/channel-reporting?range=custom&sourceDateFrom=2026-09-02&sourceDateTo=2026-09-02",
+    ));
+    expect(leadChannel.status).toBe(200);
+    expect((await leadChannel.json()).summary.totals).toMatchObject({
+      joined: 1,
+      pushed: 1,
+      registered: 1,
+      ordered: 1,
+    });
     vi.spyOn(leadMembers, "requireLeadRequest").mockResolvedValue({
       actor: await db.user.findUniqueOrThrow({ where: { id: ids.lead } }),
       group: { id: ids.berlinGroup, name: `柏林一组-${suffix}` },

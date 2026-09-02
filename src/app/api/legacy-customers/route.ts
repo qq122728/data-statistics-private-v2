@@ -14,6 +14,7 @@ import { getAssignedRoles, hasAssignedRole } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
 import { incrementHistoricalCustomerDailyStat } from "../../../lib/daily-stats";
+import { allocateCustomerStageNumber } from "../../../lib/customer-stage-number";
 
 const baselineStages = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED", "ORDERED"] as const;
 const currentEvents = ["NONE", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"] as const;
@@ -121,8 +122,16 @@ export async function POST(request: Request) {
         create: { groupId: actor.groupId, code: input.deviceCode, memberId: input.groupOperatorOwnerId || input.receptionOwnerId },
         select: { id: true },
       }) : null;
+      const groupQueueNumber = finalRank >= rank.JOINED
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP")
+        : null;
+      const expertQueueNumber = finalRank >= rank.INTRODUCED
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT")
+        : null;
       const lead = await tx.leadCustomer.create({ data: {
         phone, batchId: batch.id, ownerId: input.receptionOwnerId, attributionOwnerId: input.receptionOwnerId,
+        groupQueueNumber, groupQueueGroupId: groupQueueNumber ? actor.groupId : null,
+        expertQueueNumber, expertQueueGroupId: expertQueueNumber ? actor.groupId : null,
         groupOperatorOwnerId: input.groupOperatorOwnerId || null, expertOwnerId: input.expertOwnerId || null,
         deviceId: device?.id ?? null,
         customerName: input.customerName || null, historicalSourceName: channel.name, isHistoricalRecord: true, historicalBaselineStage: input.baselineStage, notes: input.notes || null,

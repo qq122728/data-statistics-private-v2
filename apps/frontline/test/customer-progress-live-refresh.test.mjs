@@ -29,3 +29,9 @@ test("界面明确说明老客户不受当日添加数限制", () => {
   assert.match(dailySheet, /当天添加为 0 也不影响/);
   for (const label of ["进群", "注册", "开单", "号码自动统计"]) assert.ok(dailySheet.includes(label));
 });
+
+test("所有日期都禁止手填号码漏斗，历史数字只读保留", () => {
+  assert.match(dailySheet, /const numberEntryLocked = Boolean\(context && !lawyerGroup && mode === "daily"\)/);
+  assert.match(dailySheet, /numberEntryLocked && NUMBER_TRACKED_METRIC_KEYS\.has\(metric\.key\)/);
+  assert.ok(dailySheet.includes("历史数据只读"));
+});

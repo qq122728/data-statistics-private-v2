@@ -10,6 +10,7 @@ import { buildBasicCustomerMutation } from "./mutations";
 import { resolveExpertWorkflowStage } from "../expert-workflow-stage";
 import { leadCurrentGroupId } from "../customer-current-group";
 import { syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerOrderEvent, syncCustomerRegistrationEvent } from "../customer-number-event-sync";
+import { allocateCustomerStageNumber } from "../customer-stage-number";
 
 type WorkflowActor = {
   id: string;
@@ -84,6 +85,10 @@ export async function executeCustomerWorkflow(
         update.groupOperatorOwnerId = liveActor.id;
       else return { status: 400 as const, error: "当前接粉尚未配对炒群，请组长先完成配对" };
     }
+    if (input.action === "joinGroup" && !lead.groupQueueNumber) {
+      update.groupQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "GROUP");
+      update.groupQueueGroupId = currentGroupId;
+    }
 
     const updatingReceptionDevice = input.action === "updateProfile" && Boolean(input.deviceId || input.deviceCode);
     if (input.action === "assignDevice" || updatingReceptionDevice) {
@@ -131,6 +136,14 @@ export async function executeCustomerWorkflow(
         select: { id: true, name: true },
       });
       if (!assignee) return { status: 400 as const, error: input.expertOwnerId ? "只能选择本组在职组员" : "本组没有启用的组长，请选择一位组员" };
+      if (!lead.groupQueueNumber) {
+        update.groupQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "GROUP");
+        update.groupQueueGroupId = currentGroupId;
+      }
+      if (!lead.expertQueueNumber) {
+        update.expertQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "EXPERT");
+        update.expertQueueGroupId = currentGroupId;
+      }
       if (!lead.expertIntroducedOn) update.expertIntroducedOn = occurredOn;
       if (lead.isHistoricalRecord) update.historicalExpertIntroCounted = true;
       update.expertOwnerId = assignee.id;

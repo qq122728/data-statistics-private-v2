@@ -10,7 +10,7 @@ const customerPatch = readFileSync(new URL("../../../src/app/api/lead/customer-r
 test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /组内共享客户进度/);
   assert.match(component, /实时共享/);
-  assert.match(component, /搜索号码、组员、渠道或进度/);
+  assert.match(component, /搜索号码、G\/E 编号、组员或进度/);
   assert.match(component, /全部进度/);
   assert.match(component, /"已注册"/);
   assert.match(component, /if \(customer\.registeredOn\) return "已注册"/);
@@ -28,6 +28,16 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /setChannelFilter/);
   assert.doesNotMatch(component, /className=\{styles\.summary\}/);
   assert.doesNotMatch(component, /shared-sheet__detail/);
+});
+
+test("在群和专家使用两个固定编号并支持编号搜索", () => {
+  assert.match(component, /groupQueueNumber/);
+  assert.match(component, /expertQueueNumber/);
+  assert.match(component, /queueNumber\("G", customer\.groupQueueNumber\)/);
+  assert.match(component, /queueNumber\("E", customer\.expertQueueNumber\)/);
+  assert.match(component, /params\.set\("q", query\.trim\(\)\)/);
+  assert.match(component, /编号 \/ 接粉 \/ 进群/);
+  assert.match(css, /\.queueBadge/);
 });
 
 test("共享表完整保留已进群客户业务字段", () => {

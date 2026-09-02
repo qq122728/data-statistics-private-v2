@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFrontlineSecondaryRoles } from "../../src/lib/role-assignments";
+import { applyHackerGroupDefaultRoles, parseFrontlineSecondaryRoles } from "../../src/lib/role-assignments";
 
 describe("一线兼任岗位校验", () => {
   it("允许一线账号同时增加另外两个岗位", () => {
@@ -18,5 +18,12 @@ describe("一线兼任岗位校验", () => {
       success: false,
       error: "兼任岗位只能选择主岗位以外的接粉、炒群或专家，且不能重复",
     });
+  });
+
+  it("黑客组普通组员默认接粉炒群双岗位，但专家和律师组不变", () => {
+    expect(applyHackerGroupDefaultRoles("RECEPTION", [], "HACKER")).toEqual(["GROUP_OPERATOR"]);
+    expect(applyHackerGroupDefaultRoles("GROUP_OPERATOR", ["EXPERT"], "HACKER")).toEqual(["RECEPTION", "EXPERT"]);
+    expect(applyHackerGroupDefaultRoles("EXPERT", [], "HACKER")).toEqual([]);
+    expect(applyHackerGroupDefaultRoles("RECEPTION", [], "LAWYER")).toEqual([]);
   });
 });

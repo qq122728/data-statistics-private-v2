@@ -818,6 +818,12 @@ model LeadCustomer {
   customerEmail                 String?
   lossAmountCents               Int?
   customerPlatform              String?
+  // 两个阶段的固定流水号：进群时取得 G 编号，首次推专家时再取得 E 编号。
+  // GroupId 快照用于保证客户后来调组时原编号仍可追溯且不会与原组重复。
+  groupQueueNumber              Int?
+  groupQueueGroupId             String?
+  expertQueueNumber             Int?
+  expertQueueGroupId            String?
   groupStatus                   LeadGroupStatus         @default(NOT_JOINED)
   joinedOn                      String?
   leftOn                        String?
@@ -892,6 +898,17 @@ model LeadCustomer {
   @@index([expertOwnerId, noInitialDepositOn, updatedAt])
   @@index([groupOperatorOwnerId, updatedAt])
   @@index([isHistoricalRecord, historicalReviewStatus])
+  @@unique([groupQueueGroupId, groupQueueNumber])
+  @@unique([expertQueueGroupId, expertQueueNumber])
+}
+
+// 每个小组分别维护在群、推专家两个原子计数器。不能用“当前行数 + 1”，
+// 否则删除记录或两个人同时操作时会产生重复编号。
+model CustomerStageSequence {
+  groupId          String   @id
+  lastGroupNumber  Int      @default(0)
+  lastExpertNumber Int      @default(0)
+  updatedAt        DateTime @updatedAt
 }
 
 model GroupOperatorReception {

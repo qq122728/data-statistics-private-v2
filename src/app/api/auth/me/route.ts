@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const user = await requireUser({ allowPasswordChangeRequired: true });
     const [group, department, company] = await Promise.all([
-      user.groupId ? db.teamGroup.findUnique({ where: { id: user.groupId }, select: { name: true } }) : null,
+      user.groupId ? db.teamGroup.findUnique({ where: { id: user.groupId }, select: { name: true, groupType: true } }) : null,
       user.departmentId ? db.department.findUnique({ where: { id: user.departmentId }, select: { name: true } }) : null,
       user.companyId ? db.company.findUnique({ where: { id: user.companyId }, select: { name: true } }) : null,
     ]);
@@ -33,6 +33,7 @@ export async function GET() {
         duty: user.duty,
         groupId: user.groupId,
         groupName: group?.name ?? null,
+        groupType: group?.groupType ?? null,
         departmentId: user.departmentId,
         departmentName: department?.name ?? null,
         companyId: user.companyId,

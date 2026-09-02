@@ -71,17 +71,24 @@ type ManagedAccount = {
   active: boolean;
   groupName: string | null;
   departmentName: string | null;
+  secondaryRoles: string[];
+  updatedAt: string;
 };
 
 function managedAccountRoleLabel(account: ManagedAccount): string {
   if (account.duty === "COMPANY_MANAGER") return "公司管理员";
   if (account.duty === "DEPARTMENT_MANAGER") return "部门管理员";
+  if (account.duty === "HQ_MANAGER") return "总公司管理员";
   if (account.role === "LEAD") return "组长";
   if (account.role === "RECEPTION") return "接粉";
   if (account.role === "GROUP_OPERATOR") return "炒群";
   if (account.role === "EXPERT") return "专家";
-  return account.role;
+  if (account.role === "RESOURCE_MANAGER") return "资源部";
+  if (account.role === "FINANCE") return "财务";
+  if (account.role === "ADMIN") return "系统管理员";
+  return frontlineRoleLabels[account.role] ?? account.role;
 }
+const frontlineRoleLabels: Record<string, string> = { RECEPTION: "接粉", GROUP_OPERATOR: "炒群", EXPERT: "专家", LEAD: "组长", RESOURCE_MANAGER: "资源部" };
 
 function normalize(payload: StructureResponse): {
   companies: CompanyNode[];
@@ -148,6 +155,9 @@ export function RealOrganizationManagement({
   const [editingGroupName, setEditingGroupName] = useState("");
   const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([]);
   const [deletingAccount, setDeletingAccount] = useState<ManagedAccount | null>(null);
+  const [accountSearch, setAccountSearch] = useState("");
+  const [accountRole, setAccountRole] = useState("");
+  const [accountStatus, setAccountStatus] = useState("active");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -174,6 +184,22 @@ export function RealOrganizationManagement({
     ...structure.unassigned,
   ];
   const allGroups = departments.flatMap((department) => department.groups);
+  const visibleManagedAccounts = managedAccounts.filter((account) => {
+    const haystack = `${account.name} ${account.username} ${account.groupName ?? ""} ${account.departmentName ?? ""} ${managedAccountRoleLabel(account)}`.toLowerCase();
+    return (!accountSearch.trim() || haystack.includes(accountSearch.trim().toLowerCase()))
+      && (!accountRole || account.role === accountRole || account.secondaryRoles.includes(accountRole))
+      && (accountStatus === "all" || (accountStatus === "active" ? account.active : !account.active));
+  });
+
+  async function toggleAccountStatus(account: ManagedAccount) {
+    setBusy(true); setError("");
+    try {
+      const result = await requestJson<{ id: string; active: boolean }>("/api/org/accounts", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: account.id, active: !account.active }) });
+      setManagedAccounts((current) => current.map((item) => item.id === result.id ? { ...item, active: result.active, updatedAt: new Date().toISOString() } : item));
+      onToast(`${account.name}的账号已${result.active ? "恢复" : "停用"}；历史数据保持不变`);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "账号状态修改失败"); }
+    finally { setBusy(false); }
+  }
 
   async function openLead(group: GroupNode) {
     setLeadGroup(group);
@@ -753,24 +779,31 @@ export function RealOrganizationManagement({
 
       <div className="card" style={{ marginTop: 14, marginBottom: 14, overflow: "hidden" }}>
         <div style={{ padding: 16, borderBottom: "1px solid var(--line)" }}>
-          <h2 className="card-title">权限范围内账号</h2>
-          <p className="card-note">误开的空账号可以永久删除；已有客户、日报、资金、设备或操作记录的账号会被系统拒绝删除，请改为停用。</p>
+          <h2 className="card-title">人员与岗位</h2>
+          <p className="card-note">岗位调整和账号状态分开管理。停用后不能登录或修改数据，但历史客户、业绩和操作记录全部保留。</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+            <input className="field" style={{ minWidth: 220 }} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} placeholder="搜索姓名、账号、小组或部门" />
+            <select className="field" value={accountRole} onChange={(event) => setAccountRole(event.target.value)}><option value="">全部岗位</option><option value="RECEPTION">接粉</option><option value="GROUP_OPERATOR">炒群</option><option value="EXPERT">专家</option><option value="LEAD">组长</option><option value="RESOURCE_MANAGER">资源部</option></select>
+            <select className="field" value={accountStatus} onChange={(event) => setAccountStatus(event.target.value)}><option value="active">在职账号</option><option value="inactive">已停用</option><option value="all">全部状态</option></select>
+            <span className="badge" data-tone="mute" style={{ alignSelf: "center" }}>{visibleManagedAccounts.length} 人</span>
+          </div>
         </div>
         <div className="table-scroll" style={{ minHeight: 0, maxHeight: 420 }}>
           <table className="grid-table">
-            <thead><tr><th>姓名</th><th>登录用户名</th><th>身份</th><th>所属范围</th><th>状态</th><th style={{ width: 110 }}>操作</th></tr></thead>
+            <thead><tr><th>姓名 / 账号</th><th>组织范围</th><th>主岗位</th><th>兼职岗位</th><th>状态</th><th>最后变更</th><th style={{ width: 220 }}>操作</th></tr></thead>
             <tbody>
-              {managedAccounts.map((account) => (
+              {visibleManagedAccounts.map((account) => (
                 <tr key={account.id}>
-                  <td><strong>{account.name}</strong></td>
-                  <td>{account.username}</td>
+                  <td><strong>{account.name}</strong><small className="muted" style={{ display: "block", marginTop: 3 }}>{account.username}</small></td>
+                  <td>{account.departmentName ? <small className="muted" style={{ display: "block" }}>{account.departmentName}</small> : null}<strong>{account.groupName ?? account.departmentName ?? "公司范围"}</strong></td>
                   <td>{managedAccountRoleLabel(account)}</td>
-                  <td>{account.groupName ?? account.departmentName ?? "—"}</td>
-                  <td>{account.active ? "启用" : "停用"}</td>
-                  <td><button className="btn" data-size="sm" style={{ color: "var(--bad)" }} onClick={() => { setError(""); setDeletingAccount(account); }}><IconTrash size={13} />删除账号</button></td>
+                  <td>{account.secondaryRoles.length ? account.secondaryRoles.map((role) => frontlineRoleLabels[role] ?? role).join("、") : "—"}</td>
+                  <td><span className="badge" data-tone={account.active ? "ok" : "mute"}>{account.active ? "在职" : "已停用"}</span></td>
+                  <td>{new Intl.DateTimeFormat("zh-CN", { dateStyle: "short" }).format(new Date(account.updatedAt))}</td>
+                  <td><div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}><a className="btn" data-size="sm" href="#personnel-transfer">调整岗位</a><button className="btn" data-size="sm" disabled={busy} style={{ color: account.active ? "var(--bad)" : "#137333" }} data-confirm-action={account.active ? "停用该账号？历史数据会保留，当前登录会立即失效。" : undefined} onClick={() => void toggleAccountStatus(account)}>{account.active ? "停用账号" : "恢复账号"}</button><button className="btn" data-size="sm" style={{ color: "var(--bad)" }} onClick={() => { setError(""); setDeletingAccount(account); }}><IconTrash size={13} />永久删除</button></div></td>
                 </tr>
               ))}
-              {!managedAccounts.length ? <tr><td colSpan={6} style={{ textAlign: "center", color: "var(--ink-3)" }}>当前权限范围暂无可管理账号</td></tr> : null}
+              {!visibleManagedAccounts.length ? <tr><td colSpan={7} style={{ textAlign: "center", color: "var(--ink-3)" }}>当前筛选范围没有人员</td></tr> : null}
             </tbody>
           </table>
         </div>

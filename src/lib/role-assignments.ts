@@ -26,3 +26,18 @@ export function parseFrontlineSecondaryRoles(
     return { success: false, error: "兼任岗位只能选择主岗位以外的接粉、炒群或专家，且不能重复" };
   return { success: true, value: roles };
 }
+
+/**
+ * 黑客组的一般组员默认同时承担接粉与炒群。
+ * 专家仍可单独创建；用户额外选择的专家兼任也会保留。
+ */
+export function applyHackerGroupDefaultRoles(
+  primaryRole: Role,
+  secondaryRoles: Role[],
+  groupType: "HACKER" | "LAWYER" | null | undefined,
+): Role[] {
+  if (groupType !== "HACKER") return secondaryRoles;
+  if (primaryRole !== "RECEPTION" && primaryRole !== "GROUP_OPERATOR") return secondaryRoles;
+  const counterpart: Role = primaryRole === "RECEPTION" ? "GROUP_OPERATOR" : "RECEPTION";
+  return secondaryRoles.includes(counterpart) ? secondaryRoles : [counterpart, ...secondaryRoles];
+}

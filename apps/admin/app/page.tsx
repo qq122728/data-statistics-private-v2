@@ -290,7 +290,7 @@ export default function Page() {
             : view === "members" ? <>
               {membersLoading ? <div className="card" style={{ padding: 16, marginBottom: 14, color: "var(--ink-3)" }}>正在读取真实组员与配对数据…</div> : null}
               {membersError ? <div className="card" style={{ padding: 16, marginBottom: 14, color: "var(--bad)", borderColor: "var(--bad-line)" }}>{membersError}<button className="btn" data-size="sm" style={{ marginLeft: 12 }} onClick={() => void loadLeadWorkspace()}>重试</button></div> : null}
-              <TabMembers members={members} transfers={[]} onUpdateMemberSetup={updateMemberSetup} onCreateAccount={createAccount} onResetPassword={resetPassword} onDeleteAccount={deleteAccount} onPreviewHandoff={previewHandoff} onConfirmHandoff={confirmHandoff} onToast={showToast} onConfirm={setConfirm} />
+              <TabMembers members={members} transfers={[]} defaultDualFrontline={sessionUser.groupType === "HACKER"} onUpdateMemberSetup={updateMemberSetup} onCreateAccount={createAccount} onResetPassword={resetPassword} onDeleteAccount={deleteAccount} onPreviewHandoff={previewHandoff} onConfirmHandoff={confirmHandoff} onToast={showToast} onConfirm={setConfirm} />
               <PersonnelTransferPanel onToast={showToast} />
             </>
               : view === "devices" ? <RealGroupDeviceManagement members={members} />

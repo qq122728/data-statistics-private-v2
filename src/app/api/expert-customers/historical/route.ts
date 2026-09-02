@@ -14,6 +14,7 @@ import { resolveUserBusinessTimezone } from "../../../../lib/business-time";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { allocateCustomerStageNumber } from "../../../../lib/customer-stage-number";
 
 const date = z.string().refine(isCalendarDate, "日期必须是实际存在的 YYYY-MM-DD");
 const optionalDate = z.preprocess((value) => typeof value === "string" && !value.trim() ? undefined : value, date.optional());
@@ -145,9 +146,15 @@ export async function POST(request: Request) {
       const isContacted = input.expertStage !== "QUEUED";
       const isTracking = input.expertStage === "TRACKING";
       const isRegistered = ["PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED"].includes(input.expertStage);
+      const groupQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "GROUP");
+      const expertQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT");
       const lead = await tx.leadCustomer.create({
         data: {
           phone,
+          groupQueueNumber,
+          groupQueueGroupId: actor.groupId,
+          expertQueueNumber,
+          expertQueueGroupId: actor.groupId,
           batchId: batch.id,
           ownerId: reception.id,
           attributionOwnerId: reception.id,

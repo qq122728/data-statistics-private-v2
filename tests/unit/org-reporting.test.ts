@@ -289,6 +289,12 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     }));
     expect(created.status).toBe(201);
     const customer = await created.json() as { id: string; phone: string };
+    const afterJoin = await db.leadCustomer.findUniqueOrThrow({
+      where: { id: customer.id },
+      select: { groupQueueNumber: true, expertQueueNumber: true },
+    });
+    expect(afterJoin.groupQueueNumber ?? 0).toBeGreaterThan(0);
+    expect(afterJoin.expertQueueNumber).toBeNull();
     const patch = (body: Record<string, unknown>) => patchSharedCustomer(
       new Request(`http://localhost/api/lead/customer-reporting/${customer.id}`, {
         method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -299,6 +305,16 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     expect((await patch({ action: "assignGroupOperator", userId: ids.berlinOperatorA })).status).toBe(200);
     expect((await patch({ action: "setChannel", channelId: correctedChannelId })).status).toBe(200);
     expect((await patch({ action: "assignExpert", userId: ids.berlinExpert })).status).toBe(200);
+    const afterExpert = await db.leadCustomer.findUniqueOrThrow({
+      where: { id: customer.id },
+      select: { groupQueueNumber: true, expertQueueNumber: true },
+    });
+    expect(afterExpert.groupQueueNumber).toBe(afterJoin.groupQueueNumber);
+    expect(afterExpert.expertQueueNumber ?? 0).toBeGreaterThan(0);
+    const expertNumberSearch = await (await getLeadCustomerReporting(new Request(
+      `http://localhost/api/lead/customer-reporting?stage=expert&q=E-${String(afterExpert.expertQueueNumber).padStart(3, "0")}`,
+    ))).json();
+    expect(expertNumberSearch.customers.map((item: { id: string }) => item.id)).toContain(customer.id);
     await signIn(ids.berlinExpert);
     expect((await patch({ action: "setRegistration", occurredOn: "2026-09-02" })).status).toBe(200);
     const currentCustomer = await db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id }, select: { batchId: true } });

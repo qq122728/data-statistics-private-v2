@@ -13,6 +13,7 @@ import { API_LIMITS } from "../../../lib/request-limits";
 import { getAssignedRoles, hasAssignedRole } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
+import { allocateCustomerStageNumber } from "../../../lib/customer-stage-number";
 
 const claimStages = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "CONTACTED", "TRACKING", "REGISTERED"] as const;
 type ClaimStage = (typeof claimStages)[number];
@@ -401,8 +402,19 @@ export async function POST(request: Request) {
         update: {},
         create: { groupId: actor.groupId, channelId: channel.id, sourceDate: input.baselineOn, channelTypeSnapshot: channel.channelType, isHistoricalRecord: true },
       });
+      const claimRank = claimStages.indexOf(input.baselineStage);
+      const groupQueueNumber = claimRank >= claimStages.indexOf("JOINED")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP")
+        : null;
+      const expertQueueNumber = claimRank >= claimStages.indexOf("INTRODUCED")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT")
+        : null;
       const lead = await tx.leadCustomer.create({ data: {
         phone,
+        groupQueueNumber,
+        groupQueueGroupId: groupQueueNumber ? actor.groupId : null,
+        expertQueueNumber,
+        expertQueueGroupId: expertQueueNumber ? actor.groupId : null,
         batchId: batch.id,
         ownerId: input.receptionOwnerId,
         attributionOwnerId: input.receptionOwnerId,

@@ -85,7 +85,7 @@ export function PersonnelTransferPanel({ onToast }: { onToast: (message: string,
     } catch (error) { onToast(error instanceof Error ? error.message : "人员调动失败", "warn"); }
     finally { setBusy(false); }
   }
-  return <div className="card" style={{ padding: 16, marginTop: 14 }}>
+  return <div id="personnel-transfer" className="card" style={{ padding: 16, marginTop: 14, scrollMarginTop: 16 }}>
     <h2 className="card-title">人员调岗与跨组调动</h2>
     <p className="card-note">跨组调动：历史客户、历史数据仍记在原组；目前还在进行的客户、本人设备和设备账号自动跟到新组。同组转岗且不再兼任原岗位时，才需要选择接手人。</p>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, marginTop: 14 }}>

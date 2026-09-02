@@ -22,6 +22,7 @@ export type BackendUser = {
   duty: "DEPARTMENT_MANAGER" | "COMPANY_MANAGER" | "HQ_MANAGER" | null;
   groupId: string | null;
   groupName: string | null;
+  groupType: "HACKER" | "LAWYER" | null;
   departmentId: string | null;
   departmentName: string | null;
   companyId: string | null;

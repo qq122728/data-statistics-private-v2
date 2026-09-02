@@ -304,9 +304,12 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
   const metrics = mode === "finance" ? FINANCE_METRICS : lawyerGroup ? LAWYER_DAILY_METRICS : DAILY_METRICS;
   const isHistorical = Boolean(context && date < context.today);
   const numberTracking = Boolean(context && !lawyerGroup && date >= context.numberTrackingFrom);
+  // 黑客组的客户漏斗指标已经统一改为按号码维护。历史日期仍保留原值查看，
+  // 但也不能再从每日数据表手工改写，避免同一指标同时存在两套入口。
+  const numberEntryLocked = Boolean(context && !lawyerGroup && mode === "daily");
 
   function update(channelId: string, metric: Metric, rawValue: number) {
-    if (!metric.write) return;
+    if (!metric.write || (numberEntryLocked && NUMBER_TRACKED_METRIC_KEYS.has(metric.key))) return;
     const value = metric.kind === "money" ? Math.max(0, Math.round(rawValue * 100)) : rawValue;
     setGrid((current) => ({
       ...current,
@@ -416,10 +419,11 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
             {context.channels.map((channel) => {
               const values = grid[channel.id]?.values ?? EMPTY_VALUES;
               const value = metric.read(values);
-              const editable = Boolean(metric.write) && !(numberTracking && NUMBER_TRACKED_METRIC_KEYS.has(metric.key));
+              const editable = Boolean(metric.write) && !(numberEntryLocked && NUMBER_TRACKED_METRIC_KEYS.has(metric.key));
               const customerTracked = numberTracking && NUMBER_TRACKED_METRIC_KEYS.has(metric.key);
+              const historicalNumberLocked = numberEntryLocked && !numberTracking && NUMBER_TRACKED_METRIC_KEYS.has(metric.key);
               return <td key={channel.id} data-formula={!editable} data-customer-tracked={customerTracked || undefined}>
-                {editable ? <input aria-label={`${channel.name}-${metric.label}`} type="number" min="0" step={metric.kind === "money" ? "0.01" : "1"} value={metric.kind === "money" ? (value / 100).toFixed(2) : Math.round(value)} onChange={(event) => update(channel.id, metric, Number(event.target.value || 0))} /> : <span title={customerTracked ? "由客户号码进度自动统计" : undefined}>{display(value, metric.kind)}{customerTracked ? <small>号码自动统计</small> : null}</span>}
+                {editable ? <input aria-label={`${channel.name}-${metric.label}`} type="number" min="0" step={metric.kind === "money" ? "0.01" : "1"} value={metric.kind === "money" ? (value / 100).toFixed(2) : Math.round(value)} onChange={(event) => update(channel.id, metric, Number(event.target.value || 0))} /> : <span title={customerTracked ? "由客户号码进度自动统计" : historicalNumberLocked ? "历史数字只读，不能再手工修改" : undefined}>{display(value, metric.kind)}{customerTracked ? <small>号码自动统计</small> : historicalNumberLocked ? <small>历史数据只读</small> : null}</span>}
               </td>;
             })}
           </tr>)}</tbody>

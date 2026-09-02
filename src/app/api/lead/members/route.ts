@@ -10,7 +10,7 @@ import {
   safeLeadMemberSelect,
 } from "../../../../lib/lead-members";
 import { isUniqueConstraintError } from "../../admin/users/validation";
-import { parseFrontlineSecondaryRoles } from "../../../../lib/role-assignments";
+import { applyHackerGroupDefaultRoles, parseFrontlineSecondaryRoles } from "../../../../lib/role-assignments";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied, type SecurityEventActor } from "../../../../lib/security-events";
 import { getSystemSettings } from "../../../../lib/settings";
@@ -199,10 +199,6 @@ export async function POST(request: Request) {
   }
   const pairing = parsePairing(body);
   if (!pairing) return NextResponse.json({ error: "配对炒群参数不正确" }, { status: 400 });
-  const assignedRoles = new Set([role, ...secondaryRoles.value]);
-  if (pairing.value && !assignedRoles.has("RECEPTION")) {
-    return NextResponse.json({ error: "只有接粉岗位可以设置配对炒群" }, { status: 400 });
-  }
   const settings = await getSystemSettings();
   const now = new Date();
   const memberId = randomUUID();
@@ -213,6 +209,11 @@ export async function POST(request: Request) {
         const group = await getActiveLeadGroup(access.actor.id, client);
         if (!group)
           return { error: "组长必须归属启用中的小组", status: 403 as const };
+        const effectiveSecondaryRoles = applyHackerGroupDefaultRoles(role, secondaryRoles.value, group.groupType);
+        const assignedRoles = new Set([role, ...effectiveSecondaryRoles]);
+        if (pairing.value && !assignedRoles.has("RECEPTION")) {
+          return { error: "只有接粉岗位可以设置配对炒群", status: 400 as const };
+        }
         const effectiveFrom = await resolveGroupBusinessDate(group.id, settings.timezone, now, client);
         const pairingOperatorId = pairing.value ?? (
           pairing.included && assignedRoles.has("RECEPTION") && assignedRoles.has("GROUP_OPERATOR")
@@ -233,8 +234,8 @@ export async function POST(request: Request) {
             mustChangePassword: true,
             role,
             groupId: group.id,
-            roleAssignments: { create: [role, ...secondaryRoles.value].map((assignedRole) => ({ role: assignedRole })) },
-            membershipHistory: { create: { groupId: group.id, role, secondaryRoles: secondaryRoles.value.join(",") || null, effectiveFrom, reason: "组长创建成员", createdById: access.actor.id } },
+            roleAssignments: { create: [role, ...effectiveSecondaryRoles].map((assignedRole) => ({ role: assignedRole })) },
+            membershipHistory: { create: { groupId: group.id, role, secondaryRoles: effectiveSecondaryRoles.join(",") || null, effectiveFrom, reason: "组长创建成员", createdById: access.actor.id } },
           },
           select: safeLeadMemberSelect,
         });

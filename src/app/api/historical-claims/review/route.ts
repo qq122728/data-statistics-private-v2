@@ -6,6 +6,7 @@ import { db } from "../../../../lib/db";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
+import { allocateCustomerStageNumber } from "../../../../lib/customer-stage-number";
 
 const reviewSchema = z.object({
   leadId: z.string().min(1).max(API_LIMITS.identifierCharacters),
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
         return { status: 403 as const, error: "只有组长可以审核历史客户" };
       const lead = await tx.leadCustomer.findUnique({
         where: { id: input.leadId },
-        select: { id: true, historicalBaselineStage: true, historicalReviewStatus: true, batch: { select: { groupId: true, sourceDate: true } } },
+        select: { id: true, groupQueueNumber: true, expertQueueNumber: true, historicalBaselineStage: true, historicalReviewStatus: true, batch: { select: { groupId: true, sourceDate: true } } },
       });
       if (!lead || lead.batch.groupId !== actor.groupId)
         return { status: 404 as const, error: "未找到本组待审核历史客户" };
@@ -85,12 +86,22 @@ export async function POST(request: Request) {
         return { status: 400 as const, error: "历史阶段无效，请退回后重新认领" };
       const sourceDate = lead.batch.sourceDate;
       const rank = stages.indexOf(stage);
+      const groupQueueNumber = rank >= 2 && !lead.groupQueueNumber
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP")
+        : lead.groupQueueNumber;
+      const expertQueueNumber = rank >= 3 && !lead.expertQueueNumber
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT")
+        : lead.expertQueueNumber;
       await tx.leadCustomer.update({ where: { id: lead.id }, data: {
         invalid: false,
         invalidReason: null,
         historicalReviewStatus: "APPROVED",
         historicalReviewedById: actor.id,
         historicalReviewedAt: reviewedAt,
+        groupQueueNumber,
+        groupQueueGroupId: groupQueueNumber ? actor.groupId : null,
+        expertQueueNumber,
+        expertQueueGroupId: expertQueueNumber ? actor.groupId : null,
         replyStatus: rank >= 1 ? "REPLIED" : "NOT_REPLIED",
         repliedOn: rank >= 1 ? sourceDate : null,
         groupStatus: rank >= 2 ? "JOINED" : "NOT_JOINED",

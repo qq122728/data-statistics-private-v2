@@ -24,6 +24,7 @@ export const safeLeadMemberSelect = {
 export type ActiveLeadGroup = {
   id: string;
   name: string;
+  groupType?: "HACKER" | "LAWYER";
 };
 
 export type LeadRequestAccess = {
@@ -48,7 +49,7 @@ export async function getActiveLeadGroup(
 
   return client.teamGroup.findFirst({
     where: { id: actor.groupId, active: true },
-    select: { id: true, name: true },
+    select: { id: true, name: true, groupType: true },
   });
 }
 

@@ -83,8 +83,12 @@ describe.sequential("lead member API", () => {
     const created = await createResponse.json() as { id: string; role: string; groupId: string; passwordHash?: string };
     expect(created).toMatchObject({ username, role: "RECEPTION", groupId: ownGroupId });
     expect(created).not.toHaveProperty("passwordHash");
-    await expect(db.user.findUnique({ where: { id: created.id }, select: { role: true, groupId: true } }))
-      .resolves.toEqual({ role: "RECEPTION", groupId: ownGroupId });
+    await expect(db.user.findUnique({ where: { id: created.id }, select: { role: true, groupId: true, roleAssignments: { select: { role: true } } } }))
+      .resolves.toEqual({
+        role: "RECEPTION",
+        groupId: ownGroupId,
+        roleAssignments: expect.arrayContaining([{ role: "RECEPTION" }, { role: "GROUP_OPERATOR" }]),
+      });
 
     const sameGroupMember = await createUser({ role: "RECEPTION", groupId: ownGroupId });
     const crossGroupMember = await createUser({ role: "RECEPTION", groupId: otherGroupId });

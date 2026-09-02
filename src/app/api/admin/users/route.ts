@@ -8,7 +8,7 @@ import { requireAdminRequest } from "../_auth";
 import { authorizeHighRiskOperation, HighRiskAuthorizationError } from "../_high-risk";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { getMemberProtectionError, isActiveLeadGroupConstraintError, isUniqueConstraintError, parseEmploymentUpdate, parseRecruitmentUpdate, type EmploymentStage, type RecruitmentSource } from "./validation";
-import { parseFrontlineSecondaryRoles } from "../../../../lib/role-assignments";
+import { applyHackerGroupDefaultRoles, parseFrontlineSecondaryRoles } from "../../../../lib/role-assignments";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { getSystemSettings } from "../../../../lib/settings";
 import { resolveGroupBusinessDate } from "../../../../lib/business-time";
@@ -112,6 +112,10 @@ export async function POST(request: Request) {
       })) {
         return { error: "该小组已经有一位启用中的组长", status: 409 as const };
       }
+      const targetGroup = groupId
+        ? await client.teamGroup.findUnique({ where: { id: groupId }, select: { groupType: true } })
+        : null;
+      const effectiveSecondaryRoles = applyHackerGroupDefaultRoles(role, secondaryRoles.value, targetGroup?.groupType);
       if (resourceChannels.value.length) {
         const channels = await client.channel.findMany({ where: { id: { in: resourceChannels.value } }, select: { id: true, channelType: true } });
         if (new Set(channels.map((channel) => channel.id)).size !== resourceChannels.value.length) return { error: "选择的资源渠道不存在", status: 400 as const };
@@ -126,9 +130,9 @@ export async function POST(request: Request) {
       const created = await client.user.create({
         data: {
           id: randomUUID(), employeeCode, username, name, passwordHash: hashPassword(password), mustChangePassword: true, role, groupId, departmentId, managementScopeName, managementCountryCode,
-          roleAssignments: { create: [role, ...secondaryRoles.value].map((assignedRole) => ({ role: assignedRole })) },
+          roleAssignments: { create: [role, ...effectiveSecondaryRoles].map((assignedRole) => ({ role: assignedRole })) },
           ...(resourceChannels.value.length ? { resourceChannelAccess: { create: resourceChannels.value.map((channelId) => ({ channelId })) } } : {}),
-          ...(groupId ? { membershipHistory: { create: { groupId, role, secondaryRoles: secondaryRoles.value.join(",") || null, effectiveFrom: membershipEffectiveFrom!, reason: "创建人员档案", createdById: access.actor.id } } } : {}),
+          ...(groupId ? { membershipHistory: { create: { groupId, role, secondaryRoles: effectiveSecondaryRoles.join(",") || null, effectiveFrom: membershipEffectiveFrom!, reason: "创建人员档案", createdById: access.actor.id } } } : {}),
           ...employment.value,
           ...recruitment.value,
           ...(employment.value.stageOverride ? { stageOverrideAt: new Date() } : {}),

@@ -10,6 +10,7 @@ import { leadCurrentGroupId } from "../../../../../lib/customer-current-group";
 import { statisticsDate } from "../../../../../lib/statistics-date";
 import { reattributeCustomerNumberEvents, syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerRegistrationEvent } from "../../../../../lib/customer-number-event-sync";
 import { entryDateError } from "../../../../../lib/entry-date-validation";
+import { allocateCustomerStageNumber } from "../../../../../lib/customer-stage-number";
 
 const updateSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assignGroupOperator"), userId: z.string().min(1).max(API_LIMITS.identifierCharacters) }),
@@ -92,6 +93,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
         });
         if (!target) return { status: 400 as const, error: "专家负责人只能选择本组组长或在职专家" };
         trackedExpertOwnerId = target.id;
+        if (!lead.groupQueueNumber) {
+          update.groupQueueNumber = await allocateCustomerStageNumber(transaction, actor.groupId, "GROUP");
+          update.groupQueueGroupId = actor.groupId;
+        }
+        if (!lead.expertQueueNumber) {
+          update.expertQueueNumber = await allocateCustomerStageNumber(transaction, actor.groupId, "EXPERT");
+          update.expertQueueGroupId = actor.groupId;
+        }
         update.expertOwnerId = target.id;
         update.expertIntroducedOn = lead.expertIntroducedOn ?? today;
         update.expertWorkflowStage = lead.expertWorkflowStage ?? "QUEUED";
@@ -134,6 +143,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ le
         if (lead.leftOn && input.occurredOn > lead.leftOn) return { status: 400 as const, error: "进群日期不能晚于退群日期" };
         if (lead.expertIntroducedOn && input.occurredOn > lead.expertIntroducedOn) return { status: 400 as const, error: "进群日期不能晚于推专家日期" };
         if (lead.registeredOn && input.occurredOn > lead.registeredOn) return { status: 400 as const, error: "进群日期不能晚于注册日期" };
+        if (!lead.groupQueueNumber) {
+          update.groupQueueNumber = await allocateCustomerStageNumber(transaction, actor.groupId, "GROUP");
+          update.groupQueueGroupId = actor.groupId;
+        }
         update.joinedOn = input.occurredOn;
         activity = { kind: "PLAN_UPDATED", note: `进群日期调整为 ${input.occurredOn}`, occurredOn: today };
       } else if (input.action === "setRegistration") {

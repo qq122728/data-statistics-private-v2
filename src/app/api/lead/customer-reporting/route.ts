@@ -15,6 +15,7 @@ import { normalizeCustomerPhone } from "../../../../lib/entry-ledger";
 import { entryDateError } from "../../../../lib/entry-date-validation";
 import { recordAudit } from "../../../../lib/audit";
 import { syncCustomerGroupEvent } from "../../../../lib/customer-number-event-sync";
+import { allocateCustomerStageNumber, parseCustomerStageNumberQuery } from "../../../../lib/customer-stage-number";
 
 const stages = new Set(["reception", "group", "pending-expert", "expert"]);
 const expertStages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
@@ -82,13 +83,18 @@ export async function GET(request: Request) {
   const pageValue = Number(params.get("page") ?? "1");
   const page = Number.isSafeInteger(pageValue) && pageValue > 0 ? pageValue : 1;
   const query = (params.get("q") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
+  const stageNumberQuery = parseCustomerStageNumberQuery(query);
   const channel = (params.get("channel") ?? "").trim().slice(0, API_LIMITS.searchCharacters);
   const timezone = resolveGroupBusinessTime(group).timezone;
   const today = statisticsDate();
   const baseWhere: Prisma.LeadCustomerWhereInput = {
     AND: [customerCurrentGroupWhere(group.id)],
     invalid: false,
-    ...(query ? { OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] } : {}),
+    ...(query ? { OR: [
+      { phone: { contains: query } },
+      { customerName: { contains: query } },
+      ...(stageNumberQuery ? [stageNumberQuery] : []),
+    ] } : {}),
   };
   const filteredBaseWhere: Prisma.LeadCustomerWhereInput = channel
     ? { AND: [baseWhere, { batch: { channel: { name: channel } } }] }
@@ -134,6 +140,7 @@ export async function GET(request: Request) {
         id: true, phone: true, customerName: true, customerEmail: true,
         lossAmountCents: true, customerPlatform: true, notes: true,
         replyStatus: true, repliedOn: true, followUpCount: true, lastFollowedUpOn: true,
+        groupQueueNumber: true, expertQueueNumber: true,
         groupStatus: true, joinedOn: true, leftOn: true, leftNote: true, leftWithOrder: true,
         expertIntroducedOn: true, expertContactedOn: true, expertContactNote: true,
         expertWorkflowStage: true, expertTrackingStartedAt: true, registeredOn: true, expertNotes: true, nextPlan: true, nextFollowUpOn: true,
@@ -308,9 +315,11 @@ export async function POST(request: Request) {
         });
         const rows: Array<{ id: string; phone: string }> = [];
         for (const phone of validPhones) {
+          const groupQueueNumber = await allocateCustomerStageNumber(transaction, group.id, "GROUP");
           const customer = await transaction.leadCustomer.create({
             data: {
               phone, customerName: null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
+              groupQueueNumber, groupQueueGroupId: group.id,
               groupOperatorOwnerId: operator.id, deviceId: device.id, receptionCategory: "VALID", invalid: false,
               replyStatus: "REPLIED", repliedOn: sourceDate, groupStatus: "JOINED", joinedOn: input.joinedOn,
               activities: { create: [
@@ -374,9 +383,11 @@ export async function POST(request: Request) {
         where: { groupId_code: { groupId: group.id, code: input.deviceCode } },
         update: {}, create: { groupId: group.id, code: input.deviceCode, memberId: actor.id }, select: { id: true },
       }) : null;
+      const groupQueueNumber = await allocateCustomerStageNumber(transaction, group.id, "GROUP");
       const customer = await transaction.leadCustomer.create({
         data: {
           phone, customerName: input.customerName || null, customerPlatform: input.customerPlatform || null, lossAmountCents: input.lossAmountCents ?? null, batchId: batch.id, ownerId: actor.id, attributionOwnerId: actor.id,
+          groupQueueNumber, groupQueueGroupId: group.id,
           groupOperatorOwnerId: operator?.id ?? actor.id,
           deviceId: device?.id ?? null, receptionCategory: "VALID", invalid: false, replyStatus: "REPLIED", repliedOn: sourceDate,
           groupStatus: "JOINED", joinedOn: input.joinedOn,

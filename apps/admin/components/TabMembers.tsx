@@ -67,6 +67,7 @@ function togglePositionValue(current: Position[], p: Position): Position[] {
 export function TabMembers({
   members,
   transfers,
+  defaultDualFrontline = false,
   onUpdateMemberSetup,
   onSubmitTransfer,
   onCreateAccount,
@@ -79,6 +80,7 @@ export function TabMembers({
 }: {
   members: Member[];
   transfers: TransferRecord[];
+  defaultDualFrontline?: boolean;
   onUpdateMemberSetup: (
     memberId: string,
     positions: Position[],
@@ -134,7 +136,7 @@ export function TabMembers({
   const [newAccountDraft, setNewAccountDraft] = useState({
     name: "",
     username: "",
-    positions: ["RECEPTION"] as Position[],
+    positions: (defaultDualFrontline ? ["RECEPTION", "GROUP_OPERATOR"] : ["RECEPTION"]) as Position[],
     pairedGroupOperatorId: "",
   });
   const [createdBanner, setCreatedBanner] = useState<{
@@ -356,7 +358,7 @@ export function TabMembers({
           setNewAccountDraft({
             name: "",
             username: "",
-            positions: ["RECEPTION"],
+            positions: defaultDualFrontline ? ["RECEPTION", "GROUP_OPERATOR"] : ["RECEPTION"],
             pairedGroupOperatorId: "",
           });
           setNewAccountOpen(false);
@@ -923,14 +925,19 @@ export function TabMembers({
           </div>
           <div>
             <label className="label">岗位权限（可多选）</label>
+            {defaultDualFrontline ? <div className="card-note" style={{ marginBottom: 8 }}>黑客组新组员默认开通接粉＋炒群；专家账号仍可单独选择专家。</div> : null}
             <PositionPicker
               value={newAccountDraft.positions}
-              onToggle={(p) =>
-                setNewAccountDraft({
-                  ...newAccountDraft,
-                  positions: togglePositionValue(newAccountDraft.positions, p),
-                })
-              }
+              onToggle={(p) => {
+                let positions = togglePositionValue(newAccountDraft.positions, p);
+                if (defaultDualFrontline && (p === "RECEPTION" || p === "GROUP_OPERATOR")) {
+                  const pairWasEnabled = newAccountDraft.positions.includes("RECEPTION") && newAccountDraft.positions.includes("GROUP_OPERATOR");
+                  positions = pairWasEnabled
+                    ? positions.filter((position) => position !== "RECEPTION" && position !== "GROUP_OPERATOR")
+                    : [...new Set([...positions, "RECEPTION", "GROUP_OPERATOR"])] as Position[];
+                }
+                setNewAccountDraft({ ...newAccountDraft, positions });
+              }}
             />
           </div>
           {newAccountDraft.positions.includes("RECEPTION") ? (

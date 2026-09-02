@@ -1,26 +1,26 @@
 -- 黑客组普通组员统一拥有接粉＋炒群权限；专家和组长保持原权限。
 INSERT INTO "UserRoleAssignment" ("id", "userId", "role", "createdAt")
 SELECT
-  'hacker-dual-operator-' || md5(user."id"),
-  user."id",
+  'hacker-dual-operator-' || md5(account."id"),
+  account."id",
   'GROUP_OPERATOR'::"Role",
   CURRENT_TIMESTAMP
-FROM "User" AS user
-JOIN "TeamGroup" AS team_group ON team_group."id" = user."groupId"
+FROM "User" AS account
+JOIN "TeamGroup" AS team_group ON team_group."id" = account."groupId"
 WHERE team_group."groupType" = 'HACKER'
-  AND user."role" = 'RECEPTION'
+  AND account."role" = 'RECEPTION'
 ON CONFLICT ("userId", "role") DO NOTHING;
 
 INSERT INTO "UserRoleAssignment" ("id", "userId", "role", "createdAt")
 SELECT
-  'hacker-dual-reception-' || md5(user."id"),
-  user."id",
+  'hacker-dual-reception-' || md5(account."id"),
+  account."id",
   'RECEPTION'::"Role",
   CURRENT_TIMESTAMP
-FROM "User" AS user
-JOIN "TeamGroup" AS team_group ON team_group."id" = user."groupId"
+FROM "User" AS account
+JOIN "TeamGroup" AS team_group ON team_group."id" = account."groupId"
 WHERE team_group."groupType" = 'HACKER'
-  AND user."role" = 'GROUP_OPERATOR'
+  AND account."role" = 'GROUP_OPERATOR'
 ON CONFLICT ("userId", "role") DO NOTHING;
 
 UPDATE "UserGroupMembership" AS membership

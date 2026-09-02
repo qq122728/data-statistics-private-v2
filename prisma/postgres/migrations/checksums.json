@@ -53,6 +53,6 @@
     "20260901010000_add_group_type_and_lawyer_daily_stats/migration.sql": "272b095bd633675cd3227d41c60e43e626dcb8f3798bd739ad6a013ac9b6ff5d",
     "20260901020000_add_legacy_customer_rows/migration.sql": "91da537ce39dc84cfd2635cd0907c2b08d48b8f889c4d57be8a4ee8f707a6219",
     "20260901030000_add_customer_stage_numbers/migration.sql": "3bdc3d273b8de510204726de7cf3e63b0c9528f362c7b197d04298e374d65fc3",
-    "20260901040000_default_hacker_member_dual_roles/migration.sql": "2ff64368e83b0de3a34e8866bcff8da40147c4498098117aa29ac428454c9763"
+    "20260901040000_default_hacker_member_dual_roles/migration.sql": "b1b2997ce355aa6fc3a13daf4104196cc3deb0d6254b536cb8368474912492bb"
   }
 }

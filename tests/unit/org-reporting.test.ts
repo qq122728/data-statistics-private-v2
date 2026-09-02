@@ -797,7 +797,23 @@ describe.sequential("新版组长真实渠道报表 API", () => {
       (await patch({ action: "setChannel", channelId: correctedChannelId }))
         .status,
     ).toBe(403);
-    await signIn(ids.lead);
+    const forgedReceptionCorrection = await correctSharedCustomerAttribution(
+      new Request(
+        `http://localhost/api/lead/customer-reporting/${customer.id}/attribution-correction`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            attributionOwnerId: ids.berlinReception,
+            channelId: correctedChannelId,
+            sourceDate: "2026-09-01",
+            reason: "尝试同时修改日期",
+          }),
+        },
+      ),
+      { params: Promise.resolve({ leadId: customer.id }) },
+    );
+    expect(forgedReceptionCorrection.status).toBe(403);
     expect((await correctAttribution(correctedChannelId, "创建时选错来源渠道")).status).toBe(200);
     await signIn(ids.berlinOperatorA);
     expect(

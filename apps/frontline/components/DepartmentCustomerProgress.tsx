@@ -724,7 +724,11 @@ export function DepartmentCustomerProgress({
         },
       );
       setCorrection(null);
-      showSaved("客户原始归属已纠正，并已记录原因");
+      showSaved(
+        isLead
+          ? "客户原始归属已纠正，并已记录原因"
+          : "客户渠道已修改，相关统计已同步更新",
+      );
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "归属纠错失败");
@@ -1707,13 +1711,13 @@ export function DepartmentCustomerProgress({
                               <span>渠道</span>
                               <b>{customer.batch.channel.name}</b>
                             </label>
-                            {isLead ? (
+                            {isLead || canEditReception ? (
                               <button
                                 type="button"
                                 className={styles.correctionButton}
                                 onClick={() => beginAttributionCorrection(customer)}
                               >
-                                修改组员/渠道
+                                {isLead ? "修改组员/渠道" : "修改渠道"}
                               </button>
                             ) : null}
                           </div>
@@ -2215,7 +2219,7 @@ export function DepartmentCustomerProgress({
           <section className={styles.financeModal}>
             <header>
               <div>
-                <h3>修改客户接粉信息</h3>
+                <h3>{isLead ? "修改客户接粉信息" : "修改客户渠道"}</h3>
                 <p>
                   {correction.phone} · 修改渠道后，已经产生的相关统计会一起更新到正确渠道。
                 </p>
@@ -2225,26 +2229,28 @@ export function DepartmentCustomerProgress({
               </button>
             </header>
             <div className={styles.financeForm}>
-              <label>
-                <span>接粉归属人</span>
-                <select
-                  aria-label="纠正客户接粉归属人"
-                  value={correctionDraft.attributionOwnerId}
-                  disabled={savingCorrection}
-                  onChange={(event) =>
-                    setCorrectionDraft((value) => ({
-                      ...value,
-                      attributionOwnerId: event.target.value,
-                    }))
-                  }
-                >
-                  {payload?.receptionOptions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {isLead ? (
+                <label>
+                  <span>接粉归属人</span>
+                  <select
+                    aria-label="纠正客户接粉归属人"
+                    value={correctionDraft.attributionOwnerId}
+                    disabled={savingCorrection}
+                    onChange={(event) =>
+                      setCorrectionDraft((value) => ({
+                        ...value,
+                        attributionOwnerId: event.target.value,
+                      }))
+                    }
+                  >
+                    {payload?.receptionOptions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>
                 <span>来源渠道</span>
                 <select
@@ -2265,22 +2271,24 @@ export function DepartmentCustomerProgress({
                   ))}
                 </select>
               </label>
-              <label>
-                <span>接粉日期</span>
-                <input
-                  aria-label="纠正客户接粉日期"
-                  type="date"
-                  value={correctionDraft.sourceDate}
-                  max={correction.joinedOn ?? businessToday}
-                  disabled={savingCorrection}
-                  onChange={(event) =>
-                    setCorrectionDraft((value) => ({
-                      ...value,
-                      sourceDate: event.target.value,
-                    }))
-                  }
-                />
-              </label>
+              {isLead ? (
+                <label>
+                  <span>接粉日期</span>
+                  <input
+                    aria-label="纠正客户接粉日期"
+                    type="date"
+                    value={correctionDraft.sourceDate}
+                    max={correction.joinedOn ?? businessToday}
+                    disabled={savingCorrection}
+                    onChange={(event) =>
+                      setCorrectionDraft((value) => ({
+                        ...value,
+                        sourceDate: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+              ) : null}
               <label className={styles.correctionReason}>
                 <span>修改原因（必填）</span>
                 <textarea

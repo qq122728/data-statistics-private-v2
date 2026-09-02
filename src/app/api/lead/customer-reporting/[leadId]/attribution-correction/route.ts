@@ -24,8 +24,9 @@ const correctionSchema = z.object({
 
 /**
  * 原始归属纠错专用入口。
- * 正常客户表不能改接粉人、来源渠道和接粉日期；只有本组组长说明原因后才能整组纠正，
- * 同时把已经产生的进群、推专家、注册和开单统计搬到正确归属，并留下完整审计。
+ * 组长说明原因后可以完整纠正接粉人、来源渠道和接粉日期；接粉成员只能修改
+ * 自己名下客户的来源渠道。同时把已经产生的进群、推专家、注册和开单统计
+ * 搬到正确归属，并留下完整审计。
  */
 export async function POST(
   request: Request,
@@ -39,8 +40,12 @@ export async function POST(
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
     throw error;
   }
-  if (!sessionUser.active || !sessionUser.groupId || !hasAssignedRole(sessionUser, "LEAD"))
-    return authorizationDenied(sessionUser, "只有本组组长可以纠正客户原始归属");
+  if (
+    !sessionUser.active ||
+    !sessionUser.groupId ||
+    (!hasAssignedRole(sessionUser, "LEAD") && !hasAssignedRole(sessionUser, "RECEPTION"))
+  )
+    return authorizationDenied(sessionUser, "只有本组组长或接粉成员可以修改客户来源渠道");
 
   try {
     const input = correctionSchema.parse(await request.json());
@@ -66,10 +71,23 @@ export async function POST(
           customerOrder: { select: { openedOn: true, voidedAt: true } },
         },
       });
-      if (!actor?.active || !actor.groupId || !hasAssignedRole(actor, "LEAD"))
-        return { status: 403 as const, error: "组长权限已失效，请重新登录" };
+      const actorIsLead = Boolean(actor && hasAssignedRole(actor, "LEAD"));
+      const actorIsReception = Boolean(actor && hasAssignedRole(actor, "RECEPTION"));
+      if (!actor?.active || !actor.groupId || (!actorIsLead && !actorIsReception))
+        return { status: 403 as const, error: "修改权限已失效，请重新登录" };
       if (!lead || lead.trackingArchivedAt || leadCurrentGroupId(lead) !== actor.groupId)
         return { status: 404 as const, error: "客户不存在或已不在本组" };
+
+      const currentAttributionOwnerId = lead.attributionOwnerId ?? lead.ownerId;
+      if (!actorIsLead) {
+        if (currentAttributionOwnerId !== actor.id)
+          return { status: 403 as const, error: "接粉成员只能修改自己名下客户的来源渠道" };
+        if (
+          input.attributionOwnerId !== currentAttributionOwnerId ||
+          input.sourceDate !== lead.batch.sourceDate
+        )
+          return { status: 403 as const, error: "接粉成员不能修改接粉人或接粉日期" };
+      }
 
       const today = statisticsDate();
       const dateError = entryDateError(input.sourceDate, today, "接粉日期");
@@ -133,7 +151,7 @@ export async function POST(
           actorId: actor.id,
           kind: "PLAN_UPDATED",
           occurredOn: today,
-          note: `组长纠正原始归属：接粉人 ${owner.name}，渠道 ${channel.name}，接粉日期 ${input.sourceDate}。原因：${input.reason}`,
+          note: `${actorIsLead ? "组长纠正原始归属" : "接粉修改来源渠道"}：接粉人 ${owner.name}，渠道 ${channel.name}，接粉日期 ${input.sourceDate}。原因：${input.reason}`,
         },
       });
       await recordAudit(transaction, {

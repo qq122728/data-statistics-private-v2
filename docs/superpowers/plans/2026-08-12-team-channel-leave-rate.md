@@ -1,5 +1,7 @@
 # 团队与渠道退群率实施计划
 
+> **历史归档，停止执行。** 本文只用于追溯当时的设计或实施过程；涉及资源部确认、手填进群/注册/开单、岗位权限、统计日期或旧前端的内容均不是现行规则。当前口径请看 [当前业务规则](/Users/aaaa/Desktop/数据统计/docs/business/current-business-rules.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在团队表现的小组表、人员表和渠道分析主表中显示并排序退群率。
@@ -90,4 +92,3 @@ git commit -m "feat: add leave rate to analysis tables"
 ```
 
 验证合并后的 `main` 后清理隔离工作区。
-

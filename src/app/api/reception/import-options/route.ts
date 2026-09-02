@@ -31,7 +31,14 @@ export async function GET() {
       orderBy: [{ name: "asc" }, { id: "asc" }],
     }),
     db.user.findMany({
-      where: { groupId: actor.groupId, active: true },
+      where: {
+        groupId: actor.groupId,
+        active: true,
+        OR: [
+          { role: "RECEPTION" },
+          { roleAssignments: { some: { role: "RECEPTION" } } },
+        ],
+      },
       select: { id: true, name: true },
       orderBy: [{ name: "asc" }, { id: "asc" }],
     }),

@@ -313,7 +313,7 @@ export async function loadGroupCustomerWorkspace(input: GroupCustomerQuery) {
         activities: {
           where: { kind: "GROUP_PROGRESS_UPDATED" },
           select: { id: true, occurredOn: true, note: true, actor: { select: { name: true } } },
-          orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+          orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           take: 30,
         },
         owner: { select: { name: true } },

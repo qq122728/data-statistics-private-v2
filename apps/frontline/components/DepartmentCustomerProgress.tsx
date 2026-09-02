@@ -78,6 +78,8 @@ type Payload = {
   channels: string[];
   channelOptions: Option[];
   memberOptions: Option[];
+  receptionOptions: Option[];
+  operatorOptions: Option[];
   expertOptions: Option[];
 };
 type ReportingPayload = { groups: DepartmentCustomerGroup[] };
@@ -373,16 +375,37 @@ export function DepartmentCustomerProgress({
     depositMethod: "CRYPTO" as "CRYPTO" | "BANK",
   });
   const [savingFinance, setSavingFinance] = useState(false);
+  const [correction, setCorrection] = useState<Customer | null>(null);
+  const [correctionDraft, setCorrectionDraft] = useState({
+    attributionOwnerId: "",
+    channelId: "",
+    sourceDate: localToday(),
+    reason: "",
+  });
+  const [savingCorrection, setSavingCorrection] = useState(false);
   const phoneInput = useRef<HTMLInputElement>(null);
-  // 管理员保持客户行只读，但可以明确选择实际接粉组员后代录进群客户。
-  const canEdit = Boolean(member);
-  const canCreate = Boolean(groupId && payload?.memberOptions.length);
+  // 客户新增也是业务写入：只有绑定小组的一线账号有入口，组织管理员保持只读。
+  const canCreate = Boolean(
+    member &&
+      groupId &&
+      payload?.receptionOptions.length &&
+      payload.operatorOptions.length,
+  );
   const canEditExpert = Boolean(
     member &&
       (member.role === "LEAD" ||
         member.role === "EXPERT" ||
         member.roles?.includes("LEAD") ||
         member.roles?.includes("EXPERT")),
+  );
+  const canEditReception = Boolean(
+    member &&
+      (member.role === "RECEPTION" || member.roles?.includes("RECEPTION")),
+  );
+  const canEditGroup = Boolean(
+    member &&
+      (member.role === "GROUP_OPERATOR" ||
+        member.roles?.includes("GROUP_OPERATOR")),
   );
   const isLead = Boolean(
     member &&
@@ -395,7 +418,7 @@ export function DepartmentCustomerProgress({
       : (payload?.expertOptions ?? []);
   const canCreateInView =
     canCreate &&
-    (viewMode === "group" ||
+    ((viewMode === "group" && (isLead || canEditReception)) ||
       (canEditExpert && expertCreateOptions.length > 0));
 
   useEffect(() => {
@@ -575,11 +598,15 @@ export function DepartmentCustomerProgress({
       attributionOwnerId:
         viewMode === "expert"
           ? ""
-          : (member?.id ?? payload?.memberOptions[0]?.id ?? ""),
+          : (payload?.receptionOptions.find((item) => item.id === member?.id)?.id ??
+            payload?.receptionOptions[0]?.id ??
+            ""),
       groupOperatorOwnerId:
         viewMode === "expert"
           ? ""
-          : (member?.id ?? payload?.memberOptions[0]?.id ?? ""),
+          : (payload?.operatorOptions.find((item) => item.id === member?.id)?.id ??
+            payload?.operatorOptions[0]?.id ??
+            ""),
       deviceCode: "",
       sourceDate: today,
       joinedOn: today,
@@ -666,6 +693,42 @@ export function DepartmentCustomerProgress({
       setError(caught instanceof Error ? caught.message : "单元格保存失败");
     } finally {
       setSavingCell("");
+    }
+  }
+  function beginAttributionCorrection(customer: Customer) {
+    setCorrection(customer);
+    setCorrectionDraft({
+      attributionOwnerId:
+        customer.attributionOwner?.id ?? customer.owner?.id ?? "",
+      channelId:
+        payload?.channelOptions.find(
+          (item) => item.name === customer.batch.channel.name,
+        )?.id ?? "",
+      sourceDate: customer.batch.sourceDate,
+      reason: "",
+    });
+    setError("");
+  }
+  async function saveAttributionCorrection() {
+    if (!correction || savingCorrection) return;
+    setSavingCorrection(true);
+    setError("");
+    try {
+      await requestJson(
+        `/api/lead/customer-reporting/${correction.id}/attribution-correction`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(correctionDraft),
+        },
+      );
+      setCorrection(null);
+      showSaved("客户原始归属已纠正，并已记录原因");
+      setReloadKey((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "归属纠错失败");
+    } finally {
+      setSavingCorrection(false);
     }
   }
   async function saveSituation(
@@ -966,9 +1029,9 @@ export function DepartmentCustomerProgress({
       <section className={styles.sheetCard}>
         <header className={styles.sheetHeader}>
           <div className={styles.titleBlock}>
-            <h2>组内共享客户进度</h2>
+            <h2>客户协作进度</h2>
             <p>
-              一位客户一行 · 同组成员共同维护 · 修改后自动保存
+              一位客户一行 · {member ? (isLead ? "组长查看本组全部客户" : "仅显示你接粉或参与炒群、专家的客户") : "管理范围内只读查看"} · 修改后自动保存
               {viewMode === "expert" && member && !canEditExpert ? (
                 <em className={styles.permissionHint}>
                   只读 · 需专家权限才能编辑
@@ -1227,7 +1290,7 @@ export function DepartmentCustomerProgress({
                           {viewMode === "expert" ? (
                             <option value="">请选择原接粉组员</option>
                           ) : null}
-                          {payload?.memberOptions.map((item) => (
+                          {payload?.receptionOptions.map((item) => (
                             <option key={item.id} value={item.id}>
                               {item.name}
                             </option>
@@ -1310,7 +1373,7 @@ export function DepartmentCustomerProgress({
                           {viewMode === "expert" ? (
                             <option value="">请选择实际炒群负责人</option>
                           ) : null}
-                          {payload?.memberOptions.map((item) => (
+                          {payload?.operatorOptions.map((item) => (
                             <option key={item.id} value={item.id}>
                               {item.name}
                             </option>
@@ -1348,13 +1411,31 @@ export function DepartmentCustomerProgress({
               {loading ? (
                 <tr>
                   <td colSpan={tableColumns} className={styles.empty}>
-                    正在读取组内共享数据…
+                    正在读取客户协作数据…
                   </td>
                 </tr>
               ) : (
                 customers.map((customer) => {
                   const attributedOwner =
                     customer.attributionOwner ?? customer.owner;
+                  const actorId = payload?.actorId ?? member?.id ?? "";
+                  const canEditCustomerInfo = Boolean(
+                    member &&
+                      (isLead ||
+                        (canEditReception && attributedOwner?.id === actorId)),
+                  );
+                  const canEditGroupStage = Boolean(
+                    member &&
+                      (isLead ||
+                        (canEditGroup &&
+                          customer.groupOperatorOwner?.id === actorId)),
+                  );
+                  const canAssignGroupOperator = Boolean(member && isLead);
+                  const canEditExpertStage = Boolean(
+                    member &&
+                      (isLead ||
+                        (canEditExpert && customer.expertOwner?.id === actorId)),
+                  );
                   const net =
                     (customer.order?.initialDepositCents ?? 0) +
                     (customer.order?.rechargeCents ?? 0) -
@@ -1440,36 +1521,11 @@ export function DepartmentCustomerProgress({
                             ) : null}
                             <label>
                               <span>接粉</span>
-                              {canEdit ? (
-                                <input
-                                  key={customer.batch.sourceDate}
-                                  className={styles.dateInput}
-                                  type="date"
-                                  defaultValue={customer.batch.sourceDate}
-                                  max={customer.joinedOn ?? businessToday}
-                                  disabled={Boolean(savingCell)}
-                                  onChange={(event) =>
-                                    event.target.value &&
-                                    event.target.value !==
-                                      customer.batch.sourceDate &&
-                                    void patchCell(
-                                      customer,
-                                      {
-                                        action: "setSourceDate",
-                                        occurredOn: event.target.value,
-                                      },
-                                      "sourceDate",
-                                      "接粉日期已保存",
-                                    )
-                                  }
-                                />
-                              ) : (
-                                <b>{customer.batch.sourceDate}</b>
-                              )}
+                              <b>{customer.batch.sourceDate}</b>
                             </label>
                             <label>
                               <span>进群</span>
-                              {canEdit ? (
+                              {canEditGroupStage ? (
                                 <input
                                   key={customer.joinedOn ?? "empty"}
                                   className={styles.dateInput}
@@ -1502,7 +1558,7 @@ export function DepartmentCustomerProgress({
                       {showColumn("customer") ? (
                         <td className={styles.phone}>
                           <div className={styles.customerInfo}>
-                            {canEdit ? (
+                            {canEditCustomerInfo ? (
                               <input
                                 key={customer.phone}
                                 className={styles.customerNameInput}
@@ -1529,7 +1585,7 @@ export function DepartmentCustomerProgress({
                             ) : (
                               <strong>{customer.phone}</strong>
                             )}
-                            {canEdit ? (
+                            {canEditCustomerInfo ? (
                               <>
                                 <input
                                   key={customer.customerName ?? "empty-name"}
@@ -1658,68 +1714,21 @@ export function DepartmentCustomerProgress({
                           <div className={styles.stackedCell}>
                             <label>
                               <span>组员</span>
-                              {canEdit ? (
-                                <select
-                                  className={styles.cellSelect}
-                                  value={attributedOwner?.id ?? ""}
-                                  disabled={Boolean(savingCell)}
-                                  onChange={(event) =>
-                                    void patchCell(
-                                      customer,
-                                      {
-                                        action: "setOwner",
-                                        userId: event.target.value,
-                                      },
-                                      "owner",
-                                      "接粉及业绩归属已保存",
-                                    )
-                                  }
-                                >
-                                  {payload?.memberOptions.map((item) => (
-                                    <option key={item.id} value={item.id}>
-                                      {item.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <b>{attributedOwner?.name ?? "未分配"}</b>
-                              )}
+                              <b>{attributedOwner?.name ?? "未分配"}</b>
                             </label>
                             <label>
                               <span>渠道</span>
-                              {canEdit ? (
-                                <select
-                                  className={styles.cellSelect}
-                                  value={
-                                    payload?.channelOptions.find(
-                                      (item) =>
-                                        item.name ===
-                                        customer.batch.channel.name,
-                                    )?.id ?? ""
-                                  }
-                                  disabled={Boolean(savingCell)}
-                                  onChange={(event) =>
-                                    void patchCell(
-                                      customer,
-                                      {
-                                        action: "setChannel",
-                                        channelId: event.target.value,
-                                      },
-                                      "channel",
-                                      "来源渠道已保存",
-                                    )
-                                  }
-                                >
-                                  {payload?.channelOptions.map((item) => (
-                                    <option key={item.id} value={item.id}>
-                                      {item.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <b>{customer.batch.channel.name}</b>
-                              )}
+                              <b>{customer.batch.channel.name}</b>
                             </label>
+                            {isLead ? (
+                              <button
+                                type="button"
+                                className={styles.correctionButton}
+                                onClick={() => beginAttributionCorrection(customer)}
+                              >
+                                归属纠错
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       ) : null}
@@ -1730,7 +1739,7 @@ export function DepartmentCustomerProgress({
                               <div className={styles.stackedCell}>
                                 <label>
                                   <span>负责人</span>
-                                  {canEdit ? (
+                                  {canAssignGroupOperator ? (
                                     <select
                                       className={styles.cellSelect}
                                       value={
@@ -1752,7 +1761,7 @@ export function DepartmentCustomerProgress({
                                       <option value="" disabled>
                                         点击选择
                                       </option>
-                                      {payload?.memberOptions.map((item) => (
+                                      {payload?.operatorOptions.map((item) => (
                                         <option key={item.id} value={item.id}>
                                           {item.name}
                                         </option>
@@ -1767,7 +1776,7 @@ export function DepartmentCustomerProgress({
                                 </label>
                                 <label>
                                   <span>设备号</span>
-                                  {canEdit ? (
+                                  {canEditGroupStage ? (
                                     <input
                                       key={customer.device?.code ?? "empty"}
                                       className={styles.deviceInput}
@@ -1813,7 +1822,7 @@ export function DepartmentCustomerProgress({
                               <EditableCell
                                 label="炒群情况"
                                 value={latestGroupText(customer)}
-                                editable={canEdit}
+                                editable={canEditGroupStage}
                                 saving={savingCell === `${customer.id}:group`}
                                 onSave={(note) =>
                                   saveSituation(customer, "group", note)
@@ -1828,7 +1837,7 @@ export function DepartmentCustomerProgress({
                           <div className={styles.stackedCell}>
                             <label>
                               <span>类型</span>
-                              {canEdit ? (
+                              {canEditGroupStage ? (
                                 <select
                                   className={styles.cellSelect}
                                   value={
@@ -1881,7 +1890,7 @@ export function DepartmentCustomerProgress({
                             </label>
                             <label>
                               <span>日期</span>
-                              {canEdit && customer.groupStatus === "LEFT" ? (
+                              {canEditGroupStage && customer.groupStatus === "LEFT" ? (
                                 <input
                                   key={customer.leftOn ?? "empty-left"}
                                   className={styles.dateInput}
@@ -1916,7 +1925,7 @@ export function DepartmentCustomerProgress({
                       ) : null}
                       {showColumn("expertOwner") ? (
                         <td>
-                          {canEdit ? (
+                          {canEditGroupStage ? (
                             <div className={styles.stackedCell}>
                               <label>
                                 <span>负责人</span>
@@ -2011,7 +2020,7 @@ export function DepartmentCustomerProgress({
                               <EditableCell
                                 label="专家情况"
                                 value={latestExpertText(customer)}
-                                editable={canEditExpert}
+                                editable={canEditExpertStage}
                                 saving={savingCell === `${customer.id}:expert`}
                                 onSave={(note) =>
                                   saveSituation(customer, "expert", note)
@@ -2037,7 +2046,7 @@ export function DepartmentCustomerProgress({
                                 </div>
                                 <label>
                                   <span>日期</span>
-                                  {canEditExpert ? (
+                                  {canEditExpertStage ? (
                                     <input
                                       key={customer.registeredOn ?? "empty"}
                                       className={styles.dateInput}
@@ -2071,10 +2080,10 @@ export function DepartmentCustomerProgress({
                                 <button
                                   className={styles.financeCell}
                                   onClick={() =>
-                                    canEditExpert &&
+                                    canEditExpertStage &&
                                     openFinance("INITIAL", customer)
                                   }
-                                  disabled={!canEditExpert}
+                                  disabled={!canEditExpertStage}
                                 >
                                   {money(customer.order.initialDepositCents)}
                                   <small>{customer.order.openedOn}</small>
@@ -2082,9 +2091,9 @@ export function DepartmentCustomerProgress({
                               ) : (
                                 <button
                                   className={styles.financeAdd}
-                                  disabled={!canEditExpert}
+                                  disabled={!canEditExpertStage}
                                   title={
-                                    !canEditExpert
+                                    !canEditExpertStage
                                       ? "需要专家权限"
                                       : !customer.registeredOn
                                         ? "请先填写注册日期，再登记开单日期和开单金额"
@@ -2109,7 +2118,7 @@ export function DepartmentCustomerProgress({
                             <td className={styles.money}>
                               <button
                                 className={styles.financeCell}
-                                disabled={!canEditExpert || !customer.order}
+                                disabled={!canEditExpertStage || !customer.order}
                                 onClick={() =>
                                   openFinance("RECHARGE", customer)
                                 }
@@ -2125,7 +2134,7 @@ export function DepartmentCustomerProgress({
                             <td>
                               <button
                                 className={styles.financeCell}
-                                disabled={!canEditExpert || !customer.order}
+                                disabled={!canEditExpertStage || !customer.order}
                                 onClick={() =>
                                   openFinance("WITHDRAWAL", customer)
                                 }
@@ -2142,9 +2151,9 @@ export function DepartmentCustomerProgress({
                               <button
                                 type="button"
                                 className={styles.netButton}
-                                disabled={!canEditExpert || !customer.order}
+                                disabled={!canEditExpertStage || !customer.order}
                                 title={
-                                  !canEditExpert
+                                  !canEditExpertStage
                                     ? "需要专家或组长权限"
                                     : !customer.order
                                       ? "请先登记开单与首充"
@@ -2208,6 +2217,117 @@ export function DepartmentCustomerProgress({
           </div>
         </footer>
       </section>
+
+      {correction ? (
+        <div
+          className={styles.modalBackdrop}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setCorrection(null);
+          }}
+        >
+          <section className={styles.financeModal}>
+            <header>
+              <div>
+                <h3>客户原始归属纠错</h3>
+                <p>
+                  {correction.phone} · 仅用于确实录错；保存后会同步搬正相关统计并记录原因。
+                </p>
+              </div>
+              <button type="button" onClick={() => setCorrection(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className={styles.financeForm}>
+              <label>
+                <span>接粉归属人</span>
+                <select
+                  aria-label="纠正客户接粉归属人"
+                  value={correctionDraft.attributionOwnerId}
+                  disabled={savingCorrection}
+                  onChange={(event) =>
+                    setCorrectionDraft((value) => ({
+                      ...value,
+                      attributionOwnerId: event.target.value,
+                    }))
+                  }
+                >
+                  {payload?.receptionOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>来源渠道</span>
+                <select
+                  aria-label="纠正客户来源渠道"
+                  value={correctionDraft.channelId}
+                  disabled={savingCorrection}
+                  onChange={(event) =>
+                    setCorrectionDraft((value) => ({
+                      ...value,
+                      channelId: event.target.value,
+                    }))
+                  }
+                >
+                  {payload?.channelOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>接粉日期</span>
+                <input
+                  aria-label="纠正客户接粉日期"
+                  type="date"
+                  value={correctionDraft.sourceDate}
+                  max={correction.joinedOn ?? businessToday}
+                  disabled={savingCorrection}
+                  onChange={(event) =>
+                    setCorrectionDraft((value) => ({
+                      ...value,
+                      sourceDate: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label className={styles.correctionReason}>
+                <span>纠错原因（必填）</span>
+                <textarea
+                  aria-label="客户归属纠错原因"
+                  value={correctionDraft.reason}
+                  rows={3}
+                  maxLength={300}
+                  placeholder="例如：录入时选错接粉人，核对原始聊天记录后纠正"
+                  disabled={savingCorrection}
+                  onChange={(event) =>
+                    setCorrectionDraft((value) => ({
+                      ...value,
+                      reason: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <footer>
+              <button type="button" onClick={() => setCorrection(null)}>
+                取消
+              </button>
+              <button
+                type="button"
+                className={styles.primaryButton}
+                disabled={savingCorrection || correctionDraft.reason.trim().length < 2}
+                onClick={() => void saveAttributionCorrection()}
+              >
+                {savingCorrection ? "保存中…" : "确认纠错并留痕"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {ledgerCustomer?.order ? (
         <div

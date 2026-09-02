@@ -4,7 +4,7 @@ import { recordAudit } from "../audit";
 import { normalizeCustomerPhone } from "../entry-ledger";
 import { authorizeCustomerAction, authorizeCustomerDelete, resolveWorkflowActorRole } from "./access";
 import { isCorrectionAction } from "./actions";
-import { frontlineMemberRoles, hasAssignedRole, isFrontlineGroupMember } from "../role-access";
+import { hasAssignedRole, isFrontlineGroupMember } from "../role-access";
 import type { CustomerWorkflowInput } from "./input";
 import { buildBasicCustomerMutation } from "./mutations";
 import { resolveExpertWorkflowStage } from "../expert-workflow-stage";
@@ -134,12 +134,21 @@ export async function executeCustomerWorkflow(
           groupId: currentGroupId,
           active: true,
           ...(input.expertOwnerId
-            ? { id: input.expertOwnerId, role: { in: [...frontlineMemberRoles] } }
+            ? {
+                id: input.expertOwnerId,
+                OR: [
+                  { role: { in: ["LEAD", "EXPERT"] } },
+                  { roleAssignments: { some: { role: { in: ["LEAD", "EXPERT"] } } } },
+                ],
+              }
             : { role: "LEAD" }),
         },
         select: { id: true, name: true },
       });
-      if (!assignee) return { status: 400 as const, error: input.expertOwnerId ? "只能选择本组在职组员" : "本组没有启用的组长，请选择一位组员" };
+      if (!assignee) return {
+        status: 400 as const,
+        error: input.expertOwnerId ? "只能选择本组有专家权限的在职成员或组长" : "本组没有启用的组长，请选择有专家权限的成员",
+      };
       if (!lead.groupQueueNumber) {
         update.groupQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "GROUP", lead.joinedOn);
         update.groupQueueGroupId = currentGroupId;
@@ -351,8 +360,8 @@ export async function executeCustomerWorkflow(
       let phone: string;
       try {
         phone = normalizeCustomerPhone(input.phone);
-      } catch {
-        return { status: 400 as const, error: "客户号码必须包含数字，系统会自动保留末 6 位" };
+      } catch (error) {
+        return { status: 400 as const, error: error instanceof Error ? error.message : "客户号码至少需要 6 位数字" };
       }
       const collision = await transaction.leadCustomer.findFirst({
         where: { phone, id: { not: lead.id } },
@@ -387,21 +396,11 @@ export async function executeCustomerWorkflow(
     });
 
     if (input.action === "updateGroupProgress") {
-      const existingProgress = await transaction.leadActivity.findFirst({
-        where: { leadId: lead.id, kind: "GROUP_PROGRESS_UPDATED", occurredOn },
-        orderBy: { createdAt: "desc" },
-        select: { id: true },
+      // 同一天也新增一条修订，不能覆盖上一位操作人的内容。查询端按发生日和
+      // 创建时间倒序取第一条作为当前展示，其余记录保留给进度历史与审计。
+      await transaction.leadActivity.create({
+        data: { leadId: lead.id, actorId: liveActor.id, kind: "GROUP_PROGRESS_UPDATED", occurredOn, note: input.progressNote!.trim() },
       });
-      if (existingProgress) {
-        await transaction.leadActivity.update({
-          where: { id: existingProgress.id },
-          data: { actorId: liveActor.id, note: input.progressNote!.trim() },
-        });
-      } else {
-        await transaction.leadActivity.create({
-          data: { leadId: lead.id, actorId: liveActor.id, kind: "GROUP_PROGRESS_UPDATED", occurredOn, note: input.progressNote!.trim() },
-        });
-      }
     } else if (activityKind) {
       await transaction.leadActivity.create({
         data: { leadId: lead.id, actorId: liveActor.id, kind: activityKind, occurredOn, note: activityNote ?? input.reason ?? undefined },

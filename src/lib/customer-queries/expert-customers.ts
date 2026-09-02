@@ -153,7 +153,7 @@ export async function loadExpertCustomerWorkspace(input: ExpertCustomerQuery) {
           // 专家页面同时需要两种互不混写的情况：炒群每日进度和专家跟进记录。
           where: { kind: { in: ["GROUP_PROGRESS_UPDATED", "EXPERT_INTRODUCED", "EXPERT_CONTACTED", "REGISTERED", "PLAN_UPDATED", "ORDER_VOIDED", "FINANCE_VOIDED"] } },
           select: { id: true, occurredOn: true, note: true, kind: true, actor: { select: { name: true, role: true } } },
-          orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+          orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           take: 60,
         },
         customerOrder: {

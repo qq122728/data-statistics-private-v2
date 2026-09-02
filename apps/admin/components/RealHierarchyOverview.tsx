@@ -79,7 +79,7 @@ export function RealHierarchyOverview({ level, title, fixedMonth = false }: { le
       ...row,
       rates: {
         replyRate: divide(row.metrics.replied, row.metrics.effective),
-        groupRate: divide(row.metrics.joined, row.metrics.replied),
+        groupRate: divide(row.metrics.joined, row.metrics.effective),
         leaveRate: divide(row.metrics.leftAbnormal, row.metrics.joined),
         abnormalLeaveRate: divide(row.metrics.leftAbnormal, Math.max(0, row.metrics.joined - row.metrics.leftNormal)),
       },

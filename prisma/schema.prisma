@@ -267,7 +267,7 @@ enum HistoricalReviewStatus {
   RETURNED
 }
 
-// 每日统计账的流转状态。客户进度永远不能直接写入这套状态或数字。
+// 每日统计账的历史流转状态。新保存记录直接 APPROVED；其余状态仅保留用于兼容旧数据。
 enum DailyStatStatus {
   DRAFT
   PENDING
@@ -710,7 +710,7 @@ model DailyStatEntry {
   @@index([sourceGroupOperatorId, businessDate])
 }
 
-// 每次保存都新增版本，不覆盖旧值。审核通过只切换 DailyStatEntry.approvedRevisionId。
+// 每次保存都新增版本，不覆盖旧值；最新版同时成为正式版本。
 model DailyStatRevision {
   id                        String          @id @default(cuid())
   entryId                   String
@@ -1109,6 +1109,19 @@ model Session {
 
   @@index([userId])
   @@index([expiresAt])
+}
+
+// 登录失败计数必须跨 Node 进程和服务重启共享；key 只保存 IP/账号的哈希值。
+model LoginThrottleBucket {
+  key             String    @id
+  failures        Int       @default(0)
+  windowStartedAt DateTime
+  lockedUntil     DateTime?
+  touchedAt       DateTime
+  auditUserId     String?
+  auditTeamId     String?
+
+  @@index([touchedAt])
 }
 
 model DailyEntryConfirmation {

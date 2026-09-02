@@ -76,7 +76,7 @@ export function countCurrentlyInGroup(downstreamLeads: DownstreamLead[]): number
 
 /** 紧凑展示用——数量和转化率拼进同一格，不单独占一列，横着排、宽度不够就自动换行，不用左右滑动。
  *  两条口径已经跟老板确认过，锁定，别改：
- *  1) 进群率 = 进群 ÷ 添加数据（不是 ÷ 回复），例：添加100、进群10 → 进群率10%。
+ *  1) 进群率 = 进群 ÷ 有效数据（不是 ÷ 添加或回复），例：有效80、进群10 → 进群率12.5%。
  *  2) 退群拆成正常/异常两个状态分开统计——进群满14天退的算正常，不满14天（1~13天）退的算异常。
  *     退群率专指异常退群率 = 异常退群 ÷ 进群，例：进群20、异常退群10 → 退群率50%。 */
 export const FUNNEL_CHIPS: Array<{
@@ -88,7 +88,7 @@ export const FUNNEL_CHIPS: Array<{
   { key: "noWs", label: "无WS号码", render: (r) => `${r.noWs}` },
   { key: "effective", label: "有效数据", render: (r) => `${r.effective}` },
   { key: "replied", label: "回复", render: (r) => `${r.replied} · ${pct(r.replied, r.effective)}` },
-  { key: "joined", label: "进群", render: (r) => `${r.joined} · ${pct(r.joined, r.added)}` },
+  { key: "joined", label: "进群", render: (r) => `${r.joined} · ${pct(r.joined, r.effective)}` },
   { key: "leftNormal", label: "正常退群", render: (r) => `${r.left - r.leftAbnormal}` },
   { key: "leftAbnormal", label: "异常退群 · 退群率", render: (r) => `${r.leftAbnormal} · ${pct(r.leftAbnormal, r.joined)}` },
   { key: "pushed", label: "推专家", render: (r) => `${r.pushed}` },

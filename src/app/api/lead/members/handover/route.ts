@@ -6,6 +6,7 @@ import { customerCurrentGroupWhere } from "../../../../../lib/customer-current-g
 import { getActiveLeadGroup, requireLeadRequest } from "../../../../../lib/lead-members";
 import { recordAudit } from "../../../../../lib/audit";
 import { authorizationDenied } from "../../../../../lib/security-events";
+import { hasAssignedRole } from "../../../../../lib/role-access";
 
 const schema = z.object({
   sourceId: z.string().min(1).max(100),
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     if (!group) return { denied: true as const };
     const [source, target] = await Promise.all([
       tx.user.findFirst({ where: { id: parsed.data.sourceId, groupId: group.id, OR: [{ role: { in: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] } }, { roleAssignments: { some: { role: { in: ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] } } } }] }, select: { id: true, name: true } }),
-      tx.user.findFirst({ where: { id: parsed.data.targetId, groupId: group.id, active: true }, select: { id: true, name: true } }),
+      tx.user.findFirst({ where: { id: parsed.data.targetId, groupId: group.id, active: true }, select: { id: true, name: true, role: true, active: true, roleAssignments: { select: { role: true } } } }),
     ]);
     if (!source || !target) return { denied: true as const };
     const currentGroup = customerCurrentGroupWhere(group.id);
@@ -39,6 +40,12 @@ export async function POST(request: Request) {
       tx.device.count({ where: { groupId: group.id, memberId: source.id, active: true } }),
       tx.deviceAccount.count({ where: { groupId: group.id, ownerId: source.id } }),
     ]);
+    if (reception > 0 && !hasAssignedRole(target, "RECEPTION"))
+      return { error: "接收人没有接粉权限，不能接收接粉阶段客户", status: 400 as const };
+    if (operator > 0 && !hasAssignedRole(target, "GROUP_OPERATOR") && !hasAssignedRole(target, "LEAD"))
+      return { error: "接收人没有炒群权限，不能接收炒群阶段客户", status: 400 as const };
+    if (expert > 0 && !hasAssignedRole(target, "EXPERT") && !hasAssignedRole(target, "LEAD"))
+      return { error: "接收人没有专家权限，不能接收专家阶段客户", status: 400 as const };
     await Promise.all([
       reception ? tx.leadCustomer.updateMany({ where: receptionWhere, data: { ownerId: target.id } }) : Promise.resolve(),
       operator ? tx.leadCustomer.updateMany({ where: operatorWhere, data: { groupOperatorOwnerId: target.id } }) : Promise.resolve(),
@@ -56,5 +63,6 @@ export async function POST(request: Request) {
     return { sourceId: source.id, targetId: target.id, transferred: { reception, operator, expert, physicalDevices, deviceAccounts } };
   }, { isolationLevel: "Serializable" });
   if ("denied" in result) return authorizationDenied(access.actor, "交接双方必须是本组成员");
+  if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
   return NextResponse.json(result);
 }

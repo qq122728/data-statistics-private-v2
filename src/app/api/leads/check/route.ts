@@ -7,6 +7,7 @@ import { hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { leadCurrentGroupId } from "../../../../lib/customer-current-group";
+import { isCustomerCollaborator } from "../../../../lib/customer-collaboration-visibility";
 
 const inputSchema = z.object({
   phones: z.string().trim().min(1, "请粘贴至少一个手机号").max(API_LIMITS.customerImportTextCharacters, "一次粘贴的号码过多，请分批检查"),
@@ -38,6 +39,10 @@ export async function POST(request: Request) {
       where: { phone: { in: parsed.distinctPhones } },
       select: {
         phone: true,
+        ownerId: true,
+        attributionOwnerId: true,
+        groupOperatorOwnerId: true,
+        expertOwnerId: true,
         currentGroupId: true,
         owner: { select: { name: true } },
         batch: { select: { groupId: true } },
@@ -55,7 +60,11 @@ export async function POST(request: Request) {
       collisionCount: collisions.length,
       collisions: collisions.map((lead) => ({
         phone: lead.phone,
-        ownerName: leadCurrentGroupId(lead) === user.groupId ? lead.owner.name : "其他公司或小组",
+        ownerName:
+          leadCurrentGroupId(lead) === user.groupId &&
+          isCustomerCollaborator(user.id, lead)
+            ? lead.owner.name
+            : "已存在客户",
       })),
     });
   } catch (error) {

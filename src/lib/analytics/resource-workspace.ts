@@ -238,7 +238,7 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
     const matureRate = ratio(mature.orders, mature.newFans);
     const effectiveRate = ratio(groupEffective, groupSubmitted);
     const customerReplyRate = ratio(totals.replies, groupEffective);
-    const receptionJoinRate = ratio(totals.groupJoin, totals.replies);
+    const receptionJoinRate = ratio(totals.groupJoin, groupEffective);
     const operatorExpertRate = ratio(totals.expertIntro, totals.groupJoin);
     const status = mature.newFans < 20 ? "INSUFFICIENT" as const
       : (effectiveRate ?? 0) < 0.6 || (matureRate ?? 0) < 0.05 ? "DANGER" as const

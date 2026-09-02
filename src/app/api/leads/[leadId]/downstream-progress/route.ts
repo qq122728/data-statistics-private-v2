@@ -64,7 +64,7 @@ export async function GET(
     db.leadActivity.findMany({
       where: { leadId, kind: "GROUP_PROGRESS_UPDATED" },
       select: { id: true, occurredOn: true, note: true, actor: { select: { name: true } } },
-      orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       take: 60,
     }),
     db.leadActivity.findMany({
@@ -80,7 +80,7 @@ export async function GET(
         note: true,
         actor: { select: { name: true } },
       },
-      orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
       take: 60,
     }),
   ]);

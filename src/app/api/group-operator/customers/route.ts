@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limits";
-import { frontlineMemberRoles, hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-access";
+import { hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
+import { customerCollaborationWhere } from "../../../../lib/customer-collaboration-visibility";
 
 const stages = ["active", "introduced", "left"] as const;
 type Stage = (typeof stages)[number];
@@ -64,6 +65,9 @@ export async function GET(request: Request) {
     AND: [
       customerCurrentGroupWhere(actor.groupId),
       approvedCustomerWhere(),
+      ...(hasAssignedRole(actor, "LEAD")
+        ? []
+        : [customerCollaborationWhere(actor.id)]),
       ...(query ? [{ OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] }] : []),
     ],
   };
@@ -81,7 +85,7 @@ export async function GET(request: Request) {
         activities: {
           where: { kind: "EXPERT_INTRODUCED" },
           select: { actorId: true, occurredOn: true, kind: true },
-          orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+          orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
         },
       },
     }),
@@ -89,7 +93,10 @@ export async function GET(request: Request) {
       where: {
         groupId: actor.groupId,
         active: true,
-        role: { in: [...frontlineMemberRoles] },
+        OR: [
+          { role: { in: ["LEAD", "EXPERT"] } },
+          { roleAssignments: { some: { role: "EXPERT" } } },
+        ],
       },
       select: { id: true, name: true, role: true },
       orderBy: [{ role: "asc" }, { name: "asc" }],
@@ -118,7 +125,7 @@ export async function GET(request: Request) {
       activities: {
         where: { kind: { in: ["JOINED_GROUP", "LEFT_GROUP", "GROUP_PROGRESS_UPDATED", "EXPERT_INTRODUCED", "EXPERT_CONTACTED", "REGISTERED", "PLAN_UPDATED", "ORDER_VOIDED", "FINANCE_VOIDED"] } },
         select: { id: true, kind: true, occurredOn: true, note: true, actor: { select: { id: true, name: true } } },
-        orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+        orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
         take: 10,
       },
       customerOrder: {
@@ -127,7 +134,7 @@ export async function GET(request: Request) {
           events: {
             where: { voidedAt: null, OR: [{ kind: "WITHDRAWAL" }, { kind: "RECHARGE", continuationNumber: { not: null } }] },
             select: { id: true, kind: true, amountCents: true, occurredOn: true, continuationNumber: true, depositMethod: true },
-            orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+            orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           },
         },
       },
@@ -136,7 +143,7 @@ export async function GET(request: Request) {
   const latestGroupProgressRows = pageIds.length ? await db.leadActivity.findMany({
     where: { leadId: { in: pageIds }, kind: "GROUP_PROGRESS_UPDATED" },
     select: { leadId: true, id: true, kind: true, occurredOn: true, note: true, actor: { select: { id: true, name: true } } },
-    orderBy: [{ leadId: "asc" }, { occurredOn: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ leadId: "asc" }, { occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     distinct: ["leadId"],
   }) : [];
   const latestGroupProgressByLead = new Map(latestGroupProgressRows.map((activity) => [activity.leadId, activity]));

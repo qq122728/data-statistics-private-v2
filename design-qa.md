@@ -1,4 +1,6 @@
-# Design QA
+# Design QA（历史验收记录）
+
+> 本文记录特定版本的界面验收，不是当前业务需求。当前规则请看 [`docs/business/current-business-rules.md`](docs/business/current-business-rules.md)。
 
 ## Comparison target
 

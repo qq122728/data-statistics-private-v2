@@ -44,6 +44,7 @@ export const copyPlan = [
   ["riskDecision", "RiskDecision"],
   ["systemSetting", "SystemSetting"],
   ["legacyCustomerRow", "LegacyCustomerRow"],
+  ["loginThrottleBucket", "LoginThrottleBucket"],
 ];
 
 function chunks(rows, size = 500) {

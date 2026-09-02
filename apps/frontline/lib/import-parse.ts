@@ -58,7 +58,8 @@ function normalizeAmount(raw: string): number | null | "invalid" {
 }
 
 export function normalizeImportedCustomerNumber(raw: string): string {
-  return raw.replace(/\D/g, "").slice(-6);
+  const digits = raw.replace(/\D/g, "");
+  return digits.length >= 6 ? digits.slice(-6) : "";
 }
 
 export function parseImportClipboard(rawText: string): ParseResult {
@@ -84,7 +85,7 @@ export function parseImportClipboard(rawText: string): ParseResult {
     });
 
     const rawPhone = raw.phone || raw.whatsapp || "";
-    // 客户编号不管输入的号码有多少位，只取数字部分的最后 6 位
+    // 至少识别到 6 位数字后，统一只保留最后 6 位。
     const phone = normalizeImportedCustomerNumber(rawPhone);
     if (!phone) {
       if (cells.some((c) => c.trim())) errors.push(`第 ${rowNo} 行：没有识别到客户编号，已跳过`);

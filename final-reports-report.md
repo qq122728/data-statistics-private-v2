@@ -1,4 +1,6 @@
-# Final reports fixes
+# Final reports fixes（历史测试报告）
+
+> 本文仅记录旧版报表修复过程，不是当前业务需求。当前规则请看 [`docs/business/current-business-rules.md`](docs/business/current-business-rules.md)。
 
 ## Scope delivered
 

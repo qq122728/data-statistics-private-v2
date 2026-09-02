@@ -67,7 +67,7 @@ export function RealResourceReporting({ detail }: { detail: boolean }) {
     },
     rates: {
       replyRate: row.totals.effective ? row.totals.replied / row.totals.effective : null,
-      groupRate: row.totals.replied ? row.totals.joined / row.totals.replied : null,
+      groupRate: row.totals.effective ? row.totals.joined / row.totals.effective : null,
       leaveRate: row.totals.joined ? row.totals.abnormalLeft / row.totals.joined : null,
     },
   }; }

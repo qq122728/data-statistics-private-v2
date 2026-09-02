@@ -16,6 +16,7 @@ export function calculateEffectiveFans(receivedFans: number, invalidFans: number
 export function normalizeCustomerPhone(value: string): string {
   const digits = value.replace(/\D/g, "");
   if (!digits.length) throw new RangeError("客户号码必须包含数字");
+  if (digits.length < 6) throw new RangeError("客户号码至少需要 6 位数字");
   return digits.slice(-6);
 }
 

@@ -119,9 +119,9 @@ describe("data permissions", () => {
     expect(canWriteCustomerRevenue({ id: "reception-a", role: "RECEPTION", groupId: "group-b", active: true }, target)).toBe(false);
     expect(canWriteCustomerRevenue({ id: "operator-a", role: "GROUP_OPERATOR", groupId: "group-b", active: true }, target)).toBe(false);
     expect(canWriteCustomerRevenue({ id: "reception-b", role: "RECEPTION", groupId: "group-b", active: true }, target)).toBe(false);
-    expect(canWriteCustomerRevenue({ id: "reception-b", role: "RECEPTION", roleAssignments: [{ role: "EXPERT" as const }], groupId: "group-b", active: true }, target)).toBe(true);
+    expect(canWriteCustomerRevenue({ id: "reception-b", role: "RECEPTION", roleAssignments: [{ role: "EXPERT" as const }], groupId: "group-b", active: true }, target)).toBe(false);
     expect(canWriteCustomerRevenue({ ...expert, groupId: "group-a" }, target)).toBe(false);
-    expect(canWriteCustomerRevenue({ ...expert, id: "expert-b" }, target)).toBe(true);
+    expect(canWriteCustomerRevenue({ ...expert, id: "expert-b" }, target)).toBe(false);
     expect(canWriteCustomerRevenue({ ...expert, active: false }, target)).toBe(false);
   });
 });

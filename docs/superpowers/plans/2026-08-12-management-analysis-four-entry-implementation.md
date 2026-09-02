@@ -1,5 +1,7 @@
 # 管理分析四入口 Implementation Plan
 
+> **历史归档，停止执行。** 本文只用于追溯当时的设计或实施过程；涉及资源部确认、手填进群/注册/开单、岗位权限、统计日期或旧前端的内容均不是现行规则。当前口径请看 [当前业务规则](/Users/aaaa/Desktop/数据统计/docs/business/current-business-rules.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把管理员和组长现有的密集报表拆成“管理概览、团队表现、渠道分析、批次追踪”四个独立入口，同时保留普通成员的个人工作台和个人报表。

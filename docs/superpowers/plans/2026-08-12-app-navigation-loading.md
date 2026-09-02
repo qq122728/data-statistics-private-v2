@@ -1,5 +1,7 @@
 # 全站页面切换骨架屏实施计划
 
+> **历史归档，停止执行。** 本文只用于追溯当时的设计或实施过程；涉及资源部确认、手填进群/注册/开单、岗位权限、统计日期或旧前端的内容均不是现行规则。当前口径请看 [当前业务规则](/Users/aaaa/Desktop/数据统计/docs/business/current-business-rules.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 为所有登录后的侧边栏页面提供统一、即时且可访问的内容区加载骨架。
@@ -97,4 +99,3 @@ Expected: 无空白错误。
 git add 'src/app/(app)/loading.tsx' src/app/globals.css tests/unit/app-loading.test.ts
 git commit -m "feat: add app navigation loading skeleton"
 ```
-

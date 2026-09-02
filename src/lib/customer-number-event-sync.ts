@@ -8,6 +8,7 @@ export type NumberTrackedLead = {
   attributionOwnerId: string | null;
   groupOperatorOwnerId: string | null;
   expertOwnerId: string | null;
+  currentGroupId?: string | null;
   batch: { groupId: string; channelId: string };
 };
 
@@ -23,6 +24,35 @@ export type NumberTrackedCustomerProgress = NumberTrackedLead & {
 
 function receptionOwnerId(lead: NumberTrackedLead) {
   return lead.attributionOwnerId ?? lead.ownerId;
+}
+
+/**
+ * 日报按“这是谁接来的粉”留在原来源组。客户或执行专家跨组后，不能再拿新组
+ * 的执行人去写原组日报；优先改由仍在原组的接粉人承载，必要时由原组在职组长承载。
+ */
+async function dailyStatCarrierId(tx: Prisma.TransactionClient, lead: NumberTrackedLead, preferredOwnerId: string) {
+  const sourceGroupId = lead.batch.groupId;
+  const preferredIds = [...new Set([preferredOwnerId, receptionOwnerId(lead)])];
+  const preferred = await tx.user.findMany({
+    where: { id: { in: preferredIds }, groupId: sourceGroupId, active: true },
+    select: { id: true },
+  });
+  const available = new Set(preferred.map((item) => item.id));
+  const matched = preferredIds.find((id) => available.has(id));
+  if (matched) return matched;
+  const fallback = await tx.user.findFirst({
+    where: {
+      groupId: sourceGroupId,
+      active: true,
+      OR: [
+        { role: { in: ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] } },
+        { roleAssignments: { some: { role: { in: ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] } } } },
+      ],
+    },
+    select: { id: true },
+    orderBy: [{ role: "asc" }, { id: "asc" }],
+  });
+  return fallback?.id ?? receptionOwnerId(lead);
 }
 
 async function currentInGroupSnapshot(tx: Prisma.TransactionClient, lead: NumberTrackedLead) {
@@ -48,7 +78,7 @@ export async function syncCustomerGroupEvent(
   },
 ) {
   const delta = input.delta ?? 1;
-  const ownerId = lead.groupOperatorOwnerId ?? receptionOwnerId(lead);
+  const ownerId = await dailyStatCarrierId(tx, lead, lead.groupOperatorOwnerId ?? receptionOwnerId(lead));
   const increment = input.kind === "JOIN"
     ? { operatorReceivedCount: delta }
     : input.kind === "NORMAL_LEAVE"
@@ -76,7 +106,7 @@ export async function syncCustomerRegistrationEvent(
   businessDate: string,
   delta = 1,
 ) {
-  const ownerId = lead.expertOwnerId ?? lead.groupOperatorOwnerId ?? receptionOwnerId(lead);
+  const ownerId = await dailyStatCarrierId(tx, lead, lead.expertOwnerId ?? lead.groupOperatorOwnerId ?? receptionOwnerId(lead));
   return incrementCustomerEventDailyStat(tx, {
     ownerId,
     groupId: lead.batch.groupId,
@@ -96,7 +126,7 @@ export async function syncCustomerExpertEvent(
   input: { businessDate: string; kind: "RECEIVED" | "CONTACTED"; delta?: number },
 ) {
   const delta = input.delta ?? 1;
-  const ownerId = lead.expertOwnerId ?? lead.groupOperatorOwnerId ?? receptionOwnerId(lead);
+  const ownerId = await dailyStatCarrierId(tx, lead, lead.expertOwnerId ?? lead.groupOperatorOwnerId ?? receptionOwnerId(lead));
   return incrementCustomerEventDailyStat(tx, {
     ownerId,
     groupId: lead.batch.groupId,
@@ -146,7 +176,7 @@ export async function syncCustomerOrderEvent(
   input: { businessDate: string; delta?: number },
 ) {
   const delta = input.delta ?? 1;
-  const ownerId = lead.expertOwnerId ?? lead.groupOperatorOwnerId ?? receptionOwnerId(lead);
+  const ownerId = await dailyStatCarrierId(tx, lead, lead.expertOwnerId ?? lead.groupOperatorOwnerId ?? receptionOwnerId(lead));
   return incrementCustomerEventDailyStat(tx, {
     ownerId,
     groupId: lead.batch.groupId,

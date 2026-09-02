@@ -81,15 +81,15 @@ async function signIn(userId: string) {
 const request = (query = "") => new Request(`http://localhost/api/expert/customers?${query}`);
 
 describe.sequential("本组专家流程客户 API", () => {
-  it("返回本组全部已进群的专家客户，并提供阶段与资金摘要", async () => {
+  it("普通专家只返回有配合关系的专家客户，并提供阶段与资金摘要", async () => {
     await signIn(ids.expert);
     const all = await (await GET(request())).json();
     const ordered = await (await GET(request("stage=ORDERED&q=已开单"))).json();
 
-    expect(all.counts).toEqual({ QUEUED: 2, MATERIALS: 0, TRACKING: 0, PENDING_REGISTRATION: 0, PENDING_ORDER: 1, DECLINED_DEPOSIT: 0, ORDERED: 1, STALLED: 0 });
-    expect(new Set(all.customers.map((customer: { phone: string }) => customer.phone))).toEqual(new Set(["492000000001", "492000000002", "492000000003", "492000000004"]));
+    expect(all.counts).toEqual({ QUEUED: 1, MATERIALS: 0, TRACKING: 0, PENDING_REGISTRATION: 0, PENDING_ORDER: 1, DECLINED_DEPOSIT: 0, ORDERED: 1, STALLED: 0 });
+    expect(new Set(all.customers.map((customer: { phone: string }) => customer.phone))).toEqual(new Set(["492000000001", "492000000002", "492000000003"]));
     expect(all.customers.find((customer: { phone: string }) => customer.phone === "492000000001")).toMatchObject({ canEdit: true });
-    expect(all.customers.find((customer: { phone: string }) => customer.phone === "492000000004")).toMatchObject({ canEdit: false });
+    expect(all.customers.find((customer: { phone: string }) => customer.phone === "492000000004")).toBeUndefined();
     expect(ordered.customers[0]).toMatchObject({
       id: ids.ordered, phone: "492000000003", stage: "ORDERED",
       order: { initialDepositCents: 114800, rechargeCents: 10000, withdrawalCents: 5000, netDepositCents: 119800, nextContinuationNumber: 2 },
@@ -97,7 +97,7 @@ describe.sequential("本组专家流程客户 API", () => {
     expect(JSON.stringify([all, ordered])).not.toMatch(/49200000000[5-7]/);
   });
 
-  it("组长和普通组员都能读取本组专家流程客户", async () => {
+  it("组长读取本组全部专家客户，原接粉人读取自己参与的客户", async () => {
     await signIn(ids.lead);
     const response = await GET(request());
     expect(response.status).toBe(200);

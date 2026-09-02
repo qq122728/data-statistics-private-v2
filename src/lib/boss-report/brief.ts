@@ -71,7 +71,7 @@ export function buildDailyBossBrief(input: {
   };
   const rates: BossReportRates = {
     replyRate: ratio(totals.replies, totals.effectiveFans),
-    joinRate: ratio(totals.groupJoin, totals.replies),
+    joinRate: ratio(totals.groupJoin, totals.effectiveFans),
     expertIntroRate: ratio(totals.expertIntro, totals.groupJoin),
     expertContactRate: ratio(totals.expertContacted, totals.expertIntro),
     expertOrderRate: ratio(totals.orders, totals.expertIntro),

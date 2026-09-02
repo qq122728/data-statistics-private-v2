@@ -29,13 +29,13 @@ function expectFixedEvent(event: Record<string, unknown>, expectedEvent: string)
 describe("privacy-safe security events", () => {
   const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
 
-  beforeEach(() => {
+  beforeEach(async () => {
     info.mockClear();
-    resetLoginThrottleForTests();
+    await resetLoginThrottleForTests();
   });
 
   afterEach(async () => {
-    resetLoginThrottleForTests();
+    await resetLoginThrottleForTests();
     await db.session.deleteMany({ where: { userId: loginUserId } });
     await db.user.deleteMany({ where: { id: loginUserId } });
   });

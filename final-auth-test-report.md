@@ -1,4 +1,6 @@
-# Authentication Landing Reliability Report
+# Authentication Landing Reliability Report（历史测试报告）
+
+> 本文仅记录当时的测试结果，不代表当前页面或业务范围。当前规则请看 [`docs/business/current-business-rules.md`](docs/business/current-business-rules.md)。
 
 ## Change
 

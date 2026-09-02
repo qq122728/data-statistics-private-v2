@@ -15,6 +15,7 @@ import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
 import { incrementHistoricalCustomerDailyStat } from "../../../lib/daily-stats";
 import { allocateCustomerStageNumber } from "../../../lib/customer-stage-number";
+import { isCustomerCollaborator } from "../../../lib/customer-collaboration-visibility";
 
 const baselineStages = ["NOT_REPLIED", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED", "ORDERED"] as const;
 const currentEvents = ["NONE", "REPLIED", "JOINED", "INTRODUCED", "REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"] as const;
@@ -92,9 +93,11 @@ export async function GET(request: Request) {
   let phone: string;
   try { phone = normalizeCustomerPhone(new URL(request.url).searchParams.get("phone") ?? ""); }
   catch { return NextResponse.json({ error: "请输入正确的客户号码" }, { status: 400 }); }
-  const existing = await db.leadCustomer.findUnique({ where: { phone }, select: { id: true, customerName: true, owner: { select: { name: true } }, groupOperatorOwner: { select: { name: true } }, expertOwner: { select: { name: true } }, batch: { select: { groupId: true } } } });
+  const existing = await db.leadCustomer.findUnique({ where: { phone }, select: { id: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, customerName: true, owner: { select: { name: true } }, groupOperatorOwner: { select: { name: true } }, expertOwner: { select: { name: true } }, batch: { select: { groupId: true } } } });
   if (!existing) return NextResponse.json({ exists: false, phone });
   if (existing.batch.groupId !== actor.groupId) return NextResponse.json({ exists: true, sameGroup: false, message: "该号码已存在" });
+  if (!hasAssignedRole(actor, "LEAD") && !isCustomerCollaborator(actor.id, existing))
+    return NextResponse.json({ exists: true, sameGroup: true, canAccess: false, message: "该号码已存在" });
   return NextResponse.json({ exists: true, sameGroup: true, customer: { id: existing.id, phone, customerName: existing.customerName, receptionOwnerName: existing.owner.name, groupOperatorOwnerName: existing.groupOperatorOwner?.name ?? null, expertOwnerName: existing.expertOwner?.name ?? null }, destination: destinationFor(actor, phone) });
 }
 
@@ -141,17 +144,26 @@ export async function POST(request: Request) {
       const actor = await tx.user.findUnique({ where: { id: sessionUser.id }, select: { id: true, role: true, roleAssignments: { select: { role: true } }, active: true, groupId: true } });
       if (!actor?.active || !actor.groupId || !mayCreate(actor)) return { status: 403 as const, error: "当前岗位不能录入老客户" };
       if (expertOnlyImport && !hasAssignedRole(actor, "EXPERT")) return { status: 403 as const, error: "录入老客户的注册、开单或资金进度需要专家权限" };
-      const duplicate = await tx.leadCustomer.findUnique({ where: { phone }, select: { customerName: true, batch: { select: { groupId: true } }, owner: { select: { name: true } } } });
+      const duplicate = await tx.leadCustomer.findUnique({ where: { phone }, select: { ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, customerName: true, batch: { select: { groupId: true } }, owner: { select: { name: true } } } });
       if (duplicate) {
         if (duplicate.batch.groupId !== actor.groupId) return { status: 409 as const, error: "该号码已存在" };
+        if (!hasAssignedRole(actor, "LEAD") && !isCustomerCollaborator(actor.id, duplicate))
+          return { status: 409 as const, error: "该号码已存在，不能重复新增" };
         return { status: 409 as const, error: `该号码已由接粉归属“${duplicate.owner.name}”录入，请在客户进度管理中更新`, destination: destinationFor(actor, phone) };
       }
       const ownerIds = [input.receptionOwnerId, input.groupOperatorOwnerId, input.expertOwnerId].filter((value): value is string => Boolean(value));
       const [members, channel] = await Promise.all([
-        tx.user.findMany({ where: { id: { in: ownerIds }, groupId: actor.groupId }, select: { id: true } }),
+        tx.user.findMany({ where: { id: { in: ownerIds }, groupId: actor.groupId, active: true }, select: { id: true, role: true, active: true, roleAssignments: { select: { role: true } } } }),
         tx.channel.findFirst({ where: { id: input.channelId, groupId: actor.groupId }, select: { id: true, name: true, channelType: true } }),
       ]);
       if (members.length !== new Set(ownerIds).size) return { status: 400 as const, error: "归属只能选择本组成员" };
+      const memberById = new Map(members.map((member) => [member.id, member]));
+      const receptionOwner = memberById.get(input.receptionOwnerId);
+      const groupOperator = input.groupOperatorOwnerId ? memberById.get(input.groupOperatorOwnerId) : null;
+      const expertOwner = input.expertOwnerId ? memberById.get(input.expertOwnerId) : null;
+      if (!receptionOwner || !hasAssignedRole(receptionOwner, "RECEPTION")) return { status: 400 as const, error: "接粉归属只能选择有接粉权限的本组在职成员" };
+      if (input.groupOperatorOwnerId && (!groupOperator || (!hasAssignedRole(groupOperator, "GROUP_OPERATOR") && !hasAssignedRole(groupOperator, "LEAD")))) return { status: 400 as const, error: "炒群负责人只能选择本组组长或有炒群权限的在职成员" };
+      if (input.expertOwnerId && (!expertOwner || (!hasAssignedRole(expertOwner, "EXPERT") && !hasAssignedRole(expertOwner, "LEAD")))) return { status: 400 as const, error: "专家负责人只能选择本组组长或有专家权限的在职成员" };
       if (!channel) return { status: 400 as const, error: "历史渠道只能选择本组渠道" };
       const sourceDate = input.sourceDate;
       const batch = await tx.sourceBatch.upsert({ where: { groupId_channelId_sourceDate: { groupId: actor.groupId, channelId: channel.id, sourceDate } }, update: {}, create: { groupId: actor.groupId, channelId: channel.id, sourceDate, channelTypeSnapshot: channel.channelType, isHistoricalRecord: true } });

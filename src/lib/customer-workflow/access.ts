@@ -30,8 +30,8 @@ const expertOnlyActions = new Set<CustomerWorkflowAction>([
 ]);
 
 /**
- * 已进群后按客户当前明确负责人选择职责，不再依赖账号的旧岗位标签。
- * 历史 role 仍保留给报表和审计，但不能阻止被明确分配的同组组员工作。
+ * 已进群后同时按客户当前负责人和账号当前岗位选择职责。
+ * 明确分配决定“负责哪位客户”，岗位授权决定“能不能做这一阶段”。
  */
 export function resolveWorkflowActorRole(
   actor: WorkflowActor,
@@ -41,12 +41,22 @@ export function resolveWorkflowActorRole(
   if (!actor.active) return null;
   if (hasAssignedRole(actor, "LEAD")) return "LEAD";
   if (expertOnlyActions.has(action) && !hasAssignedRole(actor, "EXPERT")) return null;
-  // 共享表情况列不改变负责人，但专家字段仍必须真的持有专家权限。
-  if (action === "updateGroupProgress") return "GROUP_OPERATOR";
-  if (action === "updateExpertDetails" && hasAssignedRole(actor, "EXPERT")) return "EXPERT";
+  // 情况列也必须按当前明确负责人锁定，不能因为“同组可见”就变成“同组可改”。
+  if (
+    action === "updateGroupProgress" &&
+    lead.groupOperatorOwnerId === actor.id &&
+    hasAssignedRole(actor, "GROUP_OPERATOR")
+  )
+    return "GROUP_OPERATOR";
+  if (
+    action === "updateExpertDetails" &&
+    lead.expertOwnerId === actor.id &&
+    hasAssignedRole(actor, "EXPERT")
+  )
+    return "EXPERT";
   if (lead.expertOwnerId === actor.id && roleAllowsCustomerAction("EXPERT", action))
     return "EXPERT";
-  if (lead.groupOperatorOwnerId === actor.id && roleAllowsCustomerAction("GROUP_OPERATOR", action))
+  if (lead.groupOperatorOwnerId === actor.id && hasAssignedRole(actor, "GROUP_OPERATOR") && roleAllowsCustomerAction("GROUP_OPERATOR", action))
     return "GROUP_OPERATOR";
   if (lead.groupStatus === "NOT_JOINED" && lead.ownerId === actor.id && roleAllowsCustomerAction("RECEPTION", action))
     return "RECEPTION";
@@ -72,13 +82,19 @@ export async function authorizeCustomerAction(
   if (leadCurrentGroupId(lead) !== actor.groupId)
     return { status: 403, error: "该客户当前已不属于你所在的小组" };
 
-  // 炒群情况仍由同组组员共同维护；专家情况必须先开通专家权限。
-  if (action === "updateGroupProgress") return null;
+  // 只有具备炒群岗位且是当前负责人时才能写；组长仍可管理本组全部阶段。
+  if (action === "updateGroupProgress")
+    return hasAssignedRole(actor, "LEAD") ||
+      (lead.groupOperatorOwnerId === actor.id && hasAssignedRole(actor, "GROUP_OPERATOR"))
+      ? null
+      : { status: 403, error: "只有该客户当前炒群负责人或组长可以填写炒群情况" };
   if (expertOnlyActions.has(action) && !hasAssignedRole(actor, "EXPERT"))
     return { status: 403, error: "需要专家权限才能处理专家阶段" };
-  if (action === "updateExpertDetails") return hasAssignedRole(actor, "EXPERT")
-    ? null
-    : { status: 403, error: "需要专家权限才能填写专家进度" };
+  if (action === "updateExpertDetails")
+    return hasAssignedRole(actor, "LEAD") ||
+      (lead.expertOwnerId === actor.id && hasAssignedRole(actor, "EXPERT"))
+      ? null
+      : { status: 403, error: "只有该客户当前专家负责人或组长可以填写专家进度" };
 
   const effectiveRole = resolveWorkflowActorRole(actor, lead, action);
   if (!effectiveRole) return { status: 403, error: "当前岗位不能处理该客户或执行此操作" };
@@ -96,6 +112,8 @@ export async function authorizeCustomerAction(
     return { status: 403, error: "只能修改本组客户" };
 
   if (effectiveRole === "GROUP_OPERATOR") {
+    if (!hasAssignedRole(actor, "GROUP_OPERATOR"))
+      return { status: 403, error: "当前账号没有炒群岗位权限" };
     const ownsFrozenCustomer = lead.groupOperatorOwnerId === actor.id;
     if (!ownsFrozenCustomer)
       return { status: 403, error: "只能跟进明确分配给你的炒群客户" };

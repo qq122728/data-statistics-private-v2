@@ -626,16 +626,6 @@ export const GROUP_TOTAL_EXPERT_STATS = { customers: 41, ordered: 12, netUsd: 21
 export type ChannelName = "德国短信 A" | "德国投流 B";
 export const CHANNELS: ChannelName[] = ["德国短信 A", "德国投流 B"];
 
-/** 旧模拟原型保留的渠道核对状态机（当前真实页面已经不再读取）：组长发送后是 SENT；
- *  2026-08-30 最终真实流程已改为接粉保存后直接进入资源部核对，不再经过组长发送。
- *  资源部（投流/短信两个各自只绑一个渠道的账号）处理完落成 CONFIRMED 或 DISPUTED 两个
- *  终态，DISPUTED 必须带一条 note 说明异议在哪，这条 note 要能原样传回组长那边的
- *  渠道数据核对页面（闭环的关键：不是资源部这边看着像回事就行，组长必须真的看到结果）。
- *  key 格式沿用 `${channel}__${date}`，全局一份 Record，不按角色拆开存——资源部两个
- *  账号各自只绑一个渠道，天然只会读到自己渠道那部分 key，不会互相踩。 */
-export type ChannelReviewStatus = "SENT" | "CONFIRMED" | "DISPUTED";
-export type ChannelReviewEntry = { status: ChannelReviewStatus; note?: string };
-
 /** 只覆盖接粉自己岗位记的账——添加数据/撞粉/低金额/无WS号码/回复。原来这里还有
  *  joined/leftNormal/leftAbnormal/pushed/registered/ordered/depositUsd/withdrawalUsd
  *  八个字段，现在搬到 PIPELINE_EVENTS（见下）用真实客户级记录表示，这五个字段的
@@ -988,8 +978,8 @@ function toSummaryColumn(
   const repliedRate = r ? summaryPct(r.replied, effective ?? 0) : "—";
 
   const joined = hasGroupFlow ? p.joined : null;
-  // 进群率＝进群÷添加数据（锁定口径）——炒群列没有"添加数据"，分母按0处理，summaryPct自然给"—"
-  const joinedRate = hasGroupFlow ? summaryPct(p.joined, added ?? 0) : "—";
+  // 进群率＝进群÷有效数据（锁定口径）——炒群列没有“有效数据”，分母按0处理，summaryPct自然给“—”
+  const joinedRate = hasGroupFlow ? summaryPct(p.joined, effective ?? 0) : "—";
   const leftNormal = hasGroupFlow ? p.leftNormal : null;
   const leftAbnormal = hasGroupFlow ? p.leftAbnormal : null;
   const leftAbnormalRate = hasGroupFlow ? summaryPct(p.leftAbnormal, p.joined) : "—";

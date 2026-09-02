@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../../../lib/auth";
-import { db, getOrCreateSourceBatch } from "../../../../../lib/db";
+import { db } from "../../../../../lib/db";
 import { recordAudit } from "../../../../../lib/audit";
 import {
   hasAssignedRole,
@@ -13,7 +13,6 @@ import { leadCurrentGroupId } from "../../../../../lib/customer-current-group";
 import { statisticsDate } from "../../../../../lib/statistics-date";
 import {
   moveCustomerExpertIntroductionDate,
-  reattributeCustomerNumberEvents,
   syncCustomerExpertEvent,
   syncCustomerGroupEvent,
   syncCustomerRegistrationEvent,
@@ -40,14 +39,6 @@ const updateSchema = z.discriminatedUnion("action", [
       .optional(),
   }),
   z.object({
-    action: z.literal("setChannel"),
-    channelId: z.string().min(1).max(API_LIMITS.identifierCharacters),
-  }),
-  z.object({
-    action: z.literal("setOwner"),
-    userId: z.string().min(1).max(API_LIMITS.identifierCharacters),
-  }),
-  z.object({
     action: z.literal("setCustomerName"),
     customerName: z.string().trim().max(80, "客户姓名不能超过 80 个字"),
   }),
@@ -71,10 +62,6 @@ const updateSchema = z.discriminatedUnion("action", [
       .min(0, "被骗金额不能小于 0")
       .max(999_999_999_999, "被骗金额过大")
       .nullable(),
-  }),
-  z.object({
-    action: z.literal("setSourceDate"),
-    occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   }),
   z.object({
     action: z.literal("setJoinedOn"),
@@ -117,7 +104,21 @@ export async function PATCH(
     );
 
   try {
-    const input = updateSchema.parse(await request.json());
+    const payload: unknown = await request.json();
+    const requestedAction =
+      typeof payload === "object" && payload !== null && "action" in payload
+        ? (payload as { action?: unknown }).action
+        : undefined;
+    if (
+      requestedAction === "setOwner" ||
+      requestedAction === "setChannel" ||
+      requestedAction === "setSourceDate"
+    )
+      return authorizationDenied(
+        sessionUser,
+        "客户原始归属已锁定，请由组长使用归属纠错并填写原因",
+      );
+    const input = updateSchema.parse(payload);
     const { leadId } = await params;
     if (leadId.length > API_LIMITS.identifierCharacters)
       return NextResponse.json({ error: "客户参数过长" }, { status: 400 });
@@ -149,10 +150,8 @@ export async function PATCH(
       )
         return { status: 404 as const, error: "客户不存在或已不在本组" };
       const update: Record<string, unknown> = {};
-      let trackedAttributionOwnerId = lead.attributionOwnerId;
       let trackedGroupOperatorOwnerId = lead.groupOperatorOwnerId;
       let trackedExpertOwnerId = lead.expertOwnerId;
-      let trackedChannelId = lead.batch.channelId;
       let activity: {
         kind:
           | "DEVICE_ASSIGNED"
@@ -165,19 +164,79 @@ export async function PATCH(
       } | null = null;
       const today = statisticsDate();
 
+      const isLead = hasAssignedRole(actor, "LEAD");
+      const isAttributionOwner =
+        (lead.attributionOwnerId ?? lead.ownerId) === actor.id &&
+        hasAssignedRole(actor, "RECEPTION");
+      const isAssignedGroupOperator =
+        lead.groupOperatorOwnerId === actor.id &&
+        hasAssignedRole(actor, "GROUP_OPERATOR");
+      const isAssignedExpert =
+        lead.expertOwnerId === actor.id && hasAssignedRole(actor, "EXPERT");
+
+      // 接粉归属、来源渠道和接粉日期共同决定“这是谁的粉”和日报归属。
+      // 正常共享表永久只读；确实录错时只能走组长专用的归属纠错接口，填写原因并留审计。
+      if (input.action === "assignGroupOperator" && !isLead)
+        return {
+          status: 403 as const,
+          error: "只有组长可以调整炒群负责人",
+        };
+
+      if (
+        ["setDeviceCode", "setJoinedOn", "setLeave", "assignExpert"].includes(
+          input.action,
+        ) &&
+        !isLead &&
+        !isAssignedGroupOperator
+      )
+        return {
+          status: 403 as const,
+          error: "只有该客户当前炒群负责人或组长可以修改炒群阶段",
+        };
+
+      if (
+        [
+          "setCustomerName",
+          "setPhone",
+          "setCustomerPlatform",
+          "setLossAmount",
+        ].includes(input.action) &&
+        !isLead &&
+        !isAttributionOwner
+      )
+        return {
+          status: 403 as const,
+          error: "只有原接粉归属人或组长可以纠正客户基本资料",
+        };
+
       if (
         input.action === "setRegistration" &&
-        !hasAssignedRole(actor, "EXPERT")
+        !isLead &&
+        !isAssignedExpert
       )
-        return { status: 403 as const, error: "需要专家权限才能登记注册" };
+        return {
+          status: 403 as const,
+          error: "只有该客户当前专家负责人或组长可以登记注册",
+        };
 
       if (input.action === "assignGroupOperator") {
         const target = await transaction.user.findFirst({
-          where: { id: input.userId, groupId: actor.groupId, active: true },
+          where: {
+            id: input.userId,
+            groupId: actor.groupId,
+            active: true,
+            OR: [
+              { role: { in: ["LEAD", "GROUP_OPERATOR"] } },
+              { roleAssignments: { some: { role: "GROUP_OPERATOR" } } },
+            ],
+          },
           select: { id: true, name: true },
         });
         if (!target)
-          return { status: 400 as const, error: "只能选择本组在职组员" };
+          return {
+            status: 400 as const,
+            error: "炒群负责人只能选择本组有炒群权限的在职成员",
+          };
         trackedGroupOperatorOwnerId = target.id;
         update.groupOperatorOwnerId = target.id;
         activity = {
@@ -278,45 +337,6 @@ export async function PATCH(
           note: `专家负责人调整为 ${target.name}，推专家日期 ${occurredOn}`,
           occurredOn,
         };
-      } else if (input.action === "setChannel") {
-        const channel = await transaction.channel.findUnique({
-          where: {
-            id_groupId: { id: input.channelId, groupId: actor.groupId },
-          },
-          select: { id: true, name: true, active: true },
-        });
-        if (!channel?.active)
-          return { status: 400 as const, error: "来源渠道不存在或已停用" };
-        const batch = await getOrCreateSourceBatch(
-          {
-            groupId: actor.groupId,
-            channelId: channel.id,
-            sourceDate: lead.batch.sourceDate,
-          },
-          transaction,
-        );
-        trackedChannelId = channel.id;
-        update.batchId = batch.id;
-        activity = {
-          kind: "PLAN_UPDATED",
-          note: `来源渠道调整为 ${channel.name}`,
-          occurredOn: lead.joinedOn ?? lead.batch.sourceDate,
-        };
-      } else if (input.action === "setOwner") {
-        const target = await transaction.user.findFirst({
-          where: { id: input.userId, groupId: actor.groupId, active: true },
-          select: { id: true, name: true },
-        });
-        if (!target)
-          return { status: 400 as const, error: "只能选择本组在职组员" };
-        trackedAttributionOwnerId = target.id;
-        update.ownerId = target.id;
-        update.attributionOwnerId = target.id;
-        activity = {
-          kind: "PLAN_UPDATED",
-          note: `接粉及业绩归属纠正为 ${target.name}`,
-          occurredOn: lead.joinedOn ?? lead.batch.sourceDate,
-        };
       } else if (input.action === "setCustomerName") {
         update.customerName = input.customerName || null;
         activity = {
@@ -330,8 +350,8 @@ export async function PATCH(
         let phone: string;
         try {
           phone = normalizeCustomerPhone(input.phone);
-        } catch {
-          return { status: 400 as const, error: "客户号码必须包含数字" };
+        } catch (error) {
+          return { status: 400 as const, error: error instanceof Error ? error.message : "客户号码至少需要 6 位数字" };
         }
         const duplicate = await transaction.leadCustomer.findFirst({
           where: { phone, id: { not: lead.id } },
@@ -362,25 +382,6 @@ export async function PATCH(
             input.amountCents === null
               ? "被骗金额已清空"
               : `被骗金额调整为 $${(input.amountCents / 100).toFixed(2)}`,
-          occurredOn: today,
-        };
-      } else if (input.action === "setSourceDate") {
-        const dateError = entryDateError(input.occurredOn, today, "接粉日期");
-        if (dateError) return { status: 400 as const, error: dateError };
-        if (lead.joinedOn && input.occurredOn > lead.joinedOn)
-          return { status: 400 as const, error: "接粉日期不能晚于进群日期" };
-        const batch = await getOrCreateSourceBatch(
-          {
-            groupId: actor.groupId,
-            channelId: lead.batch.channelId,
-            sourceDate: input.occurredOn,
-          },
-          transaction,
-        );
-        update.batchId = batch.id;
-        activity = {
-          kind: "PLAN_UPDATED",
-          note: `接粉日期调整为 ${input.occurredOn}`,
           occurredOn: today,
         };
       } else if (input.action === "setJoinedOn") {
@@ -500,26 +501,10 @@ export async function PATCH(
         });
       const trackedLead = {
         ...lead,
-        attributionOwnerId: trackedAttributionOwnerId,
         groupOperatorOwnerId: trackedGroupOperatorOwnerId,
         expertOwnerId: trackedExpertOwnerId,
-        batch: { groupId: actor.groupId, channelId: trackedChannelId },
+        batch: { groupId: actor.groupId, channelId: lead.batch.channelId },
       };
-      const attributionChanged =
-        (input.action === "setChannel" &&
-          trackedChannelId !== lead.batch.channelId) ||
-        (input.action === "setOwner" &&
-          trackedAttributionOwnerId !== lead.attributionOwnerId);
-      if (attributionChanged) {
-        await reattributeCustomerNumberEvents(
-          transaction,
-          {
-            ...lead,
-            batch: { groupId: actor.groupId, channelId: lead.batch.channelId },
-          },
-          trackedLead,
-        );
-      }
       if (
         input.action === "setJoinedOn" &&
         lead.joinedOn !== input.occurredOn

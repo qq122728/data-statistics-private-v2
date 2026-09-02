@@ -6,7 +6,7 @@ import { requestJson } from "@/lib/backend";
 import styles from "./LegacyCustomerImport.module.css";
 
 type Option = { id: string; name: string };
-type Context = { actorId: string; today: string; channelOptions: Option[]; memberOptions: Option[]; expertOptions: Option[] };
+type Context = { actorId: string; today: string; channelOptions: Option[]; memberOptions: Option[]; receptionOptions: Option[]; operatorOptions: Option[]; expertOptions: Option[] };
 type BaselineStage = "NOT_REPLIED" | "REPLIED" | "JOINED" | "INTRODUCED" | "REGISTERED" | "ORDERED";
 type CurrentEvent = "NONE" | "REPLIED" | "JOINED" | "INTRODUCED" | "REGISTERED" | "ORDERED" | "RECHARGE" | "WITHDRAWAL";
 type Draft = {
@@ -57,7 +57,7 @@ export function LegacyCustomerImport({ onBack, canImportExpertStage }: { onBack:
     let cancelled = false;
     void requestJson<Context>("/api/lead/customer-reporting?stage=group&page=1").then((result) => {
       if (cancelled) return;
-      setContext(result); setDraft((value) => ({ ...value, occurredOn: result.today, channelId: result.channelOptions[0]?.id ?? "", receptionOwnerId: result.memberOptions.find((item) => item.id === result.actorId)?.id ?? result.memberOptions[0]?.id ?? "" }));
+      setContext(result); setDraft((value) => ({ ...value, occurredOn: result.today, channelId: result.channelOptions[0]?.id ?? "", receptionOwnerId: result.receptionOptions.find((item) => item.id === result.actorId)?.id ?? result.receptionOptions[0]?.id ?? "" }));
     }).catch((caught) => { if (!cancelled) setError(caught instanceof Error ? caught.message : "老客户录入资料读取失败"); }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
@@ -125,7 +125,7 @@ export function LegacyCustomerImport({ onBack, canImportExpertStage }: { onBack:
         ...(["ORDERED", "RECHARGE"].includes(draft.currentEvent) ? { initialDepositMethod: draft.depositMethod } : {}), notes: draft.notes,
       }) });
       setSaved(`${draft.phone} 已建立老客户档案；${statisticText}。`); window.dispatchEvent(new Event("ai-data-updated")); setPhoneLookup(null);
-      setDraft({ ...initialDraft(context.today), channelId: context.channelOptions[0]?.id ?? "", receptionOwnerId: context.memberOptions.find((item) => item.id === context.actorId)?.id ?? context.memberOptions[0]?.id ?? "" });
+      setDraft({ ...initialDraft(context.today), channelId: context.channelOptions[0]?.id ?? "", receptionOwnerId: context.receptionOptions.find((item) => item.id === context.actorId)?.id ?? context.receptionOptions[0]?.id ?? "" });
     } catch (caught) { setError(caught instanceof Error ? caught.message : "老客户保存失败"); }
     finally { setSaving(false); }
   }
@@ -151,7 +151,7 @@ export function LegacyCustomerImport({ onBack, canImportExpertStage }: { onBack:
           <label><span>接粉日期 *</span><input required type="date" max={context?.today} value={draft.sourceDate} onChange={(event) => set("sourceDate", event.target.value)} /><small>只记录什么时候来的粉，不会重复增加接粉量</small></label>
           <label><span>客户姓名</span><input maxLength={100} value={draft.customerName} onChange={(event) => set("customerName", event.target.value)} /></label>
           <label><span>来源渠道 *</span><select required value={draft.channelId} onChange={(event) => set("channelId", event.target.value)}><option value="">请选择渠道</option>{context?.channelOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label><span>接粉归属 *</span><select required value={draft.receptionOwnerId} onChange={(event) => set("receptionOwnerId", event.target.value)}><option value="">请选择组员</option>{context?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label><span>接粉归属 *</span><select required value={draft.receptionOwnerId} onChange={(event) => set("receptionOwnerId", event.target.value)}><option value="">请选择接粉组员</option>{context?.receptionOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label><span>设备号</span><input maxLength={100} value={draft.deviceCode} placeholder="可后补" onChange={(event) => set("deviceCode", event.target.value)} /></label>
         </div></fieldset>
         <fieldset disabled={loading || saving || !phoneReady}><legend>3. 历史阶段与真实日期</legend><div className={styles.grid}>
@@ -160,7 +160,7 @@ export function LegacyCustomerImport({ onBack, canImportExpertStage }: { onBack:
           {baselineRank >= rank.INTRODUCED ? <label><span>推专家日期 *</span><input required type="date" min={draft.joinedOn || draft.sourceDate || undefined} max={context?.today} value={draft.expertIntroducedOn} onChange={(event) => set("expertIntroducedOn", event.target.value)} /></label> : null}
           {baselineRank >= rank.REGISTERED ? <label><span>注册日期 *</span><input required type="date" min={draft.expertIntroducedOn || undefined} max={context?.today} value={draft.registeredOn} onChange={(event) => set("registeredOn", event.target.value)} /></label> : null}
           {baselineRank >= rank.ORDERED ? <label><span>开单日期 *</span><input required type="date" min={draft.registeredOn || undefined} max={context?.today} value={draft.openedOn} onChange={(event) => set("openedOn", event.target.value)} /></label> : null}
-          {needsOperator ? <label><span>炒群负责人 *</span><select required value={draft.groupOperatorOwnerId} onChange={(event) => set("groupOperatorOwnerId", event.target.value)}><option value="">请选择组员</option>{context?.memberOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
+          {needsOperator ? <label><span>炒群负责人 *</span><select required value={draft.groupOperatorOwnerId} onChange={(event) => set("groupOperatorOwnerId", event.target.value)}><option value="">请选择炒群负责人</option>{context?.operatorOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
           {needsExpert ? <label><span>专家负责人 *</span><select required value={draft.expertOwnerId} onChange={(event) => set("expertOwnerId", event.target.value)}><option value="">请选择专家或组长</option>{context?.expertOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
         </div></fieldset>
         <fieldset disabled={loading || saving || !phoneReady}><legend>4. 本次真实新进度</legend><div className={styles.grid}>

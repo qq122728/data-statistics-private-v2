@@ -1,17 +1,13 @@
+import { createHash } from "node:crypto";
+import type { Prisma } from "@prisma/client";
+import { db } from "./db";
+
 const IP_FAILURE_WINDOW_MS = 10 * 60 * 1000;
 const ACCOUNT_FAILURE_WINDOW_MS = 15 * 60 * 1000;
 const IP_FAILURE_LIMIT = 20;
 const ACCOUNT_FAILURE_LIMIT = 8;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
-const MAX_TRACKED_KEYS = 5_000;
-
-type Attempt = {
-  failures: number;
-  windowStartedAt: number;
-  lockedUntil: number | null;
-  touchedAt: number;
-  auditIdentity?: LoginAuditIdentity | null;
-};
+const RETENTION_MS = Math.max(IP_FAILURE_WINDOW_MS, ACCOUNT_FAILURE_WINDOW_MS, LOCK_DURATION_MS);
 
 type LoginAttemptIdentity = {
   ip: string;
@@ -20,85 +16,85 @@ type LoginAttemptIdentity = {
 
 export type LoginAuditIdentity = { userId: string; teamId: string | null };
 
-const attempts = new Map<string, Attempt>();
-
 function key(prefix: "ip" | "account", value: string) {
-  return `${prefix}:${value}`;
+  return `${prefix}:${createHash("sha256").update(value).digest("hex")}`;
 }
 
-function prune(now: number) {
-  for (const [attemptKey, attempt] of attempts) {
-    const retention = Math.max(IP_FAILURE_WINDOW_MS, ACCOUNT_FAILURE_WINDOW_MS, LOCK_DURATION_MS);
-    if (attempt.touchedAt + retention <= now) attempts.delete(attemptKey);
-  }
-  while (attempts.size > MAX_TRACKED_KEYS) {
-    const oldestKey = attempts.keys().next().value;
-    if (!oldestKey) break;
-    attempts.delete(oldestKey);
-  }
-}
-
-function remainingLockMs(attemptKey: string, now: number): number {
-  const attempt = attempts.get(attemptKey);
-  if (!attempt?.lockedUntil || attempt.lockedUntil <= now) return 0;
-  return attempt.lockedUntil - now;
-}
-
-/**
- * 使用 IP 和账号两个维度限速。IP 防止单一来源轰炸，账号防止分布式撞库；
- * 仅保存在当前应用进程，边缘 Nginx 还会提供独立的 IP 限流。
- */
-export function loginRetryAfterMs(identity: LoginAttemptIdentity, now = Date.now()): number {
-  prune(now);
-  return Math.max(
-    remainingLockMs(key("ip", identity.ip), now),
-    remainingLockMs(key("account", identity.username), now),
-  );
-}
-
-function recordFailure(
+async function recordFailure(
+  tx: Prisma.TransactionClient,
   attemptKey: string,
   windowMs: number,
   limit: number,
-  now: number,
+  now: Date,
   auditIdentity?: LoginAuditIdentity | null,
 ) {
-  const existing = attempts.get(attemptKey);
-  const attempt = !existing || existing.windowStartedAt + windowMs <= now
-    ? { failures: 0, windowStartedAt: now, lockedUntil: null, touchedAt: now }
-    : existing;
-  attempt.failures += 1;
-  attempt.touchedAt = now;
-  if (auditIdentity !== undefined) attempt.auditIdentity = auditIdentity;
-  if (attempt.failures >= limit) attempt.lockedUntil = now + LOCK_DURATION_MS;
-  attempts.set(attemptKey, attempt);
+  const existing = await tx.loginThrottleBucket.findUnique({ where: { key: attemptKey } });
+  const expired = !existing || existing.windowStartedAt.getTime() + windowMs <= now.getTime();
+  const failures = expired ? 1 : existing.failures + 1;
+  await tx.loginThrottleBucket.upsert({
+    where: { key: attemptKey },
+    create: {
+      key: attemptKey,
+      failures,
+      windowStartedAt: now,
+      lockedUntil: failures >= limit ? new Date(now.getTime() + LOCK_DURATION_MS) : null,
+      touchedAt: now,
+      auditUserId: auditIdentity?.userId ?? null,
+      auditTeamId: auditIdentity?.teamId ?? null,
+    },
+    update: {
+      failures,
+      windowStartedAt: expired ? now : (existing?.windowStartedAt ?? now),
+      lockedUntil: failures >= limit
+        ? new Date(now.getTime() + LOCK_DURATION_MS)
+        : expired
+          ? null
+          : (existing?.lockedUntil ?? null),
+      touchedAt: now,
+      ...(auditIdentity === undefined ? {} : {
+        auditUserId: auditIdentity?.userId ?? null,
+        auditTeamId: auditIdentity?.teamId ?? null,
+      }),
+    },
+  });
 }
 
-export function recordFailedLogin(
+/** IP 与账号失败次数存入数据库，因此多进程和服务重启后仍共享同一把锁。 */
+export async function loginRetryAfterMs(identity: LoginAttemptIdentity, nowMs = Date.now()): Promise<number> {
+  const now = new Date(nowMs);
+  const rows = await db.loginThrottleBucket.findMany({
+    where: { key: { in: [key("ip", identity.ip), key("account", identity.username)] } },
+    select: { lockedUntil: true },
+  });
+  return rows.reduce((remaining, row) => Math.max(remaining, (row.lockedUntil?.getTime() ?? 0) - now.getTime()), 0);
+}
+
+export async function recordFailedLogin(
   identity: LoginAttemptIdentity,
-  now = Date.now(),
+  nowMs = Date.now(),
   auditIdentity: LoginAuditIdentity | null = null,
 ) {
-  prune(now);
-  recordFailure(key("ip", identity.ip), IP_FAILURE_WINDOW_MS, IP_FAILURE_LIMIT, now);
-  recordFailure(
-    key("account", identity.username),
-    ACCOUNT_FAILURE_WINDOW_MS,
-    ACCOUNT_FAILURE_LIMIT,
-    now,
-    auditIdentity,
-  );
+  const now = new Date(nowMs);
+  await db.$transaction(async (tx) => {
+    await tx.loginThrottleBucket.deleteMany({ where: { touchedAt: { lte: new Date(nowMs - RETENTION_MS) } } });
+    await recordFailure(tx, key("ip", identity.ip), IP_FAILURE_WINDOW_MS, IP_FAILURE_LIMIT, now);
+    await recordFailure(tx, key("account", identity.username), ACCOUNT_FAILURE_WINDOW_MS, ACCOUNT_FAILURE_LIMIT, now, auditIdentity);
+  }, { isolationLevel: "Serializable" });
 }
 
-export function loginAuditIdentity(identity: LoginAttemptIdentity): LoginAuditIdentity | null {
-  return attempts.get(key("account", identity.username))?.auditIdentity ?? null;
+export async function loginAuditIdentity(identity: LoginAttemptIdentity): Promise<LoginAuditIdentity | null> {
+  const attempt = await db.loginThrottleBucket.findUnique({
+    where: { key: key("account", identity.username) },
+    select: { auditUserId: true, auditTeamId: true },
+  });
+  return attempt?.auditUserId ? { userId: attempt.auditUserId, teamId: attempt.auditTeamId } : null;
 }
 
-export function recordSuccessfulLogin(identity: LoginAttemptIdentity) {
-  attempts.delete(key("account", identity.username));
+export async function recordSuccessfulLogin(identity: LoginAttemptIdentity) {
+  await db.loginThrottleBucket.delete({ where: { key: key("account", identity.username) } }).catch(() => undefined);
 }
 
-/** 仅供单元测试隔离进程内的节流状态。 */
-export function resetLoginThrottleForTests() {
-  attempts.clear();
+/** 仅供单元测试清理数据库节流状态。 */
+export async function resetLoginThrottleForTests() {
+  await db.loginThrottleBucket.deleteMany();
 }

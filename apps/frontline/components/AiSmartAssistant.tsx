@@ -220,6 +220,8 @@ type CustomerContext = {
   today: string;
   channelOptions: Array<{ id: string; name: string }>;
   memberOptions: Array<{ id: string; name: string }>;
+  receptionOptions: Array<{ id: string; name: string }>;
+  operatorOptions: Array<{ id: string; name: string }>;
 };
 
 type CustomerDraft = { phone: string; customerName: string; channelId: string; joinedOn: string; groupOperatorOwnerId: string; deviceCode: string };
@@ -361,10 +363,10 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
   const fields = lawyer ? LAWYER_FIELDS : HACKER_FIELDS;
   const selectedChannel = context?.channels.find((channel) => channel.id === channelId) ?? null;
   const selectedCustomerChannel = customerContext?.channelOptions.find((channel) => channel.id === customerDraft.channelId) ?? null;
-  const selectedCustomerOperator = customerContext?.memberOptions.find((member) => member.id === customerDraft.groupOperatorOwnerId) ?? null;
+  const selectedCustomerOperator = customerContext?.operatorOptions.find((member) => member.id === customerDraft.groupOperatorOwnerId) ?? null;
   const selectedLegacyChannel = legacyContext?.channelOptions.find((item) => item.id === legacyDraft.channelId) ?? null;
-  const selectedLegacyReception = legacyContext?.memberOptions.find((item) => item.id === legacyDraft.receptionOwnerId) ?? null;
-  const selectedLegacyOperator = legacyContext?.memberOptions.find((item) => item.id === legacyDraft.groupOperatorOwnerId) ?? null;
+  const selectedLegacyReception = legacyContext?.receptionOptions.find((item) => item.id === legacyDraft.receptionOwnerId) ?? null;
+  const selectedLegacyOperator = legacyContext?.operatorOptions.find((item) => item.id === legacyDraft.groupOperatorOwnerId) ?? null;
   const selectedLegacyExpert = legacyContext?.expertOptions.find((item) => item.id === legacyDraft.expertOwnerId) ?? null;
   const summary = useMemo(() => calculated(draft, Boolean(lawyer)), [draft, lawyer]);
   const displayedNaturalTemplates = useMemo(() => {
@@ -378,12 +380,12 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
       return context.channels.map((channel) => ({ label: `今日数据 · ${channel.name}`, text: base.replace("FB-M", channel.name).replace("CHANNEL", channel.name) }));
     }
     if (naturalIntent === "CUSTOMER" && customerContext?.channelOptions.length) {
-      const operator = customerContext.memberOptions[0]?.name ?? "炒群负责人";
+      const operator = customerContext.operatorOptions[0]?.name ?? "炒群负责人";
       return customerContext.channelOptions.map((channel) => ({ label: `新增进群客户 · ${channel.name}`, text: NATURAL_TEMPLATES.CUSTOMER[0].text.replace("FB-M", channel.name).replace("吴天", operator) }));
     }
     if (naturalIntent === "LEGACY" && legacyContext?.channelOptions.length) {
-      const reception = legacyContext.memberOptions.find((item) => item.id === legacyContext.actorId)?.name ?? legacyContext.memberOptions[0]?.name ?? "接粉组员";
-      const operator = legacyContext.memberOptions.find((item) => item.id !== legacyContext.actorId)?.name ?? reception;
+      const reception = legacyContext.receptionOptions.find((item) => item.id === legacyContext.actorId)?.name ?? legacyContext.receptionOptions[0]?.name ?? "接粉组员";
+      const operator = legacyContext.operatorOptions.find((item) => item.id !== legacyContext.actorId)?.name ?? legacyContext.operatorOptions[0]?.name ?? "炒群负责人";
       const expert = legacyContext.expertOptions[0]?.name ?? "专家负责人";
       const channel = legacyContext.channelOptions[0].name;
       return NATURAL_TEMPLATES.LEGACY
@@ -515,7 +517,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     try {
       const next = await requestJson<CustomerContext>("/api/lead/customer-reporting?stage=group&page=1");
       const phone = phoneIn(text); const channel = optionAfter(text, "渠道", next.channelOptions) ?? optionInText(text, next.channelOptions);
-      const operator = optionAfter(text, "炒群", next.memberOptions); const deviceCode = textAfter(text, "设备") || textAfter(text, "设备号"); const customerName = textAfter(text, "姓名");
+      const operator = optionAfter(text, "炒群", next.operatorOptions); const deviceCode = textAfter(text, "设备") || textAfter(text, "设备号"); const customerName = textAfter(text, "姓名");
       const missing = [!phone && "客户号码", !channel && "来源渠道", !operator && "炒群负责人", !deviceCode && "设备号"].filter(Boolean);
       if (missing.length) { setCustomerContext(next); addMessage("assistant", `还缺少：${missing.join("、")}。请点击模板补齐这些内容后重新发送。`); setPhase("template"); return; }
       setCustomerContext(next); setCustomerMode("single"); setCustomerDraft({ phone, customerName, channelId: channel!.id, joinedOn: next.today, groupOperatorOwnerId: operator!.id, deviceCode }); setPhase("customer-preview");
@@ -533,8 +535,8 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
       }
       const phone = phoneIn(text); const dateRaw = text.match(/((?:(?:\d{4})[年./-])?\d{1,2}[月./-]\d{1,2}(?:日|号)?)\s*接粉/)?.[1] ?? "";
       const sourceDate = aiDate(dateRaw, next.today); const channel = optionAfter(text, "渠道", next.channelOptions) ?? optionInText(text, next.channelOptions);
-      const reception = optionAfter(text, "归属", next.memberOptions) ?? next.memberOptions.find((item) => item.id === next.actorId) ?? null;
-      const operator = optionAfter(text, "炒群", next.memberOptions); const expert = optionAfter(text, "专家", next.expertOptions);
+      const reception = optionAfter(text, "归属", next.receptionOptions) ?? next.receptionOptions.find((item) => item.id === next.actorId) ?? null;
+      const operator = optionAfter(text, "炒群", next.operatorOptions); const expert = optionAfter(text, "专家", next.expertOptions);
       const deviceCode = textAfter(text, "设备号") || textAfter(text, "设备"); const amountValue = numberAfter(text, scenario === "ORDER" ? ["首充"] : ["续充"]);
       const missing = [!scenario && "今天发生的场景", !phone && "客户号码", !sourceDate && "接粉日期", !channel && "来源渠道", !reception && "接粉归属", !operator && "炒群负责人", scenario !== "JOIN" && !expert && "专家负责人", scenario !== "JOIN" && !amountValue && "金额"].filter(Boolean);
       if (missing.length) { setLegacyContext(next); addMessage("assistant", `还缺少：${missing.join("、")}。请点击对应模板补齐后重新发送。`); setPhase("template"); return; }
@@ -632,11 +634,11 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     try {
       const next = await requestJson<LegacyContext>("/api/lead/customer-reporting?stage=group&page=1");
       setLegacyContext(next);
-      if (!next.channelOptions.length || !next.memberOptions.length) {
+      if (!next.channelOptions.length || !next.receptionOptions.length || !next.operatorOptions.length) {
         addMessage("assistant", "当前小组缺少可用渠道或组员，暂时不能录入老客户。");
         setPhase("idle"); return;
       }
-      setLegacyDraft({ ...EMPTY_LEGACY, occurredOn: next.today, receptionOwnerId: next.memberOptions.find((item) => item.id === next.actorId)?.id ?? next.memberOptions[0]?.id ?? "" });
+      setLegacyDraft({ ...EMPTY_LEGACY, occurredOn: next.today, receptionOwnerId: next.receptionOptions.find((item) => item.id === next.actorId)?.id ?? next.receptionOptions[0]?.id ?? "" });
       addMessage("assistant", "请选择这位老客户今天发生的真实场景。历史事实只留档，不会重复计算。");
       setPhase("legacy-scenario");
     } catch (caught) {
@@ -651,7 +653,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
       return;
     }
     const meta = LEGACY_SCENARIOS[scenario];
-    setLegacyDraft((current) => ({ ...EMPTY_LEGACY, scenario, occurredOn: legacyContext?.today ?? current.occurredOn, receptionOwnerId: legacyContext?.memberOptions.find((item) => item.id === legacyContext.actorId)?.id ?? legacyContext?.memberOptions[0]?.id ?? "" }));
+    setLegacyDraft((current) => ({ ...EMPTY_LEGACY, scenario, occurredOn: legacyContext?.today ?? current.occurredOn, receptionOwnerId: legacyContext?.receptionOptions.find((item) => item.id === legacyContext.actorId)?.id ?? legacyContext?.receptionOptions[0]?.id ?? "" }));
     addMessage("user", meta.label);
     addMessage("assistant", "请填写这位客户最早的接粉日期，例如 2026-08-20。这个日期只作为来源底账，不增加今天接粉量。");
     setPhase("legacy-source-date");
@@ -728,13 +730,13 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
   }
 
   function chooseLegacyReception(id: string) {
-    const item = legacyContext?.memberOptions.find((option) => option.id === id); if (!item) return;
+    const item = legacyContext?.receptionOptions.find((option) => option.id === id); if (!item) return;
     setLegacyDraft((current) => ({ ...current, receptionOwnerId: id })); addMessage("user", item.name);
     addMessage("assistant", "请输入设备账号或设备号；暂时没有请回复“跳过”。"); setPhase("legacy-device");
   }
 
   function chooseLegacyOperator(id: string) {
-    const item = legacyContext?.memberOptions.find((option) => option.id === id); if (!item) return;
+    const item = legacyContext?.operatorOptions.find((option) => option.id === id); if (!item) return;
     setLegacyDraft((current) => ({ ...current, groupOperatorOwnerId: id })); addMessage("user", item.name);
       if (legacyDraft.scenario === "JOIN") { addMessage("assistant", `请填写本次进群实际发生日期，今天是 ${legacyContext?.today}；如果就是今天，直接点击或回复“今天”。`); setPhase("legacy-occurred-date"); return; }
     addMessage("assistant", "请选择这位客户的专家负责人。"); setPhase("legacy-expert");
@@ -867,7 +869,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
   }
 
   function chooseCustomerOperator(userId: string) {
-    const member = customerContext?.memberOptions.find((item) => item.id === userId);
+    const member = customerContext?.operatorOptions.find((item) => item.id === userId);
     if (!member) return;
     setCustomerDraft((current) => ({ ...current, groupOperatorOwnerId: member.id }));
     addMessage("user", member.name);
@@ -1020,7 +1022,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
 
   function chooseProgressPerson(userId: string) {
     if (!progressDraft.action || !progressContext) return;
-    const options = progressDraft.action === "assignExpert" ? progressContext.expertOptions : progressContext.memberOptions;
+    const options = progressDraft.action === "assignExpert" ? progressContext.expertOptions : progressContext.operatorOptions;
     const person = options.find((item) => item.id === userId);
     if (!person) return;
     addMessage("user", person.name);
@@ -1301,11 +1303,11 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         </div> : null}
 
         {phase === "legacy-reception" && legacyContext ? <div className={styles.choiceList} aria-label="选择老客户接粉归属">
-          {legacyContext.memberOptions.map((item) => <button type="button" key={item.id} onClick={() => chooseLegacyReception(item.id)}><strong>{item.name}</strong><small>{item.id === legacyContext.actorId ? "当前账号" : "本组成员"}</small></button>)}
+          {legacyContext.receptionOptions.map((item) => <button type="button" key={item.id} onClick={() => chooseLegacyReception(item.id)}><strong>{item.name}</strong><small>{item.id === legacyContext.actorId ? "当前账号" : "接粉组员"}</small></button>)}
         </div> : null}
 
         {phase === "legacy-operator" && legacyContext ? <div className={styles.choiceList} aria-label="选择老客户炒群负责人">
-          {legacyContext.memberOptions.map((item) => <button type="button" key={item.id} onClick={() => chooseLegacyOperator(item.id)}><strong>{item.name}</strong><small>炒群负责人</small></button>)}
+          {legacyContext.operatorOptions.map((item) => <button type="button" key={item.id} onClick={() => chooseLegacyOperator(item.id)}><strong>{item.name}</strong><small>炒群负责人</small></button>)}
         </div> : null}
 
         {phase === "legacy-expert" && legacyContext ? <div className={styles.choiceList} aria-label="选择老客户专家负责人">
@@ -1345,7 +1347,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         </div> : null}
 
         {phase === "customer-operator" && customerContext ? <div className={styles.choiceList} aria-label="选择炒群负责人">
-          {customerContext.memberOptions.map((member) => <button type="button" key={member.id} onClick={() => chooseCustomerOperator(member.id)}><strong>{member.name}</strong><small>本组在职成员</small></button>)}
+          {customerContext.operatorOptions.map((member) => <button type="button" key={member.id} onClick={() => chooseCustomerOperator(member.id)}><strong>{member.name}</strong><small>炒群负责人</small></button>)}
         </div> : null}
 
         {(phase === "preview" || phase === "saving" || phase === "done" || phase === "edit-select" || phase === "query-daily-result") && context && selectedChannel ? <div className={styles.preview}>
@@ -1408,7 +1410,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         </div> : null}
 
         {phase === "progress-person" && progressContext && progressDraft.action ? <div className={styles.choiceList} aria-label="选择客户负责人">
-          {(progressDraft.action === "assignExpert" ? progressContext.expertOptions : progressContext.memberOptions).map((person) => <button type="button" key={person.id} onClick={() => chooseProgressPerson(person.id)}><strong>{person.name}</strong><small>{progressDraft.action === "assignExpert" ? "专家/组长" : "本组在职成员"}</small></button>)}
+          {(progressDraft.action === "assignExpert" ? progressContext.expertOptions : progressContext.operatorOptions).map((person) => <button type="button" key={person.id} onClick={() => chooseProgressPerson(person.id)}><strong>{person.name}</strong><small>{progressDraft.action === "assignExpert" ? "专家/组长" : "炒群负责人"}</small></button>)}
         </div> : null}
 
         {phase === "progress-method" ? <div className={styles.choiceList} aria-label="选择入金方式">

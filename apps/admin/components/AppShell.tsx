@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  IconBell, IconChart, IconChevronDown, IconDevice, IconInbox, IconKey, IconLogout, IconRoute, IconSearch,
+  IconBell, IconChart, IconChevronDown, IconDevice, IconKey, IconLogout, IconRoute, IconSearch,
   IconTrophy, IconUsers,
 } from "./Icons";
 import { ActionConfirmationBoundary } from "./ActionConfirmationBoundary";
@@ -116,7 +116,6 @@ const NAV_RESOURCE: NavSection[] = [
   {
     group: "日常工作",
     items: [
-      { id: "resource-inbox", label: "接粉数据核对", Icon: IconInbox },
       { id: "resource-summary", label: "渠道数据汇总", Icon: IconChart },
       { id: "resource-group-detail", label: "小组明细", Icon: IconSearch },
       { id: "resource-notice", label: "通知中心", Icon: IconBell },

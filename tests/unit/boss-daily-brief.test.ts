@@ -51,7 +51,7 @@ describe("老板每日简报", () => {
 
     expect(brief.totals).toMatchObject({ newFans: 20, effectiveFans: 16, replies: 10, groupJoin: 5, expertIntro: 3, expertContacted: 2, orders: 1, rechargeCents: 15_000 });
     expect(brief.rates.replyRate).toBeCloseTo(0.625);
-    expect(brief.rates.joinRate).toBeCloseTo(0.5);
+    expect(brief.rates.joinRate).toBeCloseTo(5 / 16);
     expect(brief.hasData).toBe(true);
     expect(brief.topGroups[0]?.name).toBe("A组");
   });

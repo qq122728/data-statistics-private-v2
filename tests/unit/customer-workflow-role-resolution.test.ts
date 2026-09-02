@@ -39,13 +39,14 @@ describe("组员按客户当前负责关系选择流程身份", () => {
       .resolves.toEqual({ status: 403, error: "需要专家权限才能处理专家阶段" });
   });
 
-  it("同组未分配成员能维护炒群情况，专家情况需要专家权限", async () => {
+  it("同组未分配成员只能查看，不能维护别人的炒群或专家情况", async () => {
     const sharedLead = { ...joinedLead, groupOperatorOwnerId: "other-member", expertOwnerId: "other-member" };
     const transaction = {} as Parameters<typeof authorizeCustomerAction>[0];
-    await expect(authorizeCustomerAction(transaction, actor, sharedLead, "updateGroupProgress")).resolves.toBeNull();
+    await expect(authorizeCustomerAction(transaction, actor, sharedLead, "updateGroupProgress"))
+      .resolves.toEqual({ status: 403, error: "只有该客户当前炒群负责人或组长可以填写炒群情况" });
     await expect(authorizeCustomerAction(transaction, actor, sharedLead, "updateExpertDetails"))
       .resolves.toEqual({ status: 403, error: "需要专家权限才能处理专家阶段" });
-    expect(resolveWorkflowActorRole(actor, sharedLead, "updateGroupProgress")).toBe("GROUP_OPERATOR");
+    expect(resolveWorkflowActorRole(actor, sharedLead, "updateGroupProgress")).toBeNull();
     expect(resolveWorkflowActorRole(actor, sharedLead, "updateExpertDetails")).toBeNull();
     const expertActor = { ...actor, roleAssignments: [{ role: "EXPERT" as const }] };
     await expect(authorizeCustomerAction(transaction, expertActor, { ...sharedLead, expertOwnerId: expertActor.id }, "updateExpertDetails")).resolves.toBeNull();

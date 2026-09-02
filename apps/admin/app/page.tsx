@@ -16,7 +16,6 @@ import { RealNotificationCenter } from "@/components/RealNotificationCenter";
 import { RealOrganizationManagement } from "@/components/RealOrganizationManagement";
 import { PersonnelTransferPanel } from "@/components/PersonnelTransferPanel";
 import { RealOrganizationReporting } from "@/components/RealOrganizationReporting";
-import { RealResourceDailyStatReview } from "@/components/RealResourceDailyStatReview";
 import { RealResourceReporting } from "@/components/RealResourceReporting";
 import { RealChannelSettings } from "@/components/RealChannelSettings";
 import { TabDashboard } from "@/components/TabDashboard";
@@ -37,7 +36,7 @@ type View =
   | "team-overview" | "team-detail" | "group-leadership" | "dept-notice" | "dept-leaderboard"
   | "company-overview" | "company-detail" | "company-leadership" | "company-notice" | "company-leaderboard"
   | "hq-overview" | "hq-detail" | "hq-leadership" | "hq-notice" | "hq-leaderboard"
-  | "resource-inbox" | "resource-summary" | "resource-group-detail" | "resource-notice"
+  | "resource-summary" | "resource-group-detail" | "resource-notice"
   | "management-customer-progress" | "channel-settings";
 
 const DEFAULT_VIEW: Record<Role, View> = {
@@ -45,8 +44,8 @@ const DEFAULT_VIEW: Record<Role, View> = {
   DEPT_MANAGER: "team-overview",
   COMPANY_MANAGER: "company-overview",
   HQ_MANAGER: "hq-overview",
-  RESOURCE_TRAFFIC: "resource-inbox",
-  RESOURCE_SMS: "resource-inbox",
+  RESOURCE_TRAFFIC: "resource-summary",
+  RESOURCE_SMS: "resource-summary",
 };
 
 const PAGE_META: Record<View, { title: string; section: string }> = {
@@ -74,7 +73,6 @@ const PAGE_META: Record<View, { title: string; section: string }> = {
   "hq-leadership": { title: "全局人事", section: "组织管理" },
   "hq-notice": { title: "通知中心", section: "日常工作" },
   "hq-leaderboard": { title: "精英榜", section: "组织管理" },
-  "resource-inbox": { title: "接粉数据核对", section: "日常工作" },
   "resource-summary": { title: "渠道数据汇总", section: "日常工作" },
   "resource-group-detail": { title: "小组明细", section: "日常工作" },
   "resource-notice": { title: "通知中心", section: "日常工作" },
@@ -305,8 +303,7 @@ export default function Page() {
                                 : view === "hq-overview" ? <RealHierarchyOverview level="company" title="公司汇总" fixedMonth />
                                   : view === "management-customer-progress" ? <ManagementCustomerProgress permissionLabel={managementPermission} />
                                     : view === "resource-summary" ? <RealResourceReporting detail={false} />
-                                      : view === "resource-inbox" ? <RealResourceDailyStatReview />
-                                        : view === "resource-group-detail" ? <RealResourceReporting detail />
+                                      : view === "resource-group-detail" ? <RealResourceReporting detail />
                                           : ["leaderboard", "dept-leaderboard", "company-leaderboard", "hq-leaderboard"].includes(view) ? <Leaderboard />
                                             : ["notice", "dept-notice", "company-notice", "hq-notice"].includes(view) ? <RealNotificationCenter canSend />
                                               : view === "resource-notice" ? <RealNotificationCenter canSend={false} />

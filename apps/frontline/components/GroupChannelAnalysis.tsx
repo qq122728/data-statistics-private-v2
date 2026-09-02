@@ -12,7 +12,7 @@ type Slice = { id?: string; name: string; totals: Totals; derivedRates: Rates };
 type Channel = Slice & { members: Array<Slice & { id: string }> };
 type Member = Slice & { id: string; channels: Array<Slice & { id: string }> };
 type Day = { date: string; summary: Slice; rows: Channel[] };
-type Payload = { group: { name: string; groupType: "HACKER" | "LAWYER" }; range: { today: string; from: string; to: string; label: string }; summary: Slice; rows: Channel[]; members: Member[]; days: Day[]; review: { pending: number; approved: number; returned: number }; analysis: Array<{ tone: "good" | "warn" | "info"; title: string; detail: string }> };
+type Payload = { group: { name: string; groupType: "HACKER" | "LAWYER" }; range: { today: string; from: string; to: string; label: string }; summary: Slice; rows: Channel[]; members: Member[]; days: Day[]; analysis: Array<{ tone: "good" | "warn" | "info"; title: string; detail: string }> };
 type Mode = "member" | "channel" | "day";
 type ViewRow = Slice & { key: string; children: Slice[] };
 type DailyReportPayload = { text: string; report: { groupName: string; reportDate: string } };
@@ -124,7 +124,6 @@ export function GroupChannelAnalysis() {
     <SmartDateRangeToolbar range={range} from={customFrom || payload?.range.from || ""} to={customTo || payload?.range.to || ""} currentLabel={payload ? payload.range.from === payload.range.to ? payload.range.from : `${payload.range.from} 至 ${payload.range.to}` : undefined} loading={loading} title="小组日报＋渠道数据汇总" note="组长确认数据后手动生成，可下载 Excel 或推送到 Telegram；系统不会自动推送" onRange={setRange} onFrom={setCustomFrom} onTo={setCustomTo} onRefresh={() => void load()} />
     {error ? <div className="team-management__notice"><span>!</span>{error}</div> : null}
     {loading && !payload ? <section className="fresh-sheet-card analysis-loading">正在生成真实分析报告…</section> : payload ? <>
-      {payload.review.pending > 0 ? <section className="analysis-review-note"><strong>{payload.review.pending} 条数据待资源部核对</strong><span>这些数据已经显示在本页并计入汇总，不会再出现“填了但组长看不到”。</span></section> : null}
       <section className="fresh-sheet-card daily-report-card">
         <div className="fresh-sheet-title"><div><h2>小组业务日报</h2><p>先由组长确认当天数据，再手动生成、下载或推送；系统不会自动发送。</p></div><button className="fresh-primary" disabled={Boolean(reportBusy)} onClick={() => void generateDailyReport()}>{reportBusy === "generate" ? "生成中…" : dailyReport ? "重新生成" : "生成日报"}</button></div>
         {dailyReport ? <div className="daily-report-body"><div className="daily-report-preview"><pre>{dailyReport.text}</pre></div><div className="daily-report-actions"><button onClick={() => void copyDailyReport()}><Copy size={17} weight="bold" />复制文字</button><a href={`/api/lead/daily-business-report?date=${encodeURIComponent(dailyReport.report.reportDate)}&format=xlsx`}><DownloadSimple size={17} weight="bold" />下载 Excel</a><button data-primary="true" disabled={reportBusy === "push"} onClick={() => void pushDailyReport()}><PaperPlaneTilt size={17} weight="bold" />{reportBusy === "push" ? "正在推送…" : "推送到 Telegram"}</button></div></div> : <div className="daily-report-empty">先选好日期，再点“生成日报”。系统会自动整理人员、渠道、当日和当月数据。</div>}

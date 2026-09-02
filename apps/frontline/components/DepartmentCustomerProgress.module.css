@@ -1091,6 +1091,24 @@
 .draftCustomer button:disabled {
   opacity: 0.45;
 }
+.correctionButton {
+  min-height: 24px;
+  border: 1px solid #d5a437;
+  border-radius: 5px;
+  background: #fff8e7;
+  color: #8a5a00;
+  font: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.correctionReason {
+  grid-column: 1 / -1;
+}
+.correctionReason textarea {
+  width: 100%;
+  resize: vertical;
+}
 /* 工作台左侧还有导航栏，浏览器宽度即使超过 1100px，实际内容区也可能
    放不下整排筛选器。提前切成紧凑两行，确保新增/导入按钮永远可见。 */
 @media (max-width: 1450px) {

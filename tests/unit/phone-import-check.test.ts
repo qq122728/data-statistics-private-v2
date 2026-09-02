@@ -16,8 +16,8 @@ describe.sequential("号码导入前检查", () => {
   it("在客户端和服务端使用同一套分隔、格式与本次重复规则", () => {
     expect(parsePhoneImport("13800138000, 13800138000\n+1 (212) 555-0100\nabc")).toMatchObject({
       rawPhones: ["13800138000", "13800138000", "+1", "(212)", "555-0100", "abc"],
-      distinctPhones: ["138000", "1", "212", "550100"],
-      invalidPhones: ["abc"],
+      distinctPhones: ["138000", "550100"],
+      invalidPhones: ["+1", "(212)", "abc"],
       duplicatePhones: ["138000"],
       duplicateCount: 1,
     });
@@ -55,6 +55,30 @@ describe.sequential("号码导入前检查", () => {
       collisions: [{ phone: existingPhone, ownerName: actor.name }],
     });
     await expect(db.leadCustomer.count()).resolves.toBe(before);
+
+    const unrelatedId = `phone-check-unrelated-${Date.now()}`;
+    const unrelated = await db.user.create({
+      data: {
+        id: unrelatedId,
+        username: unrelatedId,
+        name: "不应泄露撞粉归属的同组成员",
+        role: "RECEPTION",
+        groupId: actor.groupId,
+      },
+    });
+    try {
+      vi.spyOn(auth, "requireUser").mockResolvedValue(unrelated);
+      const privateResponse = await POST(new Request("http://localhost/api/leads/check", {
+        method: "POST",
+        body: JSON.stringify({ phones: existingInput }),
+      }));
+      expect(privateResponse.status).toBe(200);
+      await expect(privateResponse.json()).resolves.toMatchObject({
+        collisions: [{ phone: existingPhone, ownerName: "已存在客户" }],
+      });
+    } finally {
+      await db.user.delete({ where: { id: unrelatedId } });
+    }
   });
 
   it("其他岗位不能调用接粉检查接口", async () => {

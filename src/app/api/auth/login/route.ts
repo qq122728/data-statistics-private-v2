@@ -53,9 +53,9 @@ export async function POST(request: Request) {
     // 原样保存，避免改变当前用户名大小写敏感的登录语义。
     username: body.username.trim().slice(0, 200),
   };
-  const retryAfter = loginRetryAfterMs(identity);
+  const retryAfter = await loginRetryAfterMs(identity);
   if (retryAfter > 0) {
-    const auditIdentity = loginAuditIdentity(identity);
+    const auditIdentity = await loginAuditIdentity(identity);
     recordSecurityEvent({
       event: "LOGIN_LOCKED",
       userId: auditIdentity?.userId ?? null,
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
   const authentication = await authenticateUserWithIdentity(body.username, body.password);
   const user = authentication.user;
   if (!user) {
-    recordFailedLogin(identity, Date.now(), authentication.auditIdentity);
+    await recordFailedLogin(identity, Date.now(), authentication.auditIdentity);
     recordSecurityEvent({
       event: "LOGIN_FAILURE",
       userId: authentication.auditIdentity?.userId ?? null,
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "账号、密码错误或账号已停用" }, { status: 401 });
   }
 
-  recordSuccessfulLogin(identity);
+  await recordSuccessfulLogin(identity);
 
   const [session] = await Promise.all([
     createSession(user.id),

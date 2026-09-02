@@ -16,6 +16,7 @@ import { splitCustomerImportRows } from "../../../lib/customer-import-eligibilit
 import { hasAssignedRole } from "../../../lib/role-access";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
 import { leadCurrentGroupId } from "../../../lib/customer-current-group";
+import { isCustomerCollaborator } from "../../../lib/customer-collaboration-visibility";
 
 const date = z.string().refine(isCalendarDate, "日期必须是实际存在的 YYYY-MM-DD");
 const importCustomerRowSchema = z.object({
@@ -128,6 +129,9 @@ export async function POST(request: Request) {
           phone: true,
           id: true,
           ownerId: true,
+          attributionOwnerId: true,
+          groupOperatorOwnerId: true,
+          expertOwnerId: true,
           currentGroupId: true,
           owner: { select: { name: true } },
           batch: { select: { groupId: true } },
@@ -143,11 +147,19 @@ export async function POST(request: Request) {
       // 归属人可以不同于实际录入人，但必须是同一小组的在职成员，防止业绩串到别的公司或小组。
       const attributionOwnerIds = [...new Set(acceptedRows.map((row) => row.attributionOwnerId ?? user.id))];
       const attributionOwners = await transaction.user.findMany({
-        where: { id: { in: attributionOwnerIds }, groupId: channel.groupId, active: true },
+        where: {
+          id: { in: attributionOwnerIds },
+          groupId: channel.groupId,
+          active: true,
+          OR: [
+            { role: "RECEPTION" },
+            { roleAssignments: { some: { role: "RECEPTION" } } },
+          ],
+        },
         select: { id: true },
       });
       if (attributionOwners.length !== attributionOwnerIds.length)
-        throw new ChannelResolutionError("粉的归属只能选择本组在职成员");
+        throw new ChannelResolutionError("粉的归属只能选择本组有接粉权限的在职成员");
       const batch = await getOrCreateSourceBatch({
         groupId: channel.groupId,
         channelId: channel.id,
@@ -182,7 +194,7 @@ export async function POST(request: Request) {
           data: acceptedRows.map((row) => ({
               phone: row.normalizedPhone,
               batchId: batch.id,
-              ownerId: user.id,
+              ownerId: row.attributionOwnerId ?? user.id,
               attributionOwnerId: row.attributionOwnerId ?? user.id,
               groupOperatorOwnerId: operatorAssignment?.groupOperatorId ?? (hasAssignedRole(user, "GROUP_OPERATOR") ? user.id : null),
               receptionCategory: "VALID",
@@ -211,7 +223,11 @@ export async function POST(request: Request) {
         lowAmountCount: lowAmountRows.length,
         collisions: existing.map((lead) => ({
           phone: lead.phone,
-          ownerName: leadCurrentGroupId(lead) === channel.groupId ? lead.owner.name : "其他公司或小组",
+          ownerName:
+            leadCurrentGroupId(lead) === channel.groupId &&
+            isCustomerCollaborator(user.id, lead)
+              ? lead.owner.name
+              : "已存在客户",
         })),
         submitted: acceptedRows.length,
       };

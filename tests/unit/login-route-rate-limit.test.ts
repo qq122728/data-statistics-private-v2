@@ -12,8 +12,8 @@ const request = () => new Request("http://localhost/api/auth/login", {
 });
 
 describe("login route throttling", () => {
-  beforeEach(() => resetLoginThrottleForTests());
-  afterEach(() => resetLoginThrottleForTests());
+  beforeEach(async () => resetLoginThrottleForTests());
+  afterEach(async () => resetLoginThrottleForTests());
 
   it("returns 429 and retry information after repeated failed passwords", async () => {
     for (let count = 0; count < 8; count += 1) {

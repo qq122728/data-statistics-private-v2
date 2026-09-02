@@ -28,11 +28,13 @@ describe.sequential("组长本组工作交接", () => {
     const leadId = `${prefix}lead-${suffix}`;
     const sourceId = `${prefix}source-${suffix}`;
     const targetId = `${prefix}target-${suffix}`;
+    const restrictedTargetId = `${prefix}restricted-target-${suffix}`;
     const outsiderId = `${prefix}outsider-${suffix}`;
     await db.teamGroup.createMany({ data: [{ id: groupId, name: `交接组-${suffix}` }, { id: otherGroupId, name: `外组-${suffix}` }] });
     const lead = await db.user.create({ data: { id: leadId, username: leadId, name: "交接组长", role: "LEAD", groupId } });
     await db.user.create({ data: { id: sourceId, username: sourceId, name: "原负责人", role: "RECEPTION", groupId, roleAssignments: { create: [{ role: "RECEPTION" }, { role: "GROUP_OPERATOR" }, { role: "EXPERT" }] } } });
-    await db.user.create({ data: { id: targetId, username: targetId, name: "新负责人", role: "EXPERT", groupId } });
+    await db.user.create({ data: { id: targetId, username: targetId, name: "新负责人", role: "EXPERT", groupId, roleAssignments: { create: [{ role: "RECEPTION" }, { role: "GROUP_OPERATOR" }, { role: "EXPERT" }] } } });
+    await db.user.create({ data: { id: restrictedTargetId, username: restrictedTargetId, name: "只有专家权限", role: "EXPERT", groupId } });
     await db.user.create({ data: { id: outsiderId, username: outsiderId, name: "外组成员", role: "RECEPTION", groupId: otherGroupId } });
     vi.spyOn(auth, "requireRole").mockResolvedValue(lead);
     const channel = await db.channel.create({ data: { id: `${prefix}channel-${suffix}`, groupId, name: "交接渠道", normalizedName: `${prefix}${suffix}` } });
@@ -46,6 +48,9 @@ describe.sequential("组长本组工作交接", () => {
 
     const denied = await POST(new Request("http://localhost/api/lead/members/handover", { method: "POST", body: JSON.stringify({ sourceId, targetId: outsiderId, reason: "交接给外组成员" }) }));
     expect(denied.status).toBe(403);
+    const missingRoles = await POST(new Request("http://localhost/api/lead/members/handover", { method: "POST", body: JSON.stringify({ sourceId, targetId: restrictedTargetId, reason: "岗位不完整交接" }) }));
+    expect(missingRoles.status).toBe(400);
+    await expect(missingRoles.json()).resolves.toMatchObject({ error: expect.stringContaining("接粉权限") });
     const response = await POST(new Request("http://localhost/api/lead/members/handover", { method: "POST", body: JSON.stringify({ sourceId, targetId, reason: "本组工作调整交接" }) }));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ transferred: { reception: 1, operator: 1, expert: 1, physicalDevices: 1, deviceAccounts: 1 } });

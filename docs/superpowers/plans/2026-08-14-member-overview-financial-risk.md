@@ -1,5 +1,7 @@
 # Member Overview, Financial Accounting, and Risk Alerts Implementation Plan
 
+> **历史归档，停止执行。** 本文只用于追溯当时的设计或实施过程；涉及资源部确认、手填进群/注册/开单、岗位权限、统计日期或旧前端的内容均不是现行规则。当前口径请看 [当前业务规则](/Users/aaaa/Desktop/数据统计/docs/business/current-business-rules.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 将现有“异常榜单”升级为可实际管理资源分配的“组员数据总览”，补齐有效粉、渠道固定单价、财务核算、员工阶段、正向排名和按天风险预警，同时严格保持本人录入和角色数据边界。

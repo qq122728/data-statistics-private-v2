@@ -777,5 +777,53 @@ describe.sequential("legacy customer entry", () => {
       message: "该号码已存在",
     });
     expect(JSON.stringify(body)).not.toContain("绝不能泄露");
+
+    const sameGroupOwner = await db.user.create({
+      data: {
+        id: `${prefix}same-owner-${suffix}`,
+        username: `${prefix}same-owner-${suffix}`,
+        name: "绝不能泄露的同组姓名",
+        role: "RECEPTION",
+        groupId: ownGroup.id,
+        passwordHash: hashPassword("Legacy@56790"),
+      },
+    });
+    const sameChannel = await db.channel.create({
+      data: {
+        id: `${prefix}same-channel-${suffix}`,
+        groupId: ownGroup.id,
+        name: "同组保密渠道",
+        normalizedName: `same-${suffix}`,
+      },
+    });
+    const sameBatch = await db.sourceBatch.create({
+      data: {
+        groupId: ownGroup.id,
+        channelId: sameChannel.id,
+        sourceDate: "2026-08-21",
+      },
+    });
+    const samePhone = String((Number(normalizeCustomerPhone(phone)) + 1) % 1_000_000).padStart(6, "0");
+    await db.leadCustomer.create({
+      data: {
+        phone: normalizeCustomerPhone(samePhone),
+        batchId: sameBatch.id,
+        ownerId: sameGroupOwner.id,
+        attributionOwnerId: sameGroupOwner.id,
+        customerName: "绝不能泄露的同组客户",
+      },
+    });
+    const sameResponse = await GET(
+      new Request(`http://localhost/api/legacy-customers?phone=${samePhone}`),
+    );
+    expect(sameResponse.status).toBe(200);
+    const sameBody = await sameResponse.json();
+    expect(sameBody).toEqual({
+      exists: true,
+      sameGroup: true,
+      canAccess: false,
+      message: "该号码已存在",
+    });
+    expect(JSON.stringify(sameBody)).not.toContain("绝不能泄露");
   });
 });

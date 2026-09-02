@@ -51,6 +51,7 @@ describe("lead date ranges", () => {
       expect(source).toContain(label);
     }
     expect(source).toContain('type="date"');
-    expect(groupSource).toContain("待资源部核对");
+    expect(groupSource).not.toContain("待资源部核对");
+    expect(groupSource).not.toContain("payload.review");
   });
 });

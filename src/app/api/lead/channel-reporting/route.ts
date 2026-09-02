@@ -15,7 +15,7 @@ import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
-/** 组长新版工作台的真实渠道汇总及逐日明细。最新版保存后立即可见，资源部核对状态另行展示。 */
+/** 组长新版工作台的真实渠道汇总及逐日明细。员工保存的最新版立即进入正式汇总。 */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params))
@@ -290,10 +290,5 @@ export async function GET(request: Request) {
     members,
     analysis,
     days,
-    review: {
-      pending: entries.filter((entry) => entry.status === "RESOURCE_PENDING").length,
-      approved: entries.filter((entry) => entry.status === "APPROVED").length,
-      returned: entries.filter((entry) => entry.status === "RETURNED").length,
-    },
   }, { headers: { "Cache-Control": "private, no-store" } });
 }

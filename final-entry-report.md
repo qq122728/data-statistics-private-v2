@@ -1,4 +1,6 @@
-# 最终录入流程修复报告
+# 最终录入流程修复报告（旧单体前端历史记录）
+
+> 本文描述的手工拉群、退群、注册和开单表单已经停止使用。当前这些人数必须由客户号码阶段事件生成，现行规则请看 [`docs/business/current-business-rules.md`](docs/business/current-business-rules.md)。
 
 ## 结果
 

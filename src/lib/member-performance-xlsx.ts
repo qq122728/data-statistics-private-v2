@@ -102,7 +102,7 @@ const headers = [
 export function metricValues(row: MemberMetricRow) {
   return [
     row.added, row.duplicate, row.lowAmount, row.noWs, row.effective, row.replied, rate(row.replied, row.effective),
-    row.joined, rate(row.joined, row.replied), row.left, rate(row.abnormalLeft, row.abnormalLeaveRateBase ?? row.joined), row.introduced, row.contacted,
+    row.joined, rate(row.joined, row.effective), row.left, rate(row.abnormalLeft, row.abnormalLeaveRateBase ?? row.joined), row.introduced, row.contacted,
     row.registered, rate(row.registered, row.contacted ?? row.introduced), row.orders, rate(row.orders, row.registered),
     money(row.firstDepositCents), money(row.depositCents), money(row.withdrawalCents), money(row.netPerformanceCents),
   ];

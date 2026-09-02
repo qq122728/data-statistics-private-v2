@@ -11,6 +11,7 @@ import {
   POST as postLeadCustomerReporting,
 } from "../../src/app/api/lead/customer-reporting/route";
 import { PATCH as patchSharedCustomer } from "../../src/app/api/lead/customer-reporting/[leadId]/route";
+import { POST as correctSharedCustomerAttribution } from "../../src/app/api/lead/customer-reporting/[leadId]/attribution-correction/route";
 import { POST as postCustomerOrder } from "../../src/app/api/customer-orders/route";
 import { GET as getPerformanceLeaderboard } from "../../src/app/api/performance-leaderboard/route";
 import { GET as getLeadMemberDailyStats } from "../../src/app/api/lead/member-daily-stats/[memberId]/route";
@@ -737,7 +738,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          phone: `91${suffix.replaceAll("-", "").slice(0, 8)}`,
+          phone: `${Math.floor(100000 + Math.random() * 899999)}`,
           channelId: originalChannelId,
           sourceDate: "2026-09-02",
           joinedOn: "2026-09-02",
@@ -766,6 +767,23 @@ describe.sequential("新版组长真实渠道报表 API", () => {
         ),
         { params: Promise.resolve({ leadId: customer.id }) },
       );
+    const correctAttribution = (channelId: string, reason: string) =>
+      correctSharedCustomerAttribution(
+        new Request(
+          `http://localhost/api/lead/customer-reporting/${customer.id}/attribution-correction`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              attributionOwnerId: ids.berlinReception,
+              channelId,
+              sourceDate: "2026-09-02",
+              reason,
+            }),
+          },
+        ),
+        { params: Promise.resolve({ leadId: customer.id }) },
+      );
 
     expect(
       (
@@ -774,11 +792,14 @@ describe.sequential("新版组长真实渠道报表 API", () => {
           userId: ids.berlinOperatorA,
         })
       ).status,
-    ).toBe(200);
+    ).toBe(403);
     expect(
       (await patch({ action: "setChannel", channelId: correctedChannelId }))
         .status,
-    ).toBe(200);
+    ).toBe(403);
+    await signIn(ids.lead);
+    expect((await correctAttribution(correctedChannelId, "创建时选错来源渠道")).status).toBe(200);
+    await signIn(ids.berlinOperatorA);
     expect(
       (
         await patch({
@@ -886,10 +907,8 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     expect(
       wrongDay.customers.map((item: { id: string }) => item.id),
     ).not.toContain(customer.id);
-    expect(
-      (await patch({ action: "setChannel", channelId: originalChannelId }))
-        .status,
-    ).toBe(200);
+    await signIn(ids.lead);
+    expect((await correctAttribution(originalChannelId, "核对原始渠道后恢复")).status).toBe(200);
     expect(
       (
         await patch({
@@ -1099,7 +1118,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
         joinedOn: "2026-09-01",
       },
     });
-    await signIn(ids.berlinReception);
+    await signIn(ids.berlinOperatorA);
     const patch = (occurredOn: string) =>
       patchSharedCustomer(
         new Request(
@@ -1126,7 +1145,9 @@ describe.sequential("新版组长真实渠道报表 API", () => {
       where: { id: customer.id },
     });
     expect(corrected.expertIntroducedOn).toBe("2026-09-02");
-    expect(corrected.expertQueueNumber).not.toBe(firstNumber);
+    // 每个日期各自从 001 起排号；跨日纠错后流水号可能仍是 001，日期才是编号的一部分。
+    expect(firstNumber ?? 0).toBeGreaterThan(0);
+    expect(corrected.expertQueueNumber ?? 0).toBeGreaterThan(0);
 
     const eventEntries = await db.dailyStatEntry.findMany({
       where: { channelId },
@@ -1167,7 +1188,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     vi.useRealTimers();
   });
 
-  it("员工保存后即使仍待资源部核对，组长也能立刻在汇总中看到", async () => {
+  it("员工保存后正式版本能立刻出现在组长和部门汇总中", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
     const channelId = id("berlin-channel");
@@ -1180,7 +1201,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
         businessDate: "2026-09-01",
         timezone: "Europe/Berlin",
         position: "RECEPTION",
-        status: "RESOURCE_PENDING",
+        status: "APPROVED",
       },
     });
     const revision = await db.dailyStatRevision.create({
@@ -1195,7 +1216,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     });
     await db.dailyStatEntry.update({
       where: { id: entry.id },
-      data: { currentRevisionId: revision.id },
+      data: { currentRevisionId: revision.id, approvedRevisionId: revision.id },
     });
     try {
       await signIn(ids.lead);
@@ -1207,7 +1228,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
       expect(body.summary).toMatchObject({
         totals: { added: 8, effective: 7, replied: 3 },
       });
-      expect(body.review).toMatchObject({ pending: 1 });
+      expect(body).not.toHaveProperty("review");
 
       await signIn(ids.departmentManager);
       const departmentBody = await (
@@ -1589,6 +1610,30 @@ describe.sequential("新版客户进度 API", () => {
     expect(forbidden.status).toBe(403);
 
     await signIn(ids.berlinExpert);
+    const invalidReception = await postLeadCustomerReporting(
+      new Request("http://localhost/api/lead/customer-reporting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...body, attributionOwnerId: ids.berlinExpert }),
+      }),
+    );
+    expect(invalidReception.status).toBe(400);
+    const invalidOperator = await postLeadCustomerReporting(
+      new Request("http://localhost/api/lead/customer-reporting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...body, groupOperatorOwnerId: ids.berlinExpert }),
+      }),
+    );
+    expect(invalidOperator.status).toBe(400);
+    const invalidExpert = await postLeadCustomerReporting(
+      new Request("http://localhost/api/lead/customer-reporting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...body, expertOwnerId: ids.berlinOperatorB }),
+      }),
+    );
+    expect(invalidExpert.status).toBe(400);
     const response = await postLeadCustomerReporting(
       new Request("http://localhost/api/lead/customer-reporting", {
         method: "POST",
@@ -1655,7 +1700,7 @@ describe.sequential("新版客户进度 API", () => {
     vi.useRealTimers();
   });
 
-  it("公司管理员代录时必须选择实际接粉组员，客户和统计都归该组员", async () => {
+  it("公司管理员可以查看范围内客户，但不能代录或修改客户数据", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-02T03:30:00Z"));
     const channelId = id("manager-proxy-channel");
@@ -1683,7 +1728,7 @@ describe.sequential("新版客户进度 API", () => {
         }),
       }),
     );
-    expect(missingOwner.status).toBe(400);
+    expect(missingOwner.status).toBe(403);
 
     const saved = await postLeadCustomerReporting(
       new Request("http://localhost/api/lead/customer-reporting", {
@@ -1701,43 +1746,12 @@ describe.sequential("新版客户进度 API", () => {
         }),
       }),
     );
-    expect(saved.status).toBe(201);
-    const customer = (await saved.json()) as { id: string };
-    await expect(
-      db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id } }),
-    ).resolves.toMatchObject({
-      ownerId: ids.berlinReception,
-      attributionOwnerId: ids.berlinReception,
-      groupOperatorOwnerId: ids.berlinOperatorA,
-      joinedOn: "2026-09-02",
-    });
-    expect(
-      (
-        await patchSharedCustomer(
-          new Request(
-            `http://localhost/api/lead/customer-reporting/${customer.id}`,
-            {
-              method: "PATCH",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                action: "setDeviceCode",
-                code: "管理员不应直接改行",
-              }),
-            },
-          ),
-          { params: Promise.resolve({ leadId: customer.id }) },
-        )
-      ).status,
-    ).toBe(403);
+    expect(saved.status).toBe(403);
     const eventEntries = await db.dailyStatEntry.findMany({
       where: { channelId },
       select: { id: true },
     });
-    expect(eventEntries.some((entry) => entry.id)).toBe(true);
-
-    await db.leadActivity.deleteMany({ where: { leadId: customer.id } });
-    await db.auditLog.deleteMany({ where: { entityId: customer.id } });
-    await db.leadCustomer.delete({ where: { id: customer.id } });
+    expect(eventEntries).toEqual([]);
     await db.dailyStatEntry.updateMany({
       where: { id: { in: eventEntries.map((entry) => entry.id) } },
       data: { currentRevisionId: null, approvedRevisionId: null },
@@ -1747,9 +1761,6 @@ describe.sequential("新版客户进度 API", () => {
     });
     await db.dailyStatEntry.deleteMany({
       where: { id: { in: eventEntries.map((entry) => entry.id) } },
-    });
-    await db.device.deleteMany({
-      where: { groupId: ids.berlinGroup, code: "管理员代录设备" },
     });
     await db.sourceBatch.deleteMany({
       where: { groupId: ids.berlinGroup, channelId },
@@ -2100,6 +2111,140 @@ describe.sequential("新版客户进度 API", () => {
     ).toBe(200);
   });
 
+  it("普通组员只读取有接粉、炒群或专家配合关系的客户，人员下拉仍保留全组候选人", async () => {
+    const batch = await db.sourceBatch.findFirstOrThrow({
+      where: { groupId: ids.berlinGroup },
+      select: { id: true },
+    });
+    const names = {
+      ownerOnly: `仅接粉关系-${suffix}`,
+      operatorRelated: `炒群配合关系-${suffix}`,
+      expertRelated: `专家配合关系-${suffix}`,
+    };
+    const customerIds = [
+      id("visibility-owner-only"),
+      id("visibility-operator-related"),
+      id("visibility-expert-related"),
+    ];
+    await db.leadCustomer.createMany({
+      data: [
+        {
+          id: customerIds[0],
+          phone: `971${suffix.replaceAll("-", "").slice(0, 9)}`,
+          customerName: names.ownerOnly,
+          batchId: batch.id,
+          ownerId: ids.berlinReception,
+          attributionOwnerId: ids.berlinReception,
+          groupOperatorOwnerId: ids.berlinOperatorB,
+          groupStatus: "JOINED",
+          joinedOn: "2026-09-01",
+        },
+        {
+          id: customerIds[1],
+          phone: `972${suffix.replaceAll("-", "").slice(0, 9)}`,
+          customerName: names.operatorRelated,
+          batchId: batch.id,
+          ownerId: ids.berlinReception,
+          attributionOwnerId: ids.berlinReception,
+          groupOperatorOwnerId: ids.berlinOperatorA,
+          groupStatus: "JOINED",
+          joinedOn: "2026-09-01",
+        },
+        {
+          id: customerIds[2],
+          phone: `973${suffix.replaceAll("-", "").slice(0, 9)}`,
+          customerName: names.expertRelated,
+          batchId: batch.id,
+          ownerId: ids.berlinReception,
+          attributionOwnerId: ids.berlinReception,
+          groupOperatorOwnerId: ids.berlinOperatorB,
+          expertOwnerId: ids.berlinExpert,
+          groupStatus: "JOINED",
+          joinedOn: "2026-09-01",
+          expertIntroducedOn: "2026-09-02",
+        },
+      ],
+    });
+    const readByName = async (userId: string, customerName: string) => {
+      await signIn(userId);
+      const response = await getLeadCustomerReporting(
+        new Request(
+          `http://localhost/api/lead/customer-reporting?stage=group&q=${encodeURIComponent(customerName)}`,
+        ),
+      );
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+
+    try {
+      const operatorOwn = await readByName(
+        ids.berlinOperatorA,
+        names.operatorRelated,
+      );
+      expect(operatorOwn.customers).toHaveLength(1);
+
+      const operatorUnrelated = await readByName(
+        ids.berlinOperatorA,
+        names.ownerOnly,
+      );
+      expect(operatorUnrelated.customers).toHaveLength(0);
+      expect(operatorUnrelated.total).toBe(0);
+      expect(operatorUnrelated.summary.customerCount).toBe(0);
+      expect(operatorUnrelated.memberOptions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: ids.berlinOperatorB }),
+          expect.objectContaining({ id: ids.berlinExpert }),
+        ]),
+      );
+      expect(operatorUnrelated.receptionOptions).toEqual([
+        expect.objectContaining({ id: ids.berlinReception }),
+      ]);
+      expect(operatorUnrelated.operatorOptions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: ids.berlinOperatorA }),
+          expect.objectContaining({ id: ids.berlinOperatorB }),
+          expect.objectContaining({ id: ids.lead }),
+        ]),
+      );
+      expect(operatorUnrelated.operatorOptions).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: ids.berlinReception }),
+          expect.objectContaining({ id: ids.berlinExpert }),
+        ]),
+      );
+      expect(operatorUnrelated.expertOptions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: ids.berlinExpert }),
+          expect.objectContaining({ id: ids.lead }),
+        ]),
+      );
+
+      const expertOwn = await readByName(
+        ids.berlinExpert,
+        names.expertRelated,
+      );
+      expect(expertOwn.customers).toHaveLength(1);
+      const expertUnrelated = await readByName(
+        ids.berlinExpert,
+        names.operatorRelated,
+      );
+      expect(expertUnrelated.customers).toHaveLength(0);
+
+      const receptionOwn = await readByName(
+        ids.berlinReception,
+        names.ownerOnly,
+      );
+      expect(receptionOwn.customers).toHaveLength(1);
+
+      const leadSeesAll = await readByName(ids.lead, names.ownerOnly);
+      expect(leadSeesAll.customers).toHaveLength(1);
+    } finally {
+      await db.leadCustomer.deleteMany({
+        where: { id: { in: customerIds } },
+      });
+    }
+  });
+
   it("共享表的专家列需要专家权限并记录审计", async () => {
     const leadId = id("customer-group");
     const patch = (body: Record<string, unknown>) =>
@@ -2111,6 +2256,23 @@ describe.sequential("新版客户进度 API", () => {
         }),
         { params: Promise.resolve({ leadId }) },
       );
+    const correctAttribution = () =>
+      correctSharedCustomerAttribution(
+        new Request(
+          `http://localhost/api/lead/customer-reporting/${leadId}/attribution-correction`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              attributionOwnerId: ids.berlinReception,
+              channelId: id("berlin-channel"),
+              sourceDate: "2026-07-02",
+              reason: "历史接粉日期录错",
+            }),
+          },
+        ),
+        { params: Promise.resolve({ leadId }) },
+      );
 
     await signIn(ids.berlinExpert);
     expect(
@@ -2120,19 +2282,36 @@ describe.sequential("新版客户进度 API", () => {
           userId: ids.berlinOperatorA,
         })
       ).status,
+    ).toBe(403);
+    expect(
+      (await patch({ action: "setDeviceCode", code: "B-手填-08" })).status,
+    ).toBe(403);
+    expect(
+      (await patch({ action: "setSourceDate", occurredOn: "2026-07-02" }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await patch({ action: "setJoinedOn", occurredOn: "2026-07-04" })).status,
+    ).toBe(403);
+
+    await signIn(ids.lead);
+    expect((await correctAttribution()).status).toBe(200);
+    expect(
+      (
+        await patch({
+          action: "assignGroupOperator",
+          userId: ids.berlinOperatorA,
+        })
+      ).status,
     ).toBe(200);
+
+    await signIn(ids.berlinOperatorA);
     expect(
       (await patch({ action: "setDeviceCode", code: "B-手填-08" })).status,
     ).toBe(200);
     expect(
-      (await patch({ action: "setSourceDate", occurredOn: "2026-07-02" }))
-        .status,
-    ).toBe(200);
-    expect(
       (await patch({ action: "setJoinedOn", occurredOn: "2026-07-04" })).status,
     ).toBe(200);
-
-    await signIn(ids.berlinReception);
     expect(
       (await patch({ action: "assignExpert", userId: ids.berlinExpert }))
         .status,
@@ -2151,7 +2330,7 @@ describe.sequential("新版客户进度 API", () => {
     await signIn(ids.berlinOperatorA);
     expect(
       (await patch({ action: "setOwner", userId: ids.berlinReception })).status,
-    ).toBe(200);
+    ).toBe(403);
 
     expect(
       await db.leadCustomer.findUniqueOrThrow({
@@ -2177,7 +2356,7 @@ describe.sequential("新版客户进度 API", () => {
       await db.auditLog.count({
         where: { entityId: leadId, action: { startsWith: "SHARED_CUSTOMER_" } },
       }),
-    ).toBe(7);
+    ).toBe(5);
 
     expect(
       (

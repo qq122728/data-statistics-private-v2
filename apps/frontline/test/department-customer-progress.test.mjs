@@ -6,9 +6,11 @@ const component = readFileSync(new URL("../components/DepartmentCustomerProgress
 const css = readFileSync(new URL("../components/DepartmentCustomerProgress.module.css", import.meta.url), "utf8");
 const legacy = readFileSync(new URL("../components/LegacyCustomerImport.tsx", import.meta.url), "utf8");
 const customerPatch = readFileSync(new URL("../../../src/app/api/lead/customer-reporting/[leadId]/route.ts", import.meta.url), "utf8");
+const attributionCorrection = readFileSync(new URL("../../../src/app/api/lead/customer-reporting/[leadId]/attribution-correction/route.ts", import.meta.url), "utf8");
 
 test("客户进度恢复截图中的简洁共享表格结构", () => {
-  assert.match(component, /组内共享客户进度/);
+  assert.match(component, /客户协作进度/);
+  assert.match(component, /仅显示你接粉或参与炒群、专家的客户/);
   assert.match(component, /实时共享/);
   assert.match(component, /搜索号码、G\/E\/R\/O\/L 编号、组员或进度/);
   assert.match(component, /全部进度/);
@@ -69,6 +71,10 @@ test("组员和组长都能新增进群客户", () => {
   assert.match(component, /const \{ expertOwnerId, expertIntroducedOn, \.\.\.groupDraft \} = draft/);
   assert.match(component, /\.\.\.groupDraft/);
   assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
+  assert.match(component, /payload\?\.receptionOptions\.length/);
+  assert.match(component, /payload\.operatorOptions\.length/);
+  assert.match(component, /payload\?\.receptionOptions\.map/);
+  assert.match(component, /payload\?\.operatorOptions\.map/);
 });
 
 test("专家可以在专家进度直接新增一行并确认实际推专家日期", () => {
@@ -82,12 +88,19 @@ test("专家可以在专家进度直接新增一行并确认实际推专家日�
   assert.match(component, /\? \{\s*expertOwnerId,\s*expertIntroducedOn,/);
 });
 
-test("共享表开放接粉和炒群列，专家列需要专家权限", () => {
-  assert.match(component, /const canEdit = Boolean\(member\)/);
+test("共享表按实际负责人分阶段编辑，原始归属只读且组长纠错留痕", () => {
   assert.match(component, /const canEditExpert = Boolean/);
   assert.match(component, /需专家权限才能编辑/);
-  assert.doesNotMatch(component, /const canOwner|const canOperator|const canExpert/);
-  for (const action of ["setSourceDate", "setJoinedOn", "assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
+  assert.match(component, /canEditCustomerInfo/);
+  assert.match(component, /canEditGroupStage/);
+  assert.match(component, /canEditExpertStage/);
+  for (const action of ["setJoinedOn", "assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
+  for (const action of ["setSourceDate", "setOwner", "setChannel"]) assert.doesNotMatch(component, new RegExp(`action: "${action}"`));
+  assert.match(component, /客户原始归属纠错/);
+  assert.match(component, /纠错原因（必填）/);
+  assert.match(attributionCorrection, /hasAssignedRole\(sessionUser, "LEAD"\)/);
+  assert.match(attributionCorrection, /CUSTOMER_ATTRIBUTION_CORRECTED/);
+  assert.match(attributionCorrection, /reattributeCustomerNumberEvents/);
   assert.match(component, /撤销退群/);
   assert.match(component, /退群日期已纠正/);
   assert.match(component, /aria-label="推专家日期"/);

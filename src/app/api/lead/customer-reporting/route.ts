@@ -33,6 +33,7 @@ import {
   allocateCustomerStageNumber,
   parseCustomerStageNumberQuery,
 } from "../../../../lib/customer-stage-number";
+import { customerCollaborationWhere } from "../../../../lib/customer-collaboration-visibility";
 
 const stages = new Set(["reception", "group", "pending-expert", "expert"]);
 const expertStages = [
@@ -299,9 +300,17 @@ export async function GET(request: Request) {
     stageNumberQuery,
     /^\d{4}-\d{2}$/.test(month) ? month.slice(0, 4) : today.slice(0, 4),
   );
+  // 普通组员只能读取自己实际参与的客户。人员分配下拉仍单独读取全组成员，
+  // 所以“当前看不到某位同事的客户”不会妨碍组长把后续阶段自由分配给该同事。
+  // attributionOwnerId 是新数据的权威归属；null + ownerId 只兼容尚未回填的旧客户。
+  const collaborationWhere: Prisma.LeadCustomerWhereInput | null =
+    isOwnGroupMember && !isLead
+      ? customerCollaborationWhere(actor.id)
+      : null;
   const baseWhere: Prisma.LeadCustomerWhereInput = {
     AND: [
       customerCurrentGroupWhere(group.id),
+      ...(collaborationWhere ? [collaborationWhere] : []),
       ...(dateWhere ? [dateWhere] : []),
       ...(stateWhere ? [stateWhere] : []),
     ],
@@ -481,7 +490,7 @@ export async function GET(request: Request) {
                 depositMethod: true,
                 enteredBy: { select: { id: true, name: true } },
               },
-              orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+              orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
             },
           },
         },
@@ -507,7 +516,7 @@ export async function GET(request: Request) {
             note: true,
             actor: { select: { name: true } },
           },
-          orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
+          orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }, { id: "desc" }],
           take: 3,
         },
       },
@@ -560,23 +569,16 @@ export async function GET(request: Request) {
           )
       : customerRows;
 
-  const memberOptions = await db.user.findMany({
+  const groupMembers = await db.user.findMany({
     where: { groupId: group.id, active: true },
-    select: { id: true, name: true },
+    select: { id: true, name: true, role: true, active: true, roleAssignments: { select: { role: true } } },
     orderBy: [{ name: "asc" }, { id: "asc" }],
   });
-  const expertOptions = await db.user.findMany({
-    where: {
-      groupId: group.id,
-      active: true,
-      OR: [
-        { role: { in: ["LEAD", "EXPERT"] } },
-        { roleAssignments: { some: { role: "EXPERT" } } },
-      ],
-    },
-    select: { id: true, name: true },
-    orderBy: [{ name: "asc" }, { id: "asc" }],
-  });
+  const option = (person: (typeof groupMembers)[number]) => ({ id: person.id, name: person.name });
+  const memberOptions = groupMembers.map(option);
+  const receptionOptions = groupMembers.filter((person) => hasAssignedRole(person, "RECEPTION")).map(option);
+  const operatorOptions = groupMembers.filter((person) => hasAssignedRole(person, "GROUP_OPERATOR") || hasAssignedRole(person, "LEAD")).map(option);
+  const expertOptions = groupMembers.filter((person) => hasAssignedRole(person, "EXPERT") || hasAssignedRole(person, "LEAD")).map(option);
   return NextResponse.json(
     {
       actorId: actor.id,
@@ -597,6 +599,8 @@ export async function GET(request: Request) {
         orderBy: [{ name: "asc" }, { id: "asc" }],
       }),
       memberOptions,
+      receptionOptions,
+      operatorOptions,
       expertOptions,
       summary: {
         customerCount: total,
@@ -689,23 +693,19 @@ export async function POST(request: Request) {
       if (!group) return authorizationDenied(actor, "当前小组不存在或已停用");
       const ownFrontline =
         actor.groupId === group.id && isFrontlineGroupMember(actor);
-      const canProxy = canViewOrgScope(actor, {
-        level: "group",
-        groupId: group.id,
-        departmentId: group.departmentId,
-        companyId: group.department.companyId,
-      });
-      if (!ownFrontline && !canProxy)
-        return authorizationDenied(actor, "没有权限为这个小组代录客户");
+      if (!ownFrontline)
+        return authorizationDenied(actor, "管理账号只读，不能代录客户");
+      if (!hasAssignedRole(actor, "RECEPTION") && !hasAssignedRole(actor, "LEAD"))
+        return authorizationDenied(actor, "只有接粉组员或组长可以新增进群客户");
       const attributionOwnerId =
         input.attributionOwnerId || (ownFrontline ? actor.id : "");
       const attributionOwner = await db.user.findFirst({
-        where: { id: attributionOwnerId, groupId: group.id, active: true },
+        where: { id: attributionOwnerId, groupId: group.id, active: true, OR: [{ role: "RECEPTION" }, { roleAssignments: { some: { role: "RECEPTION" } } }] },
         select: { id: true, name: true },
       });
       if (!attributionOwner)
         return NextResponse.json(
-          { error: "代录时必须选择本组实际接粉组员" },
+          { error: "接粉归属必须选择本组有接粉权限的在职成员" },
           { status: 400 },
         );
       const today = statisticsDate();
@@ -750,6 +750,7 @@ export async function POST(request: Request) {
             id: input.groupOperatorOwnerId,
             groupId: group.id,
             active: true,
+            OR: [{ role: { in: ["LEAD", "GROUP_OPERATOR"] } }, { roleAssignments: { some: { role: "GROUP_OPERATOR" } } }],
           },
           select: { id: true, name: true },
         }),
@@ -767,7 +768,7 @@ export async function POST(request: Request) {
         );
       if (!operator)
         return NextResponse.json(
-          { error: "炒群负责人只能选择本组在职成员" },
+          { error: "炒群负责人只能选择本组组长或有炒群权限的在职成员" },
           { status: 400 },
         );
       const existingPhones = new Set(
@@ -924,14 +925,8 @@ export async function POST(request: Request) {
     if (!group) return authorizationDenied(actor, "当前小组不存在或已停用");
     const ownFrontline =
       actor.groupId === group.id && isFrontlineGroupMember(actor);
-    const canProxy = canViewOrgScope(actor, {
-      level: "group",
-      groupId: group.id,
-      departmentId: group.departmentId,
-      companyId: group.department.companyId,
-    });
-    if (!ownFrontline && !canProxy)
-      return authorizationDenied(actor, "没有权限为这个小组代录客户");
+    if (!ownFrontline)
+      return authorizationDenied(actor, "管理账号只读，不能代录客户");
     const createsExpertRow = Boolean(input.expertOwnerId && input.expertIntroducedOn);
     if (
       createsExpertRow &&
@@ -939,15 +934,17 @@ export async function POST(request: Request) {
       !hasAssignedRole(actor, "EXPERT")
     )
       return authorizationDenied(actor, "只有组长或专家可以直接新增专家进度行");
+    if (!createsExpertRow && !hasAssignedRole(actor, "RECEPTION") && !hasAssignedRole(actor, "LEAD"))
+      return authorizationDenied(actor, "只有接粉组员或组长可以新增进群客户");
     const attributionOwnerId =
       input.attributionOwnerId || (ownFrontline ? actor.id : "");
     const attributionOwner = await db.user.findFirst({
-      where: { id: attributionOwnerId, groupId: group.id, active: true },
+      where: { id: attributionOwnerId, groupId: group.id, active: true, OR: [{ role: "RECEPTION" }, { roleAssignments: { some: { role: "RECEPTION" } } }] },
       select: { id: true, name: true },
     });
     if (!attributionOwner)
       return NextResponse.json(
-        { error: "代录时必须选择本组实际接粉组员" },
+        { error: "接粉归属必须选择本组有接粉权限的在职成员" },
         { status: 400 },
       );
     const today = statisticsDate();
@@ -980,9 +977,9 @@ export async function POST(request: Request) {
     let phone: string;
     try {
       phone = normalizeCustomerPhone(input.phone);
-    } catch {
+    } catch (error) {
       return NextResponse.json(
-        { error: "客户号码必须包含数字" },
+        { error: error instanceof Error ? error.message : "客户号码至少需要 6 位数字" },
         { status: 400 },
       );
     }
@@ -997,6 +994,7 @@ export async function POST(request: Request) {
             id: input.groupOperatorOwnerId,
             groupId: group.id,
             active: true,
+            OR: [{ role: { in: ["LEAD", "GROUP_OPERATOR"] } }, { roleAssignments: { some: { role: "GROUP_OPERATOR" } } }],
           },
           select: { id: true },
         }),
@@ -1024,7 +1022,7 @@ export async function POST(request: Request) {
       if (!operator)
         return {
           status: 400 as const,
-          error: "炒群负责人只能选择本组在职成员",
+          error: "炒群负责人只能选择本组组长或有炒群权限的在职成员",
         };
       if (createsExpertRow && !expert)
         return {

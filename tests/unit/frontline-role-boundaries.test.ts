@@ -11,6 +11,7 @@ import {
   PATCH as updateLead,
 } from "../../src/app/api/leads/[leadId]/route";
 import { GET as getDownstreamProgress } from "../../src/app/api/leads/[leadId]/downstream-progress/route";
+import { PATCH as patchSharedCustomer } from "../../src/app/api/lead/customer-reporting/[leadId]/route";
 import { PATCH as voidFinance } from "../../src/app/api/customer-finance/[eventId]/route";
 import { POST as createFinance } from "../../src/app/api/customer-finance/route";
 import { POST as createOrder } from "../../src/app/api/customer-orders/route";
@@ -285,7 +286,7 @@ describe.sequential("frontline role boundaries", () => {
     }
   });
 
-  it("只被分配为专家负责人的接粉组员仍只能处理炒群进度", async () => {
+  it("只被选为负责人但没有对应岗位权限时不能修改炒群或专家进度", async () => {
     const sourceLead = await db.leadCustomer.findUniqueOrThrow({
       where: { id: ids.leadCustomerA },
       select: { batchId: true },
@@ -320,9 +321,26 @@ describe.sequential("frontline role boundaries", () => {
         }),
         leadContext(customer.id),
       );
+      const sharedGroupProgress = await patchSharedCustomer(
+        new Request("http://localhost/api/lead/customer-reporting/target", {
+          method: "PATCH",
+          body: JSON.stringify({ action: "setDeviceCode", code: "不应保存" }),
+        }),
+        { params: Promise.resolve({ leadId: customer.id }) },
+      );
 
-      expect(groupProgress.status).toBe(200);
+      expect(groupProgress.status).toBe(403);
       expect(expertProgress.status).toBe(403);
+      expect(sharedGroupProgress.status).toBe(403);
+      await signInAs(ids.groupOperatorA);
+      const sharedCustomerInfo = await patchSharedCustomer(
+        new Request("http://localhost/api/lead/customer-reporting/target", {
+          method: "PATCH",
+          body: JSON.stringify({ action: "setCustomerName", customerName: "不应保存" }),
+        }),
+        { params: Promise.resolve({ leadId: customer.id }) },
+      );
+      expect(sharedCustomerInfo.status).toBe(403);
       await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id } })).resolves.toMatchObject({
         attributionOwnerId: ids.groupOperatorA,
         groupOperatorOwnerId: ids.receptionA,
@@ -361,29 +379,29 @@ describe.sequential("frontline role boundaries", () => {
   it.each([
     ["ordinary user", ids.receptionA],
     ["administrator", ids.admin],
-  ])("returns 403 when an authenticated %s lacks the assigned role", async (_label, userId) => {
+  ])("returns 410 for an authenticated %s because the old endpoint is retired", async (_label, userId) => {
     vi.restoreAllMocks();
     await signInAs(userId);
 
     const response = await addHistoricalExpertCustomer(historicalExpertRequest("13900000002"));
 
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: "只有组长或专家可以补录历史专家客户" });
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toEqual({ error: "旧专家历史补录接口已停用，请使用客户协作进度中的“新增专家客户”" });
   });
 
-  it("shows necessary duplicate details only for a customer in the actor's own group", async () => {
+  it("retires the old historical expert endpoint without exposing same-group duplicate details", async () => {
     vi.restoreAllMocks();
     await signInAs(ids.expertA);
 
     const response = await addHistoricalExpertCustomer(historicalExpertRequest("13800000001"));
     const payload = await response.json() as { error: string };
 
-    expect(response.status).toBe(409);
-    expect(payload.error).toContain("本组客户库");
-    expect(payload.error).toContain("甲组已有客户");
+    expect(response.status).toBe(410);
+    expect(payload.error).toContain("旧专家历史补录接口已停用");
+    expect(payload.error).not.toContain("甲组已有客户");
   });
 
-  it("does not expose another group's customer details in the response or audit log", async () => {
+  it("retires the old historical expert endpoint without exposing cross-group details", async () => {
     vi.restoreAllMocks();
     await signInAs(ids.expertA);
     const auditCountBefore = await db.auditLog.count();
@@ -391,8 +409,8 @@ describe.sequential("frontline role boundaries", () => {
     const response = await addHistoricalExpertCustomer(historicalExpertRequest("13800000002"));
     const payload = await response.json() as { error: string };
 
-    expect(response.status).toBe(409);
-    expect(payload).toEqual({ error: "该手机号已存在" });
+    expect(response.status).toBe(410);
+    expect(payload.error).toContain("旧专家历史补录接口已停用");
     expect(JSON.stringify(payload)).not.toContain("乙组机密客户");
     expect(JSON.stringify(payload)).not.toContain(ids.leadCustomerB);
     expect(JSON.stringify(payload)).not.toContain(ids.groupB);
@@ -436,13 +454,13 @@ describe.sequential("frontline role boundaries", () => {
     const beforeMetrics = await db.metricEvent.count();
     const response = await addHistoricalExpertCustomer(request());
     expect(response.status).toBe(410);
-    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("历史已开单和历史资金补录入口已关闭") });
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("旧专家历史补录接口已停用") });
     await expect(db.leadCustomer.findUnique({ where: { phone: normalizeCustomerPhone(phone) } })).resolves.toBeNull();
     await expect(db.customerOrder.count()).resolves.toBe(beforeOrders);
     await expect(db.metricEvent.count()).resolves.toBe(beforeMetrics);
   });
 
-  it("lets a group lead use the same historical-expert entry and assign an in-group expert", async () => {
+  it("also redirects group leads from the retired historical endpoint to the unified entry", async () => {
     vi.restoreAllMocks();
     vi.spyOn(auth, "requireUser").mockResolvedValue(
       await db.user.findUniqueOrThrow({
@@ -471,12 +489,8 @@ describe.sequential("frontline role boundaries", () => {
       }),
     );
 
-    expect(response.status).toBe(201);
-    const payload = await response.json() as { leadId: string };
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: payload.leadId } })).resolves.toMatchObject({
-      expertOwnerId: ids.expertA,
-      isHistoricalRecord: true,
-    });
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("新增专家客户") });
   });
 
   it("does not create a customer for a collision across different groups", async () => {
@@ -497,6 +511,48 @@ describe.sequential("frontline role boundaries", () => {
       error: "没有可导入的有效客户；撞粉、低金额、无 WS 号码请在“每日数据填写”中单独填写数量",
     });
     await expect(db.leadCustomer.count({ where: { phone: normalizeCustomerPhone("13800000002") } })).resolves.toBe(1);
+  });
+
+  it("keeps same-group collision ownership private from an unrelated receptionist", async () => {
+    await db.userRoleAssignment.create({ data: { userId: ids.groupOperatorA, role: "RECEPTION" } });
+    try {
+      await signInWithAssignments(ids.groupOperatorA);
+      const freshPhone = `134${String(Date.now()).slice(-8)}`;
+      const response = await importLeads(
+        new Request("http://localhost/api/leads", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            sourceDate: "2026-08-16",
+            channelId: ids.channelA,
+            rows: [{ phone: "13800000001" }, { phone: freshPhone }],
+          }),
+        }),
+      );
+      expect(response.status).toBe(201);
+      await expect(response.json()).resolves.toMatchObject({
+        collisions: [{ phone: normalizeCustomerPhone("13800000001"), ownerName: "已存在客户" }],
+      });
+    } finally {
+      await db.userRoleAssignment.deleteMany({ where: { userId: ids.groupOperatorA, role: "RECEPTION" } });
+    }
+  });
+
+  it("rejects an attribution owner who does not have reception permission", async () => {
+    await signInAs(ids.receptionA);
+    const response = await importLeads(
+      new Request("http://localhost/api/leads", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sourceDate: "2026-08-16",
+          channelId: ids.channelA,
+          rows: [{ phone: `133${String(Date.now()).slice(-8)}`, attributionOwnerId: ids.expertA }],
+        }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({ error: expect.stringContaining("接粉权限") });
   });
 
   it("imports a customer row with its profile and a selected reception device", async () => {
@@ -534,9 +590,10 @@ describe.sequential("frontline role boundaries", () => {
   });
 
   it("keeps the intake operator separate from the selected fan attribution owner", async () => {
-    await db.userRoleAssignment.create({
-      data: { userId: ids.groupOperatorA, role: "RECEPTION" },
-    });
+    await db.userRoleAssignment.createMany({ data: [
+      { userId: ids.groupOperatorA, role: "RECEPTION" },
+      { userId: ids.expertA, role: "RECEPTION" },
+    ] });
     try {
       vi.restoreAllMocks();
       vi.spyOn(auth, "requireUser").mockResolvedValue(
@@ -561,7 +618,7 @@ describe.sequential("frontline role boundaries", () => {
       expect(response.status).toBe(201);
       const lead = await db.leadCustomer.findUniqueOrThrow({ where: { phone: normalizeCustomerPhone(phone) } });
       expect(lead).toMatchObject({
-        ownerId: ids.groupOperatorA,
+        ownerId: ids.expertA,
         attributionOwnerId: ids.expertA,
       });
       await expect(db.metricEvent.findMany({
@@ -570,7 +627,7 @@ describe.sequential("frontline role boundaries", () => {
       })).resolves.toEqual([]);
     } finally {
       await db.userRoleAssignment.deleteMany({
-        where: { userId: ids.groupOperatorA, role: "RECEPTION" },
+        where: { userId: { in: [ids.groupOperatorA, ids.expertA] }, role: "RECEPTION" },
       });
     }
   });
@@ -864,6 +921,16 @@ describe.sequential("frontline role boundaries", () => {
       leadContext(ids.leadCustomerA),
     );
     expect(introductionBeforeJoin.status).toBe(400);
+
+    const introductionToNonExpert = await updateLead(
+      new Request("http://localhost/api/leads/target", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "introduceExpert", occurredOn: "2026-08-14", expertOwnerId: ids.receptionA }),
+      }),
+      leadContext(ids.leadCustomerA),
+    );
+    expect(introductionToNonExpert.status).toBe(400);
+    await expect(introductionToNonExpert.json()).resolves.toMatchObject({ error: "只能选择本组有专家权限的在职成员或组长" });
 
     const introduction = await updateLead(
       new Request("http://localhost/api/leads/target", {
@@ -1206,7 +1273,7 @@ describe.sequential("frontline role boundaries", () => {
     expect(receptionUpdate.status).toBe(403);
   });
 
-  it("stores one group progress entry per customer per day and lets same-day saves update it", async () => {
+  it("keeps every same-day group progress revision with its operator", async () => {
     await signInAs(ids.groupOperatorA);
     const otherAccount = await updateLead(
       new Request("http://localhost/api/leads/target", {
@@ -1233,9 +1300,15 @@ describe.sequential("frontline role boundaries", () => {
       leadContext(ids.leadCustomerA),
     );
     expect(secondSave.status).toBe(200);
-    await expect(db.leadActivity.findMany({
+    const progressHistory = await db.leadActivity.findMany({
       where: { leadId: ids.leadCustomerA, kind: "GROUP_PROGRESS_UPDATED", occurredOn: "2026-08-15" },
-    })).resolves.toMatchObject([{ note: "客户已回复问题，明天继续跟进" }]);
+      select: { note: true, actorId: true },
+    });
+    expect(progressHistory).toHaveLength(2);
+    expect(progressHistory).toEqual(expect.arrayContaining([
+      { note: "客户今天在群内有互动", actorId: ids.groupOperatorA },
+      { note: "客户已回复问题，明天继续跟进", actorId: ids.groupOperatorA },
+    ]));
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: ids.leadCustomerA } })).resolves.toMatchObject({
       groupDeviceAccountId: ids.groupOperatorAccount,
       groupDeviceAccountNumber: `group-${suffix}`,
@@ -1250,7 +1323,7 @@ describe.sequential("frontline role boundaries", () => {
       }),
       leadContext(ids.leadCustomerA),
     );
-    expect(expertSave.status).toBe(200);
+    expect(expertSave.status).toBe(403);
   });
 
   it("lets only the original reception owner read downstream daily progress", async () => {
@@ -1380,7 +1453,7 @@ describe.sequential("frontline role boundaries", () => {
           }),
         )
       ).status,
-    ).toBe(201);
+    ).toBe(400);
 
     vi.restoreAllMocks();
     await signInAs(ids.receptionB);

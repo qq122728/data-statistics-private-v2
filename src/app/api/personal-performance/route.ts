@@ -198,7 +198,7 @@ export async function GET(request: Request) {
     role, today, timezone, range, totals, currentInGroup,
     funnel: { ...funnel, currentInGroup },
     rates: {
-      reply: rate(totals.replied, totals.effective), join: rate(totals.joined, totals.replied),
+      reply: rate(totals.replied, totals.effective), join: rate(totals.joined, totals.effective),
       introduced: rate(totals.introduced, totals.joined), contacted: rate(totals.contacted, expertReceived),
       registered: rate(totals.registered, totals.contacted), ordered: rate(totals.orders, totals.registered),
     },

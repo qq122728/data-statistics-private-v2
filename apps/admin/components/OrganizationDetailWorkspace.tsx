@@ -19,7 +19,7 @@ type Payload = { groups: Group[] };
 
 const empty = (): RealMetrics => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, effective: 0, replied: 0, joined: 0, leftNormal: 0, leftAbnormal: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0, withdrawalCents: 0, netCents: 0 });
 function add(target: RealMetrics, value: RealMetrics) { for (const key of Object.keys(target) as Array<keyof RealMetrics>) target[key] += value[key] ?? 0; }
-function rates(metrics: RealMetrics) { return { replyRate: metrics.effective ? metrics.replied / metrics.effective : null, groupRate: metrics.replied ? metrics.joined / metrics.replied : null, leaveRate: metrics.joined ? metrics.leftAbnormal / metrics.joined : null }; }
+function rates(metrics: RealMetrics) { return { replyRate: metrics.effective ? metrics.replied / metrics.effective : null, groupRate: metrics.effective ? metrics.joined / metrics.effective : null, leaveRate: metrics.joined ? metrics.leftAbnormal / metrics.joined : null }; }
 function hasBusinessData(group: Group) { return group.activePeople > 0 || Object.values(group.totals).some((value) => value !== 0); }
 function preferredGroup(groups: Group[], departmentId: string) {
   const candidates = groups.filter((group) => group.department.id === departmentId);

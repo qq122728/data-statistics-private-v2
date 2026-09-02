@@ -31,6 +31,10 @@ import {
   rowsLimitError,
 } from "../../src/lib/request-limits";
 
+// Prisma 客户端的方法由 Proxy 提供。Vitest 恢复 spy 时会把 `$transaction`
+// 留成 undefined，因此每条用例后显式放回原方法，避免后续登录限流测试误报。
+const originalDbTransaction = db.$transaction.bind(db);
+
 const actor = {
   id: "limit-test-user",
   username: "limit-test-user",
@@ -51,10 +55,15 @@ function jsonRequest(path: string, body: unknown): Request {
 }
 
 describe("API request limits", () => {
-  beforeEach(() => resetLoginThrottleForTests());
-  afterEach(() => {
-    resetLoginThrottleForTests();
+  beforeEach(async () => resetLoginThrottleForTests());
+  afterEach(async () => {
     vi.restoreAllMocks();
+    Object.defineProperty(db, "$transaction", {
+      configurable: true,
+      value: originalDbTransaction,
+      writable: true,
+    });
+    await resetLoginThrottleForTests();
   });
 
   it("accepts the row-count boundary and rejects boundary plus one", () => {
@@ -276,7 +285,7 @@ describe("API request limits", () => {
       expertStage: "QUEUED",
       stageChangedOn: "2026-08-20",
     }));
-    expect(historicalResponse.status).toBe(400);
+    expect(historicalResponse.status).toBe(410);
     expect(transactionSpy).not.toHaveBeenCalled();
   });
 

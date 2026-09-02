@@ -400,21 +400,20 @@ export async function saveDailyStat(
       entryId: entry.id,
       version,
       createdById: actor.id,
-      // 兼容旧流程留下的退回原因；新流程发现问题后由资源部线下联系员工直接修改。
+      // 兼容旧流程留下的退回原因；当前流程由员工直接修改并立即成为正式版本。
       changeReason: input.changeReason || existing?.reviewReason || null,
       ...values,
     },
   });
-  const requiresResourceCheck = input.position === "RECEPTION";
   const savedAt = new Date();
-  return tx.dailyStatEntry.update({
+  const updated = await tx.dailyStatEntry.update({
     where: { id: entry.id },
     data: {
       ...(migratedScopeMatches ? { identityKey, ...sources } : {}),
       currentRevisionId: revision.id,
-      status: requiresResourceCheck ? "RESOURCE_PENDING" : "APPROVED",
-      // 接粉纠错在资源部确认前继续保留上一版正式数字；炒群/专家保存后立即采用最新版。
-      approvedRevisionId: requiresResourceCheck ? existing?.approvedRevisionId ?? null : revision.id,
+      status: "APPROVED",
+      // 当前业务不走资源部审批；每次保存的新修订立即成为正式版本。
+      approvedRevisionId: revision.id,
       submittedAt: savedAt,
       reviewReason: null,
       reviewedAt: null,
@@ -422,6 +421,74 @@ export async function saveDailyStat(
     },
     include: dailyStatEntryInclude,
   });
+
+  // 旧版曾把同一个人的接粉、炒群、专家数据拆成三行。统一组员日报直接保存后，
+  // 只有在新行已经完整覆盖旧行时才停用旧行，避免正式报表重复相加。
+  const numberTrackedReception = group.groupType === "HACKER" && usesCustomerNumberTracking(input.businessDate);
+  if (input.position === "RECEPTION" && isUnifiedDailyStatIdentity(updated.identityKey) && !numberTrackedReception) {
+    const legacyCompanions = await tx.dailyStatEntry.findMany({
+      where: {
+        id: { not: updated.id },
+        groupId: updated.groupId,
+        channelId: updated.channelId,
+        businessDate: updated.businessDate,
+        position: { in: ["GROUP_OPERATOR", "EXPERT"] },
+        approvedRevisionId: { not: null },
+        OR: [{ ownerId: updated.ownerId }, { sourceReceptionId: updated.ownerId }],
+      },
+      select: { id: true, position: true, approvedRevision: true },
+    });
+    const legacyTotals = legacyCompanions.reduce((totals, companion) => {
+      const old = companion.approvedRevision;
+      if (!old) return totals;
+      if (companion.position === "GROUP_OPERATOR") {
+        totals.normalLeaveCount += old.normalLeaveCount;
+        totals.abnormalLeaveCount += old.abnormalLeaveCount;
+        totals.currentInGroupCount += old.currentInGroupCount;
+        totals.expertIntroCount += old.expertIntroCount;
+      } else {
+        totals.expertContactedCount += old.expertContactedCount;
+        totals.registrationCount += old.registrationCount;
+        totals.orderCount += old.orderCount;
+        totals.cryptoInitialDepositCents += old.cryptoInitialDepositCents;
+        totals.bankInitialDepositCents += old.bankInitialDepositCents;
+        totals.cryptoRechargeCents += old.cryptoRechargeCents;
+        totals.bankRechargeCents += old.bankRechargeCents;
+        totals.withdrawalCents += old.withdrawalCents;
+      }
+      return totals;
+    }, {
+      normalLeaveCount: 0,
+      abnormalLeaveCount: 0,
+      currentInGroupCount: 0,
+      expertIntroCount: 0,
+      expertContactedCount: 0,
+      registrationCount: 0,
+      orderCount: 0,
+      cryptoInitialDepositCents: 0,
+      bankInitialDepositCents: 0,
+      cryptoRechargeCents: 0,
+      bankRechargeCents: 0,
+      withdrawalCents: 0,
+    });
+    const coversLegacyValues = Object.entries(legacyTotals).every(
+      ([field, value]) => revision[field as keyof typeof legacyTotals] === value,
+    );
+    if (legacyCompanions.length && (coversLegacyValues || Boolean(revision.changeReason))) {
+      await tx.dailyStatEntry.updateMany({
+        where: { id: { in: legacyCompanions.map((companion) => companion.id) } },
+        data: {
+          status: "RETURNED",
+          approvedRevisionId: null,
+          reviewedById: actor.id,
+          reviewedAt: savedAt,
+          reviewReason: `已并入统一组员日报 ${updated.id}`,
+        },
+      });
+    }
+  }
+
+  return updated;
 }
 
 export const dailyStatEntryInclude = {

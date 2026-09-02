@@ -7,6 +7,7 @@ import { API_LIMITS, hasOversizedQueryValue } from "../../../../lib/request-limi
 import { hasAssignedRole, isFrontlineGroupMember } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { customerCurrentGroupWhere } from "../../../../lib/customer-current-group";
+import { customerCollaborationWhere } from "../../../../lib/customer-collaboration-visibility";
 
 const stages = ["QUEUED", "MATERIALS", "TRACKING", "PENDING_REGISTRATION", "PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED", "STALLED"] as const;
 const PAGE_SIZE = 50;
@@ -50,6 +51,9 @@ export async function GET(request: Request) {
     AND: [
       customerCurrentGroupWhere(actor.groupId),
       approvedCustomerWhere(),
+      ...(hasAssignedRole(actor, "LEAD")
+        ? []
+        : [customerCollaborationWhere(actor.id)]),
       ...(query ? [{ OR: [{ phone: { contains: query } }, { customerName: { contains: query } }] }] : []),
     ],
   };

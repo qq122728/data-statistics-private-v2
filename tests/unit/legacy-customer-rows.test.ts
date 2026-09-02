@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 describe.sequential("legacy customer free-entry rows", () => {
-  it("lets a frontline member add a blank row, autosave free text, and derives leave date and net performance", async () => {
+  it("旧自由表的读取、新增和修改入口全部停止使用", async () => {
     const suffix = randomUUID();
     const departmentId = `${prefix}department-${suffix}`;
     const groupId = `${prefix}group-${suffix}`;
@@ -30,11 +30,10 @@ describe.sequential("legacy customer free-entry rows", () => {
     vi.spyOn(auth, "requireUser").mockResolvedValue(actor);
 
     const createdResponse = await POST();
-    expect(createdResponse.status).toBe(201);
-    const created = (await createdResponse.json()).row;
-    expect(created).toMatchObject({ phone: "", initialDeposit: "0.00", netPerformanceCents: 0 });
+    expect(createdResponse.status).toBe(410);
+    await expect(createdResponse.json()).resolves.toMatchObject({ error: expect.stringContaining("已停用") });
 
-    const patchResponse = await PATCH(new Request(`http://localhost/api/legacy-customer-rows/${created.id}`, {
+    const patchResponse = await PATCH(new Request("http://localhost/api/legacy-customer-rows/retired-row", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -44,17 +43,11 @@ describe.sequential("legacy customer free-entry rows", () => {
         expertSituation: "已开单", registeredOn: "2026-08-30",
         initialDeposit: "1,000.25", recharge: "500", withdrawal: "100.10",
       }),
-    }), { params: Promise.resolve({ rowId: created.id }) });
-    expect(patchResponse.status).toBe(200);
-    const saved = (await patchResponse.json()).row;
-    expect(saved).toMatchObject({
-      phone: "123456", groupOperatorName: "炒群甲", initialDeposit: "1000.25",
-      recharge: "500.00", withdrawal: "100.10", netPerformanceCents: 140015,
-    });
-    expect(saved.leftOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }), { params: Promise.resolve({ rowId: "retired-row" }) });
+    expect(patchResponse.status).toBe(410);
 
     const listResponse = await GET();
-    expect(listResponse.status).toBe(200);
-    await expect(listResponse.json()).resolves.toMatchObject({ rows: [{ id: created.id, phone: "123456" }], channelOptions: [{ name: "FB-M" }] });
+    expect(listResponse.status).toBe(410);
+    await expect(db.legacyCustomerRow.count({ where: { groupId } })).resolves.toBe(0);
   });
 });

@@ -10,7 +10,7 @@ async function retiredResponse() {
     throw error;
   }
   return NextResponse.json(
-    { error: "旧老客户自由表已停用，请使用客户协作进度中的老客户导入或新增专家客户" },
+    { error: "旧老客户自由表已停用，请使用新增进群客户或新增专家客户" },
     { status: 410 },
   );
 }

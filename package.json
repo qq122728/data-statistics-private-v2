@@ -9,7 +9,7 @@
     "dev": "NEXT_IGNORE_INCORRECT_LOCKFILE=1 NEXT_DIST_DIR=.next-dev next dev",
     "start": "next start",
     "build": "NEXT_IGNORE_INCORRECT_LOCKFILE=1 next build",
-    "test": "npm run db:generate:sqlite && vitest",
+    "test": "npm run db:generate:postgres && npm run db:generate:sqlite && vitest",
     "db:generate": "npm run db:generate:sqlite",
     "db:generate:sqlite": "DATABASE_URL=file:./dev.db prisma generate --schema prisma/schema.prisma",
     "db:generate:postgres": "prisma generate --schema prisma/postgres/schema.prisma",

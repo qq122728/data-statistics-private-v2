@@ -77,7 +77,7 @@ test("窄屏管理端保留可读导航，总公司二级入口都有图标", as
     readFile(new URL("components/HeadquartersWorkspace.tsx", root), "utf8"),
   ]);
   assert.doesNotMatch(css, /\.navButton span,\s*\.navGroup > small/);
-  assert.match(css, /grid-template-columns: 96px minmax\(0, 1fr\)/);
+  assert.match(css, /grid-template-columns: 72px minmax\(0, 1fr\)/);
   for (const icon of ["organization", "settings", "accounts", "transfer", "devices", "channel"]) {
     assert.match(headquarters, new RegExp(`icon="${icon}"`));
   }

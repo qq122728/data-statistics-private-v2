@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { hashPassword } from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
-import { GET, POST } from "../../src/app/api/legacy-customers/route";
+import { GET } from "../../src/app/api/leads/check/route";
 
 const prefix = "legacy-lookup-test-";
 
@@ -66,7 +66,7 @@ async function fixture() {
   return { groupId, owner, unrelated, batch };
 }
 
-describe.sequential("retired legacy customer import", () => {
+describe.sequential("customer number lookup", () => {
   it("treats an archived August number as available for a fresh September record", async () => {
     const { owner, batch } = await fixture();
     await db.leadCustomer.create({
@@ -81,7 +81,7 @@ describe.sequential("retired legacy customer import", () => {
     vi.spyOn(auth, "requireUser").mockResolvedValue(owner);
 
     const response = await GET(
-      new Request("http://localhost/api/legacy-customers?phone=945505"),
+      new Request("http://localhost/api/leads/check?phone=945505"),
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ exists: false, phone: "945505" });
@@ -100,7 +100,7 @@ describe.sequential("retired legacy customer import", () => {
     vi.spyOn(auth, "requireUser").mockResolvedValue(unrelated);
 
     const response = await GET(
-      new Request("http://localhost/api/legacy-customers?phone=945506"),
+      new Request("http://localhost/api/leads/check?phone=945506"),
     );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -108,17 +108,6 @@ describe.sequential("retired legacy customer import", () => {
       sameGroup: true,
       canAccess: false,
       message: "该号码已存在",
-    });
-  });
-
-  it("retires every authenticated legacy write request", async () => {
-    const { owner } = await fixture();
-    vi.spyOn(auth, "requireUser").mockResolvedValue(owner);
-    const response = await POST();
-    expect(response.status).toBe(410);
-    await expect(response.json()).resolves.toEqual({
-      error:
-        "老客户导入已停用，请使用新增进群客户或新增专家客户",
     });
   });
 });

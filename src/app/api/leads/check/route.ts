@@ -3,7 +3,8 @@ import { z } from "zod";
 import { AuthenticationError, requireUser } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
 import { customerCodePrefixForChannel, parsePhoneImport } from "../../../../lib/phone-import";
-import { hasAssignedRole } from "../../../../lib/role-access";
+import { normalizeCustomerPhone } from "../../../../lib/entry-ledger";
+import { getAssignedRoles, hasAssignedRole } from "../../../../lib/role-access";
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { leadCurrentGroupId } from "../../../../lib/customer-current-group";
@@ -13,6 +14,39 @@ const inputSchema = z.object({
   phones: z.string().trim().min(1, "请粘贴至少一个手机号").max(API_LIMITS.customerImportTextCharacters, "一次粘贴的号码过多，请分批检查"),
   channelId: z.string().min(1).max(API_LIMITS.identifierCharacters).optional(),
 }).strict();
+
+/** 单个号码安全查重：无配合关系时只回答“已存在”，不泄露客户资料。 */
+export async function GET(request: Request) {
+  let user;
+  try {
+    user = await requireUser();
+  } catch (error) {
+    if (error instanceof AuthenticationError) return NextResponse.json({ error: error.message }, { status: 401 });
+    throw error;
+  }
+  if (!getAssignedRoles(user).some((role) => ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"].includes(role)))
+    return authorizationDenied(user, "当前岗位不能查询客户号码");
+  if (!user.groupId) return authorizationDenied(user, "当前账号未绑定小组");
+  let phone: string;
+  try {
+    phone = normalizeCustomerPhone(new URL(request.url).searchParams.get("phone") ?? "");
+  } catch {
+    return NextResponse.json({ error: "请输入正确的客户号码" }, { status: 400 });
+  }
+  const existing = await db.leadCustomer.findFirst({
+    where: { phone, trackingArchivedAt: null },
+    select: {
+      ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true,
+      batch: { select: { groupId: true } },
+    },
+  });
+  if (!existing) return NextResponse.json({ exists: false, phone });
+  if (leadCurrentGroupId(existing) !== user.groupId)
+    return NextResponse.json({ exists: true, sameGroup: false, message: "该号码已存在" });
+  if (!getAssignedRoles(user).includes("LEAD") && !isCustomerCollaborator(user.id, existing))
+    return NextResponse.json({ exists: true, sameGroup: true, canAccess: false, message: "该号码已存在" });
+  return NextResponse.json({ exists: true, sameGroup: true, canAccess: true, phone });
+}
 
 export async function POST(request: Request) {
   let user;

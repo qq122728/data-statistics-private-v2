@@ -14,3 +14,4 @@
 @media(max-width:1100px){.kpis{grid-template-columns:repeat(2,minmax(140px,1fr))}.twoColumns{grid-template-columns:1fr}.toolbar,.filters,.accountFilters{flex-wrap:wrap}.toolbar>div{width:100%}.filters .readonly{margin-left:0}}
 @media(max-width:900px){.app{grid-template-columns:76px minmax(0,1fr)}.sidebar{padding:0 8px}.brand{justify-content:center}.brand div,.navButton span,.navGroup>small,.scope{display:none}.navButton{justify-content:center;padding:0}.navGroup .navButton{padding:0}.header{padding:0 14px}.content{padding:12px}.user div{display:none}.filters label,.inlineCreate label{width:100%;display:grid}.filters select,.inlineCreate input,.inlineCreate select{width:100%}.kpis{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.kpis{grid-template-columns:1fr}.header p{display:none}}
+@media(max-width:560px){.tabs{overflow-x:auto;overscroll-behavior-inline:contain}.tabs button{flex:0 0 auto;white-space:nowrap}}

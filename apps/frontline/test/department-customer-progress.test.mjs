@@ -65,6 +65,9 @@ test("组员和组长都能新增进群客户", () => {
   assert.match(component, /新客户接粉日期/);
   assert.match(component, /新客户进群日期/);
   assert.ok(component.includes("sourceDate: localToday()"));
+  assert.match(component, /expertIntroducedOn: viewMode === "expert" \? today : ""/);
+  assert.match(component, /const \{ expertOwnerId, expertIntroducedOn, \.\.\.groupDraft \} = draft/);
+  assert.match(component, /\.\.\.groupDraft/);
   assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
 });
 
@@ -73,8 +76,8 @@ test("专家可以在专家进度直接新增一行并确认实际推专家日�
   assert.match(component, /canCreateInView/);
   assert.match(component, /aria-label="新增客户专家负责人"/);
   assert.match(component, /aria-label="新增客户推专家日期"/);
-  assert.match(component, /expertOwnerId: draft\.expertOwnerId/);
-  assert.match(component, /expertIntroducedOn: draft\.expertIntroducedOn/);
+  assert.match(component, /const \{ expertOwnerId, expertIntroducedOn, \.\.\.groupDraft \} = draft/);
+  assert.match(component, /\? \{\s*expertOwnerId,\s*expertIntroducedOn,/);
 });
 
 test("共享表开放接粉和炒群列，专家列需要专家权限", () => {

@@ -356,7 +356,7 @@ export function DepartmentCustomerProgress({
     sourceDate: localToday(),
     joinedOn: localToday(),
     expertOwnerId: "",
-    expertIntroducedOn: localToday(),
+    expertIntroducedOn: "",
   });
   const [finance, setFinance] = useState<{
     kind: FinanceKind;
@@ -584,7 +584,7 @@ export function DepartmentCustomerProgress({
             expertCreateOptions[0]?.id ??
             "")
           : "",
-      expertIntroducedOn: today,
+      expertIntroducedOn: viewMode === "expert" ? today : "",
     });
   }
   async function createCustomer() {
@@ -612,18 +612,19 @@ export function DepartmentCustomerProgress({
     setCreating(true);
     setError("");
     try {
+      const { expertOwnerId, expertIntroducedOn, ...groupDraft } = draft;
       await requestJson("/api/lead/customer-reporting", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          ...draft,
+          ...groupDraft,
           groupId,
           lossAmountCents:
             lossAmount === null ? null : Math.round(lossAmount * 100),
           ...(viewMode === "expert"
             ? {
-                expertOwnerId: draft.expertOwnerId,
-                expertIntroducedOn: draft.expertIntroducedOn,
+                expertOwnerId,
+                expertIntroducedOn,
               }
             : {}),
         }),

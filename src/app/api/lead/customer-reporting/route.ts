@@ -469,7 +469,7 @@ export async function GET(request: Request) {
           select: {
             id: true,
             sourceDate: true,
-            channel: { select: { name: true } },
+            channel: { select: { id: true, name: true } },
             group: { select: { name: true } },
           },
         },

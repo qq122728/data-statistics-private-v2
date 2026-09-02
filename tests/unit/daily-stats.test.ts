@@ -11,6 +11,7 @@ import { incrementCustomerEventDailyStat } from "../../src/lib/daily-stats";
 const prefix = "daily-stat-test-";
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   await db.auditLog.deleteMany({ where: { actorId: { startsWith: prefix } } });
   await db.dailyStatEntry.updateMany({
@@ -346,15 +347,19 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId, action: "APPROVE" }))).status).toBe(410);
   });
 
-  it("rejects impossible same-day reception counts but allows registrations and orders from earlier customers", async () => {
+  it("允许回访回复高于当天添加数，但仍拦截不可能的当天进群数", async () => {
     const data = await fixture();
     signInAs(data.reception);
     const tooManyReplies = await POST(request("POST", {
       businessDate: "2026-08-20", position: "RECEPTION", channelId: data.channelId,
       values: { ...emptyValues, dispatchCount: 10, duplicateCount: 2, replyCount: 9 },
     }));
-    expect(tooManyReplies.status).toBe(400);
-    await expect(tooManyReplies.json()).resolves.toEqual({ error: "回复数量不能超过有效数据数量" });
+    expect(tooManyReplies.status).toBe(201);
+    const repliesWithoutAdds = await POST(request("POST", {
+      businessDate: "2026-08-19", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, replyCount: 3 },
+    }));
+    expect(repliesWithoutAdds.status).toBe(201);
     const tooManyJoins = await POST(request("POST", {
       businessDate: "2026-08-21", position: "RECEPTION", channelId: data.channelId,
       values: { ...emptyValues, dispatchCount: 10, noWsCount: 3, joinCount: 8 },
@@ -379,6 +384,28 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       values: { ...emptyValues, orderCount: 3 },
     }));
     expect(ordersFromEarlierCustomers.status).toBe(201);
+  });
+
+  it("当天首次保存后还能继续增加回复，不要求填写历史更正原因", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T03:30:00Z"));
+    const data = await fixture();
+    signInAs(data.reception);
+    const first = await POST(request("POST", {
+      businessDate: "2026-09-02", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, dispatchCount: 2, replyCount: 1 },
+    }));
+    expect(first.status).toBe(201);
+    const firstBody = await first.json();
+    const updated = await POST(request("POST", {
+      entryId: firstBody.entry.id,
+      businessDate: "2026-09-02", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, dispatchCount: 2, replyCount: 3 },
+    }));
+    expect(updated.status).toBe(201);
+    await expect(updated.json()).resolves.toMatchObject({
+      entry: { currentRevision: { dispatchCount: 2, replyCount: 3 } },
+    });
   });
 
   it("merges same-day member snapshot sources and carries each source latest value across dates", async () => {

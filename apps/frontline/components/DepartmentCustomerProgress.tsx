@@ -51,7 +51,7 @@ type Customer = {
   groupOperatorOwner: Owner;
   expertOwner: Owner;
   device: { id: string; code: string } | null;
-  batch: { id: string; sourceDate: string; channel: { name: string } };
+  batch: { id: string; sourceDate: string; channel: Option };
   order: {
     id: string;
     openedOn: string;
@@ -704,10 +704,7 @@ export function DepartmentCustomerProgress({
     setCorrectionDraft({
       attributionOwnerId:
         customer.attributionOwner?.id ?? customer.owner?.id ?? "",
-      channelId:
-        payload?.channelOptions.find(
-          (item) => item.name === customer.batch.channel.name,
-        )?.id ?? "",
+      channelId: customer.batch.channel.id,
       sourceDate: customer.batch.sourceDate,
       reason: "",
     });
@@ -1716,7 +1713,7 @@ export function DepartmentCustomerProgress({
                                 className={styles.correctionButton}
                                 onClick={() => beginAttributionCorrection(customer)}
                               >
-                                归属纠错
+                                修改组员/渠道
                               </button>
                             ) : null}
                           </div>
@@ -2218,9 +2215,9 @@ export function DepartmentCustomerProgress({
           <section className={styles.financeModal}>
             <header>
               <div>
-                <h3>客户原始归属纠错</h3>
+                <h3>修改客户接粉信息</h3>
                 <p>
-                  {correction.phone} · 仅用于确实录错；保存后会同步搬正相关统计并记录原因。
+                  {correction.phone} · 修改渠道后，已经产生的相关统计会一起更新到正确渠道。
                 </p>
               </div>
               <button type="button" onClick={() => setCorrection(null)}>
@@ -2285,13 +2282,13 @@ export function DepartmentCustomerProgress({
                 />
               </label>
               <label className={styles.correctionReason}>
-                <span>纠错原因（必填）</span>
+                <span>修改原因（必填）</span>
                 <textarea
                   aria-label="客户归属纠错原因"
                   value={correctionDraft.reason}
                   rows={3}
                   maxLength={300}
-                  placeholder="例如：录入时选错接粉人，核对原始聊天记录后纠正"
+                  placeholder="例如：录入时选错渠道，现修改为正确渠道"
                   disabled={savingCorrection}
                   onChange={(event) =>
                     setCorrectionDraft((value) => ({

@@ -43,7 +43,7 @@ test("五个客户阶段使用按日编号并支持编号搜索", () => {
 });
 
 test("共享表完整保留已进群客户业务字段", () => {
-  for (const field of ["客户日期", "客户信息", "客户归属", "群维护", "设备号", "群内天数", "炒群情况", "退群信息", "专家负责人", "专家情况", "注册信息", "首充", "续充", "出金", "净业绩", "最后修改"]) {
+  for (const field of ["客户日期", "客户信息", "客户归属", "群维护", "设备号", "群内天数", "炒群情况", "退群信息", "专家负责人", "专家情况", "注册信息", "开单 / 首充", "续充", "出金", "净业绩", "最后修改"]) {
     assert.match(component, new RegExp(field));
   }
   assert.ok(component.includes("注册信息"));
@@ -98,6 +98,12 @@ test("共享表开放接粉和炒群列，专家列需要专家权限", () => {
   assert.match(component, /placeholder="手动填写"/);
   assert.doesNotMatch(component, /deviceOptions/);
   assert.match(component, /\/api\/customer-orders/);
+  assert.match(component, /\+ 开单 \/ 首充/);
+  assert.match(component, /开单日期/);
+  assert.match(component, /开单金额（首充）/);
+  assert.match(component, /确认开单并登记首充/);
+  assert.match(component, /请先填写注册日期；保存后即可填写开单日期和开单金额/);
+  assert.match(component, /customer\.order\.openedOn/);
   assert.match(component, /\/api\/customer-finance/);
   assert.match(component, /\+ 确认本次续充/);
   assert.match(component, /financeEvents/);

@@ -751,7 +751,7 @@ export function DepartmentCustomerProgress({
       }
       showSaved(
         finance.kind === "INITIAL"
-          ? "首充已登记"
+          ? "开单与首充已登记"
           : finance.kind === "RECHARGE"
             ? "本次续充已登记"
             : "本次出金已登记",
@@ -1059,7 +1059,7 @@ export function DepartmentCustomerProgress({
                         注册信息<small>状态 / 日期</small>
                       </th>
                     ) : null}
-                    {showColumn("initial") ? <th>首充</th> : null}
+                    {showColumn("initial") ? <th>开单 / 首充</th> : null}
                     {showColumn("recharge") ? <th>续充</th> : null}
                     {showColumn("withdrawal") ? <th>出金</th> : null}
                     {showColumn("net") ? <th>净业绩</th> : null}
@@ -2070,25 +2070,30 @@ export function DepartmentCustomerProgress({
                                   disabled={!canEditExpert}
                                 >
                                   {money(customer.order.initialDepositCents)}
+                                  <small>{customer.order.openedOn}</small>
                                 </button>
                               ) : (
                                 <button
                                   className={styles.financeAdd}
-                                  disabled={
-                                    !canEditExpert || !customer.registeredOn
-                                  }
+                                  disabled={!canEditExpert}
                                   title={
                                     !canEditExpert
                                       ? "需要专家权限"
                                       : !customer.registeredOn
-                                        ? "请先填写注册日期"
-                                        : "登记首充"
+                                        ? "请先填写注册日期，再登记开单日期和开单金额"
+                                        : "登记开单日期、开单金额和入金方式"
                                   }
-                                  onClick={() =>
-                                    openFinance("INITIAL", customer)
-                                  }
+                                  onClick={() => {
+                                    if (!customer.registeredOn) {
+                                      setError(
+                                        "请先填写注册日期；保存后即可填写开单日期和开单金额。",
+                                      );
+                                      return;
+                                    }
+                                    openFinance("INITIAL", customer);
+                                  }}
                                 >
-                                  + 首充
+                                  + 开单 / 首充
                                 </button>
                               )}
                             </td>
@@ -2192,7 +2197,9 @@ export function DepartmentCustomerProgress({
               <div>
                 <h3>
                   {finance.kind === "INITIAL"
-                    ? "首充记录"
+                    ? finance.customer.order
+                      ? "开单与首充记录"
+                      : "登记开单与首充"
                     : finance.kind === "RECHARGE"
                       ? "续充明细"
                       : "出金明细"}
@@ -2240,9 +2247,28 @@ export function DepartmentCustomerProgress({
             {finance.kind !== "INITIAL" || !finance.customer.order ? (
               <div className={styles.financeForm}>
                 <label>
-                  <span>日期</span>
+                  <span>
+                    {finance.kind === "INITIAL"
+                      ? "开单日期"
+                      : finance.kind === "RECHARGE"
+                        ? "续充日期"
+                        : "出金日期"}
+                  </span>
                   <input
                     type="date"
+                    aria-label={
+                      finance.kind === "INITIAL"
+                        ? "开单日期"
+                        : finance.kind === "RECHARGE"
+                          ? "续充日期"
+                          : "出金日期"
+                    }
+                    min={
+                      finance.kind === "INITIAL"
+                        ? finance.customer.registeredOn ?? undefined
+                        : finance.customer.order?.openedOn
+                    }
+                    max={businessToday}
                     value={financeDraft.occurredOn}
                     onChange={(event) =>
                       setFinanceDraft((value) => ({
@@ -2253,9 +2279,22 @@ export function DepartmentCustomerProgress({
                   />
                 </label>
                 <label>
-                  <span>金额</span>
+                  <span>
+                    {finance.kind === "INITIAL"
+                      ? "开单金额（首充）"
+                      : finance.kind === "RECHARGE"
+                        ? "续充金额"
+                        : "出金金额"}
+                  </span>
                   <input
                     type="number"
+                    aria-label={
+                      finance.kind === "INITIAL"
+                        ? "开单金额（首充）"
+                        : finance.kind === "RECHARGE"
+                          ? "续充金额"
+                          : "出金金额"
+                    }
                     min="0.01"
                     step="0.01"
                     value={financeDraft.amount}
@@ -2306,7 +2345,7 @@ export function DepartmentCustomerProgress({
                   {savingFinance
                     ? "保存中…"
                     : finance.kind === "INITIAL"
-                      ? "确认首充"
+                      ? "确认开单并登记首充"
                       : finance.kind === "RECHARGE"
                         ? "+ 确认本次续充"
                         : "+ 确认本次出金"}

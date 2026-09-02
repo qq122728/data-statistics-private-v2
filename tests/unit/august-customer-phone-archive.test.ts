@@ -19,7 +19,7 @@ describe("August customer phone archive migration", () => {
     expect(sql).not.toMatch(/DELETE\s+FROM\s+"LeadCustomer"/i);
   });
 
-  it("prevents a pure pre-cutover join from occupying an active phone again", async () => {
+  it("allows an archived customer to resume without writing old-month statistics", async () => {
     const route = await readFile(
       "src/app/api/lead/customer-reporting/route.ts",
       "utf8",
@@ -29,8 +29,12 @@ describe("August customer phone archive migration", () => {
     expect(route).toContain(
       "usesCustomerNumberTracking(input.expertIntroducedOn)",
     );
-    expect(route).toContain("更早的纯历史进群已封账");
-    expect(route).toContain("批量新增不能补录更早的进群号码");
+    expect(route).toContain("resumesHistoricalCustomer");
+    expect(route).toContain("historicalBaselineStage");
+    expect(route).toContain("historicalJoinCounted: countsCurrentJoin");
+    expect(route).toContain("historicalExpertIntroCounted: countsCurrentExpert");
+    expect(route).not.toContain("更早的纯历史进群已封账");
+    expect(route).not.toContain("批量新增不能补录更早的进群号码");
 
     const correctionRoute = await readFile(
       "src/app/api/lead/customer-reporting/[leadId]/route.ts",

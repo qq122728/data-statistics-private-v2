@@ -727,16 +727,9 @@ export async function POST(request: Request) {
           { error: "接粉日期不能晚于进群日期" },
           { status: 400 },
         );
-      if (
-        usesCustomerNumberTracking(today) &&
-        !usesCustomerNumberTracking(input.joinedOn)
-      )
-        return NextResponse.json(
-          {
-            error: `号码跟踪已从 ${CUSTOMER_NUMBER_TRACKING_FROM} 开始；批量新增不能补录更早的进群号码。`,
-          },
-          { status: 400 },
-        );
+      const resumesHistoricalCustomer = !usesCustomerNumberTracking(sourceDate);
+      const countsCurrentJoin =
+        resumesHistoricalCustomer && usesCustomerNumberTracking(input.joinedOn);
 
       const uniquePhones: string[] = [];
       const seen = new Set<string>();
@@ -759,7 +752,7 @@ export async function POST(request: Request) {
       const [channel, operator, existing] = await Promise.all([
         db.channel.findUnique({
           where: { id_groupId: { id: input.channelId, groupId: group.id } },
-          select: { id: true, active: true },
+          select: { id: true, name: true, active: true },
         }),
         db.user.findFirst({
           where: {
@@ -849,6 +842,14 @@ export async function POST(request: Request) {
               repliedOn: sourceDate,
               groupStatus: "JOINED",
               joinedOn: input.joinedOn,
+              isHistoricalRecord: resumesHistoricalCustomer,
+              historicalSourceName: resumesHistoricalCustomer ? channel.name : null,
+              historicalBaselineStage: resumesHistoricalCustomer
+                ? usesCustomerNumberTracking(input.joinedOn)
+                  ? "REPLIED"
+                  : "JOINED"
+                : null,
+              historicalJoinCounted: countsCurrentJoin,
               activities: {
                 create: [
                   {
@@ -910,7 +911,14 @@ export async function POST(request: Request) {
         return rows;
       });
       return NextResponse.json(
-        { created, duplicates, invalid, totalInput: input.phones.length },
+        {
+          created,
+          duplicates,
+          invalid,
+          totalInput: input.phones.length,
+          resumed: resumesHistoricalCustomer,
+          counted: { join: countsCurrentJoin },
+        },
         { status: 201 },
       );
     }
@@ -988,21 +996,28 @@ export async function POST(request: Request) {
           { status: 400 },
         );
     }
-    // 切换后，纯历史进群不能再次占用当前号码。老粉如果在 9 月真实推专家，
-    // 专家入口仍可按实际发生日期重新建立当前跟踪。
+    // 历史接粉、进群日期只用于恢复当前跟踪档案，不能倒灌旧月份。
+    // 如果新增时同时填写推专家，则推专家必须是号码跟踪启用后的真实新动作。
     if (
+      input.expertIntroducedOn &&
       usesCustomerNumberTracking(today) &&
-      !usesCustomerNumberTracking(input.joinedOn) &&
-      (!input.expertIntroducedOn ||
-        !usesCustomerNumberTracking(input.expertIntroducedOn))
+      !usesCustomerNumberTracking(input.expertIntroducedOn)
     ) {
       return NextResponse.json(
         {
-          error: `号码跟踪已从 ${CUSTOMER_NUMBER_TRACKING_FROM} 开始；更早的纯历史进群已封账，不再保存号码。如客户本月已推专家，请从“专家进度”按实际推专家日期新增。`,
+          error: `号码跟踪已从 ${CUSTOMER_NUMBER_TRACKING_FROM} 开始；历史接粉和进群日期可以保留，但推专家日期必须填写本次真实发生日期。`,
         },
         { status: 400 },
       );
     }
+    const resumesHistoricalCustomer = !usesCustomerNumberTracking(sourceDate);
+    const countsCurrentJoin =
+      resumesHistoricalCustomer && usesCustomerNumberTracking(input.joinedOn);
+    const countsCurrentExpert = Boolean(
+      resumesHistoricalCustomer &&
+        input.expertIntroducedOn &&
+        usesCustomerNumberTracking(input.expertIntroducedOn),
+    );
     let phone: string;
     try {
       phone = normalizeCustomerPhone(input.phone);
@@ -1016,7 +1031,7 @@ export async function POST(request: Request) {
       const [channel, operator, expert, existing] = await Promise.all([
         transaction.channel.findUnique({
           where: { id_groupId: { id: input.channelId, groupId: group.id } },
-          select: { id: true, active: true },
+          select: { id: true, name: true, active: true },
         }),
         transaction.user.findFirst({
           where: {
@@ -1125,6 +1140,15 @@ export async function POST(request: Request) {
           repliedOn: sourceDate,
           groupStatus: "JOINED",
           joinedOn: input.joinedOn,
+          isHistoricalRecord: resumesHistoricalCustomer,
+          historicalSourceName: resumesHistoricalCustomer ? channel.name : null,
+          historicalBaselineStage: resumesHistoricalCustomer
+            ? usesCustomerNumberTracking(input.joinedOn)
+              ? "REPLIED"
+              : "JOINED"
+            : null,
+          historicalJoinCounted: countsCurrentJoin,
+          historicalExpertIntroCounted: countsCurrentExpert,
           activities: {
             create: [
               {
@@ -1203,7 +1227,17 @@ export async function POST(request: Request) {
       return result.status === 403
         ? authorizationDenied(actor, result.error)
         : NextResponse.json({ error: result.error }, { status: result.status });
-    return NextResponse.json(result.customer, { status: 201 });
+    return NextResponse.json(
+      {
+        ...result.customer,
+        resumed: resumesHistoricalCustomer,
+        counted: {
+          join: countsCurrentJoin,
+          expert: countsCurrentExpert,
+        },
+      },
+      { status: 201 },
+    );
   } catch (error) {
     if (error instanceof z.ZodError)
       return NextResponse.json(

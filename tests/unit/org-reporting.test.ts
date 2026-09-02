@@ -1575,6 +1575,70 @@ describe.sequential("资源部真实报表快照", () => {
 });
 
 describe.sequential("新版客户进度 API", () => {
+  it("历史接粉和历史进群可以恢复号码，但不会补写旧月份统计", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-02T03:30:00Z"));
+    const channelId = id("historical-resume-channel");
+    await db.channel.create({
+      data: {
+        id: channelId,
+        groupId: ids.berlinGroup,
+        name: `历史续接渠道-${suffix}`,
+        normalizedName: `历史续接渠道-${suffix}`,
+      },
+    });
+    await signIn(ids.berlinReception);
+    const response = await postLeadCustomerReporting(
+      new Request("http://localhost/api/lead/customer-reporting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          attributionOwnerId: ids.berlinReception,
+          phone: "839903",
+          channelId,
+          sourceDate: "2026-08-24",
+          joinedOn: "2026-08-30",
+          groupOperatorOwnerId: ids.berlinOperatorA,
+          deviceCode: "历史续接设备",
+        }),
+      }),
+    );
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      id: string;
+      resumed: boolean;
+      counted: { join: boolean; expert: boolean };
+    };
+    expect(body).toMatchObject({
+      resumed: true,
+      counted: { join: false, expert: false },
+    });
+    await expect(
+      db.leadCustomer.findUniqueOrThrow({ where: { id: body.id } }),
+    ).resolves.toMatchObject({
+      isHistoricalRecord: true,
+      historicalBaselineStage: "JOINED",
+      historicalJoinCounted: false,
+      historicalExpertIntroCounted: false,
+      joinedOn: "2026-08-30",
+    });
+    expect(await db.dailyStatEntry.count({ where: { channelId } })).toBe(0);
+
+    await db.leadActivity.deleteMany({ where: { leadId: body.id } });
+    await db.auditLog.deleteMany({ where: { entityId: body.id } });
+    await db.leadCustomer.delete({ where: { id: body.id } });
+    await db.device.deleteMany({
+      where: { groupId: ids.berlinGroup, code: "历史续接设备" },
+    });
+    await db.sourceBatch.deleteMany({
+      where: { groupId: ids.berlinGroup, channelId },
+    });
+    await db.channel.delete({
+      where: { id_groupId: { id: channelId, groupId: ids.berlinGroup } },
+    });
+    vi.useRealTimers();
+  });
+
   it("专家可直接新增专家进度行，并按真实日期生成 G/E 编号和两段统计", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-02T03:30:00Z"));
@@ -1654,6 +1718,10 @@ describe.sequential("新版客户进度 API", () => {
       expertIntroducedOn: "2026-09-02",
       groupQueueNumber: expect.any(Number),
       expertQueueNumber: expect.any(Number),
+      isHistoricalRecord: true,
+      historicalBaselineStage: "REPLIED",
+      historicalJoinCounted: true,
+      historicalExpertIntroCounted: true,
     });
 
     const eventEntries = await db.dailyStatEntry.findMany({
@@ -1802,9 +1870,11 @@ describe.sequential("新版客户进度 API", () => {
         }),
       }),
     );
-    expect(historicalPreview.status).toBe(400);
+    expect(historicalPreview.status).toBe(200);
     expect(await historicalPreview.json()).toMatchObject({
-      error: expect.stringContaining("批量新增不能补录更早的进群号码"),
+      validPhones: ["830001", "830002"],
+      duplicates: ["830002"],
+      invalid: ["12"],
     });
 
     const preview = await call(true);

@@ -464,6 +464,7 @@ export async function GET(request: Request) {
             openedOn: true,
             orderQueueNumber: true,
             initialDepositCents: true,
+            initialDepositMethod: true,
             voidedAt: true,
             enteredBy: { select: { id: true, name: true } },
             events: {
@@ -477,6 +478,7 @@ export async function GET(request: Request) {
                 amountCents: true,
                 occurredOn: true,
                 continuationNumber: true,
+                depositMethod: true,
                 enteredBy: { select: { id: true, name: true } },
               },
               orderBy: [{ occurredOn: "desc" }, { createdAt: "desc" }],
@@ -626,6 +628,7 @@ export async function GET(request: Request) {
                 openedOn: activeOrder.openedOn,
                 orderQueueNumber: activeOrder.orderQueueNumber,
                 initialDepositCents: activeOrder.initialDepositCents,
+                initialDepositMethod: activeOrder.initialDepositMethod,
                 enteredBy: activeOrder.enteredBy,
                 rechargeCents: continuations.reduce(
                   (sum, event) => sum + (event.amountCents ?? 0),

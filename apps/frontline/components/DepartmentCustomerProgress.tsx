@@ -23,6 +23,7 @@ type FinanceEvent = {
   amountCents: number;
   occurredOn: string;
   continuationNumber: number | null;
+  depositMethod: "CRYPTO" | "BANK" | null;
   enteredBy?: Option;
 };
 type Customer = {
@@ -57,6 +58,7 @@ type Customer = {
     openedOn: string;
     orderQueueNumber: number | null;
     initialDepositCents: number;
+    initialDepositMethod: "CRYPTO" | "BANK" | null;
     enteredBy: Option;
     rechargeCents: number;
     withdrawalCents: number;
@@ -167,6 +169,8 @@ const money = (cents = 0) =>
     currency: "USD",
     maximumFractionDigits: 0,
   }).format(cents / 100);
+const depositMethodLabel = (method: "CRYPTO" | "BANK" | null) =>
+  method === "BANK" ? "银行卡" : method === "CRYPTO" ? "加密货币" : "未记录方式";
 const queueNumber = (
   prefix: "G" | "E" | "R" | "O" | "L",
   date: string | null,
@@ -362,6 +366,7 @@ export function DepartmentCustomerProgress({
     kind: FinanceKind;
     customer: Customer;
   } | null>(null);
+  const [ledgerCustomer, setLedgerCustomer] = useState<Customer | null>(null);
   const [financeDraft, setFinanceDraft] = useState({
     occurredOn: localToday(),
     amount: "",
@@ -704,6 +709,10 @@ export function DepartmentCustomerProgress({
       amount: "",
       depositMethod: "CRYPTO",
     });
+    setError("");
+  }
+  function openLedger(customer: Customer) {
+    setLedgerCustomer(customer);
     setError("");
   }
   async function saveFinance() {
@@ -2131,7 +2140,24 @@ export function DepartmentCustomerProgress({
                             </td>
                           ) : null}
                           {showColumn("net") ? (
-                            <td className={styles.net}>{money(net)}</td>
+                            <td className={styles.net}>
+                              <button
+                                type="button"
+                                className={styles.netButton}
+                                disabled={!canEditExpert || !customer.order}
+                                title={
+                                  !canEditExpert
+                                    ? "需要专家或组长权限"
+                                    : !customer.order
+                                      ? "请先登记开单与首充"
+                                      : "查看资金流水，新增续充或出金"
+                                }
+                                onClick={() => openLedger(customer)}
+                              >
+                                {money(net)}
+                                {customer.order ? <small>查看流水</small> : null}
+                              </button>
+                            </td>
                           ) : null}
                         </>
                       ) : null}
@@ -2184,6 +2210,77 @@ export function DepartmentCustomerProgress({
           </div>
         </footer>
       </section>
+
+      {ledgerCustomer?.order ? (
+        <div
+          className={styles.modalBackdrop}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setLedgerCustomer(null);
+          }}
+        >
+          <section className={styles.financeModal}>
+            <header>
+              <div>
+                <h3>客户资金流水</h3>
+                <p>{ledgerCustomer.phone} · 每笔记录独立保存日期、金额和操作人</p>
+                <p>这里只跟踪客户资金变化，不修改组员填写的公司认账财务。</p>
+              </div>
+              <button type="button" onClick={() => setLedgerCustomer(null)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className={styles.financeSummary}>
+              <div><span>首充</span><strong>{money(ledgerCustomer.order.initialDepositCents)}</strong></div>
+              <div><span>续充</span><strong>{money(ledgerCustomer.order.rechargeCents)}</strong></div>
+              <div><span>出金</span><strong>{money(ledgerCustomer.order.withdrawalCents)}</strong></div>
+              <div data-net="true"><span>当前净值</span><strong>{money(ledgerCustomer.order.initialDepositCents + ledgerCustomer.order.rechargeCents - ledgerCustomer.order.withdrawalCents)}</strong></div>
+            </div>
+            <div className={styles.financeHistory}>
+              <div>
+                <span>首充 · {ledgerCustomer.order.openedOn}</span>
+                <strong>{money(ledgerCustomer.order.initialDepositCents)}</strong>
+                <small>{depositMethodLabel(ledgerCustomer.order.initialDepositMethod)} · {ledgerCustomer.order.enteredBy?.name ?? "历史记录"}</small>
+              </div>
+              {ledgerCustomer.order.financeEvents.map((event) => (
+                <div key={event.id}>
+                  <span>
+                    {event.kind === "RECHARGE"
+                      ? `第 ${event.continuationNumber ?? "—"} 次续充`
+                      : "出金"} · {event.occurredOn}
+                  </span>
+                  <strong data-kind={event.kind}>{event.kind === "WITHDRAWAL" ? "−" : "+"}{money(event.amountCents)}</strong>
+                  <small>{event.kind === "RECHARGE" ? `${depositMethodLabel(event.depositMethod)} · ` : ""}{event.enteredBy?.name ?? "历史记录"}</small>
+                </div>
+              ))}
+            </div>
+            <footer className={styles.ledgerActions}>
+              <button type="button" onClick={() => setLedgerCustomer(null)}>关闭</button>
+              <button
+                type="button"
+                className={styles.primaryButton}
+                onClick={() => {
+                  const customer = ledgerCustomer;
+                  setLedgerCustomer(null);
+                  openFinance("RECHARGE", customer);
+                }}
+              >
+                + 新增续充
+              </button>
+              <button
+                type="button"
+                className={styles.withdrawalButton}
+                onClick={() => {
+                  const customer = ledgerCustomer;
+                  setLedgerCustomer(null);
+                  openFinance("WITHDRAWAL", customer);
+                }}
+              >
+                + 登记出金
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {finance ? (
         <div

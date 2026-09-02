@@ -104,6 +104,17 @@ test("共享表开放接粉和炒群列，专家列需要专家权限", () => {
   assert.match(component, /确认开单并登记首充/);
   assert.match(component, /请先填写注册日期；保存后即可填写开单日期和开单金额/);
   assert.match(component, /customer\.order\.openedOn/);
+  assert.match(component, /客户资金流水/);
+  assert.match(component, /不修改组员填写的公司认账财务/);
+  assert.match(component, /\+ 新增续充/);
+  assert.match(component, /\+ 登记出金/);
+  assert.match(component, /当前净值/);
+  assert.match(component, /initialDepositCents \+ ledgerCustomer\.order\.rechargeCents - ledgerCustomer\.order\.withdrawalCents/);
+  assert.match(component, /depositMethodLabel/);
+  assert.match(component, /event\.enteredBy/);
+  assert.match(component, /openLedger/);
+  assert.match(css, /\.financeSummary/);
+  assert.match(css, /\.netButton/);
   assert.match(component, /\/api\/customer-finance/);
   assert.match(component, /\+ 确认本次续充/);
   assert.match(component, /financeEvents/);

@@ -681,6 +681,26 @@
   color: #9aa5b5;
   cursor: not-allowed;
 }
+.netButton {
+  display: inline-grid;
+  justify-items: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  padding: 5px;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.netButton small {
+  color: #1769d2;
+  font-size: 8.5px;
+  font-weight: 650;
+}
+.netButton:disabled {
+  cursor: default;
+}
 .modalBackdrop {
   position: fixed;
   inset: 0;
@@ -826,6 +846,33 @@
   padding: 8px 20px;
   border-bottom: 1px solid #e2e7ee;
 }
+.financeSummary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e2e7ee;
+  background: #f7f9fc;
+}
+.financeSummary > div {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #dce4ee;
+  border-radius: 7px;
+  background: #fff;
+  padding: 9px 10px;
+}
+.financeSummary span {
+  color: #7b8798;
+  font-size: 9.5px;
+}
+.financeSummary strong {
+  color: #26354d;
+  font-size: 13px;
+}
+.financeSummary > div[data-net="true"] strong {
+  color: #1769d2;
+}
 .financeHistory > div {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -836,6 +883,9 @@
 }
 .financeHistory strong {
   color: #237344;
+}
+.financeHistory strong[data-kind="WITHDRAWAL"] {
+  color: #c33b3b;
 }
 .financeHistory small {
   color: #8791a2;
@@ -887,6 +937,11 @@
   border-color: #1769d2;
   background: #1769d2;
   color: #fff;
+  font-weight: 700;
+}
+.financeModal > footer .withdrawalButton {
+  border-color: #d68b8b;
+  color: #b42318;
   font-weight: 700;
 }
 .financeModal > footer button:disabled {
@@ -1088,5 +1143,8 @@
   .formGrid,
   .financeForm {
     grid-template-columns: 1fr;
+  }
+  .financeSummary {
+    grid-template-columns: 1fr 1fr;
   }
 }

@@ -73,7 +73,7 @@ type ImportFact = {
   };
 };
 
-const ratio = (value: number, base: number) => base === 0 ? null : value / base;
+const ratio = (value: number, base: number) => base > 0 ? value / base : null;
 
 function addDays(date: string, amount: number) {
   const [year, month, day] = date.split("-").map(Number);
@@ -173,7 +173,7 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
   // 旧版作废记录继续从有效数据中排除，但不再作为业务分类展示或允许新建。
   const legacyVoided = leads.filter((lead) => lead.invalid && lead.receptionCategory !== "LOW_AMOUNT" && lead.receptionCategory !== "NO_WS").length;
   const reclassifiedInvalid = lowAmount + noWs + legacyVoided;
-  const effective = Math.max(0, importedEffective - reclassifiedInvalid);
+  const effective = imported.submitted ? importedEffective - reclassifiedInvalid : sourceTotals.effectiveFans;
   const invalid = importInvalid + reclassifiedInvalid + approvedInvalid.total;
   const matureTotals = calculateBatchTotals(sourceEvents.filter((event) =>
     getMaturity(event.batch.sourceDate, today).d7 && isWithinMaturityWindow(event.batch.sourceDate, event.occurredOn, 7),
@@ -296,7 +296,7 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
     return {
       key: groupKey(item.date, item.groupId), date: item.date, groupId: item.groupId, groupName: item.groupName,
       submitted: dailyMode === "source" ? (imports.submitted || item.totals.newFans) + manual : item.totals.newFans,
-      effective: dailyMode === "source" ? Math.max(0, (imports.submitted ? imports.effective : item.totals.effectiveFans) - (reclassifiedBySourceGroup.get(groupKey(item.date, item.groupId)) ?? 0)) : item.totals.effectiveFans,
+      effective: dailyMode === "source" ? (imports.submitted ? imports.effective - (reclassifiedBySourceGroup.get(groupKey(item.date, item.groupId)) ?? 0) : item.totals.effectiveFans) : item.totals.effectiveFans,
       replies: item.totals.replies, joined: item.totals.groupJoin, introduced: item.totals.expertIntro,
       registered: item.totals.registration, orders: item.totals.orders,
       mature: dailyMode === "activity" || getMaturity(item.date, today).d7,
@@ -306,7 +306,7 @@ export async function loadResourceWorkspace(scope: AnalysisScope, today: string,
   return {
     quality: {
       submitted, effective, replies: sourceTotals.replies, duplicate, invalid, lowAmount, noWs,
-      effectiveRate: ratio(effective, submitted), customerReplyRate: ratio(sourceTotals.replies, effective),
+      effectiveRate: effective > 0 ? ratio(effective, submitted) : null, customerReplyRate: ratio(sourceTotals.replies, effective),
       duplicateRate: ratio(duplicate, submitted), invalidRate: ratio(invalid, submitted),
       matureSample: matureTotals.newFans, matureOrders: matureTotals.orders, matureOrderRate: ratio(matureTotals.orders, matureTotals.newFans),
     },

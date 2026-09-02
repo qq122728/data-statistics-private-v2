@@ -146,10 +146,8 @@ function revisionValues(
   }
   if (input.position === "RECEPTION") {
     const effectiveCount = all.dispatchCount - all.duplicateCount - all.lowAmountCount - all.noWsCount - all.manualInvalidCount;
-    if (effectiveCount < 0) throw new DailyStatError("撞粉、低金额、无 WhatsApp 与人工无效数量之和不能超过总下发粉数量");
-    if (!options.allowHistoricalFunnelOverflow && all.joinCount > effectiveCount) throw new DailyStatError("进群数量不能超过有效数据数量");
-    // 回复按“当天实际收到回复”登记，其中可能包含前几天接粉后今天才回复的回访客户。
-    // 所以回复数可以高于当天添加/有效数，也允许当天添加为 0 但有回复。
+    // 无效、回复和进群都按“当天实际发生”登记，其中可能包含前几天接粉的存量客户。
+    // 因此它们可以高于当天添加数；有效数也允许为负，月度总账再按合计重新计算。
     // 注册和开单按实际发生日期登记，可能来自前几天已经推专家或注册的存量客户，
     // 因此不能拿当天推专家、当天注册数量作为上限。
     return {

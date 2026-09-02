@@ -206,9 +206,9 @@ export async function GET(request: Request) {
     },
     rates: calculateConversionRates(row.totals),
     derivedRates: {
-      effectiveRate: row.totals.newFans ? row.totals.effectiveFans / row.totals.newFans : null,
-      replyRate: row.totals.effectiveFans ? row.totals.replies / row.totals.effectiveFans : null,
-      joinRate: row.totals.effectiveFans ? row.totals.groupJoin / row.totals.effectiveFans : null,
+      effectiveRate: row.totals.newFans > 0 && row.totals.effectiveFans > 0 ? row.totals.effectiveFans / row.totals.newFans : null,
+      replyRate: row.totals.effectiveFans > 0 ? row.totals.replies / row.totals.effectiveFans : null,
+      joinRate: row.totals.effectiveFans > 0 ? row.totals.groupJoin / row.totals.effectiveFans : null,
       registrationRate: row.totals.expertIntro ? row.totals.registration / row.totals.expertIntro : null,
       orderRate: row.totals.registration ? row.totals.orders / row.totals.registration : null,
       abnormalLeaveRate: row.totals.groupJoin - Math.max(0, row.totals.groupLeave - (row.totals.abnormalGroupLeave ?? 0)) > 0

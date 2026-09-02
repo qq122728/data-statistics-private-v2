@@ -47,7 +47,7 @@ export function calculateChannelAdjustedEfficiency(input: ChannelAdjustmentInput
 
   let expectedOrders = 0;
   for (const channel of channels.values()) {
-    if (channel.effectiveFans === 0) continue;
+    if (channel.effectiveFans <= 0) continue;
     const peerTotals = [...channel.peers.values()].reduce(
       (sum, peer) => ({ effectiveFans: sum.effectiveFans + peer.effectiveFans, orders: sum.orders + peer.orders }),
       { effectiveFans: 0, orders: 0 },

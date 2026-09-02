@@ -70,7 +70,7 @@ type ImportChannelEvent = {
   };
 };
 
-const ratio = (value: number, base: number) => base === 0 ? null : value / base;
+const ratio = (value: number, base: number) => base > 0 ? value / base : null;
 
 type ChannelSnapshot = { count: number; displayName: string; groups: Map<string, string> };
 
@@ -243,7 +243,7 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
     // 才能和资源部及财务使用的有效数据口径一致。
     // 历史汇总的有效数没有逐号码状态，需要扣除后来改判的无效粉；电话账本生成的
     // totals.effectiveFans 在 canonical-events 中已经排除无效/低金额/无 WS，不能再扣一次。
-    const effective = Math.max(0, importedEffective - reclassifiedInvalid) + totals.effectiveFans;
+    const effective = (importedSubmitted ? importedEffective - reclassifiedInvalid : 0) + totals.effectiveFans;
     const invalid = importInvalid + reclassifiedInvalid + approvedInvalid.total;
     return {
       normalizedName,
@@ -263,7 +263,7 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
       effective,
       duplicate,
       invalid,
-      effectiveRate: ratio(effective, submitted),
+      effectiveRate: effective > 0 ? ratio(effective, submitted) : null,
       customerReplyRate: ratio(totals.replies, effective),
       duplicateRate: ratio(duplicate, submitted),
       invalidRate: ratio(invalid, submitted),
@@ -326,7 +326,7 @@ export async function loadChannelAnalysis(scope: AnalysisScope, today: string) {
       normalizedName: selectedName!,
       displayName: selected.displayName,
       row: selectedRow,
-      replyRate: selectedRow.totals.effectiveFans === 0 ? null : selectedRow.totals.replies / selectedRow.totals.effectiveFans,
+      replyRate: selectedRow.totals.effectiveFans <= 0 ? null : selectedRow.totals.replies / selectedRow.totals.effectiveFans,
       rechargePerOrderCents: selectedRow.totals.orders === 0 ? null : selectedRow.totals.rechargeCents / selectedRow.totals.orders,
       d7: windowFor(selected.events, today, 7),
       d14: windowFor(selected.events, today, 14),

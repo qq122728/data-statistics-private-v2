@@ -282,7 +282,7 @@ function amount(value: number) {
 }
 
 function percent(numerator: number, denominator: number) {
-  return denominator > 0 ? `${(numerator / denominator * 100).toFixed(1)}%` : "0.0%";
+  return denominator > 0 ? `${(numerator / denominator * 100).toFixed(1)}%` : "—";
 }
 
 function calculated(values: Values, lawyer: boolean) {
@@ -299,7 +299,7 @@ function calculated(values: Values, lawyer: boolean) {
       net: deposits - values.withdrawalCents,
     };
   }
-  const effective = Math.max(0, values.dispatchCount - values.duplicateCount - values.lowAmountCount - values.noWsCount - values.manualInvalidCount);
+  const effective = values.dispatchCount - values.duplicateCount - values.lowAmountCount - values.noWsCount - values.manualInvalidCount;
   return {
     effective,
     replyRate: percent(values.replyCount, effective),
@@ -314,18 +314,12 @@ function calculated(values: Values, lawyer: boolean) {
 
 function validate(values: Values, lawyer: boolean) {
   if (lawyer) {
-    if (values.replyCount > values.dispatchCount) return "回复数量不能超过接粉数量";
     if (values.lowAmountCount > values.dispatchCount) return "接粉小金额不能超过接粉数量";
     if (values.lawyerRealCaseCount > values.dispatchCount) return "接粉真实案件不能超过接粉数量";
     if (values.lawyerAddedCount > values.dispatchCount) return "添加律师不能超过接粉数量";
     if (values.lawyerExpertAddedCount > values.dispatchCount) return "添加专家不能超过接粉数量";
     return "";
   }
-  const result = calculated(values, false);
-  if (values.duplicateCount + values.lowAmountCount + values.noWsCount + values.manualInvalidCount > values.dispatchCount)
-    return "撞粉、低金额、无 WS 和人工无效的合计不能超过添加数据";
-  if (values.replyCount > result.effective) return "回复数量不能超过有效数据";
-  if (values.joinCount > result.effective) return "进群数量不能超过有效数据";
   return "";
 }
 

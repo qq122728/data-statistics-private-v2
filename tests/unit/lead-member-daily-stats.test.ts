@@ -57,6 +57,18 @@ describe.sequential("组长检查统一组员日报", () => {
       status: "APPROVED", approvedRevision: { version: 2, bankInitialDepositCents: 10_000, bankRechargeCents: 5_000, registrationCount: 2, orderCount: 1 },
     });
 
+    const invalidCorrection = await PATCH(new Request(`http://localhost/api/lead/member-daily-stats/${memberId}`, {
+      method: "PATCH", body: JSON.stringify({ entryId, field: "manualInvalidCount", value: 12, reason: "补记以前客户今日确认无效" }),
+    }), context);
+    expect(invalidCorrection.status).toBe(200);
+    const replyCorrection = await PATCH(new Request(`http://localhost/api/lead/member-daily-stats/${memberId}`, {
+      method: "PATCH", body: JSON.stringify({ entryId, field: "replyCount", value: 12, reason: "补记以前客户今日回复" }),
+    }), context);
+    expect(replyCorrection.status).toBe(200);
+    await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: entryId }, include: { approvedRevision: true } })).resolves.toMatchObject({
+      approvedRevision: { version: 4, effectiveCount: -3, replyCount: 12, manualInvalidCount: 12 },
+    });
+
     const numberTrackedCorrection = await PATCH(new Request(`http://localhost/api/lead/member-daily-stats/${memberId}`, {
       method: "PATCH", body: JSON.stringify({ entryId, field: "registrationCount", value: 4, reason: "补记以前客户今日注册" }),
     }), context);

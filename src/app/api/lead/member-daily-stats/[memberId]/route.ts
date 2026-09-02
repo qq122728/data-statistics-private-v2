@@ -145,9 +145,6 @@ export async function PATCH(request: Request, context: RouteContext) {
       (values as unknown as Record<string, number>)[input.field] = input.value;
       if (entry.position === "RECEPTION") {
         values.effectiveCount = values.dispatchCount - values.duplicateCount - values.lowAmountCount - values.noWsCount - values.manualInvalidCount;
-        if (values.effectiveCount < 0) return { error: "无效项目合计不能超过添加数据", status: 400 as const };
-        if (values.replyCount > values.effectiveCount) return { error: "回复数量不能超过有效数据数量", status: 400 as const };
-        if (values.joinCount > values.effectiveCount) return { error: "进群数量不能超过有效数据数量", status: 400 as const };
         if (isUnifiedDailyStatIdentity(entry.identityKey)) {
           values.currentInGroupCount = Math.max(0, values.joinCount - values.normalLeaveCount - values.abnormalLeaveCount);
         }

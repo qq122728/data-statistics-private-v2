@@ -30,6 +30,9 @@ test("统一组员表按渠道读取并保存真实每日数据", () => {
   assert.match(source, /NUMBER_TRACKED_METRIC_KEYS/);
   assert.match(source, /由客户号码进度自动统计/);
   assert.match(source, /填写公司最终认账的首充、续充和出金/);
+  assert.match(source, /return values\.dispatchCount - values\.duplicateCount - values\.lowAmountCount - values\.noWsCount - values\.manualInvalidCount/);
+  assert.match(source, /denominator > 0 \? numerator \/ denominator \* 100 : Number\.NaN/);
+  assert.match(source, /!Number\.isFinite\(value\).*"—"/);
   assert.doesNotMatch(source, /mode === "finance" \|\| NUMBER_TRACKED_METRIC_KEYS/);
 });
 
@@ -77,6 +80,8 @@ test("组员AI仅从正式按钮进入写入流程，空白输入框保持只读
   assert.match(source, /老客户112233/);
   assert.match(source, /客户112233今天注册/);
   assert.match(source, /未提到的指标保持原值/);
+  assert.doesNotMatch(source, /无效的合计不能超过添加数据/);
+  assert.doesNotMatch(source, /回复数量不能超过有效数据/);
   assert.doesNotMatch(source, /改用逐步引导/);
   assert.match(source, /正在读取本组真实渠道和人员/);
   assert.match(source, /displayedNaturalTemplates/);

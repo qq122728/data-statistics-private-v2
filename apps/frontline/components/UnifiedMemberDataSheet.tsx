@@ -121,7 +121,7 @@ const moneyMetric = (key: string, label: string, read: (values: Values) => numbe
 });
 
 function effective(values: Values) {
-  return Math.max(0, values.dispatchCount - values.duplicateCount - values.lowAmountCount - values.noWsCount - values.manualInvalidCount);
+  return values.dispatchCount - values.duplicateCount - values.lowAmountCount - values.noWsCount - values.manualInvalidCount;
 }
 
 function currentInGroup(values: Values) {
@@ -129,7 +129,7 @@ function currentInGroup(values: Values) {
 }
 
 function rate(numerator: number, denominator: number) {
-  return denominator > 0 ? numerator / denominator * 100 : 0;
+  return denominator > 0 ? numerator / denominator * 100 : Number.NaN;
 }
 
 function firstDeposit(values: Values) {
@@ -204,6 +204,7 @@ const FINANCE_METRICS: Metric[] = [
 const NUMBER_TRACKED_METRIC_KEYS = new Set(["joinCount", "normalLeaveCount", "abnormalLeaveCount", "expertIntroCount", "registrationCount", "orderCount"]);
 
 function display(value: number, kind: Metric["kind"]) {
+  if (!Number.isFinite(value)) return "—";
   if (kind === "rate") return `${value.toFixed(1)}%`;
   if (kind === "money" || kind === "computedMoney") {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value / 100);

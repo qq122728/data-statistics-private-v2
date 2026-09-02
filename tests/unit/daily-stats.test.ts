@@ -347,7 +347,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect((await RESOURCE_REVIEW(request("PATCH", { entryId, action: "APPROVE" }))).status).toBe(410);
   });
 
-  it("允许回访回复高于当天添加数，但仍拦截不可能的当天进群数", async () => {
+  it("允许存量客户让当天无效、回复或进群超过添加数，并保留负有效", async () => {
     const data = await fixture();
     signInAs(data.reception);
     const tooManyReplies = await POST(request("POST", {
@@ -360,12 +360,19 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       values: { ...emptyValues, replyCount: 3 },
     }));
     expect(repliesWithoutAdds.status).toBe(201);
+    const historicalInvalids = await POST(request("POST", {
+      businessDate: "2026-08-18", position: "RECEPTION", channelId: data.channelId,
+      values: { ...emptyValues, duplicateCount: 2, lowAmountCount: 2, noWsCount: 2 },
+    }));
+    expect(historicalInvalids.status).toBe(201);
+    await expect(historicalInvalids.json()).resolves.toMatchObject({
+      entry: { currentRevision: { effectiveCount: -6 } },
+    });
     const tooManyJoins = await POST(request("POST", {
       businessDate: "2026-08-21", position: "RECEPTION", channelId: data.channelId,
       values: { ...emptyValues, dispatchCount: 10, noWsCount: 3, joinCount: 8 },
     }));
-    expect(tooManyJoins.status).toBe(400);
-    await expect(tooManyJoins.json()).resolves.toEqual({ error: "进群数量不能超过有效数据数量" });
+    expect(tooManyJoins.status).toBe(201);
 
     const receptionCrossDay = await POST(request("POST", {
       businessDate: "2026-08-22", position: "RECEPTION", channelId: data.channelId,

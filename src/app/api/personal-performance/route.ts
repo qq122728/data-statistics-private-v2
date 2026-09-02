@@ -43,7 +43,7 @@ type PerformanceEntry = Prisma.DailyStatEntryGetPayload<{
   };
 }>;
 
-const rate = (numerator: number, denominator: number) => denominator ? numerator / denominator : null;
+const rate = (numerator: number, denominator: number) => denominator > 0 ? numerator / denominator : null;
 
 function attributionWhere(actorId: string, role: Role): Prisma.DailyStatEntryWhereInput {
   if (role === "RECEPTION") return {

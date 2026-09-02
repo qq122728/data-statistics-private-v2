@@ -2293,6 +2293,33 @@ describe.sequential("新版客户进度 API", () => {
       expect(operatorUnrelated.customers).toHaveLength(0);
       expect(operatorUnrelated.total).toBe(0);
       expect(operatorUnrelated.summary.customerCount).toBe(0);
+
+      await db.user.update({
+        where: { id: ids.berlinOperatorA },
+        data: { canViewAllGroupCustomers: true },
+      });
+      const operatorReadOnly = await readByName(
+        ids.berlinOperatorA,
+        names.ownerOnly,
+      );
+      expect(operatorReadOnly.customers).toHaveLength(1);
+      const forbiddenEdit = await patchSharedCustomer(
+        new Request(
+          `http://localhost/api/lead/customer-reporting/${customerIds[0]}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "setDeviceCode", code: "不应修改" }),
+          },
+        ),
+        { params: Promise.resolve({ leadId: customerIds[0] }) },
+      );
+      expect(forbiddenEdit.status).toBe(403);
+      await db.user.update({
+        where: { id: ids.berlinOperatorA },
+        data: { canViewAllGroupCustomers: false },
+      });
+
       expect(operatorUnrelated.memberOptions).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ id: ids.berlinOperatorB }),

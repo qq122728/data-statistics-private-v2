@@ -32,6 +32,7 @@ type MemberRequest = {
   stageOverride?: unknown;
   stageOverrideReason?: unknown;
   pairedGroupOperatorId?: unknown;
+  canViewAllGroupCustomers?: unknown;
 };
 
 type RequestedMemberUpdate = {
@@ -42,6 +43,7 @@ type RequestedMemberUpdate = {
   active?: boolean;
   role?: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
   secondaryRoles?: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT"[];
+  canViewAllGroupCustomers?: boolean;
 };
 
 const frontlineRoles = new Set(["RECEPTION", "GROUP_OPERATOR", "EXPERT"]);
@@ -192,6 +194,9 @@ export async function POST(request: Request) {
   const secondaryRoles = parseFrontlineSecondaryRoles(role, body.secondaryRoles);
   if (!secondaryRoles.success)
     return NextResponse.json({ error: secondaryRoles.error }, { status: 400 });
+  const canViewAllGroupCustomers = body.canViewAllGroupCustomers ?? false;
+  if (typeof canViewAllGroupCustomers !== "boolean")
+    return NextResponse.json({ error: "本组客户只读权限参数不正确" }, { status: 400 });
   if (password.length < PASSWORD_MIN_LENGTH) {
     return NextResponse.json(
       { error: `临时密码至少需要 ${PASSWORD_MIN_LENGTH} 位` },
@@ -235,6 +240,7 @@ export async function POST(request: Request) {
             mustChangePassword: true,
             role,
             groupId: group.id,
+            canViewAllGroupCustomers,
             roleAssignments: { create: [role, ...effectiveSecondaryRoles].map((assignedRole) => ({ role: assignedRole })) },
             membershipHistory: { create: { groupId: group.id, role, secondaryRoles: effectiveSecondaryRoles.join(",") || null, effectiveFrom, reason: "组长创建成员", createdById: access.actor.id } },
           },
@@ -254,7 +260,15 @@ export async function POST(request: Request) {
           action: "MEMBER_CREATED",
           entityType: "User",
           entityId: member.id,
-          summary: { changedFields: ["name", "username", "role", "groupId"] },
+          summary: {
+            changedFields: [
+              "name",
+              "username",
+              "role",
+              "groupId",
+              ...(canViewAllGroupCustomers ? ["canViewAllGroupCustomers"] : []),
+            ],
+          },
         });
         return { member };
       },
@@ -307,6 +321,11 @@ export async function PATCH(request: Request) {
   if (typeof body.active === "boolean") {
     requested.active = body.active;
   }
+  if (Object.prototype.hasOwnProperty.call(body, "canViewAllGroupCustomers")) {
+    if (typeof body.canViewAllGroupCustomers !== "boolean")
+      return NextResponse.json({ error: "本组客户只读权限参数不正确" }, { status: 400 });
+    requested.canViewAllGroupCustomers = body.canViewAllGroupCustomers;
+  }
   if (typeof body.role === "string") {
     if (!frontlineRoles.has(body.role))
       return NextResponse.json({ error: "岗位不正确" }, { status: 400 });
@@ -356,6 +375,7 @@ export async function PATCH(request: Request) {
             username: true,
             name: true,
             active: true,
+            canViewAllGroupCustomers: true,
             role: true,
             roleAssignments: { select: { role: true } },
           },
@@ -387,6 +407,13 @@ export async function PATCH(request: Request) {
         ) {
           data.active = requested.active;
           changedFields.push("active");
+        }
+        if (
+          requested.canViewAllGroupCustomers !== undefined &&
+          requested.canViewAllGroupCustomers !== existing.canViewAllGroupCustomers
+        ) {
+          data.canViewAllGroupCustomers = requested.canViewAllGroupCustomers;
+          changedFields.push("canViewAllGroupCustomers");
         }
         if (
           requested.role !== undefined &&

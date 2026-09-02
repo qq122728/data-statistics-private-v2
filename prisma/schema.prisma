@@ -288,6 +288,8 @@ model User {
   // 职务"帽子"，跟 role/UserPosition 的岗位维度独立叠加，不参与业绩归属（需求文档1.4）。
   duty                        Duty?
   active                      Boolean                         @default(true)
+  // 组长单独授予：只扩大本组客户列表的查看范围，不增加任何修改或导出权限。
+  canViewAllGroupCustomers    Boolean                         @default(false)
   groupId                     String?
   group                       TeamGroup?                      @relation(fields: [groupId], references: [id])
   departmentId                String?

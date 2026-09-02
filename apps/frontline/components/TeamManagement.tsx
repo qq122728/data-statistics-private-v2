@@ -15,12 +15,13 @@ type TeamMember = {
   clients: number;
   devices: number;
   active: boolean;
+  canViewAllGroupCustomers: boolean;
 };
 
 export type TeamAuditRow = { time: string; member: string; target: string; before: string; after: string; operator: string; reason: string };
 
-type MemberDraft = { name: string; username: string; expert: boolean; password: string };
-const emptyDraft: MemberDraft = { name: "", username: "", expert: false, password: "" };
+type MemberDraft = { name: string; username: string; expert: boolean; password: string; canViewAllGroupCustomers: boolean };
+const emptyDraft: MemberDraft = { name: "", username: "", expert: false, password: "", canViewAllGroupCustomers: false };
 
 export default function TeamManagement({ user, externalAudits = [], onInspect }: { user: BackendUser; externalAudits?: TeamAuditRow[]; onInspect: (member: InspectorMember) => void }) {
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -44,10 +45,10 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
     setLoading(true);
     setMemberLoadError("");
     try {
-      const rows = await requestJson<Array<{ id: string; name: string; username: string; active: boolean; role: TeamMember["role"]; roleAssignments?: Array<{ role: TeamMember["role"] }>; filledToday: boolean; clients: number; devices: number }>>("/api/lead/members");
+      const rows = await requestJson<Array<{ id: string; name: string; username: string; active: boolean; role: TeamMember["role"]; roleAssignments?: Array<{ role: TeamMember["role"] }>; filledToday: boolean; clients: number; devices: number; canViewAllGroupCustomers: boolean }>>("/api/lead/members");
       const nextMembers = rows.map((row) => {
         const roles = [...new Set([row.role, ...(row.roleAssignments ?? []).map((assignment) => assignment.role)])];
-        return { id: row.id, name: row.name, username: row.username, role: row.role, roles, expert: roles.includes("EXPERT"), filledToday: row.filledToday, clients: row.clients, devices: row.devices, active: row.active };
+        return { id: row.id, name: row.name, username: row.username, role: row.role, roles, expert: roles.includes("EXPERT"), filledToday: row.filledToday, clients: row.clients, devices: row.devices, active: row.active, canViewAllGroupCustomers: row.canViewAllGroupCustomers };
       });
       setMembers(nextMembers);
       const first = nextMembers[0];
@@ -69,7 +70,7 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
   }
 
   function openEdit(member: TeamMember) {
-    setDraft({ name: member.name, username: member.username, expert: member.expert, password: "" });
+    setDraft({ name: member.name, username: member.username, expert: member.expert, password: "", canViewAllGroupCustomers: member.canViewAllGroupCustomers });
     setEditingId(member.id);
   }
 
@@ -79,11 +80,11 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
     setSaving(true); setMemberLoadError("");
     try {
       if (editingId === "new") {
-        await requestJson("/api/lead/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: draft.name.trim(), username: draft.username.trim(), password: draft.password, role: "RECEPTION", secondaryRoles: draft.expert ? ["EXPERT"] : [] }) });
+        await requestJson("/api/lead/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: draft.name.trim(), username: draft.username.trim(), password: draft.password, role: "RECEPTION", secondaryRoles: draft.expert ? ["EXPERT"] : [], canViewAllGroupCustomers: draft.canViewAllGroupCustomers }) });
         setNotice(`已开通 ${draft.name.trim()} 的组员账号；默认可以使用本组全部启用渠道。`);
       } else if (editingMember) {
         const secondaryRoles = draft.expert && !editingMember.expert ? [...new Set([...editingMember.roles.filter((role) => role !== editingMember.role), "EXPERT"])] : undefined;
-        await requestJson("/api/lead/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: editingMember.id, name: draft.name.trim(), username: draft.username.trim(), ...(secondaryRoles ? { secondaryRoles } : {}) }) });
+        await requestJson("/api/lead/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: editingMember.id, name: draft.name.trim(), username: draft.username.trim(), canViewAllGroupCustomers: draft.canViewAllGroupCustomers, ...(secondaryRoles ? { secondaryRoles } : {}) }) });
         setNotice(`已保存 ${draft.name.trim()} 的账号设置。`);
       }
       setEditingId(null);
@@ -140,7 +141,7 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
         <tbody>{loading ? <tr><td colSpan={8}>正在读取本组成员…</td></tr> : members.length === 0 ? <tr><td colSpan={8}>{memberLoadError ? "成员读取失败，请刷新后重试" : "本组暂无组员"}</td></tr> : members.map((member) => <tr key={member.id} data-inactive={!member.active}>
           <td><div className="team-person"><i>{member.name.slice(0, 1)}</i><div><strong>{member.name}</strong><small>组员</small></div></div></td>
           <td>{member.username}</td>
-          <td><span className="team-tag">组员</span>{member.roles.includes("GROUP_OPERATOR") ? <span className="team-tag">炒群</span> : null}{member.expert ? <span className="team-tag" data-tone="expert">专家</span> : null}</td>
+          <td><span className="team-tag">组员</span>{member.roles.includes("GROUP_OPERATOR") ? <span className="team-tag">炒群</span> : null}{member.expert ? <span className="team-tag" data-tone="expert">专家</span> : null}{member.canViewAllGroupCustomers ? <span className="team-tag">全组客户只读</span> : null}</td>
           <td><span className="team-state" data-tone={member.filledToday ? "ok" : "warn"}>{member.filledToday ? "已填写" : "未填写"}</span></td>
           <td>{member.clients}</td><td>{member.devices}</td>
           <td><span className="team-state" data-tone={member.active ? "ok" : "off"}>{member.active ? "启用" : "停用"}</span></td>
@@ -179,6 +180,7 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
         <label><span>登录用户名</span><input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} required /></label>
         {editingId === "new" ? <label><span>初始密码</span><input type="password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} placeholder="首次登录后要求修改" required minLength={12} /></label> : null}
         <label className="team-check"><input type="checkbox" checked={draft.expert} disabled={Boolean(editingMember?.expert)} onChange={(event) => setDraft((current) => ({ ...current, expert: event.target.checked }))} /><span><strong>增加专家权限</strong><small>{editingMember?.expert ? "已有专家岗位；如需取消，请通过人员调岗并交接在办客户。" : "保留普通组员功能，同时兼任专家岗位。"}</small></span></label>
+        <label className="team-check"><input type="checkbox" checked={draft.canViewAllGroupCustomers} onChange={(event) => setDraft((current) => ({ ...current, canViewAllGroupCustomers: event.target.checked }))} /><span><strong>查看本组全部客户（只读）</strong><small>可以查看和搜索其他组员的客户，但不能修改他人的渠道、进度、资金，也不能因此获得导出权限。</small></span></label>
         <div className="team-dialog__note">全部渠道自动可用，不需要逐个分配。</div>
         <footer><button type="button" disabled={saving} onClick={() => setEditingId(null)}>取消</button><button className="fresh-primary" disabled={saving}>{saving ? "保存中…" : editingId === "new" ? "开通账号" : "保存修改"}</button></footer>
       </form>

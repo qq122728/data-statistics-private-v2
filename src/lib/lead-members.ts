@@ -15,6 +15,7 @@ export const safeLeadMemberSelect = {
   roleAssignments: { select: { role: true }, orderBy: { role: "asc" } },
   groupId: true,
   active: true,
+  canViewAllGroupCustomers: true,
   lastLoginAt: true,
   createdAt: true,
   updatedAt: true,

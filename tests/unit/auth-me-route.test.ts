@@ -19,6 +19,7 @@ describe("auth me route", () => {
       departmentId: null,
       companyId: null,
       active: true,
+      canViewAllGroupCustomers: false,
       managementScopeName: null,
       managementCountryCode: null,
       hireDate: null,

@@ -1711,7 +1711,7 @@ export function DepartmentCustomerProgress({
                               <span>渠道</span>
                               <b>{customer.batch.channel.name}</b>
                             </label>
-                            {isLead || canEditReception ? (
+                            {canEditCustomerInfo ? (
                               <button
                                 type="button"
                                 className={styles.correctionButton}

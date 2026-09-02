@@ -309,7 +309,7 @@ export async function GET(request: Request) {
   // 所以“当前看不到某位同事的客户”不会妨碍组长把后续阶段自由分配给该同事。
   // attributionOwnerId 是新数据的权威归属；null + ownerId 只兼容尚未回填的旧客户。
   const collaborationWhere: Prisma.LeadCustomerWhereInput | null =
-    isOwnGroupMember && !isLead
+    isOwnGroupMember && !isLead && !actor.canViewAllGroupCustomers
       ? customerCollaborationWhere(actor.id)
       : null;
   const baseWhere: Prisma.LeadCustomerWhereInput = {

@@ -133,6 +133,38 @@ describe.sequential("lead member API", () => {
       .resolves.toMatchObject({ summary: expect.stringContaining("username") });
   });
 
+  it("lets a lead grant and revoke read-only access to all group customers with audit history", async () => {
+    const { ownGroupId, lead } = await createFixture();
+    const member = await createUser({ role: "RECEPTION", groupId: ownGroupId });
+
+    const granted = await PATCH(new Request("http://localhost/api/lead/members", {
+      method: "PATCH",
+      body: JSON.stringify({ id: member.id, canViewAllGroupCustomers: true }),
+    }));
+    expect(granted.status).toBe(200);
+    await expect(granted.json()).resolves.toMatchObject({
+      id: member.id,
+      canViewAllGroupCustomers: true,
+    });
+    await expect(db.user.findUniqueOrThrow({
+      where: { id: member.id },
+      select: { canViewAllGroupCustomers: true },
+    })).resolves.toEqual({ canViewAllGroupCustomers: true });
+    await expect(db.auditLog.findFirst({
+      where: { actorId: lead.id, entityId: member.id, action: "MEMBER_UPDATED" },
+      orderBy: { createdAt: "desc" },
+    })).resolves.toMatchObject({
+      summary: expect.stringContaining("canViewAllGroupCustomers"),
+    });
+
+    const revoked = await PATCH(new Request("http://localhost/api/lead/members", {
+      method: "PATCH",
+      body: JSON.stringify({ id: member.id, canViewAllGroupCustomers: false }),
+    }));
+    expect(revoked.status).toBe(200);
+    await expect(revoked.json()).resolves.toMatchObject({ canViewAllGroupCustomers: false });
+  });
+
   it("lets a lead permanently delete a mistaken empty same-group account", async () => {
     const { ownGroupId } = await createFixture();
     const member = await createUser({ role: "RECEPTION", groupId: ownGroupId, name: "误开空账号" });

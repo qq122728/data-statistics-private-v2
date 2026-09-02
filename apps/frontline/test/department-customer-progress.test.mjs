@@ -73,6 +73,8 @@ test("组员和组长都能新增进群客户", () => {
 
 test("专家可以在专家进度直接新增一行并确认实际推专家日期", () => {
   assert.match(component, /新增专家客户/);
+  assert.doesNotMatch(component, /补录已注册\/开单客户/);
+  assert.match(component, /member && viewMode === "group"/);
   assert.match(component, /canCreateInView/);
   assert.match(component, /aria-label="新增客户专家负责人"/);
   assert.match(component, /aria-label="新增客户推专家日期"/);

@@ -938,16 +938,14 @@ export function DepartmentCustomerProgress({
         ) : null}
         {member || canCreate ? (
           <div className={styles.toolbarActions}>
-            {member ? (
+            {member && viewMode === "group" ? (
               <button
                 type="button"
                 className={styles.legacyButton}
                 disabled={!groupId || loading}
                 onClick={() => setLegacyMode(true)}
               >
-                {viewMode === "expert" && canEditExpert
-                  ? "补录已注册/开单客户"
-                  : "老客户导入"}
+                老客户导入
               </button>
             ) : null}
             {canCreateInView ? (

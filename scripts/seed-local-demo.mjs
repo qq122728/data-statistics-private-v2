@@ -137,6 +137,7 @@ async function main() {
       update: {
         name: "系统演示组",
         active: true,
+        groupType: "HACKER",
         departmentId: DEMO.departmentId,
         countryCode: "US",
         timezone: "America/New_York",
@@ -147,6 +148,7 @@ async function main() {
         id: DEMO.groupId,
         name: "系统演示组",
         active: true,
+        groupType: "HACKER",
         departmentId: DEMO.departmentId,
         countryCode: "US",
         timezone: "America/New_York",
@@ -171,7 +173,12 @@ async function main() {
         hireDate: date(30),
       };
       await transaction.user.upsert({ where: { id }, update: data, create: { id, ...data } });
-      if (account.groupId) await transaction.userGroupMembership.upsert({ where: { userId_effectiveFrom: { userId: id, effectiveFrom: date(30) } }, update: { groupId: account.groupId, role: account.role, effectiveTo: null }, create: { userId: id, groupId: account.groupId, role: account.role, effectiveFrom: date(30), reason: "本地演示数据" } });
+      const secondaryRoles = account.groupId && ["RECEPTION", "GROUP_OPERATOR", "EXPERT"].includes(account.role)
+        ? ["RECEPTION", "GROUP_OPERATOR", ...(account.role === "EXPERT" ? ["EXPERT"] : [])].filter((role) => role !== account.role)
+        : [];
+      await transaction.userRoleAssignment.deleteMany({ where: { userId: id } });
+      await transaction.userRoleAssignment.createMany({ data: [account.role, ...secondaryRoles].map((role) => ({ userId: id, role })) });
+      if (account.groupId) await transaction.userGroupMembership.upsert({ where: { userId_effectiveFrom: { userId: id, effectiveFrom: date(30) } }, update: { groupId: account.groupId, role: account.role, secondaryRoles: secondaryRoles.join(",") || null, effectiveTo: null }, create: { userId: id, groupId: account.groupId, role: account.role, secondaryRoles: secondaryRoles.join(",") || null, effectiveFrom: date(30), reason: "本地演示数据" } });
     }
 
     await transaction.session.deleteMany({ where: { userId: { in: Object.values(DEMO.accounts) } } });

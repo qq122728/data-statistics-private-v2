@@ -468,7 +468,6 @@ export function DepartmentCustomerProgress({
       .then((result) => {
         if (!cancelled) {
           setPayload(result);
-          if (!month) setMonth(result.today.slice(0, 7));
         }
       })
       .catch((caught) => {
@@ -904,7 +903,7 @@ export function DepartmentCustomerProgress({
               setPage(1);
             }}
           >
-            {!month ? <option value="">读取中</option> : null}
+            <option value="">全部月份</option>
             {recentMonthOptions(businessToday).map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
@@ -917,30 +916,29 @@ export function DepartmentCustomerProgress({
           <select
             aria-label="客户日期筛选"
             value={day}
+            disabled={!month}
             onChange={(event) => {
               setDay(event.target.value);
               setPage(1);
             }}
           >
-            <option value="all">整月</option>
-            {Array.from(
+            <option value="all">{month ? "整月" : "全部日期"}</option>
+            {month ? Array.from(
               {
-                length: month
-                  ? new Date(
-                      Number(month.slice(0, 4)),
-                      Number(month.slice(5, 7)),
-                      0,
-                    ).getDate()
-                  : 31,
+                length: new Date(
+                  Number(month.slice(0, 4)),
+                  Number(month.slice(5, 7)),
+                  0,
+                ).getDate(),
               },
               (_, index) => String(index + 1).padStart(2, "0"),
             )
-              .filter((value) => !month || `${month}-${value}` <= businessToday)
+              .filter((value) => `${month}-${value}` <= businessToday)
               .map((value) => (
                 <option key={value} value={value}>
                   {Number(value)}日
                 </option>
-              ))}
+              )) : null}
           </select>
         </label>
         <div className={styles.densitySwitch} aria-label="表格显示密度">

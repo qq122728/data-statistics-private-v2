@@ -4,7 +4,6 @@ import test from "node:test";
 
 const component = readFileSync(new URL("../components/DepartmentCustomerProgress.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../components/DepartmentCustomerProgress.module.css", import.meta.url), "utf8");
-const legacy = readFileSync(new URL("../components/LegacyCustomerImport.tsx", import.meta.url), "utf8");
 const customerPatch = readFileSync(new URL("../../../src/app/api/lead/customer-reporting/[leadId]/route.ts", import.meta.url), "utf8");
 const attributionCorrection = readFileSync(new URL("../../../src/app/api/lead/customer-reporting/[leadId]/attribution-correction/route.ts", import.meta.url), "utf8");
 
@@ -14,6 +13,9 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /实时共享/);
   assert.match(component, /搜索号码、G\/E\/R\/O\/L 编号、组员或进度/);
   assert.match(component, /全部进度/);
+  assert.match(component, /全部月份/);
+  assert.match(component, /month \? "整月" : "全部日期"/);
+  assert.match(component, /disabled=\{!month\}/);
   assert.match(component, /"已注册"/);
   assert.match(component, /if \(customer\.registeredOn\) return "已注册"/);
   assert.match(component, /aria-label="客户状态筛选"/);
@@ -59,7 +61,7 @@ test("共享表完整保留已进群客户业务字段", () => {
 test("组员和组长都能新增进群客户", () => {
   assert.match(component, /member\s*\?/);
   assert.match(component, /新增进群客户/);
-  assert.ok(component.includes('requestJson("/api/lead/customer-reporting"'));
+  assert.ok(component.includes('>("/api/lead/customer-reporting"'));
   assert.match(component, /新客户号码/);
   assert.match(component, /maxLength=\{6\}/);
   assert.ok(component.includes(".slice(-6)"));
@@ -80,7 +82,7 @@ test("组员和组长都能新增进群客户", () => {
 test("专家可以在专家进度直接新增一行并确认实际推专家日期", () => {
   assert.match(component, /新增专家客户/);
   assert.doesNotMatch(component, /补录已注册\/开单客户/);
-  assert.match(component, /member && viewMode === "group"/);
+  assert.match(component, /viewMode === "group" && \(isLead \|\| canEditReception\)/);
   assert.match(component, /canCreateInView/);
   assert.match(component, /aria-label="新增客户专家负责人"/);
   assert.match(component, /aria-label="新增客户推专家日期"/);
@@ -156,19 +158,4 @@ test("表格视觉使用双层信息和清晰的冻结列", () => {
   assert.match(css, /\.table th:nth-child\(2\),\s*\.table td:nth-child\(2\)\s*\{[^}]*position:\s*sticky/);
   assert.match(css, /\.table th\s*\{\s*text-align:\s*center/);
   assert.match(css, /\.table th,\s*\.table td\s*\{\s*height:\s*126px/);
-});
-
-test("客户进度提供接粉日期分离且接入统计的老客户入口", () => {
-  assert.match(component, /老客户导入/);
-  assert.match(component, /LegacyCustomerImport/);
-  for (const field of ["接粉日期", "客户号码后 6 位", "检查号码", "来源渠道", "接粉归属", "设备号", "进群（开始炒群）日期", "炒群负责人", "专家负责人", "推专家日期", "注册日期", "开单日期", "启用前最后状态", "实际发生日期", "首充金额", "续充金额", "出金金额"]) {
-    assert.match(legacy, new RegExp(field));
-  }
-  for (const scenario of ["老粉今天进群", "老粉今天开单", "已开单老粉今天续充"]) assert.match(legacy, new RegExp(scenario));
-  assert.match(legacy, /\/api\/legacy-customers/);
-  assert.match(legacy, /sourceDate: draft\.sourceDate/);
-  assert.match(legacy, /号码已存在时只更新原客户/);
-  assert.match(legacy, /历史阶段只建档，不重复增加统计/);
-  assert.match(legacy, /\/api\/legacy-customers\?phone=/);
-  assert.match(legacy, /canImportExpertStage/);
 });

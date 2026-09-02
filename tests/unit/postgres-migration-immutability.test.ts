@@ -32,7 +32,7 @@ afterEach(() => {
 
 describe("PostgreSQL migration immutability", () => {
   it("verifies every byte of all recorded migrations", () => {
-    expect(verifyMigrationChecksums()).toMatchObject({ count: 56 });
+    expect(verifyMigrationChecksums()).toMatchObject({ count: 57 });
   });
 
   it("detects a whitespace-only change to an executed migration", () => {

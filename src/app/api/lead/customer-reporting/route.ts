@@ -35,6 +35,10 @@ import {
 } from "../../../../lib/customer-stage-number";
 import { customerCollaborationWhere } from "../../../../lib/customer-collaboration-visibility";
 import { activeCustomerTrackingWhere } from "../../../../lib/customer-tracking-archive";
+import {
+  CUSTOMER_NUMBER_TRACKING_FROM,
+  usesCustomerNumberTracking,
+} from "../../../../lib/customer-number-tracking";
 
 const stages = new Set(["reception", "group", "pending-expert", "expert"]);
 const expertStages = [
@@ -973,6 +977,21 @@ export async function POST(request: Request) {
           { error: "推专家日期不能早于进群日期" },
           { status: 400 },
         );
+    }
+    // 切换后，纯历史进群不能再次占用当前号码。老粉如果在 9 月真实推专家，
+    // 专家入口仍可按实际发生日期重新建立当前跟踪。
+    if (
+      usesCustomerNumberTracking(today) &&
+      !usesCustomerNumberTracking(input.joinedOn) &&
+      (!input.expertIntroducedOn ||
+        !usesCustomerNumberTracking(input.expertIntroducedOn))
+    ) {
+      return NextResponse.json(
+        {
+          error: `号码跟踪已从 ${CUSTOMER_NUMBER_TRACKING_FROM} 开始；更早的纯历史进群已封账，不再保存号码。如客户本月已推专家，请从“专家进度”按实际推专家日期新增。`,
+        },
+        { status: 400 },
+      );
     }
     let phone: string;
     try {

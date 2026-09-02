@@ -1776,8 +1776,8 @@ describe.sequential("新版客户进度 API", () => {
     const body = {
       phones: ["+1 725 830001", "830002", "830002", "12"],
       channelId: id("berlin-channel"),
-      sourceDate: "2026-07-31",
-      joinedOn: "2026-08-01",
+      sourceDate: "2026-09-01",
+      joinedOn: "2026-09-02",
       groupOperatorOwnerId: ids.berlinOperatorA,
       deviceCode: "批量设备-B08",
     };
@@ -1789,6 +1789,23 @@ describe.sequential("新版客户进度 API", () => {
           body: JSON.stringify({ ...body, dryRun }),
         }),
       );
+
+    const historicalPreview = await postLeadCustomerReporting(
+      new Request("http://localhost/api/lead/customer-reporting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...body,
+          sourceDate: "2026-08-30",
+          joinedOn: "2026-08-31",
+          dryRun: true,
+        }),
+      }),
+    );
+    expect(historicalPreview.status).toBe(400);
+    expect(await historicalPreview.json()).toMatchObject({
+      error: expect.stringContaining("批量新增不能补录更早的进群号码"),
+    });
 
     const preview = await call(true);
     expect(preview.status).toBe(200);
@@ -1815,7 +1832,7 @@ describe.sequential("新版客户进度 API", () => {
           groupStatus: "JOINED",
           groupOperatorOwnerId: ids.berlinOperatorA,
           device: { code: "批量设备-B08" },
-          batch: { sourceDate: "2026-07-31" },
+          batch: { sourceDate: "2026-09-01" },
         },
       }),
     ).toBe(2);
@@ -2311,9 +2328,18 @@ describe.sequential("新版客户进度 API", () => {
     ).toBe(200);
     expect(
       (await patch({ action: "setJoinedOn", occurredOn: "2026-07-04" })).status,
+    ).toBe(400);
+    expect(
+      (await patch({ action: "setJoinedOn", occurredOn: "2026-09-01" })).status,
     ).toBe(200);
     expect(
-      (await patch({ action: "assignExpert", userId: ids.berlinExpert }))
+      (
+        await patch({
+          action: "assignExpert",
+          userId: ids.berlinExpert,
+          occurredOn: "2026-09-02",
+        })
+      )
         .status,
     ).toBe(200);
 
@@ -2324,7 +2350,11 @@ describe.sequential("新版客户进度 API", () => {
     ).toBe(403);
     await signIn(ids.berlinExpert);
     expect(
-      (await patch({ action: "setRegistration", occurredOn: "2026-07-09" }))
+      (await patch({ action: "setRegistration", occurredOn: "2026-09-01" }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await patch({ action: "setRegistration", occurredOn: "2026-09-02" }))
         .status,
     ).toBe(200);
     await signIn(ids.berlinOperatorA);
@@ -2345,10 +2375,10 @@ describe.sequential("新版客户进度 API", () => {
         },
       }),
     ).toEqual({
-      joinedOn: "2026-07-04",
+      joinedOn: "2026-09-01",
       groupOperatorOwnerId: ids.berlinOperatorA,
       expertOwnerId: ids.berlinExpert,
-      registeredOn: "2026-07-09",
+      registeredOn: "2026-09-02",
       device: { code: "B-手填-08" },
       batch: { sourceDate: "2026-07-02" },
     });
@@ -2363,7 +2393,7 @@ describe.sequential("新版客户进度 API", () => {
         await patch({
           action: "setLeave",
           leaveType: "NORMAL",
-          occurredOn: "2026-07-10",
+          occurredOn: "2026-09-02",
         })
       ).status,
     ).toBe(200);
@@ -2372,7 +2402,7 @@ describe.sequential("新版客户进度 API", () => {
         await patch({
           action: "setLeave",
           leaveType: "ABNORMAL",
-          occurredOn: "2026-07-11",
+          occurredOn: "2026-09-02",
         })
       ).status,
     ).toBe(200);
@@ -2381,7 +2411,7 @@ describe.sequential("新版客户进度 API", () => {
     ).resolves.toMatchObject({
       groupStatus: "LEFT",
       leftWithOrder: false,
-      leftOn: "2026-07-11",
+      leftOn: "2026-09-02",
     });
     expect(
       (await patch({ action: "setLeave", leaveType: "NONE" })).status,

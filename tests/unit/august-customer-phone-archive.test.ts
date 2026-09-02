@@ -30,6 +30,15 @@ describe("August customer phone archive migration", () => {
       "usesCustomerNumberTracking(input.expertIntroducedOn)",
     );
     expect(route).toContain("更早的纯历史进群已封账");
+    expect(route).toContain("批量新增不能补录更早的进群号码");
+
+    const correctionRoute = await readFile(
+      "src/app/api/lead/customer-reporting/[leadId]/route.ts",
+      "utf8",
+    );
+    expect(correctionRoute).toContain("不能把当前在群客户改回纯历史日期");
+    expect(correctionRoute).toContain("旧客户只能按本月实际推专家日期继续跟踪");
+    expect(correctionRoute).toContain("注册日期不能早于推专家日期");
   });
 
   it.each([

@@ -20,6 +20,10 @@ import {
 import { entryDateError } from "../../../../../lib/entry-date-validation";
 import { allocateCustomerStageNumber } from "../../../../../lib/customer-stage-number";
 import { normalizeCustomerPhone } from "../../../../../lib/entry-ledger";
+import {
+  CUSTOMER_NUMBER_TRACKING_FROM,
+  usesCustomerNumberTracking,
+} from "../../../../../lib/customer-number-tracking";
 
 const updateSchema = z.discriminatedUnion("action", [
   z.object({
@@ -295,6 +299,15 @@ export async function PATCH(
           input.occurredOn ?? lead.expertIntroducedOn ?? today;
         const dateError = entryDateError(occurredOn, today, "推专家日期");
         if (dateError) return { status: 400 as const, error: dateError };
+        if (
+          usesCustomerNumberTracking(today) &&
+          !usesCustomerNumberTracking(lead.joinedOn ?? "") &&
+          !usesCustomerNumberTracking(occurredOn)
+        )
+          return {
+            status: 400 as const,
+            error: `号码跟踪已从 ${CUSTOMER_NUMBER_TRACKING_FROM} 开始；旧客户只能按本月实际推专家日期继续跟踪`,
+          };
         if (lead.joinedOn && occurredOn < lead.joinedOn)
           return { status: 400 as const, error: "推专家日期不能早于进群日期" };
         if (lead.leftOn && occurredOn > lead.leftOn)
@@ -388,6 +401,16 @@ export async function PATCH(
       } else if (input.action === "setJoinedOn") {
         const dateError = entryDateError(input.occurredOn, today, "进群日期");
         if (dateError) return { status: 400 as const, error: dateError };
+        if (
+          usesCustomerNumberTracking(today) &&
+          !usesCustomerNumberTracking(input.occurredOn) &&
+          (!lead.expertIntroducedOn ||
+            !usesCustomerNumberTracking(lead.expertIntroducedOn))
+        )
+          return {
+            status: 400 as const,
+            error: `号码跟踪已从 ${CUSTOMER_NUMBER_TRACKING_FROM} 开始；不能把当前在群客户改回纯历史日期`,
+          };
         if (input.occurredOn < lead.batch.sourceDate)
           return { status: 400 as const, error: "进群日期不能早于接粉日期" };
         if (lead.leftOn && input.occurredOn > lead.leftOn)
@@ -420,6 +443,11 @@ export async function PATCH(
         if (dateError) return { status: 400 as const, error: dateError };
         if (lead.joinedOn && input.occurredOn < lead.joinedOn)
           return { status: 400 as const, error: "注册日期不能早于进群日期" };
+        if (
+          lead.expertIntroducedOn &&
+          input.occurredOn < lead.expertIntroducedOn
+        )
+          return { status: 400 as const, error: "注册日期不能早于推专家日期" };
         if (
           lead.customerOrder &&
           !lead.customerOrder.voidedAt &&

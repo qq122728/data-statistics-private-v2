@@ -727,6 +727,16 @@ export async function POST(request: Request) {
           { error: "接粉日期不能晚于进群日期" },
           { status: 400 },
         );
+      if (
+        usesCustomerNumberTracking(today) &&
+        !usesCustomerNumberTracking(input.joinedOn)
+      )
+        return NextResponse.json(
+          {
+            error: `号码跟踪已从 ${CUSTOMER_NUMBER_TRACKING_FROM} 开始；批量新增不能补录更早的进群号码。`,
+          },
+          { status: 400 },
+        );
 
       const uniquePhones: string[] = [];
       const seen = new Set<string>();

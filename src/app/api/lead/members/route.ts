@@ -403,17 +403,18 @@ export async function PATCH(request: Request) {
         const requestedSecondaryRoles = includesSecondaryRoles
           ? body.secondaryRoles
           : nextRole === existing.role ? currentSecondaryRoles : [];
-        const nextSecondaryRoles = parseFrontlineSecondaryRoles(nextRole, requestedSecondaryRoles);
-        if (!nextSecondaryRoles.success)
-          return { error: nextSecondaryRoles.error, status: 400 as const };
-        if (includesSecondaryRoles && currentSecondaryRoles.some((assignedRole) => !nextSecondaryRoles.value.includes(assignedRole))) {
+        const parsedSecondaryRoles = parseFrontlineSecondaryRoles(nextRole, requestedSecondaryRoles);
+        if (!parsedSecondaryRoles.success)
+          return { error: parsedSecondaryRoles.error, status: 400 as const };
+        const nextSecondaryRoles = applyHackerGroupDefaultRoles(nextRole, parsedSecondaryRoles.value, group.groupType);
+        if (includesSecondaryRoles && currentSecondaryRoles.some((assignedRole) => !nextSecondaryRoles.includes(assignedRole))) {
           return { error: "已有岗位不能在这里关闭；请使用“人员调岗与跨组调动”", status: 400 as const };
         }
         const roleAssignmentsChanged = nextRole !== existing.role
-          || currentSecondaryRoles.length !== nextSecondaryRoles.value.length
-          || currentSecondaryRoles.some((assignedRole) => !nextSecondaryRoles.value.includes(assignedRole));
+          || currentSecondaryRoles.length !== nextSecondaryRoles.length
+          || currentSecondaryRoles.some((assignedRole) => !nextSecondaryRoles.includes(assignedRole));
         if (roleAssignmentsChanged) changedFields.push("secondaryRoles");
-        const nextAssignedRoles = new Set([nextRole, ...nextSecondaryRoles.value]);
+        const nextAssignedRoles = new Set([nextRole, ...nextSecondaryRoles]);
         if (pairing.value && !nextAssignedRoles.has("RECEPTION")) {
           return { error: "只有接粉岗位可以设置配对炒群", status: 400 as const };
         }
@@ -435,7 +436,7 @@ export async function PATCH(request: Request) {
           data: {
             ...data,
             ...(data.passwordHash ? { mustChangePassword: true } : {}),
-            ...(roleAssignmentsChanged ? { roleAssignments: { deleteMany: {}, create: [nextRole, ...nextSecondaryRoles.value].map((assignedRole) => ({ role: assignedRole })) } } : {}),
+            ...(roleAssignmentsChanged ? { roleAssignments: { deleteMany: {}, create: [nextRole, ...nextSecondaryRoles].map((assignedRole) => ({ role: assignedRole })) } } : {}),
           },
           select: safeLeadMemberSelect,
         });

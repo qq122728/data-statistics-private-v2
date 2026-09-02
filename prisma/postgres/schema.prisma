@@ -747,6 +747,9 @@ model CustomerOrder {
   openedOn             String
   initialDepositCents  Int
   initialDepositMethod DepositMethod?
+  // 开单编号按小组、开单日期每天从 001 重新开始。
+  orderQueueNumber     Int?
+  orderQueueGroupId    String?
   // 仅保留线上结构兼容；新版不提供“历史已开单”业务入口。
   isHistoricalBaseline Boolean                @default(false)
   leadId               String?                @unique
@@ -764,6 +767,7 @@ model CustomerOrder {
 
   @@index([enteredById, openedOn])
   @@index([batchId])
+  @@unique([orderQueueGroupId, openedOn, orderQueueNumber])
 }
 
 // 客户资金跟踪的独立明细账；不参与统计报表。
@@ -824,6 +828,10 @@ model LeadCustomer {
   groupQueueGroupId             String?
   expertQueueNumber             Int?
   expertQueueGroupId            String?
+  registrationQueueNumber       Int?
+  registrationQueueGroupId      String?
+  leaveQueueNumber              Int?
+  leaveQueueGroupId             String?
   groupStatus                   LeadGroupStatus         @default(NOT_JOINED)
   joinedOn                      String?
   leftOn                        String?
@@ -898,8 +906,10 @@ model LeadCustomer {
   @@index([expertOwnerId, noInitialDepositOn, updatedAt])
   @@index([groupOperatorOwnerId, updatedAt])
   @@index([isHistoricalRecord, historicalReviewStatus])
-  @@unique([groupQueueGroupId, groupQueueNumber])
-  @@unique([expertQueueGroupId, expertQueueNumber])
+  @@unique([groupQueueGroupId, joinedOn, groupQueueNumber])
+  @@unique([expertQueueGroupId, expertIntroducedOn, expertQueueNumber])
+  @@unique([registrationQueueGroupId, registeredOn, registrationQueueNumber])
+  @@unique([leaveQueueGroupId, leftOn, leaveQueueNumber])
 }
 
 // 每个小组分别维护在群、推专家两个原子计数器。不能用“当前行数 + 1”，
@@ -909,6 +919,18 @@ model CustomerStageSequence {
   lastGroupNumber  Int      @default(0)
   lastExpertNumber Int      @default(0)
   updatedAt        DateTime @updatedAt
+}
+
+// 新版阶段编号按“小组 + 阶段 + 业务日期”原子递增；并发保存也不会撞号。
+model CustomerDailyStageSequence {
+  id         String   @id @default(cuid())
+  groupId    String
+  kind       String
+  occurredOn String
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([groupId, kind, occurredOn])
 }
 
 model GroupOperatorReception {

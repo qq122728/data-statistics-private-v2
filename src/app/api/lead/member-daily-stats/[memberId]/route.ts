@@ -5,6 +5,7 @@ import { dailyStatEntryInclude, isUnifiedDailyStatIdentity, publicDailyStat } fr
 import { db } from "../../../../../lib/db";
 import { requireLeadRequest } from "../../../../../lib/lead-members";
 import { API_LIMITS, hasOversizedQueryValue } from "../../../../../lib/request-limits";
+import { NUMBER_TRACKED_DAILY_FIELDS } from "../../../../../lib/customer-number-tracking";
 
 type RouteContext = { params: Promise<{ memberId: string }> };
 
@@ -134,6 +135,10 @@ export async function PATCH(request: Request, context: RouteContext) {
       });
       if (!entry?.currentRevision) return { error: "未找到可以纠正的原始记录", status: 404 as const };
       if (!fieldAllowed(entry.position, entry.identityKey, input.field)) return { error: "该项目不属于这条岗位记录，不能直接修改", status: 400 as const };
+      if (
+        access.group.groupType === "HACKER" &&
+        NUMBER_TRACKED_DAILY_FIELDS.includes(input.field as (typeof NUMBER_TRACKED_DAILY_FIELDS)[number])
+      ) return { error: "进群及后续数据必须回客户号码进度纠正，不能直接修改数量", status: 400 as const };
 
       const before = (entry.currentRevision as unknown as Record<string, unknown>)[input.field] as number;
       const values = revisionSnapshot(entry.currentRevision as unknown as Record<string, unknown>);

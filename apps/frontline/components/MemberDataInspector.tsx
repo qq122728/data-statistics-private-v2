@@ -6,7 +6,7 @@ import { requestJson } from "@/lib/backend";
 type Position = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
 type Revision = Record<string, number | string | null> & { version: number; changeReason: string | null; createdAt?: string; createdBy?: { name: string } };
 type Entry = { id: string; identityKey: string; businessDate: string; position: Position; status: string; channel: { id: string; name: string }; currentRevision: Revision | null; approvedRevision: Revision | null; revisions: Revision[] };
-type Payload = { member: { id: string; name: string; active: boolean }; group: { id: string; name: string }; entries: Entry[] };
+type Payload = { member: { id: string; name: string; active: boolean }; group: { id: string; name: string; groupType?: "HACKER" | "LAWYER" }; entries: Entry[] };
 export type InspectorMember = { id: string; name: string };
 type Metric = { field: string; label: string; editable: boolean; money?: boolean };
 
@@ -41,8 +41,18 @@ const unifiedReceptionMetrics: Metric[] = [
   { field: "withdrawalCents", label: "出金", editable: true, money: true }, { field: "netPerformance", label: "净业绩", editable: false, money: true },
 ];
 
+const numberTrackedFields = new Set([
+  "joinCount", "operatorReceivedCount", "normalLeaveCount", "abnormalLeaveCount",
+  "currentInGroupCount", "expertIntroCount", "expertReceivedCount", "expertContactedCount",
+  "registrationCount", "orderCount",
+]);
+
 function isUnifiedEntry(entry: Entry) { return entry.position === "RECEPTION" && entry.identityKey.startsWith("unified-member-v1:"); }
-function metricsFor(entry: Entry) { return isUnifiedEntry(entry) ? unifiedReceptionMetrics : metrics[entry.position]; }
+function metricsFor(entry: Entry, groupType?: "HACKER" | "LAWYER") {
+  const source = isUnifiedEntry(entry) ? unifiedReceptionMetrics : metrics[entry.position];
+  if (groupType !== "HACKER") return source;
+  return source.map((metric) => numberTrackedFields.has(metric.field) ? { ...metric, editable: false } : metric);
+}
 function positionLabel(entry: Entry) { return isUnifiedEntry(entry) ? "统一组员数据" : positionLabels[entry.position]; }
 
 function numeric(entry: Entry, field: string) { return Number(entry.currentRevision?.[field] || 0); }
@@ -73,12 +83,12 @@ export default function MemberDataInspector({ member, onClose }: { member: Inspe
   useEffect(() => { void load(); }, [member.id]);
 
   const selected = payload?.entries.find((entry) => entry.id === selectedId) ?? null;
-  const selectedMetrics = selected ? metricsFor(selected) : [];
+  const selectedMetrics = selected ? metricsFor(selected, payload?.group.groupType) : [];
   const editableMetrics = selectedMetrics.filter((metric) => metric.editable);
   const selectedMetric = editableMetrics.find((metric) => metric.field === field) ?? editableMetrics[0] ?? null;
   useEffect(() => {
     if (!selected) return;
-    const nextMetric = metricsFor(selected).find((metric) => metric.editable);
+    const nextMetric = metricsFor(selected, payload?.group.groupType).find((metric) => metric.editable);
     setField(nextMetric?.field || ""); setValue(nextMetric ? String(nextMetric.money ? metricValue(selected, nextMetric) / 100 : metricValue(selected, nextMetric)) : ""); setReason("");
   }, [selectedId]);
 
@@ -104,9 +114,9 @@ export default function MemberDataInspector({ member, onClose }: { member: Inspe
       {error ? <div className="team-management__notice" style={{ margin: 16 }}><span>!</span>{error}</div> : null}{success ? <div className="team-management__notice" style={{ margin: 16 }}><span>✓</span>{success}</div> : null}
       {tab === "daily" ? <div className="inspector-daily">
         <div className="inspector-data-table"><div className="inspector-record-picker"><label><span>选择具体日期、渠道和数据类型</span><select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}><option value="">请选择记录</option>{payload?.entries.map((entry) => <option key={entry.id} value={entry.id}>{entry.businessDate} · {entry.channel.name} · {positionLabel(entry)}</option>)}</select></label></div>
-          {selected ? <><table><thead><tr><th>数据指标</th><th>{selected.businessDate} · {selected.channel.name}</th><th>类型</th></tr></thead><tbody>{selectedMetrics.map((metric) => { const amount = metricValue(selected, metric); return <tr key={metric.field}><td>{metric.label}</td><td><strong>{metric.money ? moneyText(amount) : amount}</strong></td><td><span data-kind={metric.editable ? "input" : "formula"}>{metric.editable ? "成员填写" : "系统计算"}</span></td></tr>; })}</tbody></table><div className="inspector-version-list"><strong>这条记录的修改历史</strong>{selected.revisions.map((revision) => <div key={revision.version}><span>第 {revision.version} 版 · {revision.createdBy?.name || "原填写人"}</span><small>{revision.changeReason || "首次填写"}</small></div>)}</div></> : <div className="inspector-empty">这个成员还没有每日填写记录</div>}
+          {selected ? <><table><thead><tr><th>数据指标</th><th>{selected.businessDate} · {selected.channel.name}</th><th>类型</th></tr></thead><tbody>{selectedMetrics.map((metric) => { const amount = metricValue(selected, metric); const numberTracked = payload?.group.groupType === "HACKER" && numberTrackedFields.has(metric.field); return <tr key={metric.field}><td>{metric.label}</td><td><strong>{metric.money ? moneyText(amount) : amount}</strong></td><td><span data-kind={metric.editable ? "input" : "formula"}>{metric.editable ? "成员填写" : numberTracked ? "号码自动统计" : "系统计算"}</span></td></tr>; })}</tbody></table><div className="inspector-version-list"><strong>这条记录的修改历史</strong>{selected.revisions.map((revision) => <div key={revision.version}><span>第 {revision.version} 版 · {revision.createdBy?.name || "原填写人"}</span><small>{revision.changeReason || "首次填写"}</small></div>)}</div></> : <div className="inspector-empty">这个成员还没有每日填写记录</div>}
         </div>
-        <form className="inspector-correction" onSubmit={submit}><div><h3>纠正一项数据</h3><p>先选准日期和渠道。有效数据、当前在群、净业绩不能直接修改。</p></div><label><span>修改项目</span><select value={selectedMetric?.field || ""} onChange={(event) => chooseMetric(event.target.value)} disabled={!selected}>{editableMetrics.map((metric) => <option key={metric.field} value={metric.field}>{metric.label}</option>)}</select></label><div className="inspector-before-after"><span>修改前<strong>{selected && selectedMetric ? (selectedMetric.money ? moneyText(metricValue(selected, selectedMetric)) : metricValue(selected, selectedMetric)) : "—"}</strong></span><b>→</b><label><small>修改后{selectedMetric?.money ? "（美元）" : ""}</small><input type="number" min="0" step={selectedMetric?.money ? "0.01" : "1"} value={value} onChange={(event) => setValue(event.target.value)} /></label></div><label><span>修改原因</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="至少填写 4 个字，便于以后核对" /></label><button className="fresh-primary" disabled={!selected || busy || reason.trim().length < 4 || Number(value) < 0}>{busy ? "保存中…" : "保存纠正"}</button></form>
+        <form className="inspector-correction" onSubmit={submit}><div><h3>纠正一项数据</h3><p>添加到回复及公司认账资金可以纠正；进群、推专家、注册、开单和退群必须回客户号码进度修改。</p></div><label><span>修改项目</span><select value={selectedMetric?.field || ""} onChange={(event) => chooseMetric(event.target.value)} disabled={!selected}>{editableMetrics.map((metric) => <option key={metric.field} value={metric.field}>{metric.label}</option>)}</select></label><div className="inspector-before-after"><span>修改前<strong>{selected && selectedMetric ? (selectedMetric.money ? moneyText(metricValue(selected, selectedMetric)) : metricValue(selected, selectedMetric)) : "—"}</strong></span><b>→</b><label><small>修改后{selectedMetric?.money ? "（美元）" : ""}</small><input type="number" min="0" step={selectedMetric?.money ? "0.01" : "1"} value={value} onChange={(event) => setValue(event.target.value)} /></label></div><label><span>修改原因</span><textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="至少填写 4 个字，便于以后核对" /></label><button className="fresh-primary" disabled={!selectedMetric || busy || reason.trim().length < 4 || Number(value) < 0}>{busy ? "保存中…" : "保存纠正"}</button></form>
       </div> : tab === "history" ? <div className="inspector-simple-table"><table><thead><tr><th>日期</th><th>来源渠道</th><th>数据类型</th><th>添加数据</th><th>有效数据</th><th>进群</th><th>开单</th><th>操作</th></tr></thead><tbody>{payload?.entries.map((entry) => <tr key={entry.id}><td>{entry.businessDate}</td><td>{entry.channel.name}</td><td>{positionLabel(entry)}</td><td>{numeric(entry, "dispatchCount")}</td><td>{numeric(entry, "effectiveCount")}</td><td>{numeric(entry, "joinCount")}</td><td>{numeric(entry, "orderCount")}</td><td><button onClick={() => { setSelectedId(entry.id); setTab("daily"); }}>纠正这条</button></td></tr>)}</tbody></table><p>每一行对应一个确定的日期、渠道和数据类型，不会误改其他日期。</p></div> : <div className="inspector-simple-table"><table><thead><tr><th>日期</th><th>来源渠道</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th><th>操作</th></tr></thead><tbody>{financeEntries.map((entry) => { const first = numeric(entry, "cryptoInitialDepositCents") + numeric(entry, "bankInitialDepositCents"); const recharge = numeric(entry, "cryptoRechargeCents") + numeric(entry, "bankRechargeCents"); const withdrawal = numeric(entry, "withdrawalCents"); return <tr key={entry.id}><td>{entry.businessDate}</td><td>{entry.channel.name}</td><td>{moneyText(first)}</td><td>{moneyText(recharge)}</td><td>{moneyText(withdrawal)}</td><td><strong>{moneyText(first + recharge - withdrawal)}</strong></td><td><button onClick={() => { setSelectedId(entry.id); setTab("daily"); }}>纠正明细</button></td></tr>; })}</tbody></table><p>首充、续充和出金按原始明细纠正；净业绩始终由系统重新计算。</p></div>}
     </section>
   </div>;

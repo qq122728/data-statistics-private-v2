@@ -114,7 +114,10 @@ export function canWriteCustomerRevenue(
  */
 export function canReadReportGroup(user: PermissionUser, group: ReportReadableGroup): boolean {
   if (!user.active) return false;
-  if (user.role === "ADMIN" || user.duty === "HQ_MANAGER" || user.role === "RESOURCE_MANAGER" || user.role === "FINANCE") return true;
+  // 资源部不能走通用组织报表。资源账号必须使用 /api/resource/*，由接口按
+  // ResourceChannelAccess 中明确授权的 channelId 过滤，不能仅凭岗位看到全公司。
+  if (user.role === "RESOURCE_MANAGER") return false;
+  if (user.role === "ADMIN" || user.duty === "HQ_MANAGER" || user.role === "FINANCE") return true;
   if (user.duty === "COMPANY_MANAGER") {
     return Boolean(user.companyId && group.department?.companyId === user.companyId);
   }

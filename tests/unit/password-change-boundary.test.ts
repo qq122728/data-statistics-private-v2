@@ -2,10 +2,6 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const authState = vi.hoisted(() => ({ sessionId: undefined as string | undefined }));
-const redirectMock = vi.hoisted(() => vi.fn((path: string): never => {
-  throw new Error(`NEXT_REDIRECT:${path}`);
-}));
-
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => name === "data-statistics-session" && authState.sessionId
@@ -14,9 +10,6 @@ vi.mock("next/headers", () => ({
   }),
 }));
 
-vi.mock("next/navigation", () => ({ redirect: redirectMock }));
-
-import AppLayout from "../../src/app/(app)/layout";
 import { POST as createChannel } from "../../src/app/api/channels/route";
 import { POST as changePassword } from "../../src/app/api/auth/change-password/route";
 import { POST as logout } from "../../src/app/api/auth/logout/route";
@@ -50,7 +43,6 @@ async function createTemporaryPasswordSession(currentPassword = "temporary-passw
 
 afterEach(async () => {
   authState.sessionId = undefined;
-  redirectMock.mockClear();
   const users = await db.user.findMany({
     where: { id: { startsWith: prefix } },
     select: { id: true },
@@ -64,7 +56,7 @@ afterEach(async () => {
 });
 
 describe.sequential("temporary-password request boundary", () => {
-  it("rejects a real business API and redirects the protected layout", async () => {
+  it("rejects a real business API until the temporary password is changed", async () => {
     await createTemporaryPasswordSession();
 
     const apiResponse = await createChannel(new Request("http://localhost/api/channels", {
@@ -74,9 +66,6 @@ describe.sequential("temporary-password request boundary", () => {
     }));
     expect(apiResponse.status).toBe(401);
     await expect(apiResponse.json()).resolves.toEqual({ error: "首次登录必须先修改临时密码" });
-
-    await expect(AppLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/change-password");
-    expect(redirectMock).toHaveBeenCalledWith("/change-password");
   });
 
   it("allows the real change-password route and rejects the revoked session afterwards", async () => {

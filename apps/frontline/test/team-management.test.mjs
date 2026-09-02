@@ -44,4 +44,13 @@ test("组长检查页识别新版统一组员记录及其资金字段，同时�
   for (const label of ["正常退群", "异常退群", "推专家", "注册", "开单", "加密货币首充", "银行卡续充", "出金", "净业绩"]) {
     assert.ok(inspector.includes(label));
   }
+  assert.match(inspector, /numberTrackedFields/);
+  assert.ok(inspector.includes("号码自动统计"));
+  assert.ok(inspector.includes("必须回客户号码进度修改"));
+});
+
+test("小组日报只保留文字和 Excel，并由组长手动推送", () => {
+  assert.ok(analysis.includes("文字和 Excel 推送到 Telegram"));
+  assert.doesNotMatch(analysis, /下载日报图片|format=png|ImageSquare/);
+  assert.ok(analysis.includes("系统不会自动发送"));
 });

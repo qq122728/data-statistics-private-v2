@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "../../../../../lib/db";
 import { API_LIMITS } from "../../../../../lib/request-limits";
-import { parseFrontlineSecondaryRoles } from "../../../../../lib/role-assignments";
+import { applyHackerGroupDefaultRoles, parseFrontlineSecondaryRoles } from "../../../../../lib/role-assignments";
 import { authorizationDenied } from "../../../../../lib/security-events";
 import { transferableRoles, transferUserPosition, type TransferableRole } from "../../../../../lib/user-position/transfer";
 import { requirePersonnelTransferRequest } from "../../_auth";
@@ -81,13 +81,15 @@ export async function POST(request: Request) {
     const targetBusinessDate = await resolveGroupBusinessDate(targetGroupId, settings.timezone, now, tx);
     if (effectiveOn > targetBusinessDate)
       return { error: `调动生效日期不能晚于当前北京时间统计日 ${targetBusinessDate}`, status: 400 as const };
+    const targetGroup = await tx.teamGroup.findUnique({ where: { id: targetGroupId }, select: { groupType: true } });
+    const effectiveSecondaryRoles = applyHackerGroupDefaultRoles(role, secondaryRoles.value, targetGroup?.groupType);
     return transferUserPosition({
       tx,
       actor: liveActor,
       userId,
       targetGroupId,
       role,
-      secondaryRoles: secondaryRoles.value,
+      secondaryRoles: effectiveSecondaryRoles,
       effectiveOn,
       reason,
       receptionHandoffId,

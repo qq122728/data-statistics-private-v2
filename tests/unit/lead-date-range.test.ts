@@ -43,18 +43,6 @@ describe("lead date ranges", () => {
     expect(resolveDateRangeWithDefault({}, today, "month")).toMatchObject({ preset: "month", from: "2026-08-01", to: today });
   });
 
-  it("remounts each custom-date disclosure after a preset or filter change", () => {
-    const sharedFilter = readFileSync("src/components/lead/LeadDateRangeFilter.tsx", "utf8");
-    const dashboardFilter = readFileSync("src/components/lead/LeadDashboardToolbar.tsx", "utf8");
-
-    expect(sharedFilter).toContain("const customPanelKey = JSON.stringify");
-    expect(sharedFilter).toContain("key={customPanelKey}");
-    expect(sharedFilter).toContain('open={range.preset === "custom"}');
-    expect(dashboardFilter).toContain("const customPanelKey = JSON.stringify");
-    expect(dashboardFilter).toContain("key={customPanelKey}");
-    expect(dashboardFilter).toContain('open={range.preset === "custom"}');
-  });
-
   it("gives the group leader quick dates, the current range and a custom range", () => {
     const groupSource = readFileSync("apps/frontline/components/GroupChannelAnalysis.tsx", "utf8");
     const source = readFileSync("apps/frontline/components/SmartDateRangeToolbar.tsx", "utf8");

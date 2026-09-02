@@ -146,8 +146,11 @@ export async function POST(request: Request) {
       const isContacted = input.expertStage !== "QUEUED";
       const isTracking = input.expertStage === "TRACKING";
       const isRegistered = ["PENDING_ORDER", "DECLINED_DEPOSIT", "ORDERED"].includes(input.expertStage);
-      const groupQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "GROUP");
-      const expertQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT");
+      const groupQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "GROUP", input.joinedOn);
+      const expertQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT", input.expertIntroducedOn);
+      const registrationQueueNumber = isRegistered && input.registeredOn
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "REGISTRATION", input.registeredOn)
+        : null;
       const lead = await tx.leadCustomer.create({
         data: {
           phone,
@@ -155,6 +158,8 @@ export async function POST(request: Request) {
           groupQueueGroupId: actor.groupId,
           expertQueueNumber,
           expertQueueGroupId: actor.groupId,
+          registrationQueueNumber,
+          registrationQueueGroupId: registrationQueueNumber ? actor.groupId : null,
           batchId: batch.id,
           ownerId: reception.id,
           attributionOwnerId: reception.id,
@@ -183,7 +188,8 @@ export async function POST(request: Request) {
       });
       let orderId: string | null = null;
       if (input.expertStage === "ORDERED" && input.openedOn && input.initialDepositCents && input.initialDepositMethod) {
-        const order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: input.openedOn, initialDepositCents: input.initialDepositCents, initialDepositMethod: input.initialDepositMethod } });
+        const orderQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "ORDER", input.openedOn);
+        const order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: input.openedOn, initialDepositCents: input.initialDepositCents, initialDepositMethod: input.initialDepositMethod, orderQueueNumber, orderQueueGroupId: actor.groupId } });
         orderId = order.id;
       }
       await recordAudit(tx, {

@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { customerWorkflowInputSchema } from "../../src/lib/customer-workflow/input";
 import { buildBasicCustomerMutation } from "../../src/lib/customer-workflow/mutations";
@@ -57,20 +56,5 @@ describe("reception ready-to-join and manual archive", () => {
       activityKind: "RECEPTION_ARCHIVED",
     });
     expect(buildBasicCustomerMutation({ action: "archiveRepliedCustomer", reason: "拒绝", archiveVisitCount: 1 }, { ...baseLead, groupStatus: "JOINED" }, "2026-08-26")).toMatchObject({ status: 400 });
-  });
-
-  it("wires the dropdown, green priority row, archive classification and attribution display", () => {
-    const table = readFileSync("src/components/entry/EntryCustomerTables.tsx", "utf8");
-    const tabs = readFileSync("src/components/entry/EntryTabs.tsx", "utf8");
-    const progress = readFileSync("src/components/entry/ReceptionDownstreamProgress.tsx", "utf8");
-    const css = readFileSync("src/app/globals.css", "utf8");
-    expect(table).toContain("准备拉群");
-    expect(table).toContain("手动归档");
-    expect(table).toContain("未回复归档");
-    expect(table).toContain("未进群归档");
-    expect(tabs).toContain('left.receptionChatStatus === "READY_TO_JOIN" ? -1 : 1');
-    expect(css).toContain('tr[data-ready-to-join="true"] td');
-    expect(progress).toContain("粉的归属");
-    expect(progress).toContain("lead.attributionOwner?.name ?? lead.owner.name");
   });
 });

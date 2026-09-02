@@ -28,8 +28,8 @@ export function parseFrontlineSecondaryRoles(
 }
 
 /**
- * 黑客组的一般组员默认同时承担接粉与炒群。
- * 专家仍可单独创建；用户额外选择的专家兼任也会保留。
+ * 黑客组的一线组员都默认同时承担接粉与炒群。
+ * 专家是叠加权限，不会替换接粉或炒群权限。
  */
 export function applyHackerGroupDefaultRoles(
   primaryRole: Role,
@@ -37,7 +37,7 @@ export function applyHackerGroupDefaultRoles(
   groupType: "HACKER" | "LAWYER" | null | undefined,
 ): Role[] {
   if (groupType !== "HACKER") return secondaryRoles;
-  if (primaryRole !== "RECEPTION" && primaryRole !== "GROUP_OPERATOR") return secondaryRoles;
-  const counterpart: Role = primaryRole === "RECEPTION" ? "GROUP_OPERATOR" : "RECEPTION";
-  return secondaryRoles.includes(counterpart) ? secondaryRoles : [counterpart, ...secondaryRoles];
+  if (!frontlineRoles.includes(primaryRole as (typeof frontlineRoles)[number])) return secondaryRoles;
+  return [...new Set<Role>(["RECEPTION", "GROUP_OPERATOR", ...secondaryRoles])]
+    .filter((role) => role !== primaryRole);
 }

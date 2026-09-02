@@ -4,8 +4,6 @@ import test from "node:test";
 
 const dailySheet = readFileSync(new URL("../components/UnifiedMemberDataSheet.tsx", import.meta.url), "utf8");
 const customerTable = readFileSync(new URL("../components/DepartmentCustomerProgress.tsx", import.meta.url), "utf8");
-const groupWorkbench = readFileSync(new URL("../components/GroupOperatorWorkbench.tsx", import.meta.url), "utf8");
-const expertWorkbench = readFileSync(new URL("../components/ExpertWorkbench.tsx", import.meta.url), "utf8");
 
 test("客户进程保存后会实时刷新日报，不再因统计日未变而丢弃新数据", () => {
   assert.match(dailySheet, /setContext\(next\)/);
@@ -19,10 +17,8 @@ test("客户进程保存后会实时刷新日报，不再因统计日未变而�
 
 test("进群、注册和开单入口都会通知日报同步", () => {
   assert.match(customerTable, /window\.dispatchEvent\(new Event\("ai-data-updated"\)\)/);
-  assert.match(groupWorkbench, /window\.dispatchEvent\(new Event\("customer-data-updated"\)\)/);
-  assert.match(expertWorkbench, /window\.dispatchEvent\(new Event\("customer-data-updated"\)\)/);
-  assert.match(expertWorkbench, /register/);
-  assert.match(expertWorkbench, /\/api\/customer-orders/);
+  assert.match(customerTable, /action: "setRegistration"/);
+  assert.match(customerTable, /\/api\/customer-orders/);
 });
 
 test("界面明确说明老客户不受当日添加数限制", () => {

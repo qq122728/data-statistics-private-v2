@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { requestJson } from "@/lib/backend";
 import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
-import { Copy, DownloadSimple, ImageSquare, PaperPlaneTilt } from "@phosphor-icons/react";
+import { Copy, DownloadSimple, PaperPlaneTilt } from "@phosphor-icons/react";
 import { MetricMatrixTable } from "@/components/MetricMatrixTable";
 
 type Totals = { added: number; collision: number; lowAmount: number; noWs: number; manualInvalid: number; lawyerRealCase: number; lawyerAdded: number; lawyerExpertAdded: number; customerServicePush: number; effective: number; replied: number; joined: number; left: number; leftAbnormal: number; inGroup: number; pushed: number; registered: number; ordered: number; initialDepositCents: number; rechargeCents: number; withdrawalCents: number; netCents: number; cryptoDepositCents: number; bankDepositCents: number };
@@ -95,7 +95,7 @@ export function GroupChannelAnalysis() {
   }
   async function pushDailyReport() {
     if (!payload || !dailyReport) return;
-    if (!window.confirm(`确认把 ${dailyReport.report.groupName} ${dailyReport.report.reportDate} 的文字、图片和 Excel 推送到 Telegram？`)) return;
+    if (!window.confirm(`确认把 ${dailyReport.report.groupName} ${dailyReport.report.reportDate} 的文字和 Excel 推送到 Telegram？`)) return;
     setReportBusy("push"); setReportMessage("");
     try {
       const result = await requestJson<{ message: string }>("/api/lead/daily-business-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: payload.range.to }) });
@@ -127,7 +127,7 @@ export function GroupChannelAnalysis() {
       {payload.review.pending > 0 ? <section className="analysis-review-note"><strong>{payload.review.pending} 条数据待资源部核对</strong><span>这些数据已经显示在本页并计入汇总，不会再出现“填了但组长看不到”。</span></section> : null}
       <section className="fresh-sheet-card daily-report-card">
         <div className="fresh-sheet-title"><div><h2>小组业务日报</h2><p>先由组长确认当天数据，再手动生成、下载或推送；系统不会自动发送。</p></div><button className="fresh-primary" disabled={Boolean(reportBusy)} onClick={() => void generateDailyReport()}>{reportBusy === "generate" ? "生成中…" : dailyReport ? "重新生成" : "生成日报"}</button></div>
-        {dailyReport ? <div className="daily-report-body"><div className="daily-report-preview"><pre>{dailyReport.text}</pre></div><div className="daily-report-actions"><button onClick={() => void copyDailyReport()}><Copy size={17} weight="bold" />复制文字</button><a href={`/api/lead/daily-business-report?date=${encodeURIComponent(dailyReport.report.reportDate)}&format=png`}><ImageSquare size={17} weight="bold" />下载日报图片</a><a href={`/api/lead/daily-business-report?date=${encodeURIComponent(dailyReport.report.reportDate)}&format=xlsx`}><DownloadSimple size={17} weight="bold" />下载 Excel</a><button data-primary="true" disabled={reportBusy === "push"} onClick={() => void pushDailyReport()}><PaperPlaneTilt size={17} weight="bold" />{reportBusy === "push" ? "正在推送…" : "推送到 Telegram"}</button></div></div> : <div className="daily-report-empty">先选好日期，再点“生成日报”。系统会自动整理人员、渠道、当日和当月数据。</div>}
+        {dailyReport ? <div className="daily-report-body"><div className="daily-report-preview"><pre>{dailyReport.text}</pre></div><div className="daily-report-actions"><button onClick={() => void copyDailyReport()}><Copy size={17} weight="bold" />复制文字</button><a href={`/api/lead/daily-business-report?date=${encodeURIComponent(dailyReport.report.reportDate)}&format=xlsx`}><DownloadSimple size={17} weight="bold" />下载 Excel</a><button data-primary="true" disabled={reportBusy === "push"} onClick={() => void pushDailyReport()}><PaperPlaneTilt size={17} weight="bold" />{reportBusy === "push" ? "正在推送…" : "推送到 Telegram"}</button></div></div> : <div className="daily-report-empty">先选好日期，再点“生成日报”。系统会自动整理人员、渠道、当日和当月数据。</div>}
         {reportMessage ? <div className="daily-report-message">{reportMessage}</div> : null}
       </section>
       <section className="analysis-kpis">{lawyerGroup ? <><article><span>接粉</span><strong>{payload.summary.totals.added}</strong><small>回复率 {percent(payload.summary.derivedRates.lawyerReplyRate)}</small></article><article><span>真实案件</span><strong>{payload.summary.totals.lawyerRealCase}</strong><small>小金额 {payload.summary.totals.lowAmount}</small></article><article><span>添加律师</span><strong>{payload.summary.totals.lawyerAdded}</strong><small>添加率 {percent(payload.summary.derivedRates.lawyerAddedRate)}</small></article><article><span>总开单</span><strong>{payload.summary.totals.ordered}</strong><small>总注册 {payload.summary.totals.registered}</small></article></> : <><article><span>添加数据</span><strong>{payload.summary.totals.added}</strong><small>有效 {payload.summary.totals.effective} · {percent(payload.summary.derivedRates.effectiveRate)}</small></article><article><span>进群</span><strong>{payload.summary.totals.joined}</strong><small>进群率 {percent(payload.summary.derivedRates.joinRate)}</small></article><article><span>开单</span><strong>{payload.summary.totals.ordered}</strong><small>开单率 {percent(payload.summary.derivedRates.orderRate)}</small></article><article><span>净业绩</span><strong>{money(payload.summary.totals.netCents)}</strong><small>首充 {money(payload.summary.totals.initialDepositCents)} · 续充 {money(payload.summary.totals.rechargeCents)}</small></article></>}</section>

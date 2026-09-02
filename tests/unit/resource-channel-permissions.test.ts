@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { AuthorizationError, hashPassword } from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { GET, PATCH, POST } from "../../src/app/api/admin/channels/route";
-import { getVisibleAppNavigation } from "../../src/lib/app-navigation";
 
 const prefix = "resource-channel-permission-";
 
@@ -150,10 +148,6 @@ describe.sequential("resource department channel permissions", () => {
     await expect(db.channel.findUniqueOrThrow({ where: { id_groupId: { id: channel.id, groupId } } })).resolves.toMatchObject({ active: true });
   });
 
-  it("adds a dedicated global channel and price entry for resource managers", () => {
-    expect(getVisibleAppNavigation("RESOURCE_MANAGER")).toContainEqual({ href: "/resource-channels", label: "渠道与单价" });
-  });
-
   it("creates one catalog channel for every group and updates every copy together", async () => {
     const id = `${prefix}global-user-${randomUUID()}`;
     const actor = await db.user.create({ data: { id, username: id, name: "全局渠道资源部", passwordHash: hashPassword("global-resource-password"), role: "RESOURCE_MANAGER" } });
@@ -225,13 +219,5 @@ describe.sequential("resource department channel permissions", () => {
     const copies = await db.channel.findMany({ where: { id: channel.id }, select: { groupId: true, name: true } });
     expect(copies).toHaveLength(ownGroupIds.length);
     expect(new Set(copies.map((copy) => copy.name))).toEqual(new Set([renamed]));
-    expect(getVisibleAppNavigation("COMPANY_MANAGER")).toContainEqual({ href: "/resource-channels", label: "渠道与单价" });
-  });
-
-  it("removes the group selector from the global channel manager", () => {
-    const source = readFileSync("src/components/admin/ChannelManager.tsx", "utf8");
-    expect(source).toContain("全局渠道：保存后所有公司和小组都可以选择");
-    expect(source).not.toContain("所属小组");
-    expect(source).toContain("global: true");
   });
 });

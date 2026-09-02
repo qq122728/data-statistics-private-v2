@@ -20,14 +20,17 @@ describe("老板日报安全边界", () => {
     expect(source.indexOf("encryptDump")).toBeLessThan(source.indexOf("sendParts(encrypted"));
   });
 
-  it("内部任务需要独立密钥且支持防重复发送", () => {
+  it("内部任务需要独立密钥、支持防重复，并且不能代发小组日报", () => {
     const route = read("src/app/api/internal/boss-daily-brief/route.ts");
+    const groupReportRoute = read("src/app/api/lead/daily-business-report/route.ts");
     const internalAuth = read("src/lib/internal-job-auth.ts");
     const service = read("src/lib/boss-report/service.ts");
     const proxy = read("src/proxy.ts");
     const trigger = read("scripts/trigger-boss-daily-brief.mjs");
-    expect(route).toContain("x-daily-job-secret");
     expect(route).toContain("hasValidDailyJobSecret");
+    expect(route).toContain("enabled: false");
+    expect(groupReportRoute).toContain("小组日报已关闭自动代发");
+    expect(internalAuth).toContain("x-daily-job-secret");
     expect(internalAuth).toContain("timingSafeEqual");
     expect(service).toContain("bossBrief:lastSentDate");
     expect(service).toContain("bossBrief:audit:");

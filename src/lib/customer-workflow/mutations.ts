@@ -212,13 +212,13 @@ export function buildBasicCustomerMutation(
       if (lead.expertIntroducedOn || lead.registeredOn || (lead.customerOrder && !lead.customerOrder.voidedAt))
         return { status: 400, error: "该客户已有后续记录，请先撤销后续步骤" };
       return {
-        update: { groupStatus: "NOT_JOINED", joinedOn: null, leftOn: null, leftWithOrder: null, leftNote: null, leftAutomatically: false, ...(lead.isHistoricalRecord ? { historicalJoinCounted: false, historicalLeaveCounted: false } : {}) },
+        update: { groupStatus: "NOT_JOINED", joinedOn: null, leftOn: null, leftWithOrder: null, leftNote: null, leftAutomatically: false, groupQueueNumber: null, groupQueueGroupId: null, leaveQueueNumber: null, leaveQueueGroupId: null, ...(lead.isHistoricalRecord ? { historicalJoinCounted: false, historicalLeaveCounted: false } : {}) },
         activityKind: "GROUP_JOIN_REVOKED",
       };
     case "undoLeaveGroup":
       if (lead.groupStatus !== "LEFT") return { status: 400, error: "该客户没有退群记录，不能撤销" };
       return {
-        update: { groupStatus: "JOINED", leftOn: null, leftWithOrder: null, leftNote: null, leftAutomatically: false, ...(lead.isHistoricalRecord ? { historicalLeaveCounted: false } : {}) },
+        update: { groupStatus: "JOINED", leftOn: null, leftWithOrder: null, leftNote: null, leftAutomatically: false, leaveQueueNumber: null, leaveQueueGroupId: null, ...(lead.isHistoricalRecord ? { historicalLeaveCounted: false } : {}) },
         activityKind: "GROUP_LEAVE_REVOKED",
       };
     case "register":

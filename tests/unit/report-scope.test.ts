@@ -9,7 +9,7 @@ const groups = [
 describe("report group scope", () => {
   it("lets administrators read active and inactive group history", () => {
     expect(resolveReadableReportGroups({ id: "admin", role: "ADMIN", groupId: null, active: true }, groups)).toEqual(groups);
-    expect(resolveReadableReportGroups({ id: "resource", role: "RESOURCE_MANAGER", groupId: null, active: true }, groups)).toEqual(groups);
+    expect(resolveReadableReportGroups({ id: "resource", role: "RESOURCE_MANAGER", groupId: null, active: true }, groups)).toEqual([]);
   });
 
   it("keeps an assigned inactive group readable for leads and members", () => {

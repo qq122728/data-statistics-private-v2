@@ -2,7 +2,7 @@
  * 从这个北京时间统计日开始，黑客组的进群及后续指标以客户号码事件为准。
  * 旧日期仍保留原来的手工日报，不做反向重算。
  */
-export const CUSTOMER_NUMBER_TRACKING_FROM = "2026-09-02";
+export const CUSTOMER_NUMBER_TRACKING_FROM = "2026-09-01";
 
 export function usesCustomerNumberTracking(businessDate: string) {
   return businessDate >= CUSTOMER_NUMBER_TRACKING_FROM;

@@ -1,5 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { db } from "./db";
+import { allocateCustomerStageNumber } from "./customer-stage-number";
+import { syncCustomerGroupEvent } from "./customer-number-event-sync";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -28,19 +30,37 @@ export async function autoMarkExpiredGroupMemberships(input: {
       joinedOn: { lte: cutoff },
       ...(input.groupIds?.length ? { batch: { groupId: { in: input.groupIds } } } : {}),
     },
-    select: { id: true, isHistoricalRecord: true, customerOrder: { select: { voidedAt: true } } },
+    select: {
+      id: true, phone: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true,
+      currentGroupId: true, isHistoricalRecord: true,
+      batch: { select: { groupId: true, channelId: true } },
+      customerOrder: { select: { voidedAt: true } },
+    },
   });
   if (!due.length) return { checkedThrough: cutoff, updated: 0 };
-  const results = await client.$transaction(due.map((lead) => client.leadCustomer.updateMany({
-    where: { id: lead.id, groupStatus: "JOINED" },
-    data: {
-      groupStatus: "LEFT",
-      leftOn: input.today,
-      leftAutomatically: true,
-      leftWithOrder: Boolean(lead.customerOrder && !lead.customerOrder.voidedAt),
-      leftNote: "系统：在群超过14天自动退群",
-      ...(lead.isHistoricalRecord ? { historicalLeaveCounted: true } : {}),
-    },
-  })));
-  return { checkedThrough: cutoff, updated: results.reduce((sum, result) => sum + result.count, 0) };
+  const updated = await client.$transaction(async (tx) => {
+    let count = 0;
+    for (const lead of due) {
+      const groupId = lead.currentGroupId ?? lead.batch.groupId;
+      const leaveQueueNumber = await allocateCustomerStageNumber(tx, groupId, "LEAVE", input.today);
+      const result = await tx.leadCustomer.updateMany({
+        where: { id: lead.id, groupStatus: "JOINED" },
+        data: {
+          groupStatus: "LEFT", leftOn: input.today, leaveQueueNumber, leaveQueueGroupId: groupId,
+          leftAutomatically: true,
+          leftWithOrder: Boolean(lead.customerOrder && !lead.customerOrder.voidedAt),
+          leftNote: "系统：在群超过14天自动退群",
+          ...(lead.isHistoricalRecord ? { historicalLeaveCounted: true } : {}),
+        },
+      });
+      if (!result.count) continue;
+      count += result.count;
+      await syncCustomerGroupEvent(tx, { ...lead, batch: { groupId, channelId: lead.batch.channelId } }, {
+        businessDate: input.today,
+        kind: lead.customerOrder && !lead.customerOrder.voidedAt ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE",
+      });
+    }
+    return count;
+  });
+  return { checkedThrough: cutoff, updated };
 }

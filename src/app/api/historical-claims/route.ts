@@ -404,10 +404,13 @@ export async function POST(request: Request) {
       });
       const claimRank = claimStages.indexOf(input.baselineStage);
       const groupQueueNumber = claimRank >= claimStages.indexOf("JOINED")
-        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP", input.baselineOn)
         : null;
       const expertQueueNumber = claimRank >= claimStages.indexOf("INTRODUCED")
-        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT", input.baselineOn)
+        : null;
+      const registrationQueueNumber = claimRank >= claimStages.indexOf("REGISTERED")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "REGISTRATION", input.baselineOn)
         : null;
       const lead = await tx.leadCustomer.create({ data: {
         phone,
@@ -415,6 +418,8 @@ export async function POST(request: Request) {
         groupQueueGroupId: groupQueueNumber ? actor.groupId : null,
         expertQueueNumber,
         expertQueueGroupId: expertQueueNumber ? actor.groupId : null,
+        registrationQueueNumber,
+        registrationQueueGroupId: registrationQueueNumber ? actor.groupId : null,
         batchId: batch.id,
         ownerId: input.receptionOwnerId,
         attributionOwnerId: input.receptionOwnerId,

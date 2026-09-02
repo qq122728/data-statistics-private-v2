@@ -90,14 +90,14 @@ describe.sequential("人员调组历史", () => {
     const aRanking = await loadRoleRankings({ groupIds: [data.groupA], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-31" });
     expect(aRanking.reception.find((row) => row.id === data.userId)).toMatchObject({ groupId: data.groupA, valid: 1, replied: 1, joined: 1 });
     const bRanking = await loadRoleRankings({ groupIds: [data.groupB], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-31" });
-    expect(bRanking.reception.some((row) => row.id === data.userId)).toBe(false);
+    expect(bRanking.reception.some((row) => row.id === data.userId)).toBe(true);
     const companyRanking = await loadRoleRankings({ groupIds: [data.groupA, data.groupB], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-31" });
     expect(companyRanking.reception.filter((row) => row.id === data.userId)).toHaveLength(1);
     expect(companyRanking.groups.find((row) => row.id === data.groupA)).toMatchObject({ valid: 1, joined: 1 });
     expect(companyRanking.groups.find((row) => row.id === data.groupB)).toMatchObject({ valid: 0, joined: 0 });
   });
 
-  it("跨组后不再保留接粉岗位时，在办客户必须明确交接给原组", async () => {
+  it("黑客组增加专家岗位后仍保留接粉权限，在办客户随本人进入新组", async () => {
     const data = await fixture();
     const handoffId = `${prefix}handoff-${randomUUID()}`;
     await db.user.create({ data: { id: handoffId, employeeCode: `AB-${randomUUID().slice(0, 8)}`, username: `${prefix}${randomUUID()}`, name: "A组接收人", role: "RECEPTION", groupId: data.groupA } });
@@ -108,7 +108,7 @@ describe.sequential("人员调组历史", () => {
       body: JSON.stringify({ userId: data.userId, targetGroupId: data.groupB, role: "EXPERT", effectiveOn: "2026-08-16", reason: "调入B组负责专家", receptionHandoffId: handoffId }),
     }));
     expect(response.status).toBe(200);
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: pending.id }, select: { ownerId: true, attributionOwnerId: true, currentGroupId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ ownerId: handoffId, attributionOwnerId: data.userId, currentGroupId: null, batch: { groupId: data.groupA } });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: pending.id }, select: { ownerId: true, attributionOwnerId: true, currentGroupId: true, batch: { select: { groupId: true } } } })).resolves.toEqual({ ownerId: data.userId, attributionOwnerId: data.userId, currentGroupId: data.groupB, batch: { groupId: data.groupA } });
   });
 
   it("已经结束的历史客户不搬到新组", async () => {

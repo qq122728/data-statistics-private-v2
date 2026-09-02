@@ -14,6 +14,7 @@ import { entryDateError } from "../../../lib/entry-date-validation";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
 import { authorizationDenied } from "../../../lib/security-events";
 import { syncCustomerOrderEvent } from "../../../lib/customer-number-event-sync";
+import { allocateCustomerStageNumber } from "../../../lib/customer-stage-number";
 
 type FieldErrors = Record<string, string[]>;
 
@@ -148,9 +149,11 @@ export async function POST(request: Request) {
       const orders = [];
       for (const { row } of validRows) {
         const previous = existingByPhone.get(row.phone);
+        const batch = batchById.get(row.batchId)!;
+        const orderQueueNumber = await allocateCustomerStageNumber(transaction, batch.groupId, "ORDER", row.openedOn);
         const order = previous?.voidedAt
-          ? await transaction.customerOrder.update({ where: { id: previous.id }, data: { ...row, enteredById: actor.id, voidedAt: null, voidReason: null, voidedById: null } })
-          : await transaction.customerOrder.create({ data: { ...row, enteredById: actor.id } });
+          ? await transaction.customerOrder.update({ where: { id: previous.id }, data: { ...row, enteredById: actor.id, orderQueueNumber, orderQueueGroupId: batch.groupId, voidedAt: null, voidReason: null, voidedById: null } })
+          : await transaction.customerOrder.create({ data: { ...row, enteredById: actor.id, orderQueueNumber, orderQueueGroupId: batch.groupId } });
         await transaction.leadCustomer.update({
           where: { id: row.leadId },
           data: { noInitialDepositOn: null, noInitialDepositReason: null, noInitialDepositNote: null, expertWorkflowStage: "ORDERED", expertStageChangedAt: new Date() },
@@ -168,7 +171,6 @@ export async function POST(request: Request) {
           },
         });
         const lead = leadById.get(row.leadId)!;
-        const batch = batchById.get(row.batchId)!;
         await syncCustomerOrderEvent(transaction, {
           ...lead, phone: row.phone,
           batch: { groupId: batch.groupId, channelId: batch.channelId },

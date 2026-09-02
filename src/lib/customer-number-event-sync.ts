@@ -110,6 +110,36 @@ export async function syncCustomerExpertEvent(
   });
 }
 
+/**
+ * 纠正“推专家发生日期”时，把炒群端的推专家数和专家端的接收数一起搬到新日期。
+ * 删除旧数时按来源接粉人寻找真实承载行，兼容负责人曾经被调整过的客户。
+ */
+export async function moveCustomerExpertIntroductionDate(
+  tx: Prisma.TransactionClient,
+  before: NumberTrackedLead,
+  after: NumberTrackedLead,
+  input: { from: string; to: string },
+) {
+  await removeRecordedEventFromBusinessAttribution(tx, before, {
+    businessDate: input.from,
+    position: "GROUP_OPERATOR",
+    metric: "expertIntroCount",
+  });
+  await removeRecordedEventFromBusinessAttribution(tx, before, {
+    businessDate: input.from,
+    position: "EXPERT",
+    metric: "expertReceivedCount",
+  });
+  await syncCustomerGroupEvent(tx, after, {
+    businessDate: input.to,
+    kind: "EXPERT_INTRO",
+  });
+  await syncCustomerExpertEvent(tx, after, {
+    businessDate: input.to,
+    kind: "RECEIVED",
+  });
+}
+
 export async function syncCustomerOrderEvent(
   tx: Prisma.TransactionClient,
   lead: NumberTrackedLead,

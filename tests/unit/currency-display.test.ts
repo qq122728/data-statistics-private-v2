@@ -18,11 +18,13 @@ async function frontendSources(directory: string): Promise<string[]> {
 
 describe("frontend currency display", () => {
   it("uses dollar signs for values and 美元 for field units", async () => {
-    const root = fileURLToPath(new URL("../../src/", import.meta.url));
+    const root = fileURLToPath(new URL("../../", import.meta.url));
     const sources = (await Promise.all([
-      frontendSources(join(root, "components")),
-      frontendSources(join(root, "app")),
-      readFile(join(root, "lib/metrics.ts"), "utf8").then((source) => [source]),
+      frontendSources(join(root, "apps/frontline/components")),
+      frontendSources(join(root, "apps/frontline/app")),
+      frontendSources(join(root, "apps/admin/components")),
+      frontendSources(join(root, "apps/admin/app")),
+      readFile(join(root, "src/lib/metrics.ts"), "utf8").then((source) => [source]),
     ])).flat().join("\n");
 
     expect(sources).not.toMatch(/¥|人民币|（元）|\d(?:\.\d+)? 元|非负元金额/);

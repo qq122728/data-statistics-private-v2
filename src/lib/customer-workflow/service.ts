@@ -86,8 +86,12 @@ export async function executeCustomerWorkflow(
       else return { status: 400 as const, error: "当前接粉尚未配对炒群，请组长先完成配对" };
     }
     if (input.action === "joinGroup" && !lead.groupQueueNumber) {
-      update.groupQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "GROUP");
+      update.groupQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "GROUP", occurredOn);
       update.groupQueueGroupId = currentGroupId;
+    }
+    if (input.action === "leaveGroup") {
+      update.leaveQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "LEAVE", occurredOn);
+      update.leaveQueueGroupId = currentGroupId;
     }
 
     const updatingReceptionDevice = input.action === "updateProfile" && Boolean(input.deviceId || input.deviceCode);
@@ -137,11 +141,11 @@ export async function executeCustomerWorkflow(
       });
       if (!assignee) return { status: 400 as const, error: input.expertOwnerId ? "只能选择本组在职组员" : "本组没有启用的组长，请选择一位组员" };
       if (!lead.groupQueueNumber) {
-        update.groupQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "GROUP");
+        update.groupQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "GROUP", lead.joinedOn);
         update.groupQueueGroupId = currentGroupId;
       }
       if (!lead.expertQueueNumber) {
-        update.expertQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "EXPERT");
+        update.expertQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "EXPERT", occurredOn);
         update.expertQueueGroupId = currentGroupId;
       }
       if (!lead.expertIntroducedOn) update.expertIntroducedOn = occurredOn;
@@ -247,16 +251,22 @@ export async function executeCustomerWorkflow(
       update.expertStageChangedAt = workflowStageTime(occurredOn);
       if (!lead.expertTrackingStartedAt) update.expertTrackingStartedAt = compatibleTrackingStartedAt;
       if (lead.isHistoricalRecord) update.historicalRegistrationCounted = true;
+      update.registrationQueueNumber = await allocateCustomerStageNumber(transaction, currentGroupId, "REGISTRATION", occurredOn);
+      update.registrationQueueGroupId = currentGroupId;
     }
     if (input.action === "undoRegister") {
       update.expertWorkflowStage = "PENDING_REGISTRATION";
       update.expertStageChangedAt = new Date();
       if (lead.isHistoricalRecord) update.historicalRegistrationCounted = false;
+      update.registrationQueueNumber = null;
+      update.registrationQueueGroupId = null;
     }
     if (input.action === "undoExpertContacted") {
       update.expertWorkflowStage = "QUEUED";
       update.expertStageChangedAt = new Date();
       update.expertTrackingStartedAt = null;
+      update.expertQueueNumber = null;
+      update.expertQueueGroupId = null;
       update.expertDeviceAccountId = null;
       update.expertDeviceAccountNumber = null;
     }

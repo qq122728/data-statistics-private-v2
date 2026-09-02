@@ -10,7 +10,6 @@
     "start": "next start",
     "build": "NEXT_IGNORE_INCORRECT_LOCKFILE=1 next build",
     "test": "npm run db:generate:sqlite && vitest",
-    "test:e2e": "playwright test",
     "db:generate": "npm run db:generate:sqlite",
     "db:generate:sqlite": "DATABASE_URL=file:./dev.db prisma generate --schema prisma/schema.prisma",
     "db:generate:postgres": "prisma generate --schema prisma/postgres/schema.prisma",
@@ -37,24 +36,23 @@
     "telegram:test-group-report": "tsx scripts/send-simulated-group-daily-report.ts",
     "dr:validate": "node scripts/dr/validate-dr-config.mjs",
     "seed:local-demo": "node scripts/seed-local-demo.mjs",
-    "db:backfill:department-manager-duty": "node scripts/backfill-department-manager-duty.mjs"
+    "db:backfill:department-manager-duty": "node scripts/backfill-department-manager-duty.mjs",
+    "db:clear-manual-joins": "node scripts/clear-manual-join-counts.mjs",
+    "db:ensure-hacker-member-roles": "node scripts/ensure-hacker-member-default-roles.mjs"
   },
   "prisma": {
     "seed": "node --experimental-strip-types prisma/seed.ts"
   },
   "dependencies": {
-    "@phosphor-icons/react": "^2.1.10",
     "@prisma/client": "^6.16.2",
     "exceljs": "^4.4.0",
     "next": "16.3.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "recharts": "^3.10.1",
     "sharp": "^0.35.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.55.0",
     "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^22.18.0",
     "@types/react": "^19.1.13",

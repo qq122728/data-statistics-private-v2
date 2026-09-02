@@ -14,8 +14,8 @@ export async function GET() {
     ]);
     // 资源部账号按需求文档4.4拆成投流/短信两个独立账号，各绑一个渠道——v2 前端要靠
     // 这个字段判断落在哪个身份（RESOURCE_TRAFFIC/RESOURCE_SMS），不能只看笼统的
-    // role === "RESOURCE_MANAGER"。user.resourceChannelAccess 是 getSessionUser() 已经
-    // 按渠道类型展开过的结果（见 lib/auth.ts），这里只需要反查出具体是哪个类型。
+    // role === "RESOURCE_MANAGER"。resourceChannelAccess 始终是明确授权的渠道目录 ID，
+    // 不会按渠道类型扩展成其他渠道；这里只反查这些 ID 对应的类型用于显示账号身份。
     const resourceChannelIds = user.resourceChannelAccess?.map((access) => access.channelId) ?? [];
     const resourceChannelTypes = resourceChannelIds.length
       ? getResourceChannelTypes(

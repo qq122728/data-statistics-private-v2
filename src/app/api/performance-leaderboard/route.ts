@@ -9,7 +9,8 @@ import { hasOversizedQueryValue } from "../../../lib/request-limits";
 import { getSystemSettings } from "../../../lib/settings";
 import { authorizationDenied } from "../../../lib/security-events";
 import { managedDepartmentIds } from "../../../lib/managed-department-scope";
-import { usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
+import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
+import { isUnifiedDailyStatIdentity } from "../../../lib/daily-stats";
 
 export async function GET(request: Request) {
   let actor;
@@ -73,7 +74,7 @@ export async function GET(request: Request) {
       ...(channelIds ? { channelId: { in: channelIds } } : {}),
     },
     select: {
-      groupId: true, businessDate: true, position: true, ownerId: true, sourceReceptionId: true,
+      groupId: true, businessDate: true, position: true, identityKey: true, ownerId: true, sourceReceptionId: true,
       owner: { select: { id: true, name: true, active: true } },
       sourceReception: { select: { id: true, name: true, active: true } },
       approvedRevision: true,
@@ -86,16 +87,24 @@ export async function GET(request: Request) {
   const peopleByReception = new Map<string, { person: (typeof entries)[number]["owner"]; groupId: string; sum: Sum }>();
   const groupTypeById = new Map(groups.map((group) => [group.id, group.groupType]));
   for (const entry of entries) {
-    const value = entry.approvedRevision;
-    if (!value) continue;
+    const rawValue = entry.approvedRevision;
+    if (!rawValue) continue;
+    const value = revisionForNumberTracking(rawValue, {
+      businessDate: entry.businessDate,
+      position: entry.position,
+      groupType: groupTypeById.get(entry.groupId) ?? "HACKER",
+    });
+    const depositCents = value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
     const groupSum = groupSums.get(entry.groupId) ?? fresh();
     if (entry.position === "RECEPTION") groupSum.joined += value.joinCount;
     if (entry.position === "GROUP_OPERATOR" && groupTypeById.get(entry.groupId) === "HACKER" && usesCustomerNumberTracking(entry.businessDate)) {
       groupSum.joined += value.operatorReceivedCount;
     }
-    if (entry.position === "EXPERT") {
-      groupSum.orders += value.orderCount;
-      groupSum.depositCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
+    if (entry.position === "EXPERT") groupSum.orders += value.orderCount;
+    // 新版公司认账财务保存在统一组员行；旧专家财务行继续兼容。
+    // 客户进度中的跟踪金额不写 DailyStat，因此不会混入这里。
+    if (isUnifiedDailyStatIdentity(entry.identityKey) || entry.position === "EXPERT") {
+      groupSum.depositCents += depositCents;
       groupSum.withdrawalCents += value.withdrawalCents;
     }
     groupSums.set(entry.groupId, groupSum);
@@ -105,7 +114,7 @@ export async function GET(request: Request) {
     if (entry.position === "GROUP_OPERATOR") personRow.sum.joined += value.operatorReceivedCount;
     if (entry.position === "EXPERT") {
       personRow.sum.orders += value.orderCount;
-      personRow.sum.depositCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
+      personRow.sum.depositCents += depositCents;
       personRow.sum.withdrawalCents += value.withdrawalCents;
     }
     peopleByRole.set(key, personRow);
@@ -119,9 +128,9 @@ export async function GET(request: Request) {
       if (entry.position === "GROUP_OPERATOR" && groupTypeById.get(entry.groupId) === "HACKER" && usesCustomerNumberTracking(entry.businessDate)) {
         receptionRow.sum.joined += value.operatorReceivedCount;
       }
-      if (entry.position === "EXPERT") {
-        receptionRow.sum.orders += value.orderCount;
-        receptionRow.sum.depositCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
+      if (entry.position === "EXPERT") receptionRow.sum.orders += value.orderCount;
+      if (isUnifiedDailyStatIdentity(entry.identityKey) || entry.position === "EXPERT") {
+        receptionRow.sum.depositCents += depositCents;
         receptionRow.sum.withdrawalCents += value.withdrawalCents;
       }
       peopleByReception.set(receptionKey, receptionRow);

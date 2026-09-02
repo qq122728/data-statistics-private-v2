@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe.sequential("组长检查统一组员日报", () => {
-  it("能读取并纠正统一行中的资金字段，同时校验完整漏斗", async () => {
+  it("能纠正公司认账资金，但号码漏斗必须回客户进度修改", async () => {
     const suffix = randomUUID();
     const groupId = `${prefix}group-${suffix}`;
     const leadId = `${prefix}lead-${suffix}`;
@@ -57,12 +57,15 @@ describe.sequential("组长检查统一组员日报", () => {
       status: "APPROVED", approvedRevision: { version: 2, bankInitialDepositCents: 10_000, bankRechargeCents: 5_000, registrationCount: 2, orderCount: 1 },
     });
 
-    const crossDayCorrection = await PATCH(new Request(`http://localhost/api/lead/member-daily-stats/${memberId}`, {
+    const numberTrackedCorrection = await PATCH(new Request(`http://localhost/api/lead/member-daily-stats/${memberId}`, {
       method: "PATCH", body: JSON.stringify({ entryId, field: "registrationCount", value: 4, reason: "补记以前客户今日注册" }),
     }), context);
-    expect(crossDayCorrection.status).toBe(200);
+    expect(numberTrackedCorrection.status).toBe(400);
+    await expect(numberTrackedCorrection.json()).resolves.toMatchObject({
+      error: expect.stringContaining("客户号码进度"),
+    });
     await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: entryId }, include: { approvedRevision: true } }))
-      .resolves.toMatchObject({ approvedRevision: { registrationCount: 4 } });
+      .resolves.toMatchObject({ approvedRevision: { registrationCount: 2 } });
     await expect(db.auditLog.findFirst({ where: { action: "DAILY_STAT_LEAD_CORRECTED", entityId: entryId } })).resolves.toBeTruthy();
   });
 });

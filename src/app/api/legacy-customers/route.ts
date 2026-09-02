@@ -28,21 +28,42 @@ const inputSchema = z.object({
   groupOperatorOwnerId: z.string().max(API_LIMITS.identifierCharacters).optional(),
   expertOwnerId: z.string().max(API_LIMITS.identifierCharacters).optional(),
   deviceCode: z.string().trim().max(100, "设备号不能超过 100 个字").optional(),
-  sourceDate: date.optional(),
-  baselineStage: z.enum(baselineStages), baselineOn: date,
+  sourceDate: date,
+  joinedOn: date.optional(),
+  expertIntroducedOn: date.optional(),
+  registeredOn: date.optional(),
+  openedOn: date.optional(),
+  baselineStage: z.enum(baselineStages), baselineOn: date.optional(),
   currentEvent: z.enum(currentEvents), occurredOn: date.optional(),
   initialDepositCents: z.number().int().positive("首充金额必须大于 0").max(2_147_483_647).optional(),
   amountCents: z.number().int().positive("金额必须大于 0").max(2_147_483_647).optional(),
   initialDepositMethod: z.enum(["CRYPTO", "BANK"]).optional(),
   notes: z.string().trim().max(1_000, "备注不能超过 1,000 个字").optional(),
 }).superRefine((value, context) => {
+  const baselineRank = rank[value.baselineStage];
+  const finalRank = ["RECHARGE", "WITHDRAWAL"].includes(value.currentEvent)
+    ? rank.ORDERED
+    : value.currentEvent === "NONE"
+      ? baselineRank
+      : rank[value.currentEvent as keyof typeof rank];
+  if (baselineRank >= rank.JOINED && !value.joinedOn)
+    context.addIssue({ code: "custom", path: ["joinedOn"], message: "历史状态已进群，请填写真实进群日期" });
+  if (baselineRank >= rank.INTRODUCED && !value.expertIntroducedOn)
+    context.addIssue({ code: "custom", path: ["expertIntroducedOn"], message: "历史状态已推专家，请填写真实推专家日期" });
+  if (baselineRank >= rank.REGISTERED && !value.registeredOn)
+    context.addIssue({ code: "custom", path: ["registeredOn"], message: "历史状态已注册，请填写真实注册日期" });
+  if (baselineRank >= rank.ORDERED && !value.openedOn)
+    context.addIssue({ code: "custom", path: ["openedOn"], message: "历史状态已开单，请填写真实开单日期" });
   if (value.currentEvent !== "NONE" && !value.occurredOn) context.addIssue({ code: "custom", path: ["occurredOn"], message: "请填写本次进度的实际日期" });
-  if (value.sourceDate && value.baselineOn < value.sourceDate) context.addIssue({ code: "custom", path: ["baselineOn"], message: "启用前状态日期不能早于接粉日期" });
-  if (value.occurredOn && value.occurredOn < value.baselineOn) context.addIssue({ code: "custom", path: ["occurredOn"], message: "本次进度日期不能早于启用前状态日期" });
+  const historicalLastDate = value.openedOn ?? value.registeredOn ?? value.expertIntroducedOn ?? value.joinedOn ?? value.sourceDate;
+  if (value.occurredOn && value.occurredOn < historicalLastDate) context.addIssue({ code: "custom", path: ["occurredOn"], message: "本次进度日期不能早于已有历史进度日期" });
+  const orderedDates = [value.sourceDate, value.joinedOn, value.expertIntroducedOn, value.registeredOn, value.openedOn]
+    .filter((item): item is string => Boolean(item));
+  if (orderedDates.some((item, index) => index > 0 && item < orderedDates[index - 1]!))
+    context.addIssue({ code: "custom", path: ["sourceDate"], message: "日期顺序必须是：接粉 ≤ 进群 ≤ 推专家 ≤ 注册 ≤ 开单" });
   const progressEvent = !["NONE", "RECHARGE", "WITHDRAWAL"].includes(value.currentEvent);
   if (progressEvent && rank[value.currentEvent as keyof typeof rank] <= rank[value.baselineStage]) context.addIssue({ code: "custom", path: ["currentEvent"], message: "本次新进度必须晚于启用前最后状态" });
   if (["RECHARGE", "WITHDRAWAL"].includes(value.currentEvent) && value.baselineStage !== "ORDERED") context.addIssue({ code: "custom", path: ["baselineStage"], message: "老客户必须已经开单，才能登记今天的续充或出金" });
-  const finalRank = ["RECHARGE", "WITHDRAWAL"].includes(value.currentEvent) ? rank.ORDERED : value.currentEvent === "NONE" ? rank[value.baselineStage] : rank[value.currentEvent as keyof typeof rank];
   if (finalRank >= rank.JOINED && !value.groupOperatorOwnerId) context.addIssue({ code: "custom", path: ["groupOperatorOwnerId"], message: "已进群客户必须选择炒群归属" });
   if (finalRank >= rank.INTRODUCED && !value.expertOwnerId) context.addIssue({ code: "custom", path: ["expertOwnerId"], message: "已推专家客户必须选择专家归属" });
   const money = value.amountCents ?? value.initialDepositCents;
@@ -83,20 +104,43 @@ export async function POST(request: Request) {
   if (!mayCreate(sessionUser)) return authorizationDenied(sessionUser, "当前岗位不能录入老客户");
   if (!sessionUser.groupId) return authorizationDenied(sessionUser, "当前账号未绑定小组");
   try {
-    const input = inputSchema.parse(await request.json());
-    if (["REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"].includes(input.currentEvent) && !hasAssignedRole(sessionUser, "EXPERT")) {
+    const rawInput = await request.json();
+    const rawBaselineStage = rawInput && typeof rawInput === "object"
+      ? (rawInput as { baselineStage?: unknown }).baselineStage
+      : null;
+    const rawCurrentEvent = rawInput && typeof rawInput === "object"
+      ? (rawInput as { currentEvent?: unknown }).currentEvent
+      : null;
+    const rawExpertOnlyImport =
+      rawBaselineStage === "REGISTERED" ||
+      rawBaselineStage === "ORDERED" ||
+      ["REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"].includes(String(rawCurrentEvent));
+    if (rawExpertOnlyImport && !hasAssignedRole(sessionUser, "EXPERT"))
+      return authorizationDenied(sessionUser, "录入老客户的注册、开单或资金进度需要专家权限");
+    const input = inputSchema.parse(rawInput);
+    const expertOnlyImport =
+      rank[input.baselineStage] >= rank.REGISTERED ||
+      ["REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"].includes(input.currentEvent);
+    if (expertOnlyImport && !hasAssignedRole(sessionUser, "EXPERT")) {
       return authorizationDenied(sessionUser, "录入老客户的注册、开单或资金进度需要专家权限");
     }
     const phone = normalizeCustomerPhone(input.phone);
     const settings = await getSystemSettings();
     const today = statisticsDate();
-    for (const [label, value] of [["接粉日期", input.sourceDate], ["启用前状态日期", input.baselineOn], ["本次进度日期", input.occurredOn]] as const) {
+    for (const [label, value] of [
+      ["接粉日期", input.sourceDate],
+      ["进群日期", input.joinedOn],
+      ["推专家日期", input.expertIntroducedOn],
+      ["注册日期", input.registeredOn],
+      ["开单日期", input.openedOn],
+      ["本次进度日期", input.occurredOn],
+    ] as const) {
       if (!value) continue; const error = entryDateError(value, today, label); if (error) return NextResponse.json({ error }, { status: 400 });
     }
     const result = await db.$transaction(async (tx) => {
       const actor = await tx.user.findUnique({ where: { id: sessionUser.id }, select: { id: true, role: true, roleAssignments: { select: { role: true } }, active: true, groupId: true } });
       if (!actor?.active || !actor.groupId || !mayCreate(actor)) return { status: 403 as const, error: "当前岗位不能录入老客户" };
-      if (["REGISTERED", "ORDERED", "RECHARGE", "WITHDRAWAL"].includes(input.currentEvent) && !hasAssignedRole(actor, "EXPERT")) return { status: 403 as const, error: "录入老客户的注册、开单或资金进度需要专家权限" };
+      if (expertOnlyImport && !hasAssignedRole(actor, "EXPERT")) return { status: 403 as const, error: "录入老客户的注册、开单或资金进度需要专家权限" };
       const duplicate = await tx.leadCustomer.findUnique({ where: { phone }, select: { customerName: true, batch: { select: { groupId: true } }, owner: { select: { name: true } } } });
       if (duplicate) {
         if (duplicate.batch.groupId !== actor.groupId) return { status: 409 as const, error: "该号码已存在" };
@@ -109,13 +153,20 @@ export async function POST(request: Request) {
       ]);
       if (members.length !== new Set(ownerIds).size) return { status: 400 as const, error: "归属只能选择本组成员" };
       if (!channel) return { status: 400 as const, error: "历史渠道只能选择本组渠道" };
-      const sourceDate = input.sourceDate ?? input.baselineOn;
+      const sourceDate = input.sourceDate;
       const batch = await tx.sourceBatch.upsert({ where: { groupId_channelId_sourceDate: { groupId: actor.groupId, channelId: channel.id, sourceDate } }, update: {}, create: { groupId: actor.groupId, channelId: channel.id, sourceDate, channelTypeSnapshot: channel.channelType, isHistoricalRecord: true } });
       const baselineRank = rank[input.baselineStage];
       const finalRank = ["RECHARGE", "WITHDRAWAL"].includes(input.currentEvent) ? rank.ORDERED : input.currentEvent === "NONE" ? baselineRank : rank[input.currentEvent as keyof typeof rank];
-      const currentOn = input.occurredOn ?? input.baselineOn;
+      const historicalDateFor = (stage: "REPLIED" | "JOINED" | "INTRODUCED" | "REGISTERED") => {
+        if (stage === "JOINED") return input.joinedOn ?? sourceDate;
+        if (stage === "INTRODUCED") return input.expertIntroducedOn ?? input.joinedOn ?? sourceDate;
+        if (stage === "REGISTERED") return input.registeredOn ?? input.expertIntroducedOn ?? input.joinedOn ?? sourceDate;
+        return sourceDate;
+      };
+      const historicalLastDate = input.openedOn ?? input.registeredOn ?? input.expertIntroducedOn ?? input.joinedOn ?? sourceDate;
+      const currentOn = input.occurredOn ?? historicalLastDate;
       const counted = (stage: "REPLIED" | "JOINED" | "INTRODUCED" | "REGISTERED") => input.currentEvent !== "NONE" && rank[stage] > baselineRank && rank[stage] <= finalRank;
-      const dateFor = (stage: "REPLIED" | "JOINED" | "INTRODUCED" | "REGISTERED") => finalRank >= rank[stage] ? (counted(stage) ? currentOn : input.baselineOn) : null;
+      const dateFor = (stage: "REPLIED" | "JOINED" | "INTRODUCED" | "REGISTERED") => finalRank >= rank[stage] ? (counted(stage) ? currentOn : historicalDateFor(stage)) : null;
       const device = input.deviceCode ? await tx.device.upsert({
         where: { groupId_code: { groupId: actor.groupId, code: input.deviceCode } },
         update: {},
@@ -123,15 +174,19 @@ export async function POST(request: Request) {
         select: { id: true },
       }) : null;
       const groupQueueNumber = finalRank >= rank.JOINED
-        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP", dateFor("JOINED")!)
         : null;
       const expertQueueNumber = finalRank >= rank.INTRODUCED
-        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT", dateFor("INTRODUCED")!)
+        : null;
+      const registrationQueueNumber = finalRank >= rank.REGISTERED
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "REGISTRATION", dateFor("REGISTERED")!)
         : null;
       const lead = await tx.leadCustomer.create({ data: {
         phone, batchId: batch.id, ownerId: input.receptionOwnerId, attributionOwnerId: input.receptionOwnerId,
         groupQueueNumber, groupQueueGroupId: groupQueueNumber ? actor.groupId : null,
         expertQueueNumber, expertQueueGroupId: expertQueueNumber ? actor.groupId : null,
+        registrationQueueNumber, registrationQueueGroupId: registrationQueueNumber ? actor.groupId : null,
         groupOperatorOwnerId: input.groupOperatorOwnerId || null, expertOwnerId: input.expertOwnerId || null,
         deviceId: device?.id ?? null,
         customerName: input.customerName || null, historicalSourceName: channel.name, isHistoricalRecord: true, historicalBaselineStage: input.baselineStage, notes: input.notes || null,
@@ -153,10 +208,13 @@ export async function POST(request: Request) {
       let orderId: string | null = null;
       let order = null;
       if (input.baselineStage === "ORDERED") {
-        order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: input.baselineOn, initialDepositCents: 0, initialDepositMethod: null, isHistoricalBaseline: true } });
+        const openedOn = input.openedOn!;
+        const orderQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "ORDER", openedOn);
+        order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn, initialDepositCents: 0, initialDepositMethod: null, isHistoricalBaseline: true, orderQueueNumber, orderQueueGroupId: actor.groupId } });
         orderId = order.id;
       } else if (input.currentEvent === "ORDERED" && amountCents && input.initialDepositMethod) {
-        order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: currentOn, initialDepositCents: amountCents, initialDepositMethod: input.initialDepositMethod } });
+        const orderQueueNumber = await allocateCustomerStageNumber(tx, actor.groupId, "ORDER", currentOn);
+        order = await tx.customerOrder.create({ data: { phone, batchId: batch.id, leadId: lead.id, enteredById: actor.id, openedOn: currentOn, initialDepositCents: amountCents, initialDepositMethod: input.initialDepositMethod, orderQueueNumber, orderQueueGroupId: actor.groupId } });
         await tx.customerFinanceEvent.create({ data: { batchId: batch.id, customerOrderId: order.id, enteredById: actor.id, occurredOn: currentOn, kind: "RECHARGE", amountCents, depositMethod: input.initialDepositMethod } });
         orderId = order.id;
       }
@@ -167,7 +225,6 @@ export async function POST(request: Request) {
       if (input.currentEvent === "REPLIED") {
         await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.receptionOwnerId, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "RECEPTION", sourceReceptionId: input.receptionOwnerId, reason: `${phone} 老客户回复`, increment: { replyCount: 1 } });
       } else if (input.currentEvent === "JOINED") {
-        await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.receptionOwnerId, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "RECEPTION", sourceReceptionId: input.receptionOwnerId, reason: `${phone} 老客户进群`, increment: { joinCount: 1 } });
         await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.groupOperatorOwnerId!, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "GROUP_OPERATOR", sourceReceptionId: input.receptionOwnerId, reason: `${phone} 老客户进群`, increment: { operatorReceivedCount: 1, currentInGroupCount: 1 } });
       } else if (input.currentEvent === "INTRODUCED") {
         await incrementHistoricalCustomerDailyStat(tx, { ownerId: input.groupOperatorOwnerId!, groupId: actor.groupId, channelId: channel.id, businessDate: currentOn, position: "GROUP_OPERATOR", sourceReceptionId: input.receptionOwnerId, reason: `${phone} 老客户推专家`, increment: { expertIntroCount: 1 } });

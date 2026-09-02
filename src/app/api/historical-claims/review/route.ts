@@ -63,7 +63,7 @@ export async function POST(request: Request) {
         return { status: 403 as const, error: "只有组长可以审核历史客户" };
       const lead = await tx.leadCustomer.findUnique({
         where: { id: input.leadId },
-        select: { id: true, groupQueueNumber: true, expertQueueNumber: true, historicalBaselineStage: true, historicalReviewStatus: true, batch: { select: { groupId: true, sourceDate: true } } },
+        select: { id: true, groupQueueNumber: true, expertQueueNumber: true, registrationQueueNumber: true, historicalBaselineStage: true, historicalReviewStatus: true, batch: { select: { groupId: true, sourceDate: true } } },
       });
       if (!lead || lead.batch.groupId !== actor.groupId)
         return { status: 404 as const, error: "未找到本组待审核历史客户" };
@@ -87,11 +87,14 @@ export async function POST(request: Request) {
       const sourceDate = lead.batch.sourceDate;
       const rank = stages.indexOf(stage);
       const groupQueueNumber = rank >= 2 && !lead.groupQueueNumber
-        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "GROUP", sourceDate)
         : lead.groupQueueNumber;
       const expertQueueNumber = rank >= 3 && !lead.expertQueueNumber
-        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT")
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "EXPERT", sourceDate)
         : lead.expertQueueNumber;
+      const registrationQueueNumber = stage === "REGISTERED" && !lead.registrationQueueNumber
+        ? await allocateCustomerStageNumber(tx, actor.groupId, "REGISTRATION", sourceDate)
+        : lead.registrationQueueNumber;
       await tx.leadCustomer.update({ where: { id: lead.id }, data: {
         invalid: false,
         invalidReason: null,
@@ -102,6 +105,8 @@ export async function POST(request: Request) {
         groupQueueGroupId: groupQueueNumber ? actor.groupId : null,
         expertQueueNumber,
         expertQueueGroupId: expertQueueNumber ? actor.groupId : null,
+        registrationQueueNumber,
+        registrationQueueGroupId: registrationQueueNumber ? actor.groupId : null,
         replyStatus: rank >= 1 ? "REPLIED" : "NOT_REPLIED",
         repliedOn: rank >= 1 ? sourceDate : null,
         groupStatus: rank >= 2 ? "JOINED" : "NOT_JOINED",

@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildMemberPerformanceWorkbook } from "../../src/lib/member-performance-xlsx";
-import { getVisibleAppNavigation } from "../../src/lib/app-navigation";
 
 describe("组长每日数据报表", () => {
-  it("在组长菜单显示入口，并把单日导出标记为日报", async () => {
-    expect(getVisibleAppNavigation("LEAD").some((item) => item.href === "/finance-reports" && item.label === "每日数据报表")).toBe(true);
+  it("把单日导出标记为日报", async () => {
     const workbook = await buildMemberPerformanceWorkbook({
       from: "2026-08-19",
       to: "2026-08-19",

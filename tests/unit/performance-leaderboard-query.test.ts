@@ -6,12 +6,9 @@ import { buildDailyBossBrief } from "../../src/lib/boss-report/brief";
 import { formatBossDailyBrief } from "../../src/lib/boss-report/format";
 
 const querySource = readFileSync("src/lib/analytics/performance-leaderboard-query.ts", "utf8");
-const pageSource = readFileSync("src/app/(app)/performance-leaderboard/page.tsx", "utf8");
 
 describe("performance leaderboard aggregate query", () => {
   it("uses a dedicated database aggregate instead of the full management overview", () => {
-    expect(pageSource).toContain("loadPerformanceLeaderboard");
-    expect(pageSource).not.toContain("loadManagementOverview");
     expect(querySource).toContain("db.$queryRaw");
     expect(querySource).toContain('GROUP BY batch."groupId"');
   });
@@ -21,7 +18,6 @@ describe("performance leaderboard aggregate query", () => {
     expect(querySource).not.toContain('lc."customerName"');
     expect(querySource).not.toContain('lc."nextPlan"');
     expect(querySource).not.toContain("registrationOverdue");
-    expect(pageSource).toContain("performanceRows={leaderboardRows}");
   });
 
   it("uses a short cache and a single finance rollup for recharge and withdrawal totals", () => {

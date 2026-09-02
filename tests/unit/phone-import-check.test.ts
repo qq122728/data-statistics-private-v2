@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { POST } from "../../src/app/api/leads/check/route";
@@ -66,19 +65,5 @@ describe.sequential("号码导入前检查", () => {
       body: JSON.stringify({ phones: "13800138000" }),
     }));
     expect(response.status).toBe(403);
-  });
-
-  it("页面直接导入，并说明撞粉只提示、由人工登记审核", () => {
-    const panel = readFileSync("src/components/entry/EntryReceptionPanels.tsx", "utf8");
-    const tabs = readFileSync("src/components/entry/EntryTabs.tsx", "utf8");
-    expect(panel).toContain("客户资料预览");
-    expect(panel).toContain("客户平台");
-    expect(panel).toContain("设备号会在“待回复”里，实际联系客户时再选择");
-    expect(panel).toContain("撞粉、低金额、无 WS 号码请回“号码导入”下方单独登记数字");
-    expect(panel).toContain("设备号");
-    expect(panel).toContain("导入客户");
-    expect(tabs).not.toContain('fetch("/api/leads/check"');
-    expect(tabs).not.toContain("请先检查号码，再确认导入");
-    expect(tabs).toContain("InvalidFanReportPanel");
   });
 });

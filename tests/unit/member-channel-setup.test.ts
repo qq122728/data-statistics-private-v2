@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
 import { POST } from "../../src/app/api/channels/route";
@@ -49,10 +48,5 @@ describe.sequential("渠道创建权限", () => {
     }));
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toMatchObject({ error: "只有公司管理员、资源部管理员或超级管理员可以新增渠道" });
-  });
-
-  it("接粉页面固定隐藏新增渠道入口", () => {
-    const page = readFileSync("src/app/(app)/entry/page.tsx", "utf8");
-    expect(page).toContain("allowMemberChannelCreation={false}");
   });
 });

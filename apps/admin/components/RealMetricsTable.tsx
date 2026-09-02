@@ -60,7 +60,7 @@ const METRIC_ROWS: Array<{ label: string; render: (column: RealMetricColumn) => 
   { label: "开单", render: ({ metrics }) => metrics.ordered },
   { label: "回复率", render: ({ rates }) => <span className="muted">{percent(rates.replyRate)}</span> },
   { label: "拉群率", render: ({ rates }) => <span className="muted">{percent(rates.groupRate)}</span> },
-  { label: "异常退群率", render: ({ rates }) => <span className="muted">{percent(rates.abnormalLeaveRate)}</span> },
+  { label: "异常退群率", render: ({ rates }) => <span className="muted">{percent(rates.abnormalLeaveRate ?? rates.leaveRate)}</span> },
   { label: "首充", render: ({ metrics }) => money(metrics.initialDepositCents ?? metrics.depositCents) },
   { label: "续充", render: ({ metrics }) => money(metrics.rechargeCents ?? 0) },
   { label: "出金", render: ({ metrics }) => money(metrics.withdrawalCents) },

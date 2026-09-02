@@ -68,7 +68,9 @@ export function RealResourceReporting({ detail }: { detail: boolean }) {
     rates: {
       replyRate: row.totals.effective ? row.totals.replied / row.totals.effective : null,
       groupRate: row.totals.effective ? row.totals.joined / row.totals.effective : null,
-      leaveRate: row.totals.joined ? row.totals.abnormalLeft / row.totals.joined : null,
+      abnormalLeaveRate: row.totals.joined - Math.max(0, row.totals.left - row.totals.abnormalLeft) > 0
+        ? row.totals.abnormalLeft / (row.totals.joined - Math.max(0, row.totals.left - row.totals.abnormalLeft))
+        : null,
     },
   }; }
   const metricRows = useMemo<Array<RealMetricColumn & { sub?: string }>>(() => rows.map(toMetricRow), [rows]);

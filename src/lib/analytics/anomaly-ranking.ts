@@ -1,5 +1,5 @@
 import { normalizeChannelName } from "../channel-names";
-import { calculateBatchTotals, type BatchTotals, type MetricEvent } from "../metrics";
+import { abnormalLeaveRateParts, calculateBatchTotals, type BatchTotals, type MetricEvent } from "../metrics";
 import { loadCanonicalMetricEvents, type CanonicalMetricEvent } from "./canonical-events";
 import { getMaturity, getSampleState, hasFunnelAnomaly } from "./metrics";
 import { isWithinMaturityWindow } from "./maturity-window";
@@ -66,7 +66,7 @@ const metricKeys: AnomalyMetricKey[] = ["replyRate", "groupRate", "leaveRate", "
 function fraction(totals: BatchTotals, key: AnomalyMetricKey): { numerator: number; denominator: number } {
   if (key === "replyRate") return { numerator: totals.replies, denominator: totals.effectiveFans };
   if (key === "groupRate") return { numerator: totals.groupJoin, denominator: totals.effectiveFans };
-  if (key === "leaveRate") return { numerator: totals.abnormalGroupLeave ?? 0, denominator: totals.groupJoin - totals.groupLeave };
+  if (key === "leaveRate") return abnormalLeaveRateParts(totals);
   if (key === "registrationRate") return { numerator: totals.registration, denominator: totals.expertIntro };
   return { numerator: totals.orders, denominator: totals.registration };
 }

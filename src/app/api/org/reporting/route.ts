@@ -6,7 +6,7 @@ import { statisticsDate } from "../../../../lib/statistics-date";
 import { sumLatestCurrentInGroup } from "../../../../lib/daily-stat-snapshots";
 import { db } from "../../../../lib/db";
 import { resolveDateRangeWithDefault } from "../../../../lib/lead-date-range";
-import { addBatchTotals, calculateConversionRates, emptyBatchTotals, type BatchTotals } from "../../../../lib/metrics";
+import { addBatchTotals, calculateAbnormalLeaveRate, calculateConversionRates, emptyBatchTotals, type BatchTotals } from "../../../../lib/metrics";
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
@@ -257,9 +257,7 @@ export async function GET(request: Request) {
       },
       rates: {
         ...calculateConversionRates(totals),
-        abnormalLeaveRate: Math.max(0, totals.groupJoin - (totals.groupLeave - abnormalLeave)) > 0
-          ? abnormalLeave / Math.max(1, totals.groupJoin - (totals.groupLeave - abnormalLeave))
-          : null,
+        abnormalLeaveRate: calculateAbnormalLeaveRate(totals),
         lawyerReplyRate: totals.newFans ? totals.replies / totals.newFans : null,
         lawyerAddedRate: totals.newFans ? aggregate.lawyerAdded / totals.newFans : null,
         lawyerExpertAddedRate: totals.newFans ? aggregate.lawyerExpertAdded / totals.newFans : null,

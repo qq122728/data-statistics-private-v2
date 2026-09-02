@@ -95,7 +95,7 @@ describe("funnel metrics", () => {
     ]);
 
     expect(totals.abnormalGroupLeave).toBe(1);
-    expect(calculateConversionRates(totals).leaveRate).toBeCloseTo(1 / 4);
+    expect(calculateConversionRates(totals).leaveRate).toBeCloseTo(1 / 5);
     expect(calculateConversionRates(totals).groupRate).toBeNull();
   });
 
@@ -136,7 +136,7 @@ describe("funnel metrics", () => {
     expect(calculateConversionRates(totals)).toMatchObject({
       replyRate: 0.5,
       groupRate: 0.25,
-      leaveRate: 0.25,
+      leaveRate: 0.2,
       expertRate: 0.25,
       registrationRate: 0.4,
       orderRate: 0.5,

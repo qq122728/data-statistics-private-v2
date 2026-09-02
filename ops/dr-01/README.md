@@ -89,14 +89,14 @@ All commands below require an approved change window. Take no action directly fr
    retention.
 10. Treat migration evidence as three separate, immutable inputs. The committed
    `migration-manifest.sha256` is the **repository manifest**: CI regenerates it
-   from all 48 `migration.sql` files and fails on any name or SHA-256 change.
+   from all 58 `migration.sql` files and fails on any name or SHA-256 change.
    Install it as
    `/usr/local/share/data-statistics-dr/migration-manifest.sha256`, owned by
    root, mode `0644`, and not writable by postgres. Install
    `ops/database/db-01/export-production-migration-ledger.py` as root-owned mode
    `0755` at `/usr/local/sbin/data-statistics-export-migration-ledger`, then use
    the reviewed command in `ops/database/db-01/README.md` on the database host.
-   The exporter uses only the fixed local PostgreSQL socket, checks all 17
+   The exporter uses only the fixed local PostgreSQL socket, checks all 58
    names/states/checksums against this manifest, and atomically writes
    `/etc/data-statistics/dr-production-migration-ledger.json` as root-owned mode
    `0600`, with schema keys `version`, `algorithm`, `approvalId`, `exceptions`,

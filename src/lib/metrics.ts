@@ -117,6 +117,18 @@ export type ChannelComparison = {
 const divideOrNull = (numerator: number, denominator: number) =>
   denominator <= 0 ? null : numerator / denominator;
 
+/** 异常退群率统一口径：异常退群 ÷（进群 - 正常退群）。 */
+export function abnormalLeaveRateParts(totals: Pick<BatchTotals, "groupJoin" | "groupLeave" | "abnormalGroupLeave">) {
+  const numerator = totals.abnormalGroupLeave ?? 0;
+  const normalLeave = Math.max(0, totals.groupLeave - numerator);
+  return { numerator, denominator: totals.groupJoin - normalLeave };
+}
+
+export function calculateAbnormalLeaveRate(totals: Pick<BatchTotals, "groupJoin" | "groupLeave" | "abnormalGroupLeave">) {
+  const { numerator, denominator } = abnormalLeaveRateParts(totals);
+  return divideOrNull(numerator, denominator);
+}
+
 export function calculateBatchTotals(events: MetricEvent[]): BatchTotals {
   const totals = emptyBatchTotals();
 
@@ -177,7 +189,7 @@ export function calculateConversionRates(totals: BatchTotals): ConversionRates {
   return {
     replyRate: divideOrNull(totals.replies, totals.effectiveFans),
     groupRate: divideOrNull(totals.groupJoin, totals.effectiveFans),
-    leaveRate: divideOrNull(totals.abnormalGroupLeave ?? 0, totals.groupJoin - totals.groupLeave),
+    leaveRate: calculateAbnormalLeaveRate(totals),
     expertRate: divideOrNull(totals.expertIntro, totals.groupJoin),
     registrationRate: divideOrNull(totals.registration, totals.expertIntro),
     orderRate: divideOrNull(totals.orders, totals.registration),

@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const basePath = process.env.APP_BASE_PATH?.trim() || "";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   basePath,
   allowedDevOrigins: ["127.0.0.1", "*.localtest.me"],
   async rewrites() {

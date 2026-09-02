@@ -10,6 +10,12 @@ const emergencyScript = join(root, "ops/scripts/manage-data-statistics-emergency
 const deadmanScript = join(root, "ops/scripts/check-data-statistics-cloudflare-sync.sh");
 const alertScript = join(root, "ops/scripts/send-data-statistics-net02-alert.sh");
 const headers = readFileSync(join(root, "ops/nginx/data-statistics-security-headers.conf"), "utf8");
+const routes = readFileSync(join(root, "ops/nginx/data-statistics-v2-routes.conf"), "utf8");
+const nextConfigs = [
+  "next.config.ts",
+  "apps/frontline/next.config.ts",
+  "apps/admin/next.config.ts",
+].map((path) => readFileSync(join(root, path), "utf8"));
 const runbook = readFileSync(join(root, "ops/runbooks/NET-02-origin-lockdown-and-security-headers.md"), "utf8");
 const service = readFileSync(join(root, "ops/systemd/data-statistics-cloudflare-ufw.service"), "utf8");
 const workflow = readFileSync(join(root, ".github/workflows/verify.yml"), "utf8");
@@ -50,6 +56,8 @@ describe("NET-02 origin hardening artifacts", () => {
     expect(headers).toContain("Permissions-Policy");
     expect(headers).not.toMatch(/(^|\n)add_header Content-Security-Policy\s/);
     expect(headers).not.toContain("report-uri");
+    expect(routes).toContain("include /etc/nginx/snippets/data-statistics-security-headers.conf;");
+    for (const config of nextConfigs) expect(config).toContain("poweredByHeader: false");
     expect(runbook).toContain("没有伪造 `/csp-report` 接口");
   });
 

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   // Browser tests can run while a developer previews the app. Give their
   // temporary build output its own folder so two `next dev` processes never
   // write the same manifest at once.

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   allowedDevOrigins: ["127.0.0.1", "*.localtest.me"],
   async rewrites() {
     const backendOrigin = process.env.BACKEND_ORIGIN ?? "http://127.0.0.1:3003";

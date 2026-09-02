@@ -98,8 +98,9 @@ test("共享表按实际负责人分阶段编辑，原始归属只读且组长�
   assert.match(component, /canEditExpertStage/);
   for (const action of ["setJoinedOn", "assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
   for (const action of ["setSourceDate", "setOwner", "setChannel"]) assert.doesNotMatch(component, new RegExp(`action: "${action}"`));
-  assert.match(component, /客户原始归属纠错/);
-  assert.match(component, /纠错原因（必填）/);
+  assert.match(component, /修改组员\/渠道/);
+  assert.match(component, /修改渠道/);
+  assert.match(component, /修改原因（必填）/);
   assert.match(attributionCorrection, /hasAssignedRole\(sessionUser, "LEAD"\)/);
   assert.match(attributionCorrection, /CUSTOMER_ATTRIBUTION_CORRECTED/);
   assert.match(attributionCorrection, /reattributeCustomerNumberEvents/);

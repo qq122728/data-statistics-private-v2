@@ -5,7 +5,7 @@ import { loadMemberDailyDetail } from "../../src/lib/analytics/member-daily-deta
 import { loadSourcePerformanceSummary } from "../../src/lib/source-performance-summary";
 import { db } from "../../src/lib/db";
 
-const prefix = "boss-role-asof-";
+const prefix = "role-asof-";
 
 async function fixture() {
   const groupId = `${prefix}group-${randomUUID()}`;
@@ -41,7 +41,7 @@ afterEach(async () => {
   await db.teamGroup.deleteMany({ where: { id: { startsWith: prefix } } });
 });
 
-describe.sequential("老板简报岗位统计截止日", () => {
+describe.sequential("岗位统计截止日", () => {
   it("不会把报告日之后的回复、推专家、注册和开单算进历史日报", async () => {
     const fixtureData = await fixture();
     const lead = await db.leadCustomer.create({

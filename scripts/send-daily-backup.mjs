@@ -97,7 +97,7 @@ async function sendParts(path, sha256) {
   }
 }
 
-const directory = await mkdtemp(join(tmpdir(), "boss-backup-"));
+const directory = await mkdtemp(join(tmpdir(), "daily-backup-"));
 try {
   const dump = await createDatabaseDump(directory);
   const encrypted = await encryptDump(dump, directory);

@@ -12,10 +12,10 @@ import {
 import { buildLeadChannelReportWorkbook, type LeadChannelReportPayload } from "../../../../lib/lead-channel-report-xlsx";
 import { getAssignedRoles, hasAssignedRole } from "../../../../lib/role-access";
 import {
-  sendBossTelegramDocument,
-  sendBossTelegramMessage,
+  sendTelegramDocument,
+  sendTelegramMessage,
   TelegramMessageRejectedError,
-} from "../../../../lib/boss-report/telegram";
+} from "../../../../lib/telegram-delivery";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { GET as loadChannelReporting } from "../channel-reporting/route";
 
@@ -150,8 +150,8 @@ export async function POST(request: Request) {
     const xlsx = Buffer.from(await workbook.xlsx.writeBuffer());
     const prefix = `groupDaily:${prepared.group.id}:${date}`;
     const sent = [] as string[];
-    if (await sendPart(`${prefix}:text`, prepared.text, () => sendBossTelegramMessage(prepared.text))) sent.push("文字");
-    if (await sendPart(`${prefix}:excel`, xlsx, () => sendBossTelegramDocument(xlsx, `${prepared.group.name}-业务报表-${date.slice(0, 7)}.xlsx`, `${prepared.group.name} ${date.slice(0, 7)} 月详细报表`))) sent.push("Excel");
+    if (await sendPart(`${prefix}:text`, prepared.text, () => sendTelegramMessage(prepared.text))) sent.push("文字");
+    if (await sendPart(`${prefix}:excel`, xlsx, () => sendTelegramDocument(xlsx, `${prepared.group.name}-业务报表-${date.slice(0, 7)}.xlsx`, `${prepared.group.name} ${date.slice(0, 7)} 月详细报表`))) sent.push("Excel");
     return NextResponse.json({ ok: true, sent, message: sent.length ? `已推送${sent.join("、")}` : "该日报已经推送过，没有重复发送" });
   } catch (error) {
     if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });

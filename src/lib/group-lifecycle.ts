@@ -26,6 +26,7 @@ export async function autoMarkExpiredGroupMemberships(input: {
   const cutoff = automaticLeaveCutoff(input.today);
   const due = await client.leadCustomer.findMany({
     where: {
+      trackingArchivedAt: null,
       groupStatus: "JOINED",
       joinedOn: { lte: cutoff },
       ...(input.groupIds?.length ? { batch: { groupId: { in: input.groupIds } } } : {}),
@@ -44,7 +45,7 @@ export async function autoMarkExpiredGroupMemberships(input: {
       const groupId = lead.currentGroupId ?? lead.batch.groupId;
       const leaveQueueNumber = await allocateCustomerStageNumber(tx, groupId, "LEAVE", input.today);
       const result = await tx.leadCustomer.updateMany({
-        where: { id: lead.id, groupStatus: "JOINED" },
+        where: { id: lead.id, trackingArchivedAt: null, groupStatus: "JOINED" },
         data: {
           groupStatus: "LEFT", leftOn: input.today, leaveQueueNumber, leaveQueueGroupId: groupId,
           leftAutomatically: true,

@@ -64,6 +64,7 @@ async function currentInGroupSnapshot(tx: Prisma.TransactionClient, lead: Number
       groupStatus: "JOINED",
       batch: { channelId: lead.batch.channelId },
       invalid: false,
+      trackingArchivedAt: null,
     },
   });
 }

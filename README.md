@@ -186,35 +186,27 @@ CONFIRM_INITIAL_PASSWORD_ROTATION=YES INITIAL_ACCOUNT_PASSWORD_FILE=/etc/data-st
 
 这会更新所列账号的临时密码，设置“下次登录必须修改密码”，并使其全部旧登录失效；不会输出新密码。完成后应安全删除该 JSON 文件。
 
-## 12. 老板群每日备份与 DeepSeek 简报
+## 12. 每日加密备份与小组日报
 
 生产服务器复制 `.env.production.example` 中的相关项目到安全环境变量，再填写：
 
-- `DEEPSEEK_API_KEY`：DeepSeek API Key。只放服务器，不要发到聊天或提交 Git。
 - `TELEGRAM_BOT_TOKEN`：在 BotFather 创建机器人的 Token。
-- `TELEGRAM_BOSS_CHAT_ID`：唯一接收日报和备份的老板群 ID。
+- `TELEGRAM_BOSS_CHAT_ID`：唯一接收手动小组日报和加密备份的群 ID。
 - `BACKUP_ENCRYPTION_PASSWORD`：备份加密密码，必须单独离线保存。
-- `DAILY_JOB_SECRET`：至少 32 位随机字符串，用来防止别人调用日报接口。
 
-先做一次不发电报的预演：
-
-```bash
-BOSS_REPORT_DRY_RUN=true npm run boss:brief
-```
-
-正式手动执行一次“加密备份 + 老板简报”：
+手动执行一次加密数据库备份并发送到配置的 Telegram 群：
 
 ```bash
-npm run boss:daily
+npm run backup:daily
 ```
 
-小组业务日报不自动推送。组长完成当天数据后，在组长工作台手动生成日报，再选择下载 Excel 或推送到 Telegram。内部定时任务不会发送小组日报，即使服务器残留旧的自动推送环境变量也不会恢复发送。
+生产环境使用以下两个文件安装每日备份定时任务：
 
-下面的定时任务只用于加密备份、人员生命周期和地区老板简报，不会自动发送各小组的文字与 Excel 日报：
+- `ops/systemd/data-statistics-daily-backup.service`
+- `ops/systemd/data-statistics-daily-backup.timer`
 
-```cron
-CRON_TZ=UTC
-*/5 * * * * cd /部署目录 && /usr/bin/npm run boss:brief >> /部署目录/logs/boss-brief.log 2>&1
-```
+小组业务日报不自动推送。组长完成当天数据后，在组长工作台手动生成日报，再选择下载 Excel 或推送到 Telegram。
 
-大白话：这个后台任务不会替组长发送小组日报。地区老板简报仍按配置执行：经营简报只统计当天真实发生的数据和资金；专家简报展示当下每位专家（也包含兼任专家的组长）手上的客户阶段和 48 小时超时提醒。再把不含手机号和客户姓名的经营汇总交给 DeepSeek 写分析。DeepSeek 即使断线，真实数字仍照常发送。
+老板自动日报、地区老板简报及其内部接口已经移除。每日定时任务只负责发送加密数据库备份，不会计算业务数字，也不会替组长发送小组日报。
+
+大白话：系统每天只自动备份数据库；任何业务日报都必须由组长在页面上确认后手动发送。

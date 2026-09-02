@@ -1,0 +1,11 @@
+[Unit]
+Description=Send encrypted Data Statistics backup daily
+
+[Timer]
+OnCalendar=*-*-* 22:30:00 America/New_York
+Persistent=true
+AccuracySec=1min
+Unit=data-statistics-daily-backup.service
+
+[Install]
+WantedBy=timers.target

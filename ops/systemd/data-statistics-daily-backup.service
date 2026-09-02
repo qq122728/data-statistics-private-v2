@@ -1,8 +1,8 @@
 [Unit]
-Description=Check and send due per-group Telegram reports
-After=network-online.target data-statistics-v2-backend.service
+Description=Send encrypted Data Statistics database backup
+After=network-online.target postgresql.service
 Wants=network-online.target
-Requires=data-statistics-v2-backend.service
+Requires=postgresql.service
 
 [Service]
 Type=oneshot
@@ -10,8 +10,8 @@ User=data-statistics
 Group=data-statistics
 WorkingDirectory=/opt/data-statistics-v2/current/backend
 EnvironmentFile=/etc/data-statistics/app.env
-ExecStart=/usr/local/bin/npm run boss:brief
-TimeoutStartSec=4min
+ExecStart=/usr/local/bin/npm run backup:daily
+TimeoutStartSec=10min
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

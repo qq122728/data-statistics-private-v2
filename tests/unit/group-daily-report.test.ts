@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildGroupDailyReportPng, formatGroupDailyBusinessReport, type GroupDailyBusinessReport } from "../../src/lib/group-daily-report";
-import { sendBossTelegramDocument, sendBossTelegramPhoto } from "../../src/lib/boss-report/telegram";
+import { sendTelegramDocument, sendTelegramPhoto } from "../../src/lib/telegram-delivery";
 
 function report(): GroupDailyBusinessReport {
   const totals = {
@@ -37,8 +37,8 @@ describe("小组业务日报", () => {
     vi.stubEnv("TELEGRAM_BOSS_CHAT_ID", "test-chat");
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
     vi.stubGlobal("fetch", fetchMock);
-    await sendBossTelegramPhoto(Buffer.from("png"), "图片");
-    await sendBossTelegramDocument(Buffer.from("xlsx"), "日报.xlsx", "Excel");
+    await sendTelegramPhoto(Buffer.from("png"), "图片");
+    await sendTelegramDocument(Buffer.from("xlsx"), "日报.xlsx", "Excel");
     expect(fetchMock.mock.calls[0][0]).toContain("/sendPhoto");
     expect(fetchMock.mock.calls[1][0]).toContain("/sendDocument");
     vi.unstubAllGlobals();

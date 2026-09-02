@@ -134,6 +134,29 @@ describe.sequential("independent customer progress records", () => {
     await expect(loadCanonicalMetricEvents({ groupIds: [data.groupId] })).resolves.toHaveLength(0);
   });
 
+  it("never lets an archived customer create new workflow or statistics", async () => {
+    const data = await fixture();
+    vi.spyOn(auth, "requireUser").mockResolvedValue(data.reception);
+    const created = await claimHistoricalCustomer(claimRequest({
+      phone: `14${String(Date.now()).slice(-9)}`,
+      channelId: data.channelId,
+      baselineStage: "NOT_REPLIED",
+      baselineOn: "2026-08-18",
+      receptionOwnerId: data.reception.id,
+    }));
+    expect(created.status).toBe(201);
+    const { leadId } = await created.json() as { leadId: string };
+    await db.leadCustomer.update({
+      where: { id: leadId },
+      data: { trackingArchivedAt: new Date("2026-09-01T00:00:00.000Z") },
+    });
+
+    await expect(executeCustomerWorkflow(data.reception, leadId, { action: "reply" }, "2026-09-02"))
+      .resolves.toMatchObject({ status: 409, error: expect.stringContaining("已经封存") });
+    await expect(loadCanonicalMetricEvents({ groupIds: [data.groupId] })).resolves.toHaveLength(0);
+    await expect(db.leadActivity.count({ where: { leadId } })).resolves.toBe(0);
+  });
+
   it("lets the original employee edit its own progress row without changing daily statistics", async () => {
     const data = await fixture();
     vi.spyOn(auth, "requireUser").mockResolvedValue(data.reception);

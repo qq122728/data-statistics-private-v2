@@ -47,6 +47,8 @@ export async function executeCustomerWorkflow(
       include: { batch: { select: { groupId: true, channelId: true } }, customerOrder: { select: { id: true, voidedAt: true, openedOn: true, initialDepositCents: true, initialDepositMethod: true } } },
     });
     if (!lead) return { status: 404 as const, error: "客户不存在" };
+    if (lead.trackingArchivedAt)
+      return { status: 409 as const, error: "该客户已经封存，只能查看历史底账，不能继续修改" };
     const currentGroupId = leadCurrentGroupId(lead);
 
     // The reporting APIs deliberately infer a stage for customers created before
@@ -505,6 +507,8 @@ export async function deleteCustomerWorkflow(actor: WorkflowActor, leadId: strin
       include: { batch: { select: { groupId: true, sourceDate: true, isHistoricalRecord: true } }, customerOrder: { select: { id: true } } },
     });
     if (!lead) return { status: 404 as const, error: "客户不存在" };
+    if (lead.trackingArchivedAt)
+      return { status: 409 as const, error: "该客户已经封存，不能删除历史底账" };
     const accessFailure = authorizeCustomerDelete(liveActor, lead);
     if (accessFailure) return accessFailure;
     if (lead.customerOrder || lead.repliedOn || lead.followUpCount > 0 || lead.groupStatus !== "NOT_JOINED" || lead.expertIntroducedOn || lead.registeredOn)

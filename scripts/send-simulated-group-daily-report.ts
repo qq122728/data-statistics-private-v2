@@ -1,6 +1,6 @@
 import { buildGroupDailyBusinessReport, formatGroupDailyBusinessReport } from "../src/lib/group-daily-report";
 import { buildLeadChannelReportWorkbook, type LeadChannelReportPayload } from "../src/lib/lead-channel-report-xlsx";
-import { sendBossTelegramDocument, sendBossTelegramMessage } from "../src/lib/boss-report/telegram";
+import { sendTelegramDocument, sendTelegramMessage } from "../src/lib/telegram-delivery";
 
 if (process.env.CONFIRM_TELEGRAM_SIMULATION !== "YES") {
   throw new Error("如需发送模拟日报，请设置 CONFIRM_TELEGRAM_SIMULATION=YES");
@@ -52,8 +52,8 @@ async function main() {
   const text = formatGroupDailyBusinessReport(report);
   const workbook = await buildLeadChannelReportWorkbook(dailyPayload, { dailyReport: report });
   const xlsx = Buffer.from(await workbook.xlsx.writeBuffer());
-  await sendBossTelegramMessage(text);
-  await sendBossTelegramDocument(xlsx, "模拟-西瓜组-业务报表-2026-09.xlsx", "【模拟小组测试】Excel详细报表｜不计入正式数据");
+  await sendTelegramMessage(text);
+  await sendTelegramDocument(xlsx, "模拟-西瓜组-业务报表-2026-09.xlsx", "【模拟小组测试】Excel详细报表｜不计入正式数据");
   console.log("模拟日报已发送：文字、Excel；未写入数据库。", { xlsxBytes: xlsx.length });
 }
 

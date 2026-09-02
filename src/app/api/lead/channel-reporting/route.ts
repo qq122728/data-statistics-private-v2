@@ -10,7 +10,6 @@ import { hasAssignedRole } from "../../../../lib/role-access";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
-import { hasValidDailyJobSecret } from "../../../../lib/internal-job-auth";
 import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
@@ -20,20 +19,17 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params))
     return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
-  const internalGroupId = hasValidDailyJobSecret(request) ? params.get("groupId") : null;
-  let actor = null;
-  if (!internalGroupId) {
-    try {
-      actor = await requireUser();
-    } catch (error) {
-      if (error instanceof AuthenticationError)
-        return NextResponse.json({ error: "请先登录" }, { status: 401 });
-      throw error;
-    }
-    if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "LEAD"))
-      return authorizationDenied(actor!, "只有在职组长可以查看本组渠道数据");
+  let actor;
+  try {
+    actor = await requireUser();
+  } catch (error) {
+    if (error instanceof AuthenticationError)
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    throw error;
   }
-  const targetGroupId = internalGroupId ?? actor!.groupId!;
+  if (!actor.active || !actor.groupId || !hasAssignedRole(actor, "LEAD"))
+    return authorizationDenied(actor, "只有在职组长可以查看本组渠道数据");
+  const targetGroupId = actor.groupId;
 
   const group = await db.teamGroup.findFirst({
     where: { id: targetGroupId, active: true },
@@ -43,9 +39,7 @@ export async function GET(request: Request) {
       department: { select: { countryCode: true, timezone: true, workStartMinutes: true, workEndMinutes: true } },
     },
   });
-  if (!group) return actor
-    ? authorizationDenied(actor, "当前账号没有可查看的小组")
-    : NextResponse.json({ error: "自动日报小组不存在或已停用" }, { status: 404 });
+  if (!group) return authorizationDenied(actor, "当前账号没有可查看的小组");
   const groupType = group.groupType;
 
   const today = statisticsDate();

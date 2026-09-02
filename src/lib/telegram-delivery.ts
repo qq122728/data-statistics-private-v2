@@ -11,7 +11,7 @@ export class TelegramMessageRejectedError extends Error {
 function telegramConfig() {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   const chatId = process.env.TELEGRAM_BOSS_CHAT_ID?.trim();
-  if (!token || !chatId) throw new Error("未配置电报机器人或老板群");
+  if (!token || !chatId) throw new Error("未配置 Telegram 机器人或接收群");
   return { token, chatId };
 }
 
@@ -33,7 +33,7 @@ export function splitTelegramText(text: string, maxLength = 3900): string[] {
   return parts;
 }
 
-export async function sendBossTelegramChunk(text: string): Promise<void> {
+export async function sendTelegramChunk(text: string): Promise<void> {
   const { token, chatId } = telegramConfig();
   const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
@@ -47,9 +47,9 @@ export async function sendBossTelegramChunk(text: string): Promise<void> {
   }
 }
 
-export async function sendBossTelegramMessage(text: string): Promise<void> {
+export async function sendTelegramMessage(text: string): Promise<void> {
   for (const part of splitTelegramText(text)) {
-    await sendBossTelegramChunk(part);
+    await sendTelegramChunk(part);
   }
 }
 
@@ -77,10 +77,10 @@ async function sendTelegramAttachment(input: {
   }
 }
 
-export async function sendBossTelegramPhoto(bytes: Buffer, caption?: string) {
+export async function sendTelegramPhoto(bytes: Buffer, caption?: string) {
   await sendTelegramAttachment({ method: "sendPhoto", field: "photo", bytes, fileName: "group-daily-report.png", contentType: "image/png", caption });
 }
 
-export async function sendBossTelegramDocument(bytes: Buffer, fileName: string, caption?: string) {
+export async function sendTelegramDocument(bytes: Buffer, fileName: string, caption?: string) {
   await sendTelegramAttachment({ method: "sendDocument", field: "document", bytes, fileName, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", caption });
 }

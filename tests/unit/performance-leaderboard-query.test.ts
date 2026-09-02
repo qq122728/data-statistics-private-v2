@@ -2,8 +2,6 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { db } from "../../src/lib/db";
 import { queryPerformanceLeaderboard } from "../../src/lib/analytics/performance-leaderboard-query";
-import { buildDailyBossBrief } from "../../src/lib/boss-report/brief";
-import { formatBossDailyBrief } from "../../src/lib/boss-report/format";
 
 const querySource = readFileSync("src/lib/analytics/performance-leaderboard-query.ts", "utf8");
 
@@ -62,30 +60,6 @@ describe("performance leaderboard aggregate query", () => {
     });
     expect(hiddenRows[0]).toMatchObject({ newFans: 0, orders: 0, rechargeCents: 0 });
 
-    // 页面排行榜直接展示这份查询结果；日报用今天与昨天的快照差值。
-    // 这批数据全部发生在同一天，因此两边每一项金额和数量都必须完全相同。
-    const yesterdayRows = await queryPerformanceLeaderboard({ groupIds: [groupId], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-09" });
-    const brief = buildDailyBossBrief({
-      reportDate: "2026-08-10",
-      currentRows: rows,
-      previousRows: yesterdayRows,
-      anomalies: { overdueExpertIntro: 0, overdueExpertContact: 0, overdueOrder: 0, invalidCustomers: 0 },
-    });
-    expect(brief.totals).toMatchObject({
-      newFans: rows[0].newFans,
-      effectiveFans: rows[0].effectiveFans,
-      replies: rows[0].replies,
-      groupJoin: rows[0].groupJoin,
-      expertIntro: rows[0].expertIntro,
-      expertContacted: rows[0].expertContacted,
-      registration: rows[0].registration,
-      orders: rows[0].orders,
-      rechargeCents: rows[0].rechargeCents,
-      withdrawalCents: rows[0].withdrawalCents,
-      netPerformanceCents: rows[0].netPerformanceCents,
-    });
-    const dailyMessage = formatBossDailyBrief(brief, null);
-    expect(dailyMessage).toContain("入金 $80.00｜出金 $0.00｜净业绩 $80.00");
   });
 
   it("excludes a voided order and every ledger amount attached to it", async () => {

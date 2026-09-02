@@ -106,9 +106,10 @@ describe.sequential("member entry write transactions", () => {
   it("keeps day 14 in group and automatically marks day 15 as a system leave", async () => {
     const fixture = await createFixture("LEAD");
     const batch = await db.sourceBatch.create({ data: { groupId: fixture.groupId, channelId: fixture.channelId, sourceDate: "2026-08-01" } });
-    const [day15, day14] = await Promise.all([
+    const [day15, day14, archived] = await Promise.all([
       db.leadCustomer.create({ data: { phone: `auto-left-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-08-12", isHistoricalRecord: true } }),
       db.leadCustomer.create({ data: { phone: `stay-group-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-08-13" } }),
+      db.leadCustomer.create({ data: { phone: `archived-stay-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-08-01", trackingArchivedAt: new Date("2026-09-01T00:00:00.000Z") } }),
     ]);
     await db.customerOrder.create({ data: { phone: day15.phone, batchId: batch.id, enteredById: fixture.userId, leadId: day15.id, openedOn: "2026-08-20", initialDepositCents: 10_000, initialDepositMethod: "CRYPTO" } });
 
@@ -116,6 +117,7 @@ describe.sequential("member entry write transactions", () => {
     await expect(autoMarkExpiredGroupMemberships({ today: "2026-08-26", groupIds: [fixture.groupId] })).resolves.toEqual({ checkedThrough: "2026-08-12", updated: 1 });
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: day15.id } })).resolves.toMatchObject({ groupStatus: "LEFT", leftOn: "2026-08-26", leftAutomatically: true, leftWithOrder: true, historicalLeaveCounted: true });
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: day14.id } })).resolves.toMatchObject({ groupStatus: "JOINED", leftOn: null, leftAutomatically: false });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: archived.id } })).resolves.toMatchObject({ groupStatus: "JOINED", leftOn: null, leftAutomatically: false });
   });
 
   it("calculates effective fans from received minus invalid fans", async () => {

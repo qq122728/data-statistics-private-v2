@@ -31,7 +31,6 @@
 - 组织和账号：现用 `/api/org/*`
 - 渠道和资源报表：`/api/admin/channels`、`/api/resource/reporting`
 - 设备、通知：`/api/device-accounts`、`/api/group-devices`、`/api/notifications/*`
-- 老板简报：`/api/internal/boss-daily-brief`，仅供受密钥保护的内部任务使用。
 
 `GET /api/lead/customer-reporting` 的客户明细必须按调用人过滤：普通组员只返回本人作为原接粉归属人、当前炒群负责人或当前专家负责人的客户；本组组长返回全组；组织管理员按管理范围只读。该过滤同时作用于列表、分页、阶段数量、渠道和资金汇总。接口返回的本组成员/专家候选名单不套用客户可见条件，确保负责人仍可自由分配。
 

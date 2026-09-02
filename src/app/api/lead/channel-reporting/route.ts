@@ -276,9 +276,8 @@ export async function GET(request: Request) {
       ? `净业绩 $${(bestNet.totals.netCents / 100).toLocaleString("zh-CN")}，占全组 ${((bestNet.totals.netCents / summary.totals.netCents) * 100).toFixed(1)}%。`
       : `净业绩 $${(bestNet.totals.netCents / 100).toLocaleString("zh-CN")}；全组净业绩仍未转正，请同时核对其它渠道出金。`,
   });
-  for (const row of rows) {
-    if (row.totals.joined > row.totals.effective || row.totals.ordered > row.totals.registered) analysis.push({ tone: "warn", title: `${row.name} 存在数据口径异常`, detail: `进群 ${row.totals.joined}/有效 ${row.totals.effective}，开单 ${row.totals.ordered}/注册 ${row.totals.registered}，请先核对原始填写。` });
-  }
+  // 进群和开单按当天实际发生登记，可能来自以前接粉或注册的存量客户。
+  // 因此不能用当天有效数或注册数判断数据异常，否则会把正常回访进度误报为错误。
   const groupOrderRate = summary.derivedRates.orderRate ?? 0;
   if (groupOrderRate > 0) for (const member of members.filter((row) => row.totals.effective >= 10 && (row.derivedRates.orderRate ?? 0) + 0.02 < groupOrderRate).slice(0, 3)) analysis.push({ tone: "warn", title: `${member.name} 低于小组平均开单率`, detail: `个人开单率 ${((member.derivedRates.orderRate ?? 0) * 100).toFixed(1)}%，小组平均 ${((groupOrderRate) * 100).toFixed(1)}%；可展开个人渠道明细定位差距。` });
 

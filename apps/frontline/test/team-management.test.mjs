@@ -7,6 +7,7 @@ const groups = readFileSync(new URL("../components/DepartmentGroupManagement.tsx
 const workspace = readFileSync(new URL("../components/FreshWorkspace.tsx", import.meta.url), "utf8");
 const analysis = readFileSync(new URL("../components/GroupChannelAnalysis.tsx", import.meta.url), "utf8");
 const inspector = readFileSync(new URL("../components/MemberDataInspector.tsx", import.meta.url), "utf8");
+const channelReportingRoute = readFileSync(new URL("../../../src/app/api/lead/channel-reporting/route.ts", import.meta.url), "utf8");
 
 test("组员管理只使用真实组员和交接接口", () => {
   assert.match(team, /requestJson<Array<[^]*?>>\("\/api\/lead\/members"\)/);
@@ -35,6 +36,12 @@ test("小组汇总可按归属人员、渠道和日期查看完整指标且保�
   }
   assert.match(analysis, /<tfoot>/);
   assert.match(analysis, /payload\.days/);
+});
+
+test("渠道智能分析不会把存量客户当天进群或开单误报为异常", () => {
+  assert.doesNotMatch(channelReportingRoute, /joined\s*>\s*row\.totals\.effective/);
+  assert.doesNotMatch(channelReportingRoute, /ordered\s*>\s*row\.totals\.registered/);
+  assert.doesNotMatch(channelReportingRoute, /存在数据口径异常/);
 });
 
 test("组长检查页识别新版统一组员记录及其资金字段，同时兼容旧记录", () => {

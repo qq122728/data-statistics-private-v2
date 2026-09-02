@@ -25,6 +25,7 @@ async function fixture() {
       name: "跨组成员AA",
       role: "RECEPTION",
       groupId: groupA,
+      canViewAllGroupCustomers: true,
       membershipHistory: { create: { groupId: groupA, role: "RECEPTION", effectiveFrom: "2026-08-01", reason: "入职A组" } },
     },
   });
@@ -76,7 +77,7 @@ describe.sequential("人员调组历史", () => {
     expect(response.status).toBe(200);
 
     const member = await db.user.findUniqueOrThrow({ where: { id: data.userId }, include: { membershipHistory: { orderBy: { effectiveFrom: "asc" } } } });
-    expect(member).toMatchObject({ employeeCode: before.employeeCode, groupId: data.groupB, role: "EXPERT" });
+    expect(member).toMatchObject({ employeeCode: before.employeeCode, groupId: data.groupB, role: "EXPERT", canViewAllGroupCustomers: false });
     expect(member.membershipHistory).toMatchObject([
       { groupId: data.groupA, role: "RECEPTION", effectiveFrom: "2026-08-01", effectiveTo: "2026-08-15" },
       { groupId: data.groupB, role: "EXPERT", effectiveFrom: "2026-08-16", effectiveTo: null },
@@ -86,6 +87,9 @@ describe.sequential("人员调组历史", () => {
     await expect(db.device.findUniqueOrThrow({ where: { id: data.deviceId }, select: { groupId: true, memberId: true } })).resolves.toEqual({ groupId: data.groupB, memberId: data.userId });
     await expect(db.device.findUniqueOrThrow({ where: { id: data.inactiveDeviceId }, select: { groupId: true, memberId: true, active: true } })).resolves.toEqual({ groupId: data.groupA, memberId: data.userId, active: false });
     await expect(db.deviceAccount.findUniqueOrThrow({ where: { id: data.deviceAccountId }, select: { groupId: true, ownerId: true } })).resolves.toEqual({ groupId: data.groupB, ownerId: data.userId });
+    await expect(db.auditLog.findFirstOrThrow({ where: { action: "MEMBER_TRANSFERRED", entityId: data.userId }, orderBy: { createdAt: "desc" } })).resolves.toMatchObject({
+      summary: expect.stringContaining('"canViewAllGroupCustomers":false'),
+    });
 
     const aRanking = await loadRoleRankings({ groupIds: [data.groupA], sourceDateFrom: "2026-08-01", sourceDateTo: "2026-08-31", today: "2026-08-31" });
     expect(aRanking.reception.find((row) => row.id === data.userId)).toMatchObject({ groupId: data.groupA, valid: 1, replied: 1, joined: 1 });
@@ -202,6 +206,7 @@ describe.sequential("人员调组历史", () => {
       { groupId: data.groupA, role: "RECEPTION", secondaryRoles: "GROUP_OPERATOR", effectiveTo: null },
     ]);
     expect(member.roleAssignments.map((assignment) => assignment.role).sort()).toEqual(["GROUP_OPERATOR", "RECEPTION"]);
+    expect(member.canViewAllGroupCustomers).toBe(true);
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: pending.id }, select: { ownerId: true } })).resolves.toEqual({ ownerId: data.userId });
   });
 
@@ -287,7 +292,7 @@ describe.sequential("人员调组历史", () => {
     }));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ preview: true, groupChanged: true, movingCustomerCount: 0, deviceCount: 1, deviceAccountCount: 1, counts: { reception: 0, operator: 0, expert: 0 }, conflicts: [] });
-    await expect(db.user.findUniqueOrThrow({ where: { id: data.userId }, select: { groupId: true, role: true } })).resolves.toEqual({ groupId: data.groupA, role: "RECEPTION" });
+    await expect(db.user.findUniqueOrThrow({ where: { id: data.userId }, select: { groupId: true, role: true, canViewAllGroupCustomers: true } })).resolves.toEqual({ groupId: data.groupA, role: "RECEPTION", canViewAllGroupCustomers: true });
   });
 
   it("历史接粉和归属人离组时，不会拖走已由炒群和专家负责的客户", async () => {

@@ -64,7 +64,7 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
     tx.user.findUnique({
       where: { id: userId },
       select: {
-        id: true, employeeCode: true, name: true, role: true, groupId: true, active: true,
+        id: true, employeeCode: true, name: true, role: true, groupId: true, active: true, canViewAllGroupCustomers: true,
         group: { select: { departmentId: true, countryCode: true, department: { select: { companyId: true, countryCode: true } } } },
         roleAssignments: { select: { role: true } },
         membershipHistory: { where: { effectiveTo: null }, orderBy: { effectiveFrom: "desc" }, take: 1 },
@@ -226,6 +226,7 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
       groupId: targetGroup.id,
       role,
       duty: role === "LEAD" ? "LEAD" : null,
+      ...(groupChanged ? { canViewAllGroupCustomers: false } : {}),
       roleAssignments: { deleteMany: {}, create: [role, ...secondaryRoles].map((assignedRole) => ({ role: assignedRole })) },
     },
   });
@@ -257,8 +258,8 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
       name: member.name,
       effectiveOn,
       reason,
-      before: { groupId: member.groupId, role: member.role },
-      after: { groupId: targetGroup.id, role, secondaryRoles },
+      before: { groupId: member.groupId, role: member.role, canViewAllGroupCustomers: member.canViewAllGroupCustomers },
+      after: { groupId: targetGroup.id, role, secondaryRoles, canViewAllGroupCustomers: groupChanged ? false : member.canViewAllGroupCustomers },
       retainedInOriginalGroup: { historicalCustomerAndStatAttribution: true, sourceCustomerCount: customerCount },
       movedToTargetGroup: { movingCustomerCount, deviceCount: devices.length, deviceAccountCount: deviceAccounts.length },
       handoff: { receptionHandoffId, operatorHandoffId, expertHandoffId },

@@ -82,7 +82,7 @@ const emptyValues = {
 };
 
 describe.sequential("独立每日数据填写、修改与审核", () => {
-  it("客户进群、注册和开单只记录进度，不自动生成每日统计", async () => {
+  it("当天添加为 0 时，老客户进群、注册和开单仍按发生日自动统计", async () => {
     const data = await fixture();
     await db.$transaction(async (tx) => {
       await incrementCustomerEventDailyStat(tx, {
@@ -106,7 +106,13 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
       where: { groupId: data.groupId, businessDate: "2026-09-02" },
       include: { currentRevision: true },
     });
-    expect(entries).toHaveLength(0);
+    expect(entries).toHaveLength(2);
+    expect(entries.find((entry) => entry.position === "GROUP_OPERATOR")?.currentRevision).toMatchObject({
+      dispatchCount: 0, operatorReceivedCount: 1, currentInGroupCount: 1, expertIntroCount: 1,
+    });
+    expect(entries.find((entry) => entry.position === "EXPERT")?.currentRevision).toMatchObject({
+      dispatchCount: 0, registrationCount: 1, orderCount: 1,
+    });
   });
 
   it("律师组保存独立指标，并按接粉数校验回复和添加数", async () => {
@@ -360,7 +366,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect(ordersFromEarlierCustomers.status).toBe(201);
   });
 
-  it("keeps official snapshot performance under the employee who filled it", async () => {
+  it("merges same-day member snapshot sources and carries each source latest value across dates", async () => {
     const data = await fixture();
     const secondReception = await db.user.create({ data: { id: `${prefix}second-source-${randomUUID()}`, username: `${prefix}second-source-${randomUUID()}`, name: "第二来源接粉", role: "RECEPTION", groupId: data.groupId } });
     signInAs(data.operator);
@@ -379,9 +385,10 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     const response = await GET_RESOURCE_REPORTING(new Request("http://localhost/api/resource/reporting?range=custom&sourceDateFrom=2026-08-20&sourceDateTo=2026-08-21"));
     expect(response.status).toBe(200);
     const payload = await response.json() as { memberRows: Array<{ date: string; member: { id: string }; totals: { inGroup: number } }> };
-    expect(payload.memberRows.find((row) => row.date === "2026-08-20" && row.member.id === data.operator.id)?.totals.inGroup).toBe(30);
-    expect(payload.memberRows.find((row) => row.date === "2026-08-21" && row.member.id === data.operator.id)?.totals.inGroup).toBe(32);
-    expect(payload.memberRows.some((row) => row.member.id === data.reception.id || row.member.id === secondReception.id)).toBe(false);
+    expect(payload.memberRows.find((row) => row.date === "2026-08-20" && row.member.id === data.reception.id)?.totals.inGroup).toBe(10);
+    expect(payload.memberRows.find((row) => row.date === "2026-08-20" && row.member.id === secondReception.id)?.totals.inGroup).toBe(20);
+    expect(payload.memberRows.find((row) => row.date === "2026-08-21" && row.member.id === data.reception.id)?.totals.inGroup).toBe(12);
+    expect(payload.memberRows.find((row) => row.date === "2026-08-21" && row.member.id === secondReception.id)?.totals.inGroup).toBe(20);
   });
 
   it("defaults legacy operator sources to the member while preserving explicit upstream attribution", async () => {
@@ -449,16 +456,16 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     await expect(unifiedLegacyContext.json()).resolves.toMatchObject({
       unifiedEntries: [expect.objectContaining({
         entryId: receptionEntryId,
-        values: expect.objectContaining({ dispatchCount: 20, joinCount: 12, currentInGroupCount: 0, expertIntroCount: 0, registrationCount: 0, orderCount: 0, cryptoInitialDepositCents: 0 }),
+        values: expect.objectContaining({ dispatchCount: 20, currentInGroupCount: 23, expertIntroCount: 5, registrationCount: 2, orderCount: 1, cryptoInitialDepositCents: 114800 }),
       })],
     });
     const receptionPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=RECEPTION&range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     await expect(receptionPerformance.json()).resolves.toMatchObject({
       totals: { added: 20, joined: 12, introduced: 0, registered: 0, orders: 0 },
       funnel: {
-        summary: { added: 20, joined: 12, leftNormal: 0, leftAbnormal: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0 },
-        currentInGroup: 0,
-        channels: [expect.objectContaining({ name: "嘉豪", row: expect.objectContaining({ pushed: 0, ordered: 0 }) })],
+        summary: { added: 20, joined: 12, leftNormal: 2, leftAbnormal: 1, pushed: 5, registered: 2, ordered: 1, depositCents: 114800 },
+        currentInGroup: 23,
+        channels: [expect.objectContaining({ name: "嘉豪", row: expect.objectContaining({ pushed: 5, ordered: 1 }) })],
       },
     });
 
@@ -466,7 +473,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     const operatorPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=GROUP_OPERATOR&range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     await expect(operatorPerformance.json()).resolves.toMatchObject({
       totals: { joined: 12, introduced: 5, registered: 0, orders: 0 },
-      funnel: { summary: { joined: 12, pushed: 5, registered: 0, ordered: 0, depositCents: 0 }, currentInGroup: 23 },
+      funnel: { summary: { joined: 12, pushed: 5, registered: 2, ordered: 1, depositCents: 114800 }, currentInGroup: 23 },
     });
 
     signInAs(data.expert);
@@ -698,7 +705,7 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     await expect(rejected.json()).resolves.toMatchObject({ error: "来源接粉不属于该小组的现任或历史成员" });
   });
 
-  it("keeps every company-recognized number entered by the member", async () => {
+  it("locks number-tracked progress but keeps member-entered official finance from the cutover date", async () => {
     const data = await fixture();
     signInAs(data.reception);
 
@@ -727,11 +734,11 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
         currentRevision: {
           dispatchCount: 20,
           replyCount: 8,
-          joinCount: 3,
-          normalLeaveCount: 1,
-          expertIntroCount: 2,
-          registrationCount: 1,
-          orderCount: 1,
+          joinCount: 0,
+          normalLeaveCount: 0,
+          expertIntroCount: 0,
+          registrationCount: 0,
+          orderCount: 0,
           cryptoInitialDepositCents: 100_000,
           cryptoRechargeCents: 50_000,
           withdrawalCents: 10_000,

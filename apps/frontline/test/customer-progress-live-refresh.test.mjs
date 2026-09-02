@@ -7,7 +7,7 @@ const customerTable = readFileSync(new URL("../components/DepartmentCustomerProg
 const groupWorkbench = readFileSync(new URL("../components/GroupOperatorWorkbench.tsx", import.meta.url), "utf8");
 const expertWorkbench = readFileSync(new URL("../components/ExpertWorkbench.tsx", import.meta.url), "utf8");
 
-test("客户进程保存后会通知页面刷新，但不会自动改写日报数字", () => {
+test("客户进程保存后会实时刷新日报，不再因统计日未变而丢弃新数据", () => {
   assert.match(dailySheet, /setContext\(next\)/);
   assert.doesNotMatch(dailySheet, /current\.today === next\.today/);
   assert.match(dailySheet, /window\.addEventListener\("customer-data-updated"/);
@@ -25,8 +25,7 @@ test("进群、注册和开单入口都会通知日报同步", () => {
   assert.match(expertWorkbench, /\/api\/customer-orders/);
 });
 
-test("界面明确区分公司认账数据与客户进度", () => {
-  assert.match(dailySheet, /客户明细金额只作跟踪/);
-  assert.doesNotMatch(dailySheet, /号码自动统计|当天添加为 0 也不影响/);
-  for (const label of ["进群", "注册", "开单"]) assert.ok(dailySheet.includes(label));
+test("界面明确说明老客户不受当日添加数限制", () => {
+  assert.match(dailySheet, /当天添加为 0 也不影响/);
+  for (const label of ["进群", "注册", "开单", "号码自动统计"]) assert.ok(dailySheet.includes(label));
 });

@@ -55,7 +55,7 @@ describe.sequential("legacy customer entry", () => {
     await expect(db.leadCustomer.count({ where: { batch: { groupId } } })).resolves.toBe(0);
   });
 
-  it("records post-cutover customer progress without changing the daily-stat ledger", async () => {
+  it("counts only post-cutover progress while never adding historical fan volume", async () => {
     const suffix = randomUUID();
     const departmentId = `${prefix}department-${suffix}`;
     const groupId = `${prefix}group-${suffix}`;
@@ -89,7 +89,8 @@ describe.sequential("legacy customer entry", () => {
     expect(facts.filter((fact) => fact.kind === "NEW_FANS" || fact.kind === "EFFECTIVE_FANS")).toHaveLength(0);
     expect(facts.filter((fact) => fact.kind === "REPLIES")).toHaveLength(1);
     expect(facts.filter((fact) => fact.kind === "GROUP_JOIN")).toHaveLength(1);
-    await expect(db.dailyStatEntry.count({ where: { groupId } })).resolves.toBe(0);
+    await expect(db.dailyStatRevision.findFirstOrThrow({ where: { entry: { groupId, businessDate: "2026-08-26", position: "GROUP_OPERATOR" } } })).resolves.toMatchObject({ operatorReceivedCount: 1, currentInGroupCount: 1 });
+    await expect(db.dailyStatRevision.findFirstOrThrow({ where: { entry: { groupId, businessDate: "2026-08-26", position: "RECEPTION" } } })).resolves.toMatchObject({ joinCount: 1, replyCount: 0 });
     await expect(db.sourceBatch.findFirstOrThrow({ where: { groupId } })).resolves.toMatchObject({ sourceDate: "2026-08-18" });
     const audit = await db.auditLog.findFirstOrThrow({ where: { entityId: saved.id } });
     expect(audit.summary).not.toContain(phone);
@@ -133,7 +134,7 @@ describe.sequential("legacy customer entry", () => {
     expect(facts.filter((fact) => ["NEW_FANS", "EFFECTIVE_FANS", "REPLIES", "GROUP_JOIN", "EXPERT_INTRO", "REGISTRATION"].includes(fact.kind))).toHaveLength(0);
     expect(facts.filter((fact) => fact.kind === "ORDER")).toMatchObject([{ occurredOn: "2026-08-26", quantity: 1 }]);
     expect(facts.filter((fact) => fact.kind === "RECHARGE")).toMatchObject([{ occurredOn: "2026-08-26", amountCents: 100_000 }]);
-    await expect(db.dailyStatEntry.count({ where: { groupId } })).resolves.toBe(0);
+    await expect(db.dailyStatRevision.findFirstOrThrow({ where: { entry: { groupId, businessDate: "2026-08-26", position: "EXPERT" } } })).resolves.toMatchObject({ orderCount: 1, cryptoInitialDepositCents: 0 });
   });
 
   it("records only today's recharge for a customer who opened before the system", async () => {
@@ -211,7 +212,13 @@ describe.sequential("legacy customer entry", () => {
       expect.objectContaining({ kind: "RECHARGE", occurredOn: "2026-09-01", amountCents: 50_000, continuationNumber: 1 }),
     ]));
 
-    await expect(db.dailyStatEntry.count({ where: { groupId } })).resolves.toBe(0);
+    const receptionEntry = await db.dailyStatEntry.findFirstOrThrow({ where: { groupId, businessDate: "2026-09-01", position: "RECEPTION" }, include: { currentRevision: true } });
+    const operatorEntry = await db.dailyStatEntry.findFirstOrThrow({ where: { groupId, businessDate: "2026-09-01", position: "GROUP_OPERATOR" }, include: { currentRevision: true } });
+    const expertEntry = await db.dailyStatEntry.findFirstOrThrow({ where: { groupId, businessDate: "2026-09-01", position: "EXPERT" }, include: { currentRevision: true } });
+    expect(receptionEntry.currentRevision).toMatchObject({ dispatchCount: 0, replyCount: 0, joinCount: 1 });
+    expect(operatorEntry.currentRevision).toMatchObject({ operatorReceivedCount: 1, currentInGroupCount: 1 });
+    expect(expertEntry.currentRevision).toMatchObject({ orderCount: 1, cryptoInitialDepositCents: 0, bankRechargeCents: 0 });
+    await expect(db.dailyStatEntry.count({ where: { groupId, businessDate: { in: ["2026-08-29", "2026-08-30"] } } })).resolves.toBe(0);
 
     const facts = await loadCanonicalMetricEvents({ groupIds: [groupId] });
     expect(facts.filter((fact) => ["NEW_FANS", "EFFECTIVE_FANS"].includes(fact.kind))).toHaveLength(0);

@@ -26,9 +26,9 @@ test("统一组员表按渠道读取并保存真实每日数据", () => {
   assert.match(source, /position:\s*"RECEPTION"/);
   assert.match(source, /人工无效/);
   assert.match(source, /异常退群率/);
-  assert.doesNotMatch(source, /NUMBER_TRACKED_METRIC_KEYS/);
-  assert.doesNotMatch(source, /由客户号码进度自动统计/);
-  for (const label of ["进群", "推专家", "注册", "开单"]) assert.match(source, new RegExp(label));
+  assert.match(source, /numberTrackingFrom/);
+  assert.match(source, /NUMBER_TRACKED_METRIC_KEYS/);
+  assert.match(source, /由客户号码进度自动统计/);
   assert.match(source, /填写公司最终认账的首充、续充和出金/);
   assert.doesNotMatch(source, /mode === "finance" \|\| NUMBER_TRACKED_METRIC_KEYS/);
 });
@@ -109,8 +109,7 @@ test("组员AI仅从正式按钮进入写入流程，空白输入框保持只读
   assert.match(source, /AI纠正/);
   assert.match(source, /为防止覆盖别人的新数据/);
   assert.doesNotMatch(source, /稍后接入/);
-  assert.match(source, /今天的新进度都只进入客户跟踪，不会自动修改公司统计/);
-  assert.doesNotMatch(source, /进群及后续按号码自动统计/);
+  assert.match(source, /进群及后续按号码自动统计/);
   assert.match(source, /\/api\/customer-orders/);
   assert.match(source, /\/api\/customer-finance/);
   assert.match(source, /ai-data-updated/);

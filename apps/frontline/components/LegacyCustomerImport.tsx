@@ -96,7 +96,7 @@ export function LegacyCustomerImport({ onBack }: { onBack: () => void }) {
   }
 
   return <div className={styles.workspace}>
-    <section className={styles.toolbar}><button type="button" className={styles.back} onClick={onBack}><ArrowLeft size={16} />返回新客户进度</button><div><strong>老客户真实进度录入</strong><span>按号码建立档案，历史和今天发生的步骤都只作客户跟踪，不会改变每日统计</span></div></section>
+    <section className={styles.toolbar}><button type="button" className={styles.back} onClick={onBack}><ArrowLeft size={16} />返回新客户进度</button><div><strong>老客户真实进度录入</strong><span>按号码建立档案，历史不重算，今天新发生的步骤自动进入统计</span></div></section>
     {error ? <div className={styles.error}>{error}</div> : null}{saved ? <div className={styles.success}><CheckCircle size={17} weight="fill" />{saved}</div> : null}
     <section className={styles.card}>
       <header><div><h2>先选择最接近的场景</h2><p>系统会自动带出正确的历史状态和本次进度，你只需补齐号码、日期和归属。</p></div><span><i />组内实时共享</span></header>

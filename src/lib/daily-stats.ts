@@ -2,6 +2,7 @@ import type { DailyStatEntry, Position, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { STATISTICS_TIMEZONE, statisticsDate } from "./statistics-date";
 import { getAssignedRoles, isFrontlineGroupMember } from "./role-access";
+import { NUMBER_TRACKED_DAILY_FIELDS, usesCustomerNumberTracking } from "./customer-number-tracking";
 
 const nonNegativeInt = z.number().int().min(0).max(2_147_483_647).default(0);
 const optionalId = z.string().trim().min(1).nullable().optional();
@@ -371,6 +372,11 @@ export async function saveDailyStat(
   }
 
   const values = revisionValues(input, group.groupType, options);
+  // 切换日之后，进群、推专家、注册、开单等流程由号码事件提供；
+  // 资金不在锁定列表里，仍由组员填写，作为公司最终认账数字。
+  if (group.groupType === "HACKER" && input.position === "RECEPTION" && usesCustomerNumberTracking(input.businessDate)) {
+    for (const field of NUMBER_TRACKED_DAILY_FIELDS) values[field] = 0;
+  }
   let entry: DailyStatEntry;
   if (!existing) {
     entry = await tx.dailyStatEntry.create({
@@ -460,11 +466,50 @@ export async function incrementCustomerEventDailyStat(
     allowBeforeNumberTracking?: boolean;
   },
 ) {
-  // 最终业务口径：号码、客户阶段和客户资金只写客户进度账，绝不改公司统计账。
-  // 保留函数签名是为了兼容现有工作流调用；返回 null 表示没有生成任何统计记录。
-  void tx;
-  void input;
-  return null;
+  if (!usesCustomerNumberTracking(input.businessDate) && !input.allowBeforeNumberTracking) return null;
+  const owner = await tx.user.findFirst({
+    where: { id: input.ownerId, groupId: input.groupId, active: true },
+    select: { id: true, active: true, role: true, groupId: true, roleAssignments: { select: { role: true } } },
+  });
+  if (!owner) throw new DailyStatError("老客户当前负责人已停用或不在本组，请先重新选择负责人");
+
+  const sources = normalizeSources({
+    businessDate: input.businessDate,
+    position: input.position,
+    channelId: input.channelId,
+    sourceReceptionId: input.sourceReceptionId,
+    sourceGroupOperatorId: input.sourceGroupOperatorId ?? undefined,
+    values: Object.fromEntries(dailyStatNumberFields.map((field) => [field, 0])) as z.infer<typeof dailyStatValuesSchema>,
+  }, owner.id);
+  const identityKey = entryIdentity({
+    ownerId: owner.id,
+    groupId: input.groupId,
+    businessDate: input.businessDate,
+    position: input.position,
+    channelId: input.channelId,
+    ...sources,
+  });
+  const existing = await tx.dailyStatEntry.findUnique({
+    where: { identityKey },
+    include: { currentRevision: true, approvedRevision: true },
+  });
+  const previous = existing?.currentRevision ?? existing?.approvedRevision;
+  const values = Object.fromEntries(dailyStatNumberFields.map((field) => [field, previous?.[field] ?? 0])) as z.infer<typeof dailyStatValuesSchema>;
+  for (const [field, amount] of Object.entries(input.increment) as Array<[keyof DailyStatIncrement, number | undefined]>) {
+    if (!amount) continue;
+    values[field] = Math.max(0, values[field] + amount);
+  }
+  if (input.currentInGroupSnapshot !== undefined) values.currentInGroupCount = Math.max(0, input.currentInGroupSnapshot);
+  return saveDailyStat(tx, owner, {
+    ...(existing ? { entryId: existing.id } : {}),
+    businessDate: input.businessDate,
+    position: input.position,
+    channelId: input.channelId,
+    sourceReceptionId: input.sourceReceptionId,
+    sourceGroupOperatorId: input.sourceGroupOperatorId ?? undefined,
+    changeReason: `AI客户事件同步：${input.reason}`,
+    values,
+  }, { allowHistoricalFunnelOverflow: true });
 }
 
 // 老客户入口原本就按“本次真实发生日期”入账，保留切换日前的兼容能力。

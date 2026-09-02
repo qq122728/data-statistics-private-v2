@@ -9,6 +9,7 @@ import { hasOversizedQueryValue } from "../../../lib/request-limits";
 import { getSystemSettings } from "../../../lib/settings";
 import { authorizationDenied } from "../../../lib/security-events";
 import { managedDepartmentIds } from "../../../lib/managed-department-scope";
+import { usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
 
 export async function GET(request: Request) {
   let actor;
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
       select: {
         id: true,
         name: true,
+        groupType: true,
         departmentId: true,
         countryCode: true,
         department: { select: { name: true, countryCode: true } },
@@ -71,8 +73,9 @@ export async function GET(request: Request) {
       ...(channelIds ? { channelId: { in: channelIds } } : {}),
     },
     select: {
-      groupId: true, businessDate: true, position: true, ownerId: true,
+      groupId: true, businessDate: true, position: true, ownerId: true, sourceReceptionId: true,
       owner: { select: { id: true, name: true, active: true } },
+      sourceReception: { select: { id: true, name: true, active: true } },
       approvedRevision: true,
     },
   }) : [];
@@ -80,11 +83,16 @@ export async function GET(request: Request) {
   const fresh = (): Sum => ({ joined: 0, orders: 0, depositCents: 0, withdrawalCents: 0 });
   const groupSums = new Map<string, Sum>();
   const peopleByRole = new Map<string, { person: (typeof entries)[number]["owner"]; groupId: string; sum: Sum }>();
+  const peopleByReception = new Map<string, { person: (typeof entries)[number]["owner"]; groupId: string; sum: Sum }>();
+  const groupTypeById = new Map(groups.map((group) => [group.id, group.groupType]));
   for (const entry of entries) {
     const value = entry.approvedRevision;
     if (!value) continue;
     const groupSum = groupSums.get(entry.groupId) ?? fresh();
     if (entry.position === "RECEPTION") groupSum.joined += value.joinCount;
+    if (entry.position === "GROUP_OPERATOR" && groupTypeById.get(entry.groupId) === "HACKER" && usesCustomerNumberTracking(entry.businessDate)) {
+      groupSum.joined += value.operatorReceivedCount;
+    }
     if (entry.position === "EXPERT") {
       groupSum.orders += value.orderCount;
       groupSum.depositCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
@@ -102,6 +110,22 @@ export async function GET(request: Request) {
     }
     peopleByRole.set(key, personRow);
 
+    // 业务归属永远回到最初接粉人；炒群和专家只是实际执行进度的人。
+    const reception = entry.sourceReception ?? (entry.position === "RECEPTION" ? entry.owner : null);
+    if (reception) {
+      const receptionKey = `${entry.groupId}:${reception.id}`;
+      const receptionRow = peopleByReception.get(receptionKey) ?? { person: reception, groupId: entry.groupId, sum: fresh() };
+      if (entry.position === "RECEPTION") receptionRow.sum.joined += value.joinCount;
+      if (entry.position === "GROUP_OPERATOR" && groupTypeById.get(entry.groupId) === "HACKER" && usesCustomerNumberTracking(entry.businessDate)) {
+        receptionRow.sum.joined += value.operatorReceivedCount;
+      }
+      if (entry.position === "EXPERT") {
+        receptionRow.sum.orders += value.orderCount;
+        receptionRow.sum.depositCents += value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
+        receptionRow.sum.withdrawalCents += value.withdrawalCents;
+      }
+      peopleByReception.set(receptionKey, receptionRow);
+    }
   }
   const groupById = new Map(groups.map((group) => [group.id, group]));
   const rowsForRole = (position: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT") => [...peopleByRole.entries()]
@@ -111,6 +135,11 @@ export async function GET(request: Request) {
       groupName: groupById.get(row.groupId)?.name ?? "未知小组", joined: row.sum.joined,
       orders: row.sum.orders, netCents: row.sum.depositCents - row.sum.withdrawalCents,
     }));
+  const receptionRows = [...peopleByReception.values()].map((row) => ({
+    id: row.person.id, name: row.person.name, active: row.person.active,
+    groupName: groupById.get(row.groupId)?.name ?? "未知小组", joined: row.sum.joined,
+    orders: row.sum.orders, netCents: row.sum.depositCents - row.sum.withdrawalCents,
+  }));
 
   return NextResponse.json({
     today,
@@ -124,7 +153,7 @@ export async function GET(request: Request) {
         orders: sum.orders, joined: sum.joined, netCents: sum.depositCents - sum.withdrawalCents,
       };
     }),
-    receptions: rowsForRole("RECEPTION"),
+    receptions: receptionRows,
     operators: rowsForRole("GROUP_OPERATOR"),
     experts: rowsForRole("EXPERT"),
   }, { headers: { "Cache-Control": "private, no-store" } });

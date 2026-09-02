@@ -16,6 +16,10 @@ const inputSchema = z.object({
   dryRun: z.boolean().optional(),
 }).strict();
 
+function automaticGroupDailyPushEnabled() {
+  return process.env.GROUP_DAILY_AUTO_PUSH_ENABLED?.trim().toLowerCase() === "true";
+}
+
 async function groupDailyTargets(now: Date, all = false) {
   const groups = await db.teamGroup.findMany({
     where: { active: true, department: { active: true } },
@@ -30,6 +34,12 @@ async function groupDailyTargets(now: Date, all = false) {
 }
 
 async function sendDueGroupDailyReports(request: Request, options: { now: Date; reportDate?: string; force?: boolean; dryRun?: boolean }) {
+  if (!automaticGroupDailyPushEnabled()) return {
+    enabled: false,
+    requestedReportDate: options.reportDate ?? null,
+    sentCount: 0,
+    results: [],
+  };
   const targets = await groupDailyTargets(options.now, Boolean(options.reportDate || options.force));
   if (options.dryRun) return {
     requestedReportDate: options.reportDate ?? null,

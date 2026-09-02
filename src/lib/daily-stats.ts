@@ -469,9 +469,18 @@ export async function incrementCustomerEventDailyStat(
   if (!usesCustomerNumberTracking(input.businessDate) && !input.allowBeforeNumberTracking) return null;
   const owner = await tx.user.findFirst({
     where: { id: input.ownerId, groupId: input.groupId, active: true },
-    select: { id: true, active: true, role: true, groupId: true, roleAssignments: { select: { role: true } } },
+    select: {
+      id: true,
+      active: true,
+      role: true,
+      groupId: true,
+      group: { select: { groupType: true } },
+      roleAssignments: { select: { role: true } },
+    },
   });
   if (!owner) throw new DailyStatError("老客户当前负责人已停用或不在本组，请先重新选择负责人");
+  // 号码漏斗只适用于黑客组；律师组继续使用自己的统计口径，避免重复入账。
+  if (owner.group?.groupType !== "HACKER") return null;
 
   const sources = normalizeSources({
     businessDate: input.businessDate,

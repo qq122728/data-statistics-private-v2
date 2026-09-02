@@ -82,6 +82,22 @@ const emptyValues = {
 };
 
 describe.sequential("独立每日数据填写、修改与审核", () => {
+  it("律师组不会套用黑客组的号码漏斗", async () => {
+    const data = await fixture("LAWYER");
+    await db.$transaction((tx) => incrementCustomerEventDailyStat(tx, {
+      ownerId: data.operator.id,
+      groupId: data.groupId,
+      channelId: data.channelId,
+      businessDate: "2026-09-02",
+      position: "GROUP_OPERATOR",
+      sourceReceptionId: data.reception.id,
+      reason: "律师组客户进群",
+      increment: { operatorReceivedCount: 1 },
+    }));
+
+    await expect(db.dailyStatEntry.count({ where: { groupId: data.groupId } })).resolves.toBe(0);
+  });
+
   it("当天添加为 0 时，老客户进群、注册和开单仍按发生日自动统计", async () => {
     const data = await fixture();
     await db.$transaction(async (tx) => {

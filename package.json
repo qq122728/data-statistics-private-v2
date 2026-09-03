@@ -36,6 +36,7 @@
     "seed:local-demo": "node scripts/seed-local-demo.mjs",
     "db:backfill:department-manager-duty": "node scripts/backfill-department-manager-duty.mjs",
     "db:clear-manual-joins": "node scripts/clear-manual-join-counts.mjs",
+    "db:reconcile-customer-joins": "tsx scripts/reconcile-customer-join-stats.ts",
     "db:ensure-hacker-member-roles": "node scripts/ensure-hacker-member-default-roles.mjs"
   },
   "prisma": {

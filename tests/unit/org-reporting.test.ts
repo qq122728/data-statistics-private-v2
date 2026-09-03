@@ -16,6 +16,7 @@ import { POST as postCustomerOrder } from "../../src/app/api/customer-orders/rou
 import { GET as getPerformanceLeaderboard } from "../../src/app/api/performance-leaderboard/route";
 import { GET as getLeadMemberDailyStats } from "../../src/app/api/lead/member-daily-stats/[memberId]/route";
 import { GET as getResourceReporting } from "../../src/app/api/resource/reporting/route";
+import { syncCustomerGroupEvent } from "../../src/lib/customer-number-event-sync";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 vi.mock("../../src/lib/db", async () => {
@@ -1651,6 +1652,182 @@ describe.sequential("新版客户进度 API", () => {
     });
     await db.channel.delete({
       where: { id_groupId: { id: channelId, groupId: ids.berlinGroup } },
+    });
+    vi.useRealTimers();
+  });
+
+  it("进群统计按客户真相幂等对账，改日期、改渠道和撤销都会搬走原数字", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-03T03:30:00Z"));
+    const originalChannelId = id("join-reconcile-original-channel");
+    const correctedChannelId = id("join-reconcile-corrected-channel");
+    await db.channel.createMany({
+      data: [
+        {
+          id: originalChannelId,
+          groupId: ids.berlinGroup,
+          name: `进群对账原渠道-${suffix}`,
+          normalizedName: `进群对账原渠道-${suffix}`,
+        },
+        {
+          id: correctedChannelId,
+          groupId: ids.berlinGroup,
+          name: `进群对账新渠道-${suffix}`,
+          normalizedName: `进群对账新渠道-${suffix}`,
+        },
+      ],
+    });
+    const originalBatch = await db.sourceBatch.create({
+      data: {
+        groupId: ids.berlinGroup,
+        channelId: originalChannelId,
+        sourceDate: "2026-08-31",
+        isHistoricalRecord: true,
+      },
+    });
+    const correctedBatch = await db.sourceBatch.create({
+      data: {
+        groupId: ids.berlinGroup,
+        channelId: correctedChannelId,
+        sourceDate: "2026-08-31",
+        isHistoricalRecord: true,
+      },
+    });
+    const customer = await db.leadCustomer.create({
+      data: {
+        phone: "839904",
+        batchId: originalBatch.id,
+        ownerId: ids.berlinReception,
+        attributionOwnerId: ids.berlinReception,
+        groupOperatorOwnerId: ids.berlinOperatorA,
+        invalid: false,
+        isHistoricalRecord: true,
+        historicalJoinCounted: true,
+        groupStatus: "JOINED",
+        joinedOn: "2026-09-01",
+        activities: {
+          create: {
+            actorId: ids.berlinOperatorA,
+            kind: "JOINED_GROUP",
+            occurredOn: "2026-09-01",
+          },
+        },
+      },
+    });
+    const tracked = (channelId: string) => ({
+      phone: customer.phone,
+      ownerId: ids.berlinReception,
+      attributionOwnerId: ids.berlinReception,
+      groupOperatorOwnerId: ids.berlinOperatorA,
+      expertOwnerId: null,
+      batch: { groupId: ids.berlinGroup, channelId },
+    });
+    const joinTotal = async (channelId: string, businessDate: string) => {
+      const entries = await db.dailyStatEntry.findMany({
+        where: {
+          groupId: ids.berlinGroup,
+          channelId,
+          businessDate,
+          position: "GROUP_OPERATOR",
+          sourceReceptionId: ids.berlinReception,
+        },
+        include: { currentRevision: true },
+      });
+      return entries.reduce(
+        (sum, entry) => sum + (entry.currentRevision?.operatorReceivedCount ?? 0),
+        0,
+      );
+    };
+
+    await db.$transaction((tx) =>
+      syncCustomerGroupEvent(tx, tracked(originalChannelId), {
+        businessDate: "2026-09-01",
+        kind: "JOIN",
+      }),
+    );
+    // 同一个动作再次到达时不再 +1。
+    await db.$transaction((tx) =>
+      syncCustomerGroupEvent(tx, tracked(originalChannelId), {
+        businessDate: "2026-09-01",
+        kind: "JOIN",
+      }),
+    );
+    expect(await joinTotal(originalChannelId, "2026-09-01")).toBe(1);
+
+    await db.leadCustomer.update({
+      where: { id: customer.id },
+      data: { joinedOn: "2026-09-02" },
+    });
+    await db.$transaction(async (tx) => {
+      await syncCustomerGroupEvent(tx, tracked(originalChannelId), {
+        businessDate: "2026-09-01",
+        kind: "JOIN",
+        delta: -1,
+      });
+      await syncCustomerGroupEvent(tx, tracked(originalChannelId), {
+        businessDate: "2026-09-02",
+        kind: "JOIN",
+      });
+    });
+    expect(await joinTotal(originalChannelId, "2026-09-01")).toBe(0);
+    expect(await joinTotal(originalChannelId, "2026-09-02")).toBe(1);
+
+    await db.leadCustomer.update({
+      where: { id: customer.id },
+      data: { batchId: correctedBatch.id },
+    });
+    await db.$transaction(async (tx) => {
+      await syncCustomerGroupEvent(tx, tracked(originalChannelId), {
+        businessDate: "2026-09-02",
+        kind: "JOIN",
+        delta: -1,
+      });
+      await syncCustomerGroupEvent(tx, tracked(correctedChannelId), {
+        businessDate: "2026-09-02",
+        kind: "JOIN",
+      });
+    });
+    expect(await joinTotal(originalChannelId, "2026-09-02")).toBe(0);
+    expect(await joinTotal(correctedChannelId, "2026-09-02")).toBe(1);
+
+    await db.leadCustomer.update({
+      where: { id: customer.id },
+      data: {
+        groupStatus: "NOT_JOINED",
+        joinedOn: null,
+        historicalJoinCounted: false,
+      },
+    });
+    await db.$transaction((tx) =>
+      syncCustomerGroupEvent(tx, tracked(correctedChannelId), {
+        businessDate: "2026-09-02",
+        kind: "JOIN",
+        delta: -1,
+      }),
+    );
+    expect(await joinTotal(correctedChannelId, "2026-09-02")).toBe(0);
+
+    const eventEntries = await db.dailyStatEntry.findMany({
+      where: { channelId: { in: [originalChannelId, correctedChannelId] } },
+      select: { id: true },
+    });
+    await db.leadActivity.deleteMany({ where: { leadId: customer.id } });
+    await db.leadCustomer.delete({ where: { id: customer.id } });
+    await db.dailyStatEntry.updateMany({
+      where: { id: { in: eventEntries.map((entry) => entry.id) } },
+      data: { currentRevisionId: null, approvedRevisionId: null },
+    });
+    await db.dailyStatRevision.deleteMany({
+      where: { entryId: { in: eventEntries.map((entry) => entry.id) } },
+    });
+    await db.dailyStatEntry.deleteMany({
+      where: { id: { in: eventEntries.map((entry) => entry.id) } },
+    });
+    await db.sourceBatch.deleteMany({
+      where: { id: { in: [originalBatch.id, correctedBatch.id] } },
+    });
+    await db.channel.deleteMany({
+      where: { id: { in: [originalChannelId, correctedChannelId] } },
     });
     vi.useRealTimers();
   });

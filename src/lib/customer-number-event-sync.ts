@@ -1,5 +1,7 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { customerCurrentGroupWhere } from "./customer-current-group";
+import { usesCustomerNumberTracking } from "./customer-number-tracking";
+import { isPostgresDatabase } from "./database-provider";
 import { incrementCustomerEventDailyStat } from "./daily-stats";
 
 export type NumberTrackedLead = {
@@ -69,6 +71,146 @@ async function currentInGroupSnapshot(tx: Prisma.TransactionClient, lead: Number
   });
 }
 
+/**
+ * 进群数以客户进度表为唯一事实来源，不再相信调用方传来的 +1/-1。
+ *
+ * 同一来源线可能由不同炒群人员承载过日报，因此先汇总该来源线已有的全部
+ * GROUP_OPERATOR 行，再把差额补上或逐行扣除。重复调用时差额为 0，不会重复记账。
+ */
+async function loadCustomerJoinBucket(
+  tx: Prisma.TransactionClient,
+  lead: NumberTrackedLead,
+  businessDate: string,
+) {
+  const sourceReceptionId = receptionOwnerId(lead);
+  const desiredCount = await tx.leadCustomer.count({
+    where: {
+      joinedOn: businessDate,
+      invalid: false,
+      trackingArchivedAt: null,
+      batch: {
+        groupId: lead.batch.groupId,
+        channelId: lead.batch.channelId,
+      },
+      AND: [
+        {
+          OR: [
+            { attributionOwnerId: sourceReceptionId },
+            { attributionOwnerId: null, ownerId: sourceReceptionId },
+          ],
+        },
+        {
+          OR: [
+            // 正常新增客户直接按真实进群日期计数。
+            { isHistoricalRecord: false, batch: { isHistoricalRecord: false } },
+            // 历史粉只有在切换日后真实发生进群时才计数。
+            { historicalJoinCounted: true },
+            // 兼容旧版本已留下真实“进群”操作记录、但漏写 counted 标记的数据。
+            { activities: { some: { kind: "JOINED_GROUP", occurredOn: businessDate } } },
+          ],
+        },
+      ],
+    },
+  });
+
+  const candidates = await tx.dailyStatEntry.findMany({
+    where: {
+      groupId: lead.batch.groupId,
+      channelId: lead.batch.channelId,
+      businessDate,
+      position: "GROUP_OPERATOR",
+      sourceReceptionId,
+      currentRevisionId: { not: null },
+    },
+    include: { currentRevision: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const existingCount = candidates.reduce(
+    (sum, entry) => sum + (entry.currentRevision?.operatorReceivedCount ?? 0),
+    0,
+  );
+  return { sourceReceptionId, desiredCount, existingCount, candidates };
+}
+
+export async function inspectCustomerJoinEvent(
+  tx: Prisma.TransactionClient,
+  lead: NumberTrackedLead,
+  businessDate: string,
+) {
+  if (!usesCustomerNumberTracking(businessDate)) {
+    return { desiredCount: 0, existingCount: 0, difference: 0 };
+  }
+  const { desiredCount, existingCount } = await loadCustomerJoinBucket(tx, lead, businessDate);
+  return { desiredCount, existingCount, difference: desiredCount - existingCount };
+}
+
+export async function reconcileCustomerJoinEvent(
+  tx: Prisma.TransactionClient,
+  lead: NumberTrackedLead,
+  businessDate: string,
+) {
+  if (!usesCustomerNumberTracking(businessDate)) return null;
+
+  const sourceReceptionId = receptionOwnerId(lead);
+  const bucketKey = [lead.batch.groupId, lead.batch.channelId, businessDate, sourceReceptionId].join(":");
+  // 线上 PostgreSQL 可能同时收到两个保存请求。同一统计桶串行核对，避免两个请求
+  // 都读到旧数后各自补一次；SQLite 单元测试本身就是串行写入，无需数据库锁。
+  if (isPostgresDatabase()) {
+    await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${bucketKey}))`);
+  }
+
+  const bucket = await loadCustomerJoinBucket(tx, lead, businessDate);
+  const { desiredCount, existingCount, candidates } = bucket;
+  const difference = desiredCount - existingCount;
+  if (difference === 0) return null;
+
+  const snapshot = await currentInGroupSnapshot(tx, lead);
+  if (difference > 0) {
+    const ownerId = await dailyStatCarrierId(
+      tx,
+      lead,
+      lead.groupOperatorOwnerId ?? sourceReceptionId,
+    );
+    return incrementCustomerEventDailyStat(tx, {
+      ownerId,
+      groupId: lead.batch.groupId,
+      channelId: lead.batch.channelId,
+      businessDate,
+      position: "GROUP_OPERATOR",
+      sourceReceptionId,
+      reason: `${lead.phone} 进群自动对账`,
+      increment: { operatorReceivedCount: difference },
+      currentInGroupSnapshot: snapshot,
+    });
+  }
+
+  let remaining = -difference;
+  let result = null;
+  const preferredOwnerId = lead.groupOperatorOwnerId ?? sourceReceptionId;
+  const positiveCandidates = candidates
+    .filter((entry) => (entry.currentRevision?.operatorReceivedCount ?? 0) > 0)
+    .sort((left, right) => Number(right.ownerId === preferredOwnerId) - Number(left.ownerId === preferredOwnerId));
+  for (const candidate of positiveCandidates) {
+    if (remaining === 0) break;
+    const recorded = candidate.currentRevision?.operatorReceivedCount ?? 0;
+    const decrement = Math.min(recorded, remaining);
+    result = await incrementCustomerEventDailyStat(tx, {
+      ownerId: candidate.ownerId,
+      groupId: candidate.groupId,
+      channelId: candidate.channelId,
+      businessDate: candidate.businessDate,
+      position: "GROUP_OPERATOR",
+      sourceReceptionId,
+      sourceGroupOperatorId: candidate.sourceGroupOperatorId,
+      reason: `${lead.phone} 进群自动对账`,
+      increment: { operatorReceivedCount: -decrement },
+      currentInGroupSnapshot: snapshot,
+    });
+    remaining -= decrement;
+  }
+  return result;
+}
+
 export async function syncCustomerGroupEvent(
   tx: Prisma.TransactionClient,
   lead: NumberTrackedLead,
@@ -78,11 +220,12 @@ export async function syncCustomerGroupEvent(
     delta?: number;
   },
 ) {
+  if (input.kind === "JOIN") {
+    return reconcileCustomerJoinEvent(tx, lead, input.businessDate);
+  }
   const delta = input.delta ?? 1;
   const ownerId = await dailyStatCarrierId(tx, lead, lead.groupOperatorOwnerId ?? receptionOwnerId(lead));
-  const increment = input.kind === "JOIN"
-    ? { operatorReceivedCount: delta }
-    : input.kind === "NORMAL_LEAVE"
+  const increment = input.kind === "NORMAL_LEAVE"
       ? { normalLeaveCount: delta }
       : input.kind === "ABNORMAL_LEAVE"
         ? { abnormalLeaveCount: delta }

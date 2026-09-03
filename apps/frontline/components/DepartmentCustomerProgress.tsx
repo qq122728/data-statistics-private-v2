@@ -73,6 +73,9 @@ type Payload = {
   page: number;
   pageSize: number;
   total: number;
+  counts: Record<"reception" | "group" | "pending-expert" | "expert", number>;
+  expertStage: ExpertStageFilter;
+  expertCounts: Record<ExpertStage, number>;
   customers: Customer[];
   channels: string[];
   channelOptions: Option[];
@@ -90,6 +93,17 @@ type ProgressFilter =
   | "已开单"
   | "已退群";
 type ViewMode = "group" | "expert";
+type ExpertStage =
+  | "QUEUED"
+  | "MATERIALS"
+  | "TRACKING"
+  | "PENDING_REGISTRATION"
+  | "PENDING_ORDER"
+  | "DECLINED_DEPOSIT"
+  | "ORDERED"
+  | "STALLED";
+type ExpertStageFilter = "all" | "FOLLOWING" | ExpertStage;
+type CreateMode = "group" | "expert-recovery";
 type FinanceKind = "INITIAL" | "RECHARGE" | "WITHDRAWAL";
 type ColumnKey =
   | "dates"
@@ -201,6 +215,19 @@ const expertProgressFilters: ProgressFilter[] = [
   "已注册",
   "已开单",
   "已退群",
+];
+const expertStageFilters: Array<{
+  value: ExpertStageFilter;
+  label: string;
+}> = [
+  { value: "all", label: "全部" },
+  { value: "QUEUED", label: "待专家接待" },
+  { value: "FOLLOWING", label: "跟进中" },
+  { value: "PENDING_REGISTRATION", label: "待注册" },
+  { value: "PENDING_ORDER", label: "待开单" },
+  { value: "ORDERED", label: "已开单" },
+  { value: "DECLINED_DEPOSIT", label: "暂不首充" },
+  { value: "STALLED", label: "停止维护" },
 ];
 
 function latestGroupText(customer: Customer) {
@@ -333,6 +360,7 @@ export function DepartmentCustomerProgress({
   const [page, setPage] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("group");
+  const [expertStage, setExpertStage] = useState<ExpertStageFilter>("all");
   const [query, setQuery] = useState("");
   const [progress, setProgress] = useState<ProgressFilter>("全部进度");
   const [month, setMonth] = useState("");
@@ -347,7 +375,12 @@ export function DepartmentCustomerProgress({
   const [expertDates, setExpertDates] = useState<Record<string, string>>({});
   const [savedMessage, setSavedMessage] = useState("");
   const [adding, setAdding] = useState(false);
+  const [createMode, setCreateMode] = useState<CreateMode>("group");
   const [creating, setCreating] = useState(false);
+  const [phoneLookup, setPhoneLookup] = useState<
+    | { status: "idle" | "loading" | "missing" }
+    | { status: "found"; customer: Customer }
+  >({ status: "idle" });
   const [draft, setDraft] = useState({
     phone: "",
     customerName: "",
@@ -411,14 +444,18 @@ export function DepartmentCustomerProgress({
       (member.role === "LEAD" || member.roles?.includes("LEAD")),
   );
   const businessToday = payload?.today ?? localToday();
-  const expertCreateOptions =
-    viewMode === "expert" && member && !isLead
-      ? (payload?.expertOptions.filter((item) => item.id === payload.actorId) ?? [])
-      : (payload?.expertOptions ?? []);
+  const expertCreateOptions = payload?.expertOptions ?? [];
+  const canRegisterExpertCustomer = Boolean(
+    canCreate && (isLead || canEditGroup) && expertCreateOptions.length > 0,
+  );
   const canCreateInView =
     canCreate &&
-    ((viewMode === "group" && (isLead || canEditReception)) ||
-      (canEditExpert && expertCreateOptions.length > 0));
+    viewMode === "group" &&
+    (isLead || canEditReception);
+  const exactPhoneQuery = useMemo(() => {
+    const digits = query.replace(/\D/g, "");
+    return digits.length >= 6 ? digits.slice(-6) : "";
+  }, [query]);
 
   useEffect(() => {
     if (groups) {
@@ -462,8 +499,9 @@ export function DepartmentCustomerProgress({
       progress,
       day,
     });
+    if (viewMode === "expert") params.set("expertStage", expertStage);
     if (month) params.set("month", month);
-    if (query.trim()) params.set("q", query.trim());
+    if (query.trim()) params.set("q", exactPhoneQuery || query.trim());
     if (memberFilter) params.set("memberId", memberFilter);
     if (channelFilter) params.set("channel", channelFilter);
     const requestKey = params.toString();
@@ -489,7 +527,42 @@ export function DepartmentCustomerProgress({
     return () => {
       cancelled = true;
     };
-  }, [channelFilter, day, groupId, memberFilter, month, page, progress, query, reloadKey, viewMode]);
+  }, [channelFilter, day, exactPhoneQuery, expertStage, groupId, memberFilter, month, page, progress, query, reloadKey, viewMode]);
+  useEffect(() => {
+    if (
+      viewMode !== "group" ||
+      !groupId ||
+      !exactPhoneQuery ||
+      !canRegisterExpertCustomer
+    ) {
+      setPhoneLookup({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setPhoneLookup({ status: "loading" });
+    const params = new URLSearchParams({
+      groupId,
+      stage: "group",
+      page: "1",
+      q: exactPhoneQuery,
+    });
+    void requestJson<Payload>(`/api/lead/customer-reporting?${params}`)
+      .then((result) => {
+        if (cancelled) return;
+        const customer = result.customers.find(
+          (item) => item.phone === exactPhoneQuery,
+        );
+        setPhoneLookup(
+          customer ? { status: "found", customer } : { status: "missing" },
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setPhoneLookup({ status: "idle" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canRegisterExpertCustomer, exactPhoneQuery, groupId, reloadKey, viewMode]);
   useEffect(() => {
     if (adding) phoneInput.current?.focus();
   }, [adding]);
@@ -542,15 +615,24 @@ export function DepartmentCustomerProgress({
           customer.attributionOwner?.id ?? customer.owner?.id ?? "";
         return (
           belongsToView &&
-          (!query.trim() || haystack.includes(query.trim().toLowerCase())) &&
+          (!query.trim() ||
+            haystack.includes((exactPhoneQuery || query.trim()).toLowerCase())) &&
           (!memberFilter || attributionId === memberFilter) &&
           (!channelFilter || customer.batch.channel.name === channelFilter)
         );
       }),
-    [channelFilter, memberFilter, payload?.customers, query, viewMode],
+    [channelFilter, exactPhoneQuery, memberFilter, payload?.customers, query, viewMode],
   );
   const progressFilters =
     viewMode === "group" ? groupProgressFilters : expertProgressFilters;
+  const expertStageCount = (value: ExpertStageFilter) => {
+    if (!payload) return 0;
+    if (value === "all") return payload.counts.expert ?? 0;
+    if (value === "FOLLOWING")
+      return (payload.expertCounts.MATERIALS ?? 0) +
+        (payload.expertCounts.TRACKING ?? 0);
+    return payload.expertCounts[value] ?? 0;
+  };
   const showColumn = (key: ColumnKey) =>
     !compactView || mandatoryColumns.has(key) || !hiddenColumns.includes(key);
   const tableColumns = columnsByView[viewMode].filter(showColumn).length;
@@ -569,8 +651,10 @@ export function DepartmentCustomerProgress({
   function switchView(next: ViewMode) {
     setViewMode(next);
     setProgress("全部进度");
+    setExpertStage("all");
     setPage(1);
     setAdding(false);
+    setPhoneLookup({ status: "idle" });
   }
   function toggleColumn(key: ColumnKey) {
     if (mandatoryColumns.has(key)) return;
@@ -590,27 +674,29 @@ export function DepartmentCustomerProgress({
       return next;
     });
   }
-  function beginAdd() {
+  function beginAdd(mode: CreateMode = "group", phone = "") {
     const today = businessToday;
     setProgress("全部进度");
     setPage(1);
     setAdding(true);
+    setCreateMode(mode);
     setError("");
     setDraft({
-      phone: "",
+      phone,
       customerName: "",
       customerPlatform: "",
       lossAmount: "",
       channelId: payload?.channelOptions[0]?.id ?? "",
       attributionOwnerId:
-        viewMode === "expert"
+        mode === "expert-recovery"
           ? ""
           : (payload?.receptionOptions.find((item) => item.id === member?.id)?.id ??
             payload?.receptionOptions[0]?.id ??
             ""),
       groupOperatorOwnerId:
-        viewMode === "expert"
-          ? ""
+        mode === "expert-recovery"
+          ? (payload?.operatorOptions.find((item) => item.id === payload.actorId)?.id ??
+            "")
           : (payload?.operatorOptions.find((item) => item.id === member?.id)?.id ??
             payload?.operatorOptions[0]?.id ??
             ""),
@@ -618,12 +704,8 @@ export function DepartmentCustomerProgress({
       sourceDate: today,
       joinedOn: today,
       expertOwnerId:
-        viewMode === "expert"
-          ? (expertCreateOptions.find((item) => item.id === payload?.actorId)?.id ??
-            expertCreateOptions[0]?.id ??
-            "")
-          : "",
-      expertIntroducedOn: viewMode === "expert" ? today : "",
+        "",
+      expertIntroducedOn: mode === "expert-recovery" ? today : "",
     });
   }
   async function createCustomer() {
@@ -632,7 +714,7 @@ export function DepartmentCustomerProgress({
       !draft.attributionOwnerId ||
       !draft.groupOperatorOwnerId ||
       !draft.deviceCode.trim() ||
-      (viewMode === "expert" &&
+      (createMode === "expert-recovery" &&
         (!draft.expertOwnerId || !draft.expertIntroducedOn))
     ) {
       setError("请选择接粉归属、炒群负责人，并填写设备账号");
@@ -663,7 +745,7 @@ export function DepartmentCustomerProgress({
           groupId,
           lossAmountCents:
             lossAmount === null ? null : Math.round(lossAmount * 100),
-          ...(viewMode === "expert"
+          ...(createMode === "expert-recovery"
             ? {
                 expertOwnerId,
                 expertIntroducedOn,
@@ -678,6 +760,10 @@ export function DepartmentCustomerProgress({
       // 其他月份，新行会不在当前筛选中；保存后回到全时间，让用户立即看到结果。
       setMonth("");
       setDay("all");
+      if (createMode === "expert-recovery") {
+        setViewMode("expert");
+        setQuery(draft.phone);
+      }
       showSaved(
         result.resumed
           ? `8月客户已续接${result.counted?.join ? "，本次进群已计数" : "，原进群不重复计数"}${result.counted?.expert ? "，本次推专家已计数" : ""}`
@@ -1002,6 +1088,7 @@ export function DepartmentCustomerProgress({
             onChange={(event) => {
               setGroupId(event.target.value);
               setProgress("全部进度");
+              setExpertStage("all");
               setMemberFilter("");
               setChannelFilter("");
               setPage(1);
@@ -1020,10 +1107,10 @@ export function DepartmentCustomerProgress({
               <button
                 className={styles.addButton}
                 disabled={!groupId || loading || adding}
-                onClick={beginAdd}
+                onClick={() => beginAdd("group")}
               >
                 <Plus size={15} weight="bold" />
-                {viewMode === "expert" ? "新增专家客户" : "新增进群客户"}
+                新增进群客户
               </button>
             ) : null}
           </div>
@@ -1052,7 +1139,8 @@ export function DepartmentCustomerProgress({
                 aria-pressed={viewMode === "group"}
                 onClick={() => switchView("group")}
               >
-                在群待推专家
+                炒群进度
+                <small>{payload?.counts["pending-expert"] ?? 0}</small>
               </button>
               <button
                 type="button"
@@ -1061,25 +1149,45 @@ export function DepartmentCustomerProgress({
                 onClick={() => switchView("expert")}
               >
                 专家进度
+                <small>{payload?.counts.expert ?? 0}</small>
               </button>
             </nav>
-            <label className={styles.stageFilter}>
+            <div className={styles.stageFilters} aria-label="进度状态筛选">
               <span>进度状态</span>
-              <select
-                aria-label="客户状态筛选"
-                value={progress}
-                onChange={(event) => {
-                  setProgress(event.target.value as ProgressFilter);
-                  setPage(1);
-                }}
-              >
-                {progressFilters.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div>
+                {viewMode === "expert"
+                  ? expertStageFilters.map((item) => (
+                      <button
+                        type="button"
+                        key={item.value}
+                        data-active={expertStage === item.value}
+                        aria-pressed={expertStage === item.value}
+                        onClick={() => {
+                          setExpertStage(item.value);
+                          setProgress("全部进度");
+                          setPage(1);
+                        }}
+                      >
+                        {item.label}
+                        <small>{expertStageCount(item.value)}</small>
+                      </button>
+                    ))
+                  : progressFilters.map((item) => (
+                      <button
+                        type="button"
+                        key={item}
+                        data-active={progress === item}
+                        aria-pressed={progress === item}
+                        onClick={() => {
+                          setProgress(item);
+                          setPage(1);
+                        }}
+                      >
+                        {item === "全部进度" ? "全部" : item}
+                      </button>
+                    ))}
+              </div>
+            </div>
           </div>
           <span className={styles.liveState}>
             <i />
@@ -1144,7 +1252,10 @@ export function DepartmentCustomerProgress({
               </tr>
             </thead>
             <tbody>
-              {adding && canCreateInView ? (
+              {adding &&
+              (canCreateInView ||
+                (createMode === "expert-recovery" &&
+                  canRegisterExpertCustomer)) ? (
                 <tr className={styles.draftRow}>
                   <td>
                     <div className={styles.stackedCell}>
@@ -1259,7 +1370,7 @@ export function DepartmentCustomerProgress({
                             !draft.attributionOwnerId ||
                             !draft.groupOperatorOwnerId ||
                             !draft.deviceCode.trim() ||
-                            (viewMode === "expert" &&
+                            (createMode === "expert-recovery" &&
                               (!draft.expertOwnerId ||
                                 !draft.expertIntroducedOn))
                           }
@@ -1292,7 +1403,7 @@ export function DepartmentCustomerProgress({
                             }))
                           }
                         >
-                          {viewMode === "expert" ? (
+                          {createMode === "expert-recovery" ? (
                             <option value="">请选择原接粉组员</option>
                           ) : null}
                           {payload?.receptionOptions.map((item) => (
@@ -1302,7 +1413,7 @@ export function DepartmentCustomerProgress({
                           ))}
                         </select>
                       </label>
-                      {viewMode === "expert" ? (
+                      {createMode === "expert-recovery" ? (
                         <>
                           <label>
                             <span>专家</span>
@@ -1317,6 +1428,7 @@ export function DepartmentCustomerProgress({
                                 }))
                               }
                             >
+                              <option value="">请选择专家负责人</option>
                               {expertCreateOptions.map((item) => (
                                 <option key={item.id} value={item.id}>
                                   {item.name}
@@ -1375,7 +1487,7 @@ export function DepartmentCustomerProgress({
                             }))
                           }
                         >
-                          {viewMode === "expert" ? (
+                          {createMode === "expert-recovery" ? (
                             <option value="">请选择实际炒群负责人</option>
                           ) : null}
                           {payload?.operatorOptions.map((item) => (
@@ -1409,7 +1521,9 @@ export function DepartmentCustomerProgress({
                   >
                     {creating
                       ? "正在保存…"
-                      : "客户号码、姓名、平台和被骗金额集中填写；日期默认今天，也可以修改"}
+                      : createMode === "expert-recovery"
+                        ? "历史接粉和进群日期只恢复档案，不补算旧月份；仅按本次推专家日期增加统计"
+                        : "客户号码、姓名、平台和被骗金额集中填写；日期默认今天，也可以修改"}
                   </td>
                 </tr>
               ) : null}
@@ -2188,9 +2302,44 @@ export function DepartmentCustomerProgress({
               {!loading && customers.length === 0 && !adding ? (
                 <tr>
                   <td colSpan={tableColumns} className={styles.empty}>
-                    {viewMode === "group"
-                      ? "没有待推专家的客户"
-                      : "还没有已推专家的客户"}
+                    {viewMode === "group" && exactPhoneQuery ? (
+                      phoneLookup.status === "loading" ? (
+                        "正在核对这个号码的全部进度…"
+                      ) : phoneLookup.status === "found" &&
+                        phoneLookup.customer.expertIntroducedOn ? (
+                        <>
+                          该号码已经推过专家，没有重复新增。
+                          <button
+                            type="button"
+                            onClick={() => switchView("expert")}
+                          >
+                            查看专家进度
+                          </button>
+                        </>
+                      ) : phoneLookup.status === "missing" &&
+                        canRegisterExpertCustomer ? (
+                        <>
+                          没有找到这个号码的当前档案。
+                          <button
+                            type="button"
+                            onClick={() =>
+                              beginAdd("expert-recovery", exactPhoneQuery)
+                            }
+                          >
+                            登记本次推专家
+                          </button>
+                          <small>
+                            可填写历史接粉、进群日期；旧月份不会重复加数
+                          </small>
+                        </>
+                      ) : (
+                        "没有找到这个号码"
+                      )
+                    ) : viewMode === "group" ? (
+                      "没有待推专家的客户"
+                    ) : (
+                      "还没有已推专家的客户"
+                    )}
                   </td>
                 </tr>
               ) : null}

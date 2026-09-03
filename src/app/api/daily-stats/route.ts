@@ -141,8 +141,11 @@ export async function GET(request: Request) {
     const emptyValues = () => Object.fromEntries(numberFields.map((field) => [field, 0])) as RevisionValues;
     const unifiedByScope = new Map<string, typeof attributionEntries>();
     for (const entry of attributionEntries) {
-      const attributionOwnerId = entry.sourceReceptionId ?? entry.ownerId;
-      if (attributionOwnerId !== actor.id) continue;
+      // 接粉账号要看到沿该客户链路产生的后续数据；炒群和专家账号也必须
+      // 看到自己名下的岗位行。旧逻辑只按 sourceReceptionId 归组，导致炒群、
+      // 专家明明已经由客户进度自动记账，自己的“当日数据”却仍显示 0。
+      if (entry.ownerId !== actor.id && entry.sourceReceptionId !== actor.id)
+        continue;
       const key = `${entry.businessDate}\0${entry.channelId}`;
       const rows = unifiedByScope.get(key) ?? [];
       rows.push(entry);

@@ -68,6 +68,43 @@ No extra crop was needed because the 478-pixel-wide comparison makes the complet
 
 final result: passed
 
+## Customer progress two-level stage navigation
+
+- Source visual truth: `/Users/aaaa/.codex/generated_images/01a062c5-1756-7f32-9129-d2a266fd61eb/exec-de5049c6-3710-432d-bec4-d6209c4a72ce.png`
+- Browser-rendered implementation: `/Users/aaaa/Desktop/数据统计/outputs/smart-expert-test/16-progress-expert-final.png`
+- Focused implementation crop: `/Users/aaaa/Desktop/数据统计/outputs/smart-expert-test/15-progress-controls-final.png`
+- Combined comparison input: `/Users/aaaa/Desktop/数据统计/outputs/smart-expert-test/17-design-comparison-final.png`
+- Source pixels: 1919 × 820. Full implementation pixels: 1920 × 936. Focused implementation pixels: 1642 × 81. Browser CSS viewport: 1920 × 936 at density 1.
+- State: authenticated `demo_operator`, customer progress page, “专家进度”, all expert stages selected.
+
+### Full-view and focused comparison evidence
+
+The full browser capture confirms that the new controls remain within the existing compact customer-table header and do not displace the first data rows. The combined comparison places the approved mockup and the final focused browser crop in one image. Both preserve the two primary stages, blue active treatment, real count badges and one-row expert-stage filters. The implementation intentionally uses the product's denser sizing so the customer table retains vertical space.
+
+### Required fidelity surfaces
+
+- Fonts and typography: existing Chinese system font, weights and compact dashboard hierarchy are preserved; all labels stay horizontal and readable.
+- Spacing and layout rhythm: two centered primary tabs sit above one full-width filter row; all eight expert filters share the available width evenly.
+- Colors and visual tokens: existing blue active state, pale-blue selection, white surfaces and cool-gray borders match the approved direction.
+- Image quality and assets: this navigation contains no raster assets or icons, so no substitute or placeholder imagery was introduced.
+- Copy and content: primary labels are “炒群进度” and “专家进度”. Expert filters are 全部、待专家接待、跟进中、待注册、待开单、已开单、暂不首充、停止维护. Every displayed number comes from the customer-reporting API.
+
+### Findings and comparison history
+
+- First comparison P2: the expert-stage buttons kept their intrinsic width and left a large unused blank region on the right.
+  - Fix: changed the stage buttons to distribute the available row width while retaining horizontal overflow behavior at narrow widths.
+  - Post-fix evidence: `17-design-comparison-final.png` shows the final filter row spanning the complete content width with balanced spacing.
+- No remaining actionable P0, P1 or P2 findings. The smaller control height compared with the concept image is an intentional fit with the existing dense spreadsheet interface.
+
+### Interaction and runtime verification
+
+- Switched from 炒群进度 to 专家进度 in Google Chrome.
+- Selected “待开单 1”; the API-backed result total changed to one customer, then “全部 2” restored both customers.
+- Repeated tab and stage interactions completed without a visible error, alert or failed page state.
+- Customer-reporting and daily-stat tests: 46 passed. Frontline tests: 55 passed. Root and frontline TypeScript checks and production builds passed.
+
+final result: passed
+
 ## Stage-aware customer progress selector
 
 - Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-db5f5eb2-9cfc-40ce-b63c-783a01ee06a4.png`

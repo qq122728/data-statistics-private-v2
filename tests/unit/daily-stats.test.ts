@@ -517,6 +517,12 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     });
 
     signInAs(data.operator);
+    const operatorDaily = await GET(new Request("http://localhost/api/daily-stats?from=2026-08-29&to=2026-08-29"));
+    await expect(operatorDaily.json()).resolves.toMatchObject({
+      unifiedEntries: [expect.objectContaining({
+        values: expect.objectContaining({ operatorReceivedCount: 12, expertIntroCount: 5 }),
+      })],
+    });
     const operatorPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=GROUP_OPERATOR&range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     await expect(operatorPerformance.json()).resolves.toMatchObject({
       totals: { joined: 12, introduced: 5, registered: 0, orders: 0 },
@@ -524,6 +530,12 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     });
 
     signInAs(data.expert);
+    const expertDaily = await GET(new Request("http://localhost/api/daily-stats?from=2026-08-29&to=2026-08-29"));
+    await expect(expertDaily.json()).resolves.toMatchObject({
+      unifiedEntries: [expect.objectContaining({
+        values: expect.objectContaining({ expertReceivedCount: 5, registrationCount: 2, orderCount: 1 }),
+      })],
+    });
     const expertPerformance = await GET_PERSONAL_PERFORMANCE(new Request("http://localhost/api/personal-performance?role=EXPERT&range=custom&sourceDateFrom=2026-08-29&sourceDateTo=2026-08-29"));
     await expect(expertPerformance.json()).resolves.toMatchObject({
       totals: { registered: 2, orders: 1, initialDepositCents: 114800 },

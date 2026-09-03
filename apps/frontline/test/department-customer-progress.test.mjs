@@ -18,13 +18,13 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /disabled=\{!month\}/);
   assert.match(component, /"已注册"/);
   assert.match(component, /if \(customer\.registeredOn\) return "已注册"/);
-  assert.match(component, /aria-label="客户状态筛选"/);
+  assert.match(component, /aria-label="进度状态筛选"/);
   assert.match(component, /className=\{styles\.viewControls\}/);
   assert.match(component, /进度状态/);
   assert.match(component, /aria-label="归属组员筛选"/);
   assert.match(component, /aria-label="来源渠道筛选"/);
   assert.match(component, /aria-label="客户跟进入口"/);
-  assert.match(component, /在群待推专家/);
+  assert.match(component, /炒群进度/);
   assert.match(component, /专家进度/);
   assert.match(component, /stage: viewMode === "group" \? "pending-expert" : "expert"/);
   assert.match(component, /!customer\.expertIntroducedOn/);
@@ -46,7 +46,7 @@ test("五个客户阶段使用按日编号并支持编号搜索", () => {
   assert.match(component, /registrationQueueNumber/);
   assert.match(component, /orderQueueNumber/);
   assert.match(component, /leaveQueueNumber/);
-  assert.match(component, /params\.set\("q", query\.trim\(\)\)/);
+  assert.match(component, /params\.set\("q", exactPhoneQuery \|\| query\.trim\(\)\)/);
   assert.match(component, /编号 \/ 接粉 \/ 进群/);
   assert.match(css, /\.queueBadge/);
 });
@@ -74,7 +74,7 @@ test("组员和组长都能新增进群客户", () => {
   assert.match(component, /新客户接粉日期/);
   assert.match(component, /新客户进群日期/);
   assert.ok(component.includes("sourceDate: localToday()"));
-  assert.match(component, /expertIntroducedOn: viewMode === "expert" \? today : ""/);
+  assert.match(component, /expertIntroducedOn: mode === "expert-recovery" \? today : ""/);
   assert.match(component, /const \{ expertOwnerId, expertIntroducedOn, \.\.\.groupDraft \} = draft/);
   assert.match(component, /\.\.\.groupDraft/);
   assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
@@ -85,13 +85,21 @@ test("组员和组长都能新增进群客户", () => {
 });
 
 test("历史客户恢复后回到全部时间并立即显示", () => {
-  assert.match(component, /setAdding\(false\);\s*setPage\(1\);\s*setProgress\("全部进度"\);\s*\/\/[^]*setMonth\(""\);\s*setDay\("all"\);\s*showSaved/);
+  assert.match(component, /setAdding\(false\);\s*setPage\(1\);\s*setProgress\("全部进度"\);\s*\/\/[^]*setMonth\(""\);\s*setDay\("all"\)/);
+  assert.match(component, /if \(createMode === "expert-recovery"\) \{\s*setViewMode\("expert"\);\s*setQuery\(draft\.phone\)/);
+  assert.match(component, /showSaved\(/);
 });
 
-test("专家可以在专家进度直接新增一行并确认实际推专家日期", () => {
-  assert.match(component, /新增专家客户/);
+test("搜索号码后由炒群负责人智能登记遗失档案的推专家动作", () => {
+  assert.doesNotMatch(component, /\? "新增专家客户"/);
   assert.doesNotMatch(component, /补录已注册\/开单客户/);
-  assert.match(component, /viewMode === "group" && \(isLead \|\| canEditReception\)/);
+  assert.match(component, /const canRegisterExpertCustomer = Boolean/);
+  assert.match(component, /isLead \|\| canEditGroup/);
+  assert.match(component, /stage: "group"/);
+  assert.match(component, /exactPhoneQuery/);
+  assert.match(component, /登记本次推专家/);
+  assert.match(component, /旧月份不会重复加数/);
+  assert.match(component, /该号码已经推过专家，没有重复新增/);
   assert.match(component, /canCreateInView/);
   assert.match(component, /aria-label="新增客户专家负责人"/);
   assert.match(component, /aria-label="新增客户推专家日期"/);
@@ -162,6 +170,12 @@ test("表格视觉使用双层信息和清晰的冻结列", () => {
   assert.match(css, /\.table\[data-view="group"\]\s*\{\s*min-width:\s*1260px/);
   assert.match(css, /\.table\[data-view="expert"\]\s*\{\s*min-width:\s*1510px/);
   assert.match(css, /\.viewTabs button\[data-active="true"\]/);
+  assert.match(component, /炒群进度/);
+  assert.match(component, /待专家接待/);
+  assert.match(component, /FOLLOWING/);
+  assert.match(component, /payload\?\.counts\["pending-expert"\]/);
+  assert.match(component, /payload\.expertCounts\.MATERIALS/);
+  assert.match(css, /\.stageFilters button\[data-active="true"\]/);
   assert.match(css, /\.dayCell\s*\{[^}]*background:\s*#edf8f1/);
   assert.match(css, /\.progressCell\s*\{[^}]*width:\s*230px/);
   assert.match(css, /\.stackedCell\s*\{[^}]*display:\s*grid;[^}]*gap:\s*5px/);

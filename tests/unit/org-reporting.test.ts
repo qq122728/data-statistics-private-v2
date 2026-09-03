@@ -1867,7 +1867,7 @@ describe.sequential("新版客户进度 API", () => {
     vi.useRealTimers();
   });
 
-  it("专家可直接新增专家进度行，并按真实日期生成 G/E 编号和两段统计", async () => {
+  it("炒群负责人可登记遗失号码的推专家进度，并按真实日期生成 G/E 编号和两段统计", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-02T03:30:00Z"));
     const channelId = id("expert-direct-create-channel");
@@ -1883,8 +1883,8 @@ describe.sequential("新版客户进度 API", () => {
       attributionOwnerId: ids.berlinReception,
       phone: "839902",
       channelId,
-      sourceDate: "2026-08-30",
-      joinedOn: "2026-09-01",
+      sourceDate: "2026-08-24",
+      joinedOn: "2026-08-30",
       groupOperatorOwnerId: ids.berlinOperatorA,
       deviceCode: "专家新增设备",
       expertOwnerId: ids.berlinExpert,
@@ -1902,6 +1902,16 @@ describe.sequential("新版客户进度 API", () => {
     expect(forbidden.status).toBe(403);
 
     await signIn(ids.berlinExpert);
+    const expertForbidden = await postLeadCustomerReporting(
+      new Request("http://localhost/api/lead/customer-reporting", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+    expect(expertForbidden.status).toBe(403);
+
+    await signIn(ids.berlinOperatorA);
     const invalidReception = await postLeadCustomerReporting(
       new Request("http://localhost/api/lead/customer-reporting", {
         method: "POST",
@@ -1942,13 +1952,13 @@ describe.sequential("新版客户进度 API", () => {
       attributionOwnerId: ids.berlinReception,
       groupOperatorOwnerId: ids.berlinOperatorA,
       expertOwnerId: ids.berlinExpert,
-      joinedOn: "2026-09-01",
+      joinedOn: "2026-08-30",
       expertIntroducedOn: "2026-09-02",
       groupQueueNumber: expect.any(Number),
       expertQueueNumber: expect.any(Number),
       isHistoricalRecord: true,
-      historicalBaselineStage: "REPLIED",
-      historicalJoinCounted: true,
+      historicalBaselineStage: "JOINED",
+      historicalJoinCounted: false,
       historicalExpertIntroCounted: true,
     });
 
@@ -1960,7 +1970,7 @@ describe.sequential("新版客户进度 API", () => {
       eventEntries
         .filter((entry) => entry.businessDate === date)
         .reduce((total, entry) => total + (entry.currentRevision?.[field] ?? 0), 0);
-    expect(sum("2026-09-01", "operatorReceivedCount")).toBe(1);
+    expect(sum("2026-08-30", "operatorReceivedCount")).toBe(0);
     expect(sum("2026-09-02", "expertIntroCount")).toBe(1);
     expect(sum("2026-09-02", "expertReceivedCount")).toBe(1);
     expect(
@@ -2229,6 +2239,32 @@ describe.sequential("新版客户进度 API", () => {
     const expertCustomer = await db.leadCustomer.findUniqueOrThrow({
       where: { id: id("customer-expert") },
     });
+    await db.leadCustomer.createMany({
+      data: [
+        {
+          id: id("customer-expert-materials"),
+          phone: `731${suffix.slice(0, 6)}`,
+          batchId: expertCustomer.batchId,
+          ownerId: expertCustomer.ownerId,
+          attributionOwnerId: expertCustomer.attributionOwnerId,
+          groupStatus: "JOINED",
+          joinedOn: "2026-07-02",
+          expertIntroducedOn: "2026-07-03",
+          expertWorkflowStage: "MATERIALS",
+        },
+        {
+          id: id("customer-expert-tracking"),
+          phone: `732${suffix.slice(0, 6)}`,
+          batchId: expertCustomer.batchId,
+          ownerId: expertCustomer.ownerId,
+          attributionOwnerId: expertCustomer.attributionOwnerId,
+          groupStatus: "JOINED",
+          joinedOn: "2026-07-02",
+          expertIntroducedOn: "2026-07-03",
+          expertWorkflowStage: "TRACKING",
+        },
+      ],
+    });
     const order = await db.customerOrder.create({
       data: {
         id: id("customer-order"),
@@ -2303,10 +2339,18 @@ describe.sequential("新版客户进度 API", () => {
         ),
       )
     ).json();
+    const followingExperts = await (
+      await getLeadCustomerReporting(
+        new Request(
+          "http://localhost/api/lead/customer-reporting?stage=expert&expertStage=FOLLOWING",
+        ),
+      )
+    ).json();
     expect(reception.counts).toMatchObject({
       reception: 2,
-      group: 2,
-      expert: 1,
+      group: 4,
+      "pending-expert": 1,
+      expert: 3,
     });
     expect(
       reception.customers.map((customer: { id: string }) => customer.id),
@@ -2335,7 +2379,7 @@ describe.sequential("新版客户进度 API", () => {
     ).toEqual({ id: device.id, code: "B-22" });
     expect(group.channels).toContain("柏林渠道");
     expect(group.summary).toMatchObject({
-      customerCount: 2,
+      customerCount: 4,
       orderCount: 1,
       initialDepositCents: 10_000,
       rechargeCents: 2_500,
@@ -2381,9 +2425,18 @@ describe.sequential("新版客户进度 API", () => {
     expect(expert.expertCounts).toMatchObject({
       ORDERED: 1,
       QUEUED: 0,
-      TRACKING: 0,
+      MATERIALS: 1,
+      TRACKING: 1,
       PENDING_ORDER: 0,
     });
+    expect(followingExperts.expertStage).toBe("FOLLOWING");
+    expect(
+      followingExperts.customers.map(
+        (customer: { expertWorkflowStage: string }) =>
+          customer.expertWorkflowStage,
+      ),
+    ).toEqual(expect.arrayContaining(["MATERIALS", "TRACKING"]));
+    expect(followingExperts.customers).toHaveLength(2);
     expect(orderedExperts.expertStage).toBe("ORDERED");
     expect(
       orderedExperts.customers.map((customer: { id: string }) => customer.id),

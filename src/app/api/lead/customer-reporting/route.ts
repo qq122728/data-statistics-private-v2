@@ -117,7 +117,7 @@ const createSchema = z.object({
     context.addIssue({
       code: "custom",
       path: [value.expertOwnerId ? "expertIntroducedOn" : "expertOwnerId"],
-      message: "新增专家客户时，专家负责人和推专家日期必须一起填写",
+      message: "登记推专家时，专家负责人和推专家日期必须一起填写",
     });
   }
 });
@@ -346,11 +346,11 @@ export async function GET(request: Request) {
   // 使用完全相同的条件，不会出现“行已经变少，底部仍显示筛选前人数”。
   const filteredBaseWhere: Prisma.LeadCustomerWhereInput = { AND: requestedFilters };
   const expertStageParam = params.get("expertStage");
-  const expertStage = expertStages.includes(
-    expertStageParam as ExpertWorkflowStage,
-  )
-    ? (expertStageParam as ExpertWorkflowStage)
-    : "all";
+  const expertStage = expertStageParam === "FOLLOWING"
+    ? "FOLLOWING"
+    : expertStages.includes(expertStageParam as ExpertWorkflowStage)
+      ? (expertStageParam as ExpertWorkflowStage)
+      : "all";
   const expertCandidates =
     stage === "expert"
       ? await db.leadCustomer.findMany({
@@ -392,9 +392,13 @@ export async function GET(request: Request) {
         .length,
     ]),
   );
-  const matchedExpertCandidates =
-    expertStage === "all"
-      ? resolvedExpertCandidates
+  const matchedExpertCandidates = expertStage === "all"
+    ? resolvedExpertCandidates
+    : expertStage === "FOLLOWING"
+      ? resolvedExpertCandidates.filter(
+          (customer) =>
+            customer.stage === "MATERIALS" || customer.stage === "TRACKING",
+        )
       : resolvedExpertCandidates.filter(
           (customer) => customer.stage === expertStage,
         );
@@ -419,7 +423,7 @@ export async function GET(request: Request) {
     voidedAt: null,
     lead: summaryWhere,
   };
-  const countStages = ["reception", "group", "expert"] as const;
+  const countStages = ["reception", "group", "pending-expert", "expert"] as const;
   const [
     total,
     customerRows,
@@ -964,9 +968,9 @@ export async function POST(request: Request) {
     if (
       createsExpertRow &&
       !hasAssignedRole(actor, "LEAD") &&
-      !hasAssignedRole(actor, "EXPERT")
+      !hasAssignedRole(actor, "GROUP_OPERATOR")
     )
-      return authorizationDenied(actor, "只有组长或专家可以直接新增专家进度行");
+      return authorizationDenied(actor, "只有组长或炒群负责人可以登记推专家客户");
     if (!createsExpertRow && !hasAssignedRole(actor, "RECEPTION") && !hasAssignedRole(actor, "LEAD"))
       return authorizationDenied(actor, "只有接粉组员或组长可以新增进群客户");
     const attributionOwnerId =
@@ -1087,11 +1091,11 @@ export async function POST(request: Request) {
       if (
         createsExpertRow &&
         !hasAssignedRole(actor, "LEAD") &&
-        expert?.id !== actor.id
+        operator?.id !== actor.id
       )
         return {
           status: 403 as const,
-          error: "专家只能新增归自己负责的专家客户",
+          error: "炒群负责人只能登记自己负责的客户",
         };
       if (existing)
         return {

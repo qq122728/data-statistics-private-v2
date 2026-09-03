@@ -14,6 +14,7 @@ import { getSystemSettings } from "../../../../lib/settings";
 import { managedDepartmentIds } from "../../../../lib/managed-department-scope";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
+import { countCurrentInGroup, loadCurrentInGroupCustomers } from "../../../../lib/current-in-group-customers";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
@@ -131,7 +132,7 @@ export async function GET(request: Request) {
   const groupIds = selectedGroups.map((group) => group.id);
   const minimumFrom = Object.values(periods).map((period) => period.from).sort()[0] ?? range.from;
   const maximumTo = Object.values(periods).map((period) => period.to).sort().at(-1) ?? range.to;
-  const [dailyEntries, snapshotEntries, activeUsers] = groupIds.length ? await Promise.all([
+  const [dailyEntries, snapshotEntries, activeUsers, currentInGroupCustomers] = groupIds.length ? await Promise.all([
     db.dailyStatEntry.findMany({
       where: { groupId: { in: groupIds }, currentRevisionId: { not: null }, businessDate: { gte: minimumFrom, lte: maximumTo } },
       select: {
@@ -167,7 +168,8 @@ export async function GET(request: Request) {
       },
       select: { id: true, name: true, active: true, groupId: true },
     }),
-  ]) : [[], [], []];
+    loadCurrentInGroupCustomers(groupIds, maximumTo),
+  ]) : [[], [], [], []];
   const entries = dailyEntries.filter((entry) => {
     const period = periods[entry.groupId];
     return Boolean((entry.currentRevision ?? entry.approvedRevision) && period && entry.businessDate >= period.from && entry.businessDate <= period.to);
@@ -182,6 +184,7 @@ export async function GET(request: Request) {
   const dailyMemberAggregates = new Map<string, Aggregate>();
   const channelAggregates = new Map<string, { name: string; aggregate: Aggregate; groupIds: Set<string> }>();
   const groupChannelAggregates = new Map<string, { groupId: string; name: string; normalizedName: string; aggregate: Aggregate }>();
+  const metadataByGroup = new Map(selectedGroups.map((group) => [group.id, group]));
   function applyRevision(aggregate: Aggregate, entry: (typeof entries)[number], revision: ApprovedDailyRevision) {
     const numberTrackedOperator = groupTypeById.get(entry.groupId) === "HACKER"
       && entry.position === "GROUP_OPERATOR"
@@ -240,6 +243,19 @@ export async function GET(request: Request) {
     dailyGroupAggregates.set(dailyGroupKey, dailyGroupAggregate);
     dailyMemberAggregates.set(dailyMemberKey, dailyMemberAggregate);
   }
+  for (const customer of currentInGroupCustomers) {
+    const metadata = metadataByGroup.get(customer.groupId);
+    if (!metadata || metadata.groupType !== "HACKER" || !usesCustomerNumberTracking(periods[customer.groupId]?.to ?? "")) continue;
+    const normalizedName = customer.channel.normalizedName || customer.channel.name;
+    const channelKey = `${metadata.groupType}:${normalizedName}`;
+    const channelRow = channelAggregates.get(channelKey) ?? { name: customer.channel.name, aggregate: freshAggregate(), groupIds: new Set<string>() };
+    channelRow.groupIds.add(customer.groupId);
+    channelAggregates.set(channelKey, channelRow);
+    const groupChannelKey = `${customer.groupId}\0${normalizedName}`;
+    if (!groupChannelAggregates.has(groupChannelKey)) groupChannelAggregates.set(groupChannelKey, {
+      groupId: customer.groupId, name: customer.channel.name, normalizedName, aggregate: freshAggregate(),
+    });
+  }
 
   function serializeAggregate(aggregate: Aggregate, inGroup = aggregate.inGroup) {
     const totals = aggregate.totals;
@@ -265,12 +281,13 @@ export async function GET(request: Request) {
     };
   }
 
-  const metadataByGroup = new Map(selectedGroups.map((group) => [group.id, group]));
   const groups = selectedGroups.map((metadata) => {
     const period = periods[metadata.id];
     const aggregate = groupAggregates.get(metadata.id) ?? freshAggregate();
-    const inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
-      entry.groupId === metadata.id && entry.businessDate <= period.to));
+    const inGroup = metadata.groupType === "HACKER" && usesCustomerNumberTracking(period.to)
+      ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.groupId === metadata.id)
+      : sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+          entry.groupId === metadata.id && entry.businessDate <= period.to));
     return {
       id: metadata.id,
       name: metadata.name,
@@ -289,13 +306,18 @@ export async function GET(request: Request) {
     const attributionOwner = dailyStatAttributionOwner(entry);
     memberPeople.set(`${entry.groupId}:${attributionOwner.id}`, { ...attributionOwner, groupId: entry.groupId });
   }
+  for (const customer of currentInGroupCustomers) {
+    memberPeople.set(`${customer.groupId}:${customer.member.id}`, { ...customer.member, active: true, groupId: customer.groupId });
+  }
   const members = [...memberPeople.entries()].map(([key, person]) => {
     const aggregate = memberAggregates.get(key) ?? freshAggregate();
     const metadata = metadataByGroup.get(person.groupId!);
     const period = periods[person.groupId!];
-    const inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
-      entry.groupId === person.groupId && dailyStatAttributionOwnerId(entry) === person.id
-      && Boolean(period) && entry.businessDate <= period.to));
+    const inGroup = metadata?.groupType === "HACKER" && Boolean(period) && usesCustomerNumberTracking(period.to)
+      ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.groupId === person.groupId && customer.member.id === person.id)
+      : sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+          entry.groupId === person.groupId && dailyStatAttributionOwnerId(entry) === person.id
+          && Boolean(period) && entry.businessDate <= period.to));
     return ({
     id: person.id,
     name: person.name,
@@ -320,7 +342,13 @@ export async function GET(request: Request) {
   const channels = [...channelAggregates.entries()].map(([typedKey, row]) => {
     const [groupType, ...nameParts] = typedKey.split(":");
     const normalizedName = nameParts.join(":");
-    const inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) => {
+    const inGroup = groupType === "HACKER" && usesCustomerNumberTracking(maximumTo)
+      ? countCurrentInGroup(currentInGroupCustomers, (customer) => {
+          const metadata = metadataByGroup.get(customer.groupId);
+          return metadata?.groupType === groupType
+            && (customer.channel.normalizedName || customer.channel.name) === normalizedName;
+        })
+      : sumLatestCurrentInGroup(snapshotEntries.filter((entry) => {
       const metadata = metadataByGroup.get(entry.groupId);
       const period = metadata ? periods[metadata.id] : null;
       return groupTypeById.get(entry.groupId) === groupType
@@ -333,10 +361,13 @@ export async function GET(request: Request) {
   const groupChannels = [...groupChannelAggregates.entries()].map(([key, row]) => {
     const metadata = metadataByGroup.get(row.groupId)!;
     const period = periods[row.groupId];
-    const inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
-      entry.groupId === row.groupId
-      && (entry.channel.normalizedName || entry.channel.name) === row.normalizedName
-      && Boolean(period) && entry.businessDate <= period.to));
+    const inGroup = metadata.groupType === "HACKER" && usesCustomerNumberTracking(period.to)
+      ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.groupId === row.groupId
+          && (customer.channel.normalizedName || customer.channel.name) === row.normalizedName)
+      : sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+          entry.groupId === row.groupId
+          && (entry.channel.normalizedName || entry.channel.name) === row.normalizedName
+          && Boolean(period) && entry.businessDate <= period.to));
     return {
       id: key,
       groupId: row.groupId,

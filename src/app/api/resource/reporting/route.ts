@@ -11,6 +11,7 @@ import { hasAssignedRole } from "../../../../lib/role-access";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
+import { countCurrentInGroup, loadCurrentInGroupCustomers } from "../../../../lib/current-in-group-customers";
 
 const ranges = new Set(["today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
@@ -65,6 +66,7 @@ export async function GET(request: Request) {
   });
   const minimumFrom = channelPeriods.map((item) => item.range.from).sort()[0];
   const maximumTo = channelPeriods.map((item) => item.range.to).sort().at(-1);
+  const groupIds = [...new Set(channels.map((channel) => channel.group.id))];
   const entries = minimumFrom && maximumTo ? await db.dailyStatEntry.findMany({
     where: {
       channelId: { in: channels.map((channel) => channel.id) },
@@ -98,9 +100,12 @@ export async function GET(request: Request) {
       businessDate: true, position: true, currentRevision: true, approvedRevision: true,
     },
   }) : [];
+  const currentInGroupCustomers = maximumTo
+    ? await loadCurrentInGroupCustomers(groupIds, maximumTo)
+    : [];
 
   const groupTypeById = new Map(channels.map((channel) => [channel.group.id, channel.group.groupType]));
-  function aggregate(scoped: typeof entries, snapshots: typeof snapshotEntries = scoped) {
+  function aggregate(scoped: typeof entries, snapshots: typeof snapshotEntries = scoped, exactInGroup?: number) {
     const totals = scoped.reduce((sum, entry) => {
       const rawRevision = entry.currentRevision ?? entry.approvedRevision!;
       const revision = revisionForNumberTracking(rawRevision, {
@@ -140,7 +145,7 @@ export async function GET(request: Request) {
       left: 0, abnormalLeft: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0,
       initialDepositCents: 0, rechargeCents: 0, cryptoDepositCents: 0, bankDepositCents: 0, withdrawalCents: 0,
     });
-    return { ...totals, inGroup: sumLatestCurrentInGroup(snapshots) };
+    return { ...totals, inGroup: exactInGroup ?? sumLatestCurrentInGroup(snapshots) };
   }
 
   const rows = channelPeriods.map(({ channel, timezone, today, range }) => {
@@ -152,7 +157,13 @@ export async function GET(request: Request) {
       channel: { id: channel.id, name: channel.name, normalizedName: channel.normalizedName },
       group: { id: channel.group.id, name: channel.group.name, groupType: channel.group.groupType, departmentId: channel.group.department.id, departmentName: channel.group.department.name, companyId: channel.group.department.company?.id ?? null, companyName: channel.group.department.company?.name ?? "未归属公司" },
       period: { preset: range.preset, from: range.from, to: range.to, today, timezone },
-      totals: aggregate(scoped, snapshots),
+      totals: aggregate(
+        scoped,
+        snapshots,
+        channel.group.groupType === "HACKER" && usesCustomerNumberTracking(range.to)
+          ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.groupId === channel.group.id && customer.channel.id === channel.id)
+          : undefined,
+      ),
     };
   });
   const days = [...new Set(entries.map((entry) => entry.businessDate))].sort().reverse().map((date) => ({
@@ -171,7 +182,6 @@ export async function GET(request: Request) {
     }),
   })).filter((day) => day.rows.length > 0);
 
-  const groupIds = [...new Set(channels.map((channel) => channel.group.id))];
   const members = groupIds.length ? await db.user.findMany({
     where: { active: true, groupId: { in: groupIds }, role: { in: ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] } },
     select: { id: true, name: true, role: true, groupId: true },

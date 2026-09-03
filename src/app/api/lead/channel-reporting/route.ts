@@ -11,6 +11,7 @@ import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
+import { countCurrentInGroup, loadCurrentInGroupCustomers } from "../../../../lib/current-in-group-customers";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
@@ -49,7 +50,8 @@ export async function GET(request: Request) {
     sourceDateFrom: params.get("sourceDateFrom") ?? undefined,
     sourceDateTo: params.get("sourceDateTo") ?? undefined,
   }, today, "month");
-  const [entries, snapshotEntries] = await Promise.all([
+  const usesTrackedCurrentInGroup = groupType === "HACKER" && usesCustomerNumberTracking(range.to);
+  const [entries, snapshotEntries, currentInGroupCustomers] = await Promise.all([
     db.dailyStatEntry.findMany({
       where: { groupId: group.id, businessDate: { gte: range.from, lte: range.to }, currentRevisionId: { not: null } },
       select: {
@@ -79,6 +81,9 @@ export async function GET(request: Request) {
         approvedRevision: true,
       },
     }),
+    usesTrackedCurrentInGroup
+      ? loadCurrentInGroupCustomers([group.id], range.to)
+      : Promise.resolve([]),
   ]);
   type Row = { channel: (typeof entries)[number]["channel"]; owner?: { id: string; name: string }; businessDate?: string; totals: ReturnType<typeof emptyBatchTotals>; lowAmount: number; noWs: number; manualInvalid: number; initialDepositCents: number; rechargeCents: number; inGroup: number; snapshotDate: string; lawyerRealCase?: number; lawyerAdded?: number; lawyerExpertAdded?: number; customerServicePush?: number; cryptoDepositCents?: number; bankDepositCents?: number };
   const byChannel = new Map<string, Row>();
@@ -100,6 +105,20 @@ export async function GET(request: Request) {
     // 个人汇总也必须保留这位成员，否则按人员查看会比按渠道查看少人、少存量。
     if (!byMember.has(attributionOwner.id)) byMember.set(attributionOwner.id, {
       channel: { id: "all", name: "全部渠道", normalizedName: "all" }, owner: attributionOwner,
+      totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, manualInvalid: 0, initialDepositCents: 0, rechargeCents: 0, inGroup: 0, snapshotDate: "",
+    });
+  }
+  for (const customer of currentInGroupCustomers) {
+    if (!byChannel.has(customer.channel.id)) byChannel.set(customer.channel.id, {
+      channel: customer.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, manualInvalid: 0, initialDepositCents: 0, rechargeCents: 0, inGroup: 0, snapshotDate: "",
+    });
+    const memberKey = `${customer.channel.id}:${customer.member.id}`;
+    if (!byChannelMember.has(memberKey)) byChannelMember.set(memberKey, {
+      channel: customer.channel, owner: customer.member,
+      totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, manualInvalid: 0, initialDepositCents: 0, rechargeCents: 0, inGroup: 0, snapshotDate: "",
+    });
+    if (!byMember.has(customer.member.id)) byMember.set(customer.member.id, {
+      channel: { id: "all", name: "全部渠道", normalizedName: "all" }, owner: customer.member,
       totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, manualInvalid: 0, initialDepositCents: 0, rechargeCents: 0, inGroup: 0, snapshotDate: "",
     });
   }
@@ -212,12 +231,16 @@ export async function GET(request: Request) {
     },
   }; }
   const rows = [...byChannel.values()].map((row) => {
-    row.inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) => entry.channelId === row.channel.id));
+    row.inGroup = usesTrackedCurrentInGroup
+      ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.channel.id === row.channel.id)
+      : sumLatestCurrentInGroup(snapshotEntries.filter((entry) => entry.channelId === row.channel.id));
     return {
       ...serialize(row),
       members: [...byChannelMember.values()].filter((member) => member.channel.id === row.channel.id).map((member) => {
-        member.inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
-          entry.channelId === row.channel.id && dailyStatAttributionOwnerId(entry) === member.owner!.id));
+        member.inGroup = usesTrackedCurrentInGroup
+          ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.channel.id === row.channel.id && customer.member.id === member.owner!.id)
+          : sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+              entry.channelId === row.channel.id && dailyStatAttributionOwnerId(entry) === member.owner!.id));
         return { ...serialize(member), id: member.owner!.id, name: member.owner!.name };
       }).sort((left, right) => left.name.localeCompare(right.name, "zh-CN")),
     };
@@ -238,7 +261,9 @@ export async function GET(request: Request) {
   }; });
 
   const members = [...byMember.values()].map((member) => {
-    member.inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) => dailyStatAttributionOwnerId(entry) === member.owner!.id));
+    member.inGroup = usesTrackedCurrentInGroup
+      ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.member.id === member.owner!.id)
+      : sumLatestCurrentInGroup(snapshotEntries.filter((entry) => dailyStatAttributionOwnerId(entry) === member.owner!.id));
     return {
       ...serialize(member), id: member.owner!.id, name: member.owner!.name,
       channels: [...byChannelMember.values()].filter((row) => row.owner!.id === member.owner!.id).map((row) => ({ ...serialize(row), id: row.channel.id })).sort((a, b) => a.name.localeCompare(b.name, "zh-CN")),

@@ -1346,7 +1346,8 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     );
     expect(body.summary).toMatchObject({
       name: "全组",
-      totals: { added: 3, effective: 2, replied: 1, inGroup: 17 },
+      // 9 月起不再延续 8 月手工快照；没有真实在群客户就是 0。
+      totals: { added: 3, effective: 2, replied: 1, inGroup: 0 },
       derivedRates: { effectiveRate: 2 / 3, replyRate: 1 / 2 },
     });
     expect(
@@ -1654,6 +1655,40 @@ describe.sequential("新版客户进度 API", () => {
       where: { id_groupId: { id: channelId, groupId: ids.berlinGroup } },
     });
     vi.useRealTimers();
+  });
+
+  it("9月起组长和管理层的当前在群直接读取客户进度真相，不叠加旧快照", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-01T03:30:00Z"));
+    const batch = await db.sourceBatch.findFirstOrThrow({
+      where: { groupId: ids.berlinGroup, channelId: id("berlin-channel") },
+    });
+    const customer = await db.leadCustomer.create({
+      data: {
+        phone: `current-${suffix}`,
+        batchId: batch.id,
+        ownerId: ids.berlinReception,
+        attributionOwnerId: ids.berlinReception,
+        groupOperatorOwnerId: ids.berlinOperatorA,
+        groupStatus: "JOINED",
+        joinedOn: "2026-09-01",
+      },
+    });
+    try {
+      await signIn(ids.lead);
+      const leadBody = await (
+        await getLeadChannelReporting(new Request("http://localhost/api/lead/channel-reporting?range=today"))
+      ).json();
+      expect(leadBody.summary.totals.inGroup).toBe(1);
+      expect(leadBody.rows[0].totals.inGroup).toBe(1);
+
+      const orgBody = await getOrgReporting(request("range=today")).then((response) => response.json());
+      expect(orgBody.groups.find((group: { id: string }) => group.id === ids.berlinGroup)?.totals.inGroup).toBe(1);
+      expect(orgBody.members.find((member: { id: string }) => member.id === ids.berlinReception)?.totals.inGroup).toBe(1);
+    } finally {
+      await db.leadCustomer.delete({ where: { id: customer.id } });
+      vi.useRealTimers();
+    }
   });
 
   it("进群统计按客户真相幂等对账，改日期、改渠道和撤销都会搬走原数字", async () => {

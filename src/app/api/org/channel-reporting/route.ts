@@ -11,6 +11,7 @@ import { authorizationDenied, authorizationErrorResponse } from "../../../../lib
 import { canManageDepartment } from "../../../../lib/managed-department-scope";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
+import { countCurrentInGroup, loadCurrentInGroupCustomers } from "../../../../lib/current-in-group-customers";
 
 const allowedRanges = new Set(["all", "today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
@@ -53,7 +54,8 @@ export async function GET(request: Request) {
     sourceDateFrom: params.get("sourceDateFrom") ?? undefined,
     sourceDateTo: params.get("sourceDateTo") ?? undefined,
   }, today, "month");
-  const [entries, snapshotEntries] = await Promise.all([
+  const usesTrackedCurrentInGroup = selectedGroupType === "HACKER" && usesCustomerNumberTracking(range.to);
+  const [entries, snapshotEntries, currentInGroupCustomers] = await Promise.all([
     db.dailyStatEntry.findMany({
       where: { groupId, businessDate: { gte: range.from, lte: range.to }, currentRevisionId: { not: null } },
       select: {
@@ -81,6 +83,9 @@ export async function GET(request: Request) {
         approvedRevision: true,
       },
     }),
+    usesTrackedCurrentInGroup
+      ? loadCurrentInGroupCustomers([groupId], range.to)
+      : Promise.resolve([]),
   ]);
   type Row = { channel: (typeof entries)[number]["channel"]; owner?: { id: string; name: string }; businessDate?: string; totals: ReturnType<typeof emptyBatchTotals>; lowAmount: number; noWs: number; inGroup: number; snapshotDate: string };
   const byChannel = new Map<string, Row>();
@@ -95,6 +100,16 @@ export async function GET(request: Request) {
     const memberKey = `${entry.channel.id}:${attributionOwner.id}`;
     if (!byChannelMember.has(memberKey)) byChannelMember.set(memberKey, {
       channel: entry.channel, owner: attributionOwner,
+      totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "",
+    });
+  }
+  for (const customer of currentInGroupCustomers) {
+    if (!byChannel.has(customer.channel.id)) byChannel.set(customer.channel.id, {
+      channel: customer.channel, totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "",
+    });
+    const memberKey = `${customer.channel.id}:${customer.member.id}`;
+    if (!byChannelMember.has(memberKey)) byChannelMember.set(memberKey, {
+      channel: customer.channel, owner: customer.member,
       totals: emptyBatchTotals(), lowAmount: 0, noWs: 0, inGroup: 0, snapshotDate: "",
     });
   }
@@ -157,12 +172,16 @@ export async function GET(request: Request) {
     };
   }
   const rows = [...byChannel.values()].map((row) => {
-    row.inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) => entry.channelId === row.channel.id));
+    row.inGroup = usesTrackedCurrentInGroup
+      ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.channel.id === row.channel.id)
+      : sumLatestCurrentInGroup(snapshotEntries.filter((entry) => entry.channelId === row.channel.id));
     return {
       ...serialize(row),
       members: [...byChannelMember.values()].filter((member) => member.channel.id === row.channel.id).map((member) => {
-        member.inGroup = sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
-          entry.channelId === row.channel.id && dailyStatAttributionOwnerId(entry) === member.owner!.id));
+        member.inGroup = usesTrackedCurrentInGroup
+          ? countCurrentInGroup(currentInGroupCustomers, (customer) => customer.channel.id === row.channel.id && customer.member.id === member.owner!.id)
+          : sumLatestCurrentInGroup(snapshotEntries.filter((entry) =>
+              entry.channelId === row.channel.id && dailyStatAttributionOwnerId(entry) === member.owner!.id));
         return { ...serialize(member), id: member.owner!.id, name: member.owner!.name };
       }).sort((left, right) => left.name.localeCompare(right.name, "zh-CN")),
     };

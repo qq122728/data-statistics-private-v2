@@ -2323,6 +2323,23 @@ describe.sequential("新版客户进度 API", () => {
         withdrawalCents: 0,
       },
     });
+    const unmatchedMember = await (
+      await getLeadCustomerReporting(
+        new Request(
+          "http://localhost/api/lead/customer-reporting?stage=group&memberId=不存在的组员",
+        ),
+      )
+    ).json();
+    expect(unmatchedMember).toMatchObject({
+      total: 0,
+      summary: {
+        customerCount: 0,
+        orderCount: 0,
+        initialDepositCents: 0,
+        rechargeCents: 0,
+        withdrawalCents: 0,
+      },
+    });
     expect(
       expert.customers.map((customer: { id: string }) => customer.id),
     ).toContain(id("customer-expert"));

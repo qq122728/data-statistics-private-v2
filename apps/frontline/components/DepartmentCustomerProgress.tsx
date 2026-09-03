@@ -464,6 +464,8 @@ export function DepartmentCustomerProgress({
     });
     if (month) params.set("month", month);
     if (query.trim()) params.set("q", query.trim());
+    if (memberFilter) params.set("memberId", memberFilter);
+    if (channelFilter) params.set("channel", channelFilter);
     const requestKey = params.toString();
     const silentlyRefresh = loadedCustomerQuery.current === requestKey;
     if (!silentlyRefresh) setLoading(true);
@@ -487,7 +489,7 @@ export function DepartmentCustomerProgress({
     return () => {
       cancelled = true;
     };
-  }, [day, groupId, month, page, progress, query, reloadKey, viewMode]);
+  }, [channelFilter, day, groupId, memberFilter, month, page, progress, query, reloadKey, viewMode]);
   useEffect(() => {
     if (adding) phoneInput.current?.focus();
   }, [adding]);
@@ -556,6 +558,9 @@ export function DepartmentCustomerProgress({
     1,
     Math.ceil((payload?.total ?? 0) / (payload?.pageSize ?? 50)),
   );
+  const resultTotal = payload?.total ?? 0;
+  const visibleFrom = resultTotal ? (page - 1) * (payload?.pageSize ?? 50) + 1 : 0;
+  const visibleTo = Math.min(page * (payload?.pageSize ?? 50), resultTotal);
   function showSaved(message: string) {
     setSavedMessage(message);
     window.dispatchEvent(new Event("ai-data-updated"));
@@ -2195,7 +2200,9 @@ export function DepartmentCustomerProgress({
         <footer className={styles.footer}>
           <span>
             {viewMode === "group" ? "待推专家" : "专家进度"}{" "}
-            {payload?.total ?? 0} 位 · 双击情况编辑 · 左右滑动查看更多
+            <strong>{resultTotal} 位</strong>
+            {resultTotal ? ` · 当前显示第 ${visibleFrom}–${visibleTo} 位` : ""}
+            <em>↕ 表格右侧可上下滚动查看更多</em>
           </span>
           <div>
             <span>自动保存并记录操作人</span>

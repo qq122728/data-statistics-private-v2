@@ -30,6 +30,11 @@ test("客户进度恢复截图中的简洁共享表格结构", () => {
   assert.match(component, /!customer\.expertIntroducedOn/);
   assert.match(component, /setMemberFilter/);
   assert.match(component, /setChannelFilter/);
+  assert.match(component, /params\.set\("memberId", memberFilter\)/);
+  assert.match(component, /params\.set\("channel", channelFilter\)/);
+  assert.match(component, /当前显示第/);
+  assert.match(component, /表格右侧可上下滚动查看更多/);
+  assert.match(css, /overflow-y:\s*scroll/);
   assert.doesNotMatch(component, /className=\{styles\.summary\}/);
   assert.doesNotMatch(component, /shared-sheet__detail/);
 });

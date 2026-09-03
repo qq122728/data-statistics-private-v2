@@ -318,10 +318,29 @@
 .tableWrap {
   min-height: 360px;
   max-height: calc(100vh - 214px);
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: scroll;
   background: #fff;
-  scrollbar-color: #b9c4d3 #f3f6f9;
-  scrollbar-width: thin;
+  scrollbar-color: #8191a8 #edf1f5;
+  scrollbar-width: auto;
+  overscroll-behavior: contain;
+}
+.tableWrap::-webkit-scrollbar {
+  width: 12px;
+  height: 10px;
+}
+.tableWrap::-webkit-scrollbar-track {
+  background: #edf1f5;
+  border-left: 1px solid #dbe2ea;
+}
+.tableWrap::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 2px solid #edf1f5;
+  border-radius: 999px;
+  background: #8191a8;
+}
+.tableWrap::-webkit-scrollbar-thumb:hover {
+  background: #61738d;
 }
 .table {
   width: 100%;
@@ -537,6 +556,19 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.footer > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.footer > span strong {
+  color: #41536d;
+}
+.footer > span em {
+  color: #315f98;
+  font-style: normal;
+  font-weight: 650;
 }
 .footer button {
   height: 27px;

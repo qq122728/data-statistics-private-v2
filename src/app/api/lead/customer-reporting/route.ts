@@ -294,6 +294,9 @@ export async function GET(request: Request) {
   const channel = (params.get("channel") ?? "")
     .trim()
     .slice(0, API_LIMITS.searchCharacters);
+  const memberId = (params.get("memberId") ?? "")
+    .trim()
+    .slice(0, API_LIMITS.identifierCharacters);
   const timezone = STATISTICS_TIMEZONE;
   const today = statisticsDate();
   const month = (params.get("month") ?? "").trim();
@@ -331,9 +334,17 @@ export async function GET(request: Request) {
         }
       : {}),
   };
-  const filteredBaseWhere: Prisma.LeadCustomerWhereInput = channel
-    ? { AND: [baseWhere, { batch: { channel: { name: channel } } }] }
-    : baseWhere;
+  const requestedFilters: Prisma.LeadCustomerWhereInput[] = [baseWhere];
+  if (channel) requestedFilters.push({ batch: { channel: { name: channel } } });
+  if (memberId) requestedFilters.push({
+    OR: [
+      { attributionOwnerId: memberId },
+      { attributionOwnerId: null, ownerId: memberId },
+    ],
+  });
+  // 人员和渠道必须在数据库查询前过滤。这样列表、总人数、分页和资金汇总
+  // 使用完全相同的条件，不会出现“行已经变少，底部仍显示筛选前人数”。
+  const filteredBaseWhere: Prisma.LeadCustomerWhereInput = { AND: requestedFilters };
   const expertStageParam = params.get("expertStage");
   const expertStage = expertStages.includes(
     expertStageParam as ExpertWorkflowStage,

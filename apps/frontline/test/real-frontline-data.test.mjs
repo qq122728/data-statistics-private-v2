@@ -42,6 +42,10 @@ test("历史和财务读取真实每日数据接口", () => {
   assert.match(source, /ai-data-updated/);
   assert.match(source, /visibilitychange/);
   assert.match(source, /setInterval\(refreshWhenVisible, 10_000\)/);
+  assert.match(source, /选择月份/);
+  assert.match(source, /选择日期/);
+  assert.match(source, /所选时间汇总/);
+  assert.match(source, /sumRows\(rows\)/);
   assert.doesNotMatch(source, /const\s+(?:history|finance|fund).*Seed/i);
 });
 

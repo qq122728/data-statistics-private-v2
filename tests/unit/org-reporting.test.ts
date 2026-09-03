@@ -846,6 +846,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
         await patch({
           action: "assignExpert",
           userId: ids.berlinExpert,
+          expertDeviceAccountNumber: "EXPERT-FREE-01",
           occurredOn: "2026-09-02",
         })
       )
@@ -856,10 +857,14 @@ describe.sequential("新版组长真实渠道报表 API", () => {
       select: {
         groupQueueNumber: true,
         expertIntroducedOn: true,
+        expertDeviceAccountNumber: true,
         expertQueueNumber: true,
       },
     });
-    expect(firstExpert).toMatchObject({ expertIntroducedOn: "2026-09-02" });
+    expect(firstExpert).toMatchObject({
+      expertIntroducedOn: "2026-09-02",
+      expertDeviceAccountNumber: "EXPERT-FREE-01",
+    });
     expect(firstExpert.groupQueueNumber).toBe(afterJoin.groupQueueNumber);
     expect(firstExpert.expertQueueNumber ?? 0).toBeGreaterThan(0);
     const afterExpert = firstExpert;
@@ -1184,7 +1189,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
       },
     });
     await signIn(ids.berlinOperatorA);
-    const patch = (occurredOn: string) =>
+    const patch = (occurredOn: string, expertDeviceAccountNumber: string) =>
       patchSharedCustomer(
         new Request(
           `http://localhost/api/lead/customer-reporting/${customer.id}`,
@@ -1194,6 +1199,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
             body: JSON.stringify({
               action: "assignExpert",
               userId: ids.berlinExpert,
+              expertDeviceAccountNumber,
               occurredOn,
             }),
           },
@@ -1201,15 +1207,17 @@ describe.sequential("新版组长真实渠道报表 API", () => {
         { params: Promise.resolve({ leadId: customer.id }) },
       );
 
-    expect((await patch("2026-09-01")).status).toBe(200);
+    expect((await patch("2026-09-01", "EXPERT-FREE-01")).status).toBe(200);
     const firstNumber = (
       await db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id } })
     ).expertQueueNumber;
-    expect((await patch("2026-09-02")).status).toBe(200);
+    expect((await patch("2026-09-02", "EXPERT-FREE-02")).status).toBe(200);
     const corrected = await db.leadCustomer.findUniqueOrThrow({
       where: { id: customer.id },
     });
     expect(corrected.expertIntroducedOn).toBe("2026-09-02");
+    expect(corrected.expertDeviceAccountNumber).toBe("EXPERT-FREE-02");
+    expect(corrected.expertDeviceAccountId).toBeNull();
     // 每个日期各自从 001 起排号；跨日纠错后流水号可能仍是 001，日期才是编号的一部分。
     expect(firstNumber ?? 0).toBeGreaterThan(0);
     expect(corrected.expertQueueNumber ?? 0).toBeGreaterThan(0);
@@ -1936,6 +1944,7 @@ describe.sequential("新版客户进度 API", () => {
       groupOperatorOwnerId: ids.berlinOperatorA,
       deviceCode: "专家新增设备",
       expertOwnerId: ids.berlinExpert,
+      expertDeviceAccountNumber: "专家手填设备-X08",
       expertIntroducedOn: "2026-09-02",
     };
 
@@ -2000,6 +2009,7 @@ describe.sequential("新版客户进度 API", () => {
       attributionOwnerId: ids.berlinReception,
       groupOperatorOwnerId: ids.berlinOperatorA,
       expertOwnerId: ids.berlinExpert,
+      expertDeviceAccountNumber: "专家手填设备-X08",
       joinedOn: "2026-08-30",
       expertIntroducedOn: "2026-09-02",
       groupQueueNumber: expect.any(Number),
@@ -2780,6 +2790,7 @@ describe.sequential("新版客户进度 API", () => {
         await patch({
           action: "assignExpert",
           userId: ids.berlinExpert,
+          expertDeviceAccountNumber: "EXPERT-FREE-03",
           occurredOn: "2026-09-02",
         })
       )

@@ -42,6 +42,7 @@ type Customer = {
   leftNote: string | null;
   leftWithOrder: boolean;
   expertIntroducedOn: string | null;
+  expertDeviceAccountNumber: string | null;
   expertContactedOn: string | null;
   expertContactNote: string | null;
   expertWorkflowStage: string | null;
@@ -375,6 +376,10 @@ export function DepartmentCustomerProgress({
   );
   const [savingCell, setSavingCell] = useState("");
   const [expertDates, setExpertDates] = useState<Record<string, string>>({});
+  const [expertOwners, setExpertOwners] = useState<Record<string, string>>({});
+  const [expertDeviceNumbers, setExpertDeviceNumbers] = useState<
+    Record<string, string>
+  >({});
   const [savedMessage, setSavedMessage] = useState("");
   const [adding, setAdding] = useState(false);
   const [createMode, setCreateMode] = useState<CreateMode>("group");
@@ -395,6 +400,7 @@ export function DepartmentCustomerProgress({
     sourceDate: localToday(),
     joinedOn: localToday(),
     expertOwnerId: "",
+    expertDeviceAccountNumber: "",
     expertIntroducedOn: "",
   });
   const [finance, setFinance] = useState<{
@@ -709,6 +715,7 @@ export function DepartmentCustomerProgress({
       joinedOn: today,
       expertOwnerId:
         "",
+      expertDeviceAccountNumber: "",
       expertIntroducedOn: mode === "expert-recovery" ? today : "",
     });
   }
@@ -719,9 +726,15 @@ export function DepartmentCustomerProgress({
       !draft.groupOperatorOwnerId ||
       !draft.deviceCode.trim() ||
       (createMode === "expert-recovery" &&
-        (!draft.expertOwnerId || !draft.expertIntroducedOn))
+        (!draft.expertOwnerId ||
+          !draft.expertDeviceAccountNumber.trim() ||
+          !draft.expertIntroducedOn))
     ) {
-      setError("请选择接粉归属、炒群负责人，并填写设备账号");
+      setError(
+        createMode === "expert-recovery"
+          ? "请选择接粉归属、炒群负责人和专家负责人，并填写群设备账号、专家设备号和推专家日期"
+          : "请选择接粉归属、炒群负责人，并填写设备账号",
+      );
       return;
     }
     const lossAmount = draft.lossAmount.trim()
@@ -737,7 +750,12 @@ export function DepartmentCustomerProgress({
     setCreating(true);
     setError("");
     try {
-      const { expertOwnerId, expertIntroducedOn, ...groupDraft } = draft;
+      const {
+        expertOwnerId,
+        expertDeviceAccountNumber,
+        expertIntroducedOn,
+        ...groupDraft
+      } = draft;
       const result = await requestJson<{
         resumed?: boolean;
         counted?: { join?: boolean; expert?: boolean };
@@ -752,6 +770,7 @@ export function DepartmentCustomerProgress({
           ...(createMode === "expert-recovery"
             ? {
                 expertOwnerId,
+                expertDeviceAccountNumber,
                 expertIntroducedOn,
               }
             : {}),
@@ -786,7 +805,7 @@ export function DepartmentCustomerProgress({
     action: Record<string, unknown>,
     key: string,
     message: string,
-  ) {
+  ): Promise<boolean> {
     setSavingCell(`${customer.id}:${key}`);
     setError("");
     try {
@@ -797,8 +816,10 @@ export function DepartmentCustomerProgress({
       });
       showSaved(message);
       setReloadKey((value) => value + 1);
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "单元格保存失败");
+      return false;
     } finally {
       setSavingCell("");
     }
@@ -1407,6 +1428,7 @@ export function DepartmentCustomerProgress({
                             !draft.deviceCode.trim() ||
                             (createMode === "expert-recovery" &&
                               (!draft.expertOwnerId ||
+                                !draft.expertDeviceAccountNumber.trim() ||
                                 !draft.expertIntroducedOn))
                           }
                           onClick={() => void createCustomer()}
@@ -1470,6 +1492,24 @@ export function DepartmentCustomerProgress({
                                 </option>
                               ))}
                             </select>
+                          </label>
+                          <label>
+                            <span>专家设备号</span>
+                            <input
+                              aria-label="新增客户专家设备号"
+                              type="text"
+                              maxLength={50}
+                              value={draft.expertDeviceAccountNumber}
+                              placeholder="自由填写"
+                              disabled={creating}
+                              onChange={(event) =>
+                                setDraft((value) => ({
+                                  ...value,
+                                  expertDeviceAccountNumber:
+                                    event.target.value,
+                                }))
+                              }
+                            />
                           </label>
                           <label>
                             <span>推专家</span>
@@ -2129,22 +2169,18 @@ export function DepartmentCustomerProgress({
                                 <span>负责人</span>
                                 <select
                                   className={styles.cellSelect}
-                                  value={customer.expertOwner?.id ?? ""}
+                                  aria-label="专家负责人"
+                                  value={
+                                    expertOwners[customer.id] ??
+                                    customer.expertOwner?.id ??
+                                    ""
+                                  }
                                   disabled={Boolean(savingCell)}
                                   onChange={(event) =>
-                                    void patchCell(
-                                      customer,
-                                      {
-                                        action: "assignExpert",
-                                        userId: event.target.value,
-                                        occurredOn:
-                                          expertDates[customer.id] ??
-                                          customer.expertIntroducedOn ??
-                                          businessToday,
-                                      },
-                                      "expert",
-                                      "专家负责人和推专家日期已保存",
-                                    )
+                                    setExpertOwners((current) => ({
+                                      ...current,
+                                      [customer.id]: event.target.value,
+                                    }))
                                   }
                                 >
                                   <option value="" disabled>
@@ -2156,6 +2192,28 @@ export function DepartmentCustomerProgress({
                                     </option>
                                   ))}
                                 </select>
+                              </label>
+                              <label>
+                                <span>专家设备号</span>
+                                <input
+                                  aria-label="专家设备号"
+                                  className={styles.deviceInput}
+                                  type="text"
+                                  maxLength={50}
+                                  placeholder="自由填写"
+                                  value={
+                                    expertDeviceNumbers[customer.id] ??
+                                    customer.expertDeviceAccountNumber ??
+                                    ""
+                                  }
+                                  disabled={Boolean(savingCell)}
+                                  onChange={(event) =>
+                                    setExpertDeviceNumbers((current) => ({
+                                      ...current,
+                                      [customer.id]: event.target.value,
+                                    }))
+                                  }
+                                />
                               </label>
                               <label>
                                 <span>推专家日期</span>
@@ -2182,24 +2240,73 @@ export function DepartmentCustomerProgress({
                                       ...current,
                                       [customer.id]: occurredOn,
                                     }));
-                                    if (
-                                      customer.expertOwner?.id &&
-                                      occurredOn &&
-                                      occurredOn !== customer.expertIntroducedOn
-                                    )
-                                      void patchCell(
-                                        customer,
-                                        {
-                                          action: "assignExpert",
-                                          userId: customer.expertOwner.id,
-                                          occurredOn,
-                                        },
-                                        "expertDate",
-                                        "推专家日期已纠正",
-                                      );
                                   }}
                                 />
                               </label>
+                              <button
+                                type="button"
+                                className={styles.correctionButton}
+                                disabled={
+                                  Boolean(savingCell) ||
+                                  !(expertOwners[customer.id] ??
+                                    customer.expertOwner?.id) ||
+                                  !(expertDeviceNumbers[customer.id] ??
+                                    customer.expertDeviceAccountNumber ??
+                                    "").trim() ||
+                                  !(expertDates[customer.id] ??
+                                    customer.expertIntroducedOn ??
+                                    businessToday)
+                                }
+                                onClick={() => {
+                                  const userId =
+                                    expertOwners[customer.id] ??
+                                    customer.expertOwner?.id ??
+                                    "";
+                                  const expertDeviceAccountNumber =
+                                    expertDeviceNumbers[customer.id] ??
+                                    customer.expertDeviceAccountNumber ??
+                                    "";
+                                  const occurredOn =
+                                    expertDates[customer.id] ??
+                                    customer.expertIntroducedOn ??
+                                    businessToday;
+                                  void (async () => {
+                                    const saved = await patchCell(
+                                      customer,
+                                      {
+                                        action: "assignExpert",
+                                        userId,
+                                        expertDeviceAccountNumber,
+                                        occurredOn,
+                                      },
+                                      "expert",
+                                      "专家负责人、设备号和推专家日期已保存",
+                                    );
+                                    if (!saved) return;
+                                    setExpertOwners((current) => {
+                                      const next = { ...current };
+                                      delete next[customer.id];
+                                      return next;
+                                    });
+                                    setExpertDeviceNumbers((current) => {
+                                      const next = { ...current };
+                                      delete next[customer.id];
+                                      return next;
+                                    });
+                                    setExpertDates((current) => {
+                                      const next = { ...current };
+                                      delete next[customer.id];
+                                      return next;
+                                    });
+                                  })();
+                                }}
+                              >
+                                {savingCell === `${customer.id}:expert`
+                                  ? "保存中…"
+                                  : customer.expertIntroducedOn
+                                    ? "保存修改"
+                                    : "确认推专家"}
+                              </button>
                               {customer.expertIntroducedOn &&
                               !customer.expertContactedOn ? (
                                 <button
@@ -2219,6 +2326,10 @@ export function DepartmentCustomerProgress({
                               <b>{customer.expertOwner?.name ?? "未分配"}</b>
                               <small>
                                 推专家：{customer.expertIntroducedOn ?? "—"}
+                              </small>
+                              <small>
+                                专家设备号：
+                                {customer.expertDeviceAccountNumber ?? "—"}
                               </small>
                             </div>
                           )}

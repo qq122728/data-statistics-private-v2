@@ -78,6 +78,9 @@ test("组员AI仅从正式按钮进入写入流程，空白输入框保持只读
   assert.match(source, /今天 FB-M：添加20/);
   assert.match(source, /新增进群客户112233/);
   assert.match(source, /新增专家客户112233/);
+  assert.match(source, /专家设备号X08/);
+  assert.match(source, /expertDeviceAccountNumber: progressDraft\.text/);
+  assert.match(source, /输入专家设备号/);
   assert.match(source, /客户112233今天注册/);
   assert.match(source, /未提到的指标保持原值/);
   assert.doesNotMatch(source, /无效的合计不能超过添加数据/);

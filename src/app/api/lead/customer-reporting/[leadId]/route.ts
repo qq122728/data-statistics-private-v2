@@ -37,6 +37,12 @@ const updateSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("assignExpert"),
     userId: z.string().min(1).max(API_LIMITS.identifierCharacters),
+    expertDeviceAccountNumber: z
+      .string()
+      .trim()
+      .min(1, "请输入专家设备号")
+      .max(50, "专家设备号不能超过 50 个字")
+      .optional(),
     occurredOn: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -299,6 +305,13 @@ export async function PATCH(
             status: 400 as const,
             error: "专家负责人只能选择本组组长或在职专家",
           };
+        const expertDeviceAccountNumber =
+          input.expertDeviceAccountNumber?.trim() ??
+          (lead.expertOwnerId === target.id
+            ? lead.expertDeviceAccountNumber
+            : null);
+        if (!expertDeviceAccountNumber)
+          return { status: 400 as const, error: "请输入专家设备号" };
         const occurredOn =
           input.occurredOn ?? lead.expertIntroducedOn ?? today;
         const dateError = entryDateError(occurredOn, today, "推专家日期");
@@ -347,12 +360,15 @@ export async function PATCH(
           update.expertQueueGroupId = actor.groupId;
         }
         update.expertOwnerId = target.id;
+        // 推专家设备号允许自由手填；手填后不绑定设备库记录，只保留当次快照。
+        update.expertDeviceAccountId = null;
+        update.expertDeviceAccountNumber = expertDeviceAccountNumber;
         update.expertIntroducedOn = occurredOn;
         update.expertWorkflowStage = lead.expertWorkflowStage ?? "QUEUED";
         update.expertStageChangedAt = new Date();
         activity = {
           kind: "EXPERT_INTRODUCED",
-          note: `专家负责人调整为 ${target.name}，推专家日期 ${occurredOn}`,
+          note: `专家负责人调整为 ${target.name}，专家设备号 ${expertDeviceAccountNumber}，推专家日期 ${occurredOn}`,
           occurredOn,
         };
       } else if (input.action === "setCustomerName") {

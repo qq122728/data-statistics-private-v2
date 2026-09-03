@@ -75,7 +75,7 @@ test("组员和组长都能新增进群客户", () => {
   assert.match(component, /新客户进群日期/);
   assert.ok(component.includes("sourceDate: localToday()"));
   assert.match(component, /expertIntroducedOn: mode === "expert-recovery" \? today : ""/);
-  assert.match(component, /const \{ expertOwnerId, expertIntroducedOn, \.\.\.groupDraft \} = draft/);
+  assert.match(component, /expertDeviceAccountNumber,/);
   assert.match(component, /\.\.\.groupDraft/);
   assert.doesNotMatch(component, /<form className=\{styles\.modal\}/);
   assert.match(component, /payload\?\.receptionOptions\.length/);
@@ -102,9 +102,10 @@ test("搜索号码后由炒群负责人智能登记遗失档案的推专家动�
   assert.match(component, /该号码已经推过专家，没有重复新增/);
   assert.match(component, /canCreateInView/);
   assert.match(component, /aria-label="新增客户专家负责人"/);
+  assert.match(component, /aria-label="新增客户专家设备号"/);
   assert.match(component, /aria-label="新增客户推专家日期"/);
-  assert.match(component, /const \{ expertOwnerId, expertIntroducedOn, \.\.\.groupDraft \} = draft/);
-  assert.match(component, /\? \{\s*expertOwnerId,\s*expertIntroducedOn,/);
+  assert.match(component, /expertDeviceAccountNumber/);
+  assert.match(component, /专家设备号和推专家日期/);
 });
 
 test("共享表按实际负责人分阶段编辑，原始归属只读且组长纠错留痕", () => {
@@ -128,8 +129,10 @@ test("共享表按实际负责人分阶段编辑，原始归属只读且组长�
   assert.match(component, /撤销退群/);
   assert.match(component, /退群日期已纠正/);
   assert.match(component, /aria-label="推专家日期"/);
-  assert.match(component, /专家负责人和推专家日期已保存/);
-  assert.match(component, /推专家日期已纠正/);
+  assert.match(component, /aria-label="专家设备号"/);
+  assert.match(component, /确认推专家/);
+  assert.match(component, /保存修改/);
+  assert.match(component, /专家负责人、设备号和推专家日期已保存/);
   assert.match(component, /撤销误点推专家/);
   assert.match(component, /action: "undoIntroduceExpert"/);
   assert.match(component, /错误的推专家已撤销，客户已回到在群待推专家/);

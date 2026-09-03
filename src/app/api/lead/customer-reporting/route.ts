@@ -108,16 +108,27 @@ const createSchema = z.object({
     .trim()
     .max(API_LIMITS.identifierCharacters)
     .optional(),
+  expertDeviceAccountNumber: z
+    .string()
+    .trim()
+    .min(1, "请输入专家设备号")
+    .max(50, "专家设备号不能超过 50 个字")
+    .optional(),
   expertIntroducedOn: z
     .string()
     .refine((value) => /^\d{4}-\d{2}-\d{2}$/.test(value), "请选择推专家日期")
     .optional(),
 }).superRefine((value, context) => {
-  if (Boolean(value.expertOwnerId) !== Boolean(value.expertIntroducedOn)) {
+  const expertFields = [
+    Boolean(value.expertOwnerId),
+    Boolean(value.expertDeviceAccountNumber),
+    Boolean(value.expertIntroducedOn),
+  ];
+  if (expertFields.some(Boolean) && !expertFields.every(Boolean)) {
     context.addIssue({
       code: "custom",
-      path: [value.expertOwnerId ? "expertIntroducedOn" : "expertOwnerId"],
-      message: "登记推专家时，专家负责人和推专家日期必须一起填写",
+      path: ["expertDeviceAccountNumber"],
+      message: "登记推专家时，专家负责人、专家设备号和推专家日期必须一起填写",
     });
   }
 });
@@ -461,6 +472,7 @@ export async function GET(request: Request) {
         leftNote: true,
         leftWithOrder: true,
         expertIntroducedOn: true,
+        expertDeviceAccountNumber: true,
         expertContactedOn: true,
         expertContactNote: true,
         expertWorkflowStage: true,
@@ -1143,6 +1155,9 @@ export async function POST(request: Request) {
           groupQueueGroupId: group.id,
           groupOperatorOwnerId: operator.id,
           expertOwnerId: expert?.id ?? null,
+          expertDeviceAccountId: null,
+          expertDeviceAccountNumber:
+            input.expertDeviceAccountNumber?.trim() ?? null,
           expertIntroducedOn: input.expertIntroducedOn ?? null,
           expertQueueNumber,
           expertQueueGroupId: expertQueueNumber ? group.id : null,
@@ -1177,7 +1192,7 @@ export async function POST(request: Request) {
                     actorId: actor.id,
                     kind: "EXPERT_INTRODUCED" as const,
                     occurredOn: input.expertIntroducedOn,
-                    note: `新增时直接分配专家 ${expert.name}`,
+                    note: `新增时直接分配专家 ${expert.name}（专家设备号：${input.expertDeviceAccountNumber}）`,
                   }]
                 : []),
             ],
@@ -1203,6 +1218,8 @@ export async function POST(request: Request) {
           groupOperatorOwnerId: operator.id,
           deviceCode: input.deviceCode,
           expertOwnerId: expert?.id ?? null,
+          expertDeviceAccountNumber:
+            input.expertDeviceAccountNumber?.trim() ?? null,
           expertIntroducedOn: input.expertIntroducedOn ?? null,
         },
       });

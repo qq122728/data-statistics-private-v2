@@ -195,7 +195,7 @@ const NATURAL_TEMPLATES: Record<NaturalIntent, Array<{ label: string; text: stri
     { label: "新增一个进群客户", text: "新增进群客户112233，姓名张三，渠道FB-M，炒群吴天，设备B22" },
   ],
   EXPERT_CUSTOMER: [
-    { label: "新增一个专家客户", text: "新增专家客户112233，姓名张三，接粉日期8月24日，进群日期8月30日，渠道FB-M，归属小王，炒群吴天，设备B22，专家西瓜，今天推专家" },
+    { label: "新增一个专家客户", text: "新增专家客户112233，姓名张三，接粉日期8月24日，进群日期8月30日，渠道FB-M，归属小王，炒群吴天，群设备号B22，专家西瓜，专家设备号X08，今天推专家" },
   ],
   PROGRESS: [
     { label: "更新炒群情况", text: "客户112233更新炒群情况：客户今晚继续沟通" },
@@ -225,10 +225,10 @@ type CustomerContext = {
 type CustomerDraft = {
   phone: string; customerName: string; channelId: string; sourceDate: string; joinedOn: string;
   attributionOwnerId: string; groupOperatorOwnerId: string; deviceCode: string;
-  expertOwnerId: string; expertIntroducedOn: string;
+  expertOwnerId: string; expertDeviceAccountNumber: string; expertIntroducedOn: string;
 };
 type CustomerBatchPreview = { validPhones: string[]; duplicates: string[]; invalid: string[]; totalInput: number };
-const EMPTY_CUSTOMER: CustomerDraft = { phone: "", customerName: "", channelId: "", sourceDate: "", joinedOn: "", attributionOwnerId: "", groupOperatorOwnerId: "", deviceCode: "", expertOwnerId: "", expertIntroducedOn: "" };
+const EMPTY_CUSTOMER: CustomerDraft = { phone: "", customerName: "", channelId: "", sourceDate: "", joinedOn: "", attributionOwnerId: "", groupOperatorOwnerId: "", deviceCode: "", expertOwnerId: "", expertDeviceAccountNumber: "", expertIntroducedOn: "" };
 
 type ProgressCustomer = {
   id: string; phone: string; customerName: string | null; joinedOn: string | null; groupStatus: string;
@@ -548,8 +548,9 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
       const sourceDate = aiDate(textAfter(text, "接粉日期") || textAfter(text, "接粉"), next.today);
       const joinedOn = aiDate(textAfter(text, "进群日期") || textAfter(text, "进群"), next.today);
       const expertIntroducedOn = /今天推专家/.test(text) ? next.today : aiDate(textAfter(text, "推专家日期") || textAfter(text, "推专家"), next.today);
-      const deviceCode = textAfter(text, "设备号") || textAfter(text, "设备");
-      const missing = [!phone && "客户号码", !sourceDate && "接粉日期", !joinedOn && "进群日期", !channel && "来源渠道", !reception && "接粉归属", !operator && "炒群负责人", !deviceCode && "设备号", !expert && "专家负责人", !expertIntroducedOn && "推专家日期"].filter(Boolean);
+      const deviceCode = textAfter(text, "群设备号") || textAfter(text, "群设备") || textAfter(text, "设备号") || textAfter(text, "设备");
+      const expertDeviceAccountNumber = textAfter(text, "专家设备号") || textAfter(text, "专家设备");
+      const missing = [!phone && "客户号码", !sourceDate && "接粉日期", !joinedOn && "进群日期", !channel && "来源渠道", !reception && "接粉归属", !operator && "炒群负责人", !deviceCode && "群设备号", !expert && "专家负责人", !expertDeviceAccountNumber && "专家设备号", !expertIntroducedOn && "推专家日期"].filter(Boolean);
       if (missing.length) { setCustomerContext(next); addMessage("assistant", `还缺少：${missing.join("、")}。请按模板补齐后重新发送。`); setPhase("template"); return; }
       if (sourceDate! > joinedOn!) { addMessage("assistant", "接粉日期不能晚于进群日期，请修改后重新发送。"); setPhase("template"); return; }
       if (joinedOn! > expertIntroducedOn!) { addMessage("assistant", "进群日期不能晚于推专家日期，请修改后重新发送。"); setPhase("template"); return; }
@@ -560,6 +561,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         ...EMPTY_CUSTOMER, phone, customerName: textAfter(text, "姓名"), channelId: channel!.id,
         sourceDate: sourceDate!, joinedOn: joinedOn!, attributionOwnerId: reception!.id,
         groupOperatorOwnerId: operator!.id, deviceCode, expertOwnerId: expert!.id,
+        expertDeviceAccountNumber,
         expertIntroducedOn: expertIntroducedOn!,
       });
       setPhase("customer-preview");
@@ -895,9 +897,15 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     if (phase === "progress-text") {
       const textValue = raw.trim();
       if (!textValue) { addMessage("assistant", "内容不能为空。" ); return; }
-      if (textValue.length > 300) { addMessage("assistant", "内容不能超过 300 个字。" ); return; }
+      const maxLength = progressDraft.action === "assignExpert" ? 50 : 300;
+      if (textValue.length > maxLength) { addMessage("assistant", `内容不能超过 ${maxLength} 个字。` ); return; }
       addMessage("user", textValue); setInput("");
-      progressReady({ ...progressDraft, text: textValue }, "内容已整理，请确认后保存。" ); return;
+      progressReady(
+        { ...progressDraft, text: textValue },
+        progressDraft.action === "assignExpert"
+          ? "专家负责人和设备号已整理，请确认后保存。"
+          : "内容已整理，请确认后保存。",
+      ); return;
     }
     const parsed = parseAnswer(raw, true);
     if (parsed.error || parsed.value === undefined || parsed.value <= 0) { addMessage("assistant", parsed.error ?? "金额必须大于 0。" ); return; }
@@ -913,6 +921,12 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
     const person = options.find((item) => item.id === userId);
     if (!person) return;
     addMessage("user", person.name);
+    if (progressDraft.action === "assignExpert") {
+      setProgressDraft({ ...progressDraft, userId });
+      addMessage("assistant", "请自由填写本次推专家使用的专家设备号。");
+      setPhase("progress-text");
+      return;
+    }
     progressReady({ ...progressDraft, userId }, `${PROGRESS_LABELS[progressDraft.action]}将设置为 ${person.name}，请确认。`);
   }
 
@@ -933,7 +947,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         await requestJson(`/api/leads/${progressCustomer.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(action === "groupNote" ? { action: "updateGroupProgress", progressNote: progressDraft.text, occurredOn: progressContext.today } : { action: "updateExpertDetails", expertNotes: progressDraft.text, occurredOn: progressContext.today }) });
       } else if (action === "assignOperator" || action === "assignExpert" || action === "device" || action === "register" || action === "normalLeave" || action === "abnormalLeave") {
         const body = action === "assignOperator" ? { action: "assignGroupOperator", userId: progressDraft.userId }
-          : action === "assignExpert" ? { action: "assignExpert", userId: progressDraft.userId }
+          : action === "assignExpert" ? { action: "assignExpert", userId: progressDraft.userId, expertDeviceAccountNumber: progressDraft.text, occurredOn: progressContext.today }
           : action === "device" ? { action: "setDeviceCode", code: progressDraft.text }
           : action === "register" ? { action: "setRegistration", occurredOn: progressContext.today }
           : { action: "setLeave", leaveType: action === "normalLeave" ? "NORMAL" : "ABNORMAL", occurredOn: progressContext.today };
@@ -951,7 +965,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
 
   async function saveCustomer() {
     if (!customerContext || !selectedCustomerChannel || !customerDraft.phone) return;
-    if (customerCreateKind === "expert" && (!customerDraft.sourceDate || !customerDraft.joinedOn || !customerDraft.attributionOwnerId || !customerDraft.expertOwnerId || !customerDraft.expertIntroducedOn)) {
+    if (customerCreateKind === "expert" && (!customerDraft.sourceDate || !customerDraft.joinedOn || !customerDraft.attributionOwnerId || !customerDraft.expertOwnerId || !customerDraft.expertDeviceAccountNumber || !customerDraft.expertIntroducedOn)) {
       addMessage("assistant", "专家客户资料不完整，请重新填写后再保存。");
       return;
     }
@@ -1262,7 +1276,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
             <div><span>炒群负责人</span><strong>{selectedCustomerOperator?.name ?? "未选择"}</strong></div>
             <div><span>设备账号</span><strong>{customerDraft.deviceCode}</strong></div>
             <div><span>归属组员</span><strong>{customerCreateKind === "expert" ? selectedCustomerReception?.name ?? "未选择" : "当前账号本人"}</strong></div>
-            {customerCreateKind === "expert" ? <><div><span>专家负责人</span><strong>{selectedCustomerExpert?.name ?? "未选择"}</strong></div><div><span>推专家日期</span><strong>{customerDraft.expertIntroducedOn}</strong></div></> : null}
+            {customerCreateKind === "expert" ? <><div><span>专家负责人</span><strong>{selectedCustomerExpert?.name ?? "未选择"}</strong></div><div><span>专家设备号</span><strong>{customerDraft.expertDeviceAccountNumber}</strong></div><div><span>推专家日期</span><strong>{customerDraft.expertIntroducedOn}</strong></div></> : null}
             <div><span>初始状态</span><strong>{customerCreateKind === "expert" ? "已推专家" : "已进群"}</strong></div>
           </div>
           <div className={styles.customerNotice}>{customerCreateKind === "expert" ? "历史接粉、进群只用于恢复跟踪档案，不倒加旧月份；推专家只按本次真实发生日期计数。" : "完整号码只保留最后 6 位；保存后同组成员可以继续填写负责人、设备号、炒群和专家进度。"}</div>
@@ -1303,7 +1317,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
           <div className={styles.customerPreview}>
             <div><span>更新项目</span><strong>{PROGRESS_LABELS[progressDraft.action]}</strong></div>
             <div><span>发生日期</span><strong>{progressContext.today}</strong></div>
-            {progressDraft.text ? <div><span>填写内容</span><strong>{progressDraft.text}</strong></div> : null}
+            {progressDraft.text ? <div><span>{progressDraft.action === "assignExpert" ? "专家设备号" : "填写内容"}</span><strong>{progressDraft.text}</strong></div> : null}
             {progressDraft.userId ? <div><span>选择人员</span><strong>{[...progressContext.memberOptions, ...progressContext.expertOptions].find((item) => item.id === progressDraft.userId)?.name ?? "—"}</strong></div> : null}
             {progressDraft.amountCents ? <div><span>金额</span><strong>{amount(progressDraft.amountCents)}</strong></div> : null}
             {(progressDraft.action === "initial" || progressDraft.action === "recharge") ? <div><span>入金方式</span><strong>{progressDraft.depositMethod === "CRYPTO" ? "加密货币" : "银行卡"}</strong></div> : null}
@@ -1327,7 +1341,7 @@ export function AiSmartAssistant({ open, onOpenChange, contextLabel, user }: AiS
         {phase === "progress-done" ? <><button type="button" onClick={() => void openNaturalTemplate("PROGRESS", "更新客户进度")}>继续更新其他客户</button><button type="button" data-primary="true" onClick={() => { reset(); onOpenChange(false); }}>完成</button></> : null}
       </div>
       <form className={styles.composer} onSubmit={(event) => { event.preventDefault(); submit(); }}>
-        {phase === "template" ? <textarea aria-label="AI 对话输入框" rows={3} placeholder="点击上方模板，修改后发送；也可以直接说完整内容" value={input} onChange={(event) => setInput(event.target.value)} /> : <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" || phase === "progress-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" ? "输入设备账号，或回复“跳过”" : phase === "progress-text" ? "输入新的进度内容" : phase === "progress-amount" ? "输入金额，例如 1000" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />}
+        {phase === "template" ? <textarea aria-label="AI 对话输入框" rows={3} placeholder="点击上方模板，修改后发送；也可以直接说完整内容" value={input} onChange={(event) => setInput(event.target.value)} /> : <input aria-label="AI 对话输入框" placeholder={phase === "metrics" || phase === "editing" ? "输入数字，例如 10" : phase === "customer-phone" || phase === "progress-phone" ? "输入完整号码或后 6 位" : phase === "customer-name" ? "输入姓名或回复“跳过”" : phase === "customer-device" ? "输入设备账号，或回复“跳过”" : phase === "progress-text" ? progressDraft.action === "assignExpert" ? "输入专家设备号" : "输入新的进度内容" : phase === "progress-amount" ? "输入金额，例如 1000" : "输入你想处理的内容…"} value={input} onChange={(event) => setInput(event.target.value)} disabled={!inputEnabled} />}
         <button type="submit" aria-label="发送" disabled={!input.trim() || !inputEnabled}><PaperPlaneTilt size={16} weight="fill" /></button>
       </form>
     </aside> : null}

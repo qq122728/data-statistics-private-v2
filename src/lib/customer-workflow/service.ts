@@ -163,14 +163,17 @@ export async function executeCustomerWorkflow(
       if (lead.isHistoricalRecord) update.historicalExpertIntroCounted = true;
       update.expertOwnerId = assignee.id;
       update.expertDeviceAccountId = null;
-      update.expertDeviceAccountNumber = null;
+      update.expertDeviceAccountNumber =
+        input.expertDeviceAccountNumber?.trim() || null;
       update.expertContactedOn = null;
       update.expertContactNote = null;
       update.expertWorkflowStage = "QUEUED";
       update.expertStageChangedAt = workflowStageTime(occurredOn);
       update.expertTrackingStartedAt = null;
       activityKind = "EXPERT_INTRODUCED";
-      activityNote = `${lead.expertIntroducedOn ? "补充" : "推专家并"}分配给 ${assignee.name}；专家接手时填写自己的设备号`;
+      activityNote = input.expertDeviceAccountNumber?.trim()
+        ? `${lead.expertIntroducedOn ? "补充" : "推专家并"}分配给 ${assignee.name}（专家设备号：${input.expertDeviceAccountNumber.trim()}）`
+        : `${lead.expertIntroducedOn ? "补充" : "推专家并"}分配给 ${assignee.name}；专家接手时填写自己的设备号`;
     }
 
     if (input.action === "markExpertContacted") {

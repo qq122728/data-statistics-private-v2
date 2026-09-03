@@ -664,6 +664,10 @@ export function DepartmentCustomerProgress({
       setAdding(false);
       setPage(1);
       setProgress("全部进度");
+      // 历史客户恢复后仍保留真实的接粉/进群日期。如果录入时页面正在查看
+      // 其他月份，新行会不在当前筛选中；保存后回到全时间，让用户立即看到结果。
+      setMonth("");
+      setDay("all");
       showSaved(
         result.resumed
           ? `8月客户已续接${result.counted?.join ? "，本次进群已计数" : "，原进群不重复计数"}${result.counted?.expert ? "，本次推专家已计数" : ""}`

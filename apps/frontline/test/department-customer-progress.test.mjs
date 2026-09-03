@@ -79,6 +79,10 @@ test("组员和组长都能新增进群客户", () => {
   assert.match(component, /payload\?\.operatorOptions\.map/);
 });
 
+test("历史客户恢复后回到全部时间并立即显示", () => {
+  assert.match(component, /setAdding\(false\);\s*setPage\(1\);\s*setProgress\("全部进度"\);\s*\/\/[^]*setMonth\(""\);\s*setDay\("all"\);\s*showSaved/);
+});
+
 test("专家可以在专家进度直接新增一行并确认实际推专家日期", () => {
   assert.match(component, /新增专家客户/);
   assert.doesNotMatch(component, /补录已注册\/开单客户/);

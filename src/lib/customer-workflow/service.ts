@@ -1,4 +1,4 @@
-import type { LeadActivityKind } from "@prisma/client";
+import type { LeadActivityKind, Prisma } from "@prisma/client";
 import { db } from "../db";
 import { recordAudit } from "../audit";
 import { normalizeCustomerPhone } from "../entry-ledger";
@@ -285,6 +285,8 @@ export async function executeCustomerWorkflow(
       update.expertWorkflowStage = null;
       update.expertStageChangedAt = new Date();
       update.expertTrackingStartedAt = null;
+      update.expertQueueNumber = null;
+      update.expertQueueGroupId = null;
     }
     if (input.action === "markNoInitialDeposit") {
       update.expertWorkflowStage = "DECLINED_DEPOSIT";
@@ -376,26 +378,42 @@ export async function executeCustomerWorkflow(
       update.phone = phone;
     }
 
-    const updated = await transaction.leadCustomer.update({
-      where: { id: lead.id },
-      data: update,
-      include: {
-        device: { select: { id: true, code: true } },
-        customerOrder: {
-          select: {
-            id: true,
-            openedOn: true,
-            initialDepositCents: true,
-            voidedAt: true,
-            voidReason: true,
-            events: {
-              where: { kind: { in: ["RECHARGE", "WITHDRAWAL"] } },
-              select: { id: true, kind: true, amountCents: true, occurredOn: true, continuationNumber: true, voidedAt: true, voidReason: true },
-            },
+    const updatedInclude = {
+      device: { select: { id: true, code: true } },
+      customerOrder: {
+        select: {
+          id: true,
+          openedOn: true,
+          initialDepositCents: true,
+          voidedAt: true,
+          voidReason: true,
+          events: {
+            where: { kind: { in: ["RECHARGE", "WITHDRAWAL"] } },
+            select: { id: true, kind: true, amountCents: true, occurredOn: true, continuationNumber: true, voidedAt: true, voidReason: true },
           },
         },
       },
-    });
+    } satisfies Prisma.LeadCustomerInclude;
+    // 撤销会同时冲回原日期的两段统计。用原推专家日期做并发条件，确保浏览器
+    // 连点或网络重发时只有第一次能清空状态，后续请求不会再把统计减一次。
+    if (input.action === "undoIntroduceExpert") {
+      const claimed = await transaction.leadCustomer.updateMany({
+        where: { id: lead.id, expertIntroducedOn: lead.expertIntroducedOn },
+        data: update,
+      });
+      if (claimed.count !== 1)
+        return { status: 409 as const, error: "推专家状态已被其他操作修改，请刷新后重试" };
+    }
+    const updated = input.action === "undoIntroduceExpert"
+      ? await transaction.leadCustomer.findUniqueOrThrow({
+          where: { id: lead.id },
+          include: updatedInclude,
+        })
+      : await transaction.leadCustomer.update({
+          where: { id: lead.id },
+          data: update,
+          include: updatedInclude,
+        });
 
     if (input.action === "updateGroupProgress") {
       // 同一天也新增一条修订，不能覆盖上一位操作人的内容。查询端按发生日和

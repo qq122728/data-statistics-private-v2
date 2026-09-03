@@ -267,6 +267,8 @@ export function buildBasicCustomerMutation(
     case "undoIntroduceExpert":
       if (!lead.expertIntroducedOn) return { status: 400, error: "该客户没有推专家记录" };
       if (baselineIncludes(lead, "INTRODUCED")) return { status: 400, error: "该推专家记录属于启用前历史底账，不能撤销" };
+      if (lead.expertContactedOn)
+        return { status: 400, error: "专家已经确认接待，请联系组长先撤销专家接待，再撤销推专家" };
       if (lead.registeredOn || (lead.customerOrder && !lead.customerOrder.voidedAt))
         return { status: 400, error: "该客户已有注册或开单记录，请先撤销后续步骤" };
       return {

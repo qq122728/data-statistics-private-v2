@@ -126,6 +126,10 @@ test("共享表按实际负责人分阶段编辑，原始归属只读且组长�
   assert.match(component, /aria-label="推专家日期"/);
   assert.match(component, /专家负责人和推专家日期已保存/);
   assert.match(component, /推专家日期已纠正/);
+  assert.match(component, /撤销误点推专家/);
+  assert.match(component, /action: "undoIntroduceExpert"/);
+  assert.match(component, /错误的推专家已撤销，客户已回到在群待推专家/);
+  assert.match(component, /!customer\.expertContactedOn/);
   assert.match(customerPatch, /input\.occurredOn \?\? lead\.expertIntroducedOn \?\? today/);
   assert.match(customerPatch, /moveCustomerExpertIntroductionDate/);
   assert.match(customerPatch, /leaveType:\s*z\.enum\(\["NORMAL", "ABNORMAL", "NONE"\]\)/);

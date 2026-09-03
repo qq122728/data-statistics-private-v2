@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass, Plus, X } from "@phosphor-icons/react";
 import { requestJson, type BackendUser } from "@/lib/backend";
 import { localToday } from "@/lib/frontline-workbench";
+import { ConfirmDialog, type Confirm } from "./ConfirmDialog";
 import styles from "./DepartmentCustomerProgress.module.css";
 
 export type DepartmentCustomerGroup = { id: string; name: string };
@@ -41,6 +42,7 @@ type Customer = {
   leftNote: string | null;
   leftWithOrder: boolean;
   expertIntroducedOn: string | null;
+  expertContactedOn: string | null;
   expertContactNote: string | null;
   expertWorkflowStage: string | null;
   registeredOn: string | null;
@@ -414,6 +416,8 @@ export function DepartmentCustomerProgress({
     reason: "",
   });
   const [savingCorrection, setSavingCorrection] = useState(false);
+  const [undoExpertCustomer, setUndoExpertCustomer] =
+    useState<Customer | null>(null);
   const phoneInput = useRef<HTMLInputElement>(null);
   const loadedCustomerQuery = useRef("");
   // 客户新增也是业务写入：只有绑定小组的一线账号有入口，组织管理员保持只读。
@@ -866,6 +870,37 @@ export function DepartmentCustomerProgress({
       setReloadKey((value) => value + 1);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "客户进度保存失败");
+    } finally {
+      setSavingCell("");
+    }
+  }
+  async function undoExpertIntroduction(customer: Customer, reason: string) {
+    const key = `${customer.id}:undoExpert`;
+    // 确认后立即关闭弹窗，避免用户连点造成重复纠错请求；后端仍有并发保护。
+    setUndoExpertCustomer(null);
+    setSavingCell(key);
+    setError("");
+    try {
+      await requestJson(`/api/leads/${customer.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "undoIntroduceExpert",
+          occurredOn: businessToday,
+          reason,
+        }),
+      });
+      setViewMode("group");
+      setExpertStage("all");
+      setProgress("全部进度");
+      setMonth("");
+      setDay("all");
+      setPage(1);
+      setQuery(customer.phone);
+      showSaved("错误的推专家已撤销，客户已回到在群待推专家");
+      setReloadKey((value) => value + 1);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "撤销推专家失败");
     } finally {
       setSavingCell("");
     }
@@ -2121,6 +2156,19 @@ export function DepartmentCustomerProgress({
                                   }}
                                 />
                               </label>
+                              {customer.expertIntroducedOn &&
+                              !customer.expertContactedOn ? (
+                                <button
+                                  type="button"
+                                  className={styles.correctionButton}
+                                  disabled={Boolean(savingCell)}
+                                  onClick={() => setUndoExpertCustomer(customer)}
+                                >
+                                  {savingCell === `${customer.id}:undoExpert`
+                                    ? "撤销中…"
+                                    : "撤销误点推专家"}
+                                </button>
+                              ) : null}
                             </div>
                           ) : (
                             <div className={styles.stackedCell}>
@@ -2488,6 +2536,26 @@ export function DepartmentCustomerProgress({
           </section>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        confirm={
+          undoExpertCustomer
+            ? ({
+                title: "撤销误点推专家",
+                desc:
+                  "客户会回到“在群待推专家”，原推专家日期的统计会减回；添加、进群和在群数据不变。",
+                target: `${undoExpertCustomer.phone} · ${undoExpertCustomer.expertOwner?.name ?? "未分配专家"}`,
+                confirmLabel: "确认撤销",
+                danger: true,
+                reasonLabel: "撤销原因（必填）",
+                reasonPlaceholder: "例如：炒群误点，客户实际尚未联系专家",
+                onConfirm: (reason) =>
+                  void undoExpertIntroduction(undoExpertCustomer, reason),
+              } satisfies Confirm)
+            : null
+        }
+        onClose={() => setUndoExpertCustomer(null)}
+      />
 
       {ledgerCustomer?.order ? (
         <div

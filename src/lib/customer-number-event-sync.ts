@@ -156,7 +156,14 @@ export async function reconcileCustomerJoinEvent(
   // 线上 PostgreSQL 可能同时收到两个保存请求。同一统计桶串行核对，避免两个请求
   // 都读到旧数后各自补一次；SQLite 单元测试本身就是串行写入，无需数据库锁。
   if (isPostgresDatabase()) {
-    await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${bucketKey}))`);
+    // advisory lock 本身返回 PostgreSQL void，Prisma 无法反序列化；用 CTE 只把
+    // 普通整数传回应用，同时保留事务锁的副作用。
+    await tx.$queryRaw(Prisma.sql`
+      WITH lock_acquired AS (
+        SELECT pg_advisory_xact_lock(hashtext(${bucketKey}))
+      )
+      SELECT 1::integer AS "locked" FROM lock_acquired
+    `);
   }
 
   const bucket = await loadCustomerJoinBucket(tx, lead, businessDate);

@@ -21,6 +21,13 @@ test("进群、注册和开单入口都会通知日报同步", () => {
   assert.match(customerTable, /\/api\/customer-orders/);
 });
 
+test("客户进度定时同步保留当前表格，不再整页闪动", () => {
+  assert.match(customerTable, /const loadedCustomerQuery = useRef\(""\)/);
+  assert.match(customerTable, /const silentlyRefresh = loadedCustomerQuery\.current === requestKey/);
+  assert.match(customerTable, /if \(!silentlyRefresh\) setLoading\(true\)/);
+  assert.match(customerTable, /loadedCustomerQuery\.current = requestKey/);
+});
+
 test("界面明确说明老客户不受当日添加数限制", () => {
   assert.match(dailySheet, /当天添加为 0 也不影响/);
   for (const label of ["进群", "注册", "开单", "号码自动统计"]) assert.ok(dailySheet.includes(label));

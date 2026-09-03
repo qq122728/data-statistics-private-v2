@@ -382,6 +382,7 @@ export function DepartmentCustomerProgress({
   });
   const [savingCorrection, setSavingCorrection] = useState(false);
   const phoneInput = useRef<HTMLInputElement>(null);
+  const loadedCustomerQuery = useRef("");
   // 客户新增也是业务写入：只有绑定小组的一线账号有入口，组织管理员保持只读。
   const canCreate = Boolean(
     member &&
@@ -449,12 +450,11 @@ export function DepartmentCustomerProgress({
   useEffect(() => {
     if (!groupId) {
       setPayload(null);
+      loadedCustomerQuery.current = "";
       setLoading(false);
       return;
     }
     let cancelled = false;
-    setLoading(true);
-    setError("");
     const params = new URLSearchParams({
       groupId,
       stage: viewMode === "group" ? "pending-expert" : "expert",
@@ -464,10 +464,15 @@ export function DepartmentCustomerProgress({
     });
     if (month) params.set("month", month);
     if (query.trim()) params.set("q", query.trim());
+    const requestKey = params.toString();
+    const silentlyRefresh = loadedCustomerQuery.current === requestKey;
+    if (!silentlyRefresh) setLoading(true);
+    setError("");
     void requestJson<Payload>(`/api/lead/customer-reporting?${params}`)
       .then((result) => {
         if (!cancelled) {
           setPayload(result);
+          loadedCustomerQuery.current = requestKey;
         }
       })
       .catch((caught) => {

@@ -790,10 +790,34 @@ describe.sequential("新版组长真实渠道报表 API", () => {
       (
         await patch({
           action: "assignGroupOperator",
+          userId: ids.berlinOperatorB,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      await db.leadCustomer.findUniqueOrThrow({
+        where: { id: customer.id },
+        select: { groupOperatorOwnerId: true },
+      }),
+    ).toEqual({ groupOperatorOwnerId: ids.berlinOperatorB });
+    expect(
+      (
+        await patch({
+          action: "assignGroupOperator",
           userId: ids.berlinOperatorA,
         })
       ).status,
+    ).toBe(200);
+    await signIn(ids.berlinExpert);
+    expect(
+      (
+        await patch({
+          action: "assignGroupOperator",
+          userId: ids.berlinOperatorB,
+        })
+      ).status,
     ).toBe(403);
+    await signIn(ids.berlinReception);
     expect(
       (await patch({ action: "setChannel", channelId: correctedChannelId }))
         .status,
@@ -926,6 +950,7 @@ describe.sequential("新版组长真实渠道报表 API", () => {
     ).not.toContain(customer.id);
     await signIn(ids.lead);
     expect((await correctAttribution(originalChannelId, "核对原始渠道后恢复")).status).toBe(200);
+    await signIn(ids.berlinReception);
     expect(
       (
         await patch({
@@ -934,6 +959,29 @@ describe.sequential("新版组长真实渠道报表 API", () => {
         })
       ).status,
     ).toBe(200);
+
+    await signIn(ids.berlinOperatorB);
+    const correctedOperatorView = await (
+      await getLeadCustomerReporting(
+        new Request(
+          `http://localhost/api/lead/customer-reporting?stage=expert&q=${customer.phone}`,
+        ),
+      )
+    ).json();
+    expect(
+      correctedOperatorView.customers.map((item: { id: string }) => item.id),
+    ).toContain(customer.id);
+    await signIn(ids.berlinOperatorA);
+    const formerOperatorView = await (
+      await getLeadCustomerReporting(
+        new Request(
+          `http://localhost/api/lead/customer-reporting?stage=expert&q=${customer.phone}`,
+        ),
+      )
+    ).json();
+    expect(
+      formerOperatorView.customers.map((item: { id: string }) => item.id),
+    ).not.toContain(customer.id);
 
     const rows = await db.dailyStatEntry.findMany({
       where: {

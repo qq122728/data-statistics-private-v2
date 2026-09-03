@@ -113,6 +113,10 @@ test("共享表按实际负责人分阶段编辑，原始归属只读且组长�
   assert.match(component, /canEditCustomerInfo/);
   assert.match(component, /canEditGroupStage/);
   assert.match(component, /canEditExpertStage/);
+  assert.match(component, /canEditReception && attributedOwner\?\.id === actorId/);
+  assert.match(component, /viewMode === "expert"/);
+  assert.match(component, /aria-label="修改炒群负责人"/);
+  assert.match(component, /炒群负责人已纠正/);
   for (const action of ["setJoinedOn", "assignGroupOperator", "setDeviceCode", "assignExpert", "setRegistration", "setLeave"]) assert.match(component, new RegExp(action));
   for (const action of ["setSourceDate", "setOwner", "setChannel"]) assert.doesNotMatch(component, new RegExp(`action: "${action}"`));
   assert.match(component, /修改组员\/渠道/);
@@ -131,6 +135,7 @@ test("共享表按实际负责人分阶段编辑，原始归属只读且组长�
   assert.match(component, /错误的推专家已撤销，客户已回到在群待推专家/);
   assert.match(component, /!customer\.expertContactedOn/);
   assert.match(customerPatch, /input\.occurredOn \?\? lead\.expertIntroducedOn \?\? today/);
+  assert.match(customerPatch, /只有该客户原接粉负责人或组长可以调整炒群负责人/);
   assert.match(customerPatch, /moveCustomerExpertIntroductionDate/);
   assert.match(customerPatch, /leaveType:\s*z\.enum\(\["NORMAL", "ABNORMAL", "NONE"\]\)/);
   assert.match(customerPatch, /delta:\s*-1/);

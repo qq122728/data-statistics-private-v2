@@ -1584,7 +1584,11 @@ export function DepartmentCustomerProgress({
                         (canEditGroup &&
                           customer.groupOperatorOwner?.id === actorId)),
                   );
-                  const canAssignGroupOperator = Boolean(member && isLead);
+                  const canAssignGroupOperator = Boolean(
+                    member &&
+                      (isLead ||
+                        (canEditReception && attributedOwner?.id === actorId)),
+                  );
                   const canEditExpertStage = Boolean(
                     member &&
                       (isLead ||
@@ -1874,6 +1878,46 @@ export function DepartmentCustomerProgress({
                               <span>渠道</span>
                               <b>{customer.batch.channel.name}</b>
                             </label>
+                            {viewMode === "expert" ? (
+                              <label>
+                                <span>炒群</span>
+                                {canAssignGroupOperator ? (
+                                  <select
+                                    aria-label="修改炒群负责人"
+                                    className={styles.cellSelect}
+                                    value={
+                                      customer.groupOperatorOwner?.id ?? ""
+                                    }
+                                    disabled={Boolean(savingCell)}
+                                    onChange={(event) =>
+                                      void patchCell(
+                                        customer,
+                                        {
+                                          action: "assignGroupOperator",
+                                          userId: event.target.value,
+                                        },
+                                        "operator",
+                                        "炒群负责人已纠正",
+                                      )
+                                    }
+                                  >
+                                    <option value="" disabled>
+                                      点击选择
+                                    </option>
+                                    {payload?.operatorOptions.map((item) => (
+                                      <option key={item.id} value={item.id}>
+                                        {item.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <b>
+                                    {customer.groupOperatorOwner?.name ??
+                                      "待分配"}
+                                  </b>
+                                )}
+                              </label>
+                            ) : null}
                             {canEditCustomerInfo ? (
                               <button
                                 type="button"

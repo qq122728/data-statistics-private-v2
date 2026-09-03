@@ -181,10 +181,14 @@ export async function PATCH(
 
       // 接粉归属、来源渠道和接粉日期共同决定“这是谁的粉”和日报归属。
       // 正常共享表永久只读；确实录错时只能走组长专用的归属纠错接口，填写原因并留审计。
-      if (input.action === "assignGroupOperator" && !isLead)
+      if (
+        input.action === "assignGroupOperator" &&
+        !isLead &&
+        !isAttributionOwner
+      )
         return {
           status: 403 as const,
-          error: "只有组长可以调整炒群负责人",
+          error: "只有该客户原接粉负责人或组长可以调整炒群负责人",
         };
 
       if (

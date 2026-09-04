@@ -104,8 +104,7 @@
   line-height: 1.35;
 }
 
-.fresh-save-state,
-[role="status"] {
+.fresh-save-state {
   font-variant-numeric: tabular-nums;
 }
 

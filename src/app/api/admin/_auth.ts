@@ -20,14 +20,14 @@ export async function requireAdminRequest(): Promise<{ actor: User } | { respons
 
 export async function requireChannelManagerRequest(): Promise<{ actor: SessionUser } | { response: NextResponse }> {
   try {
-    const actor = await requireRole("ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER");
+    const actor = await requireRole("ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER", "LEAD");
     if (!canWriteChannelManagement(actor)) throw new AuthorizationError(undefined, actor);
     if (actor.role === "COMPANY_MANAGER" && actor.managementCountryCode) throw new AuthorizationError(undefined, actor);
     return { actor };
   } catch (error) {
     if (!(error instanceof AuthenticationError) && !(error instanceof AuthorizationError)) throw error;
     return { response: error instanceof AuthorizationError
-      ? authorizationErrorResponse(error, "只有总公司管理员、资源部管理员或公司管理员可以管理渠道")
+      ? authorizationErrorResponse(error, "只有总公司管理员、资源部管理员、公司管理员或组长可以管理渠道")
       : NextResponse.json({ error: "请先登录" }, { status: 401 }) };
   }
 }

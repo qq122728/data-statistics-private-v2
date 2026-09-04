@@ -9,6 +9,7 @@ import { authorizeHighRiskOperation, HighRiskAuthorizationError } from "../_high
 import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { collapseGlobalChannelCopies } from "../../../../lib/global-channels";
+import { hasAssignedRole } from "../../../../lib/role-access";
 
 type ChannelType = "SMS" | "ADS" | "REBATE";
 type ChannelRequest = {
@@ -60,13 +61,17 @@ export async function GET() {
   const isHeadquartersManager = access.actor.role === "ADMIN" || access.actor.duty === "HQ_MANAGER";
   const isCompanyManager = access.actor.duty === "COMPANY_MANAGER" && !isHeadquartersManager;
   const isResourceManager = access.actor.role === "RESOURCE_MANAGER";
-  if (!isHeadquartersManager && !isCompanyManager && !isResourceManager) return authorizationDenied(access.actor, "当前账号没有公司级渠道管理权限");
+  const isLead = hasAssignedRole(access.actor, "LEAD") && !isHeadquartersManager && !isCompanyManager && !isResourceManager;
+  if (!isHeadquartersManager && !isCompanyManager && !isResourceManager && !isLead) return authorizationDenied(access.actor, "当前账号没有渠道管理权限");
+  if (isLead && !access.actor.groupId) return authorizationDenied(access.actor, "当前组长未绑定小组，不能管理渠道");
   const allowedChannelIds = isResourceManager
     ? (await db.resourceChannelAccess.findMany({ where: { userId: access.actor.id }, select: { channelId: true } })).map((item) => item.channelId)
     : [];
   const rows = await db.channel.findMany({
     where: isCompanyManager
       ? { group: { department: { companyId: access.actor.companyId as string } } }
+      : isLead
+        ? { groupId: access.actor.groupId as string }
       : isResourceManager
         ? { id: { in: allowedChannelIds } }
         : undefined,
@@ -113,7 +118,11 @@ export async function POST(request: Request) {
   const isHeadquartersManager = access.actor.role === "ADMIN" || access.actor.duty === "HQ_MANAGER";
   const isCompanyManager = access.actor.duty === "COMPANY_MANAGER" && !isHeadquartersManager;
   const isResourceManager = access.actor.role === "RESOURCE_MANAGER";
-  if (!isHeadquartersManager && !isCompanyManager && !isResourceManager) return authorizationDenied(access.actor, "当前账号没有公司级渠道管理权限");
+  const isLead = hasAssignedRole(access.actor, "LEAD") && !isHeadquartersManager && !isCompanyManager && !isResourceManager;
+  if (!isHeadquartersManager && !isCompanyManager && !isResourceManager && !isLead) return authorizationDenied(access.actor, "当前账号没有渠道管理权限");
+  if (isLead && (companyRequest || explicitGlobalRequest || !access.actor.groupId || groupId !== access.actor.groupId)) {
+    return authorizationDenied(access.actor, "组长只能给自己负责的小组新增渠道");
+  }
   if (isCompanyManager && (!companyRequest || explicitGlobalRequest || Boolean(groupId))) {
     return authorizationDenied(access.actor, "公司管理员只能管理本公司的渠道");
   }

@@ -13,8 +13,9 @@ import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 import { Leaderboard } from "@/components/Leaderboard";
 import { NotificationBadge, UnifiedNotificationCenter, useNotificationUnread } from "@/components/UnifiedNotificationCenter";
 import { Bell, ChartBar, ClockCounterClockwise, DeviceMobile, Path, SignOut, Table, Trophy, UsersThree } from "@phosphor-icons/react";
+import { ChannelManagementPanel } from "@/components/ChannelManagementPanel";
 
-type View = "statistics" | "history" | "finance" | "groupSummary" | "customers" | "devices" | "management" | "rankings" | "notifications";
+type View = "statistics" | "history" | "finance" | "groupSummary" | "customers" | "devices" | "channels" | "management" | "rankings" | "notifications";
 
 const viewMeta: Record<View, { title: string; note: string }> = {
   statistics: { title: "当日数据", note: "只填写自己的数据，按来源渠道分列" },
@@ -23,6 +24,7 @@ const viewMeta: Record<View, { title: string; note: string }> = {
   groupSummary: { title: "小组数据汇总", note: "组长按人员和渠道查看本组真实汇总" },
   customers: { title: "客户进度表格", note: "一个客户一行，组内成员共同维护" },
   devices: { title: "设备账号", note: "只查看和维护自己的设备与账号" },
+  channels: { title: "渠道管理", note: "组长只能给自己负责的小组新增渠道" },
   management: { title: "小组管理", note: "管理本组成员、工作交接和数据检查" },
   rankings: { title: "员工排名预警", note: "只比较本小组同岗位员工，低于同岗位平均一半会提示" },
   notifications: { title: "通知中心", note: "查看真实工作通知并处理未读或确认" },
@@ -77,6 +79,7 @@ export default function FreshWorkspace({ user, onLogout }: { user: BackendUser; 
         {isLead ? <button data-active={view === "groupSummary"} onClick={() => setView("groupSummary")}><i><ChartBar size={18} /></i><span>小组数据汇总</span></button> : null}
         <button data-active={view === "customers"} onClick={() => setView("customers")}><i><Path size={18} /></i><span>客户进度表</span></button>
         <button data-active={view === "devices"} onClick={() => setView("devices")}><i><DeviceMobile size={18} /></i><span>设备账号</span></button>
+        {isLead ? <button data-active={view === "channels"} onClick={() => setView("channels")}><i><Path size={18} /></i><span>渠道管理</span></button> : null}
         {isLead ? <button data-active={view === "management"} onClick={() => setView("management")}><i><UsersThree size={18} /></i><span>小组管理</span></button> : null}
         {isLead ? <button data-active={view === "rankings"} onClick={() => setView("rankings")}><i><Trophy size={18} /></i><span>员工排名预警</span></button> : null}
         <button data-active={view === "notifications"} onClick={() => setView("notifications")}><i><Bell size={18} /></i><span>通知中心<NotificationBadge count={notificationUnread} /></span></button>
@@ -108,6 +111,7 @@ export default function FreshWorkspace({ user, onLogout }: { user: BackendUser; 
         {view === "groupSummary" && isLead ? <GroupChannelAnalysis /> : null}
         {view === "customers" ? <MemberCustomerProgress user={user} /> : null}
         {view === "devices" ? <DeviceAccounts /> : null}
+        {view === "channels" && isLead ? <ChannelManagementPanel scope="group" groupId={user.groupId} /> : null}
         {view === "management" && isLead ? <TeamManagement user={user} onInspect={setInspectionMember} /> : null}
         {view === "rankings" && isLead ? <Leaderboard managedScope /> : null}
         {view === "notifications" ? <UnifiedNotificationCenter onUnreadChange={setNotificationUnread} /> : null}

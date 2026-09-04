@@ -131,6 +131,44 @@ describe.sequential("resource department channel permissions", () => {
     expect(response.status).toBe(403);
   });
 
+  it("lets a lead list and create channels only for their own group", async () => {
+    const ownGroupId = `${prefix}lead-own-${randomUUID()}`;
+    const otherGroupId = `${prefix}lead-other-${randomUUID()}`;
+    await db.teamGroup.createMany({ data: [
+      { id: ownGroupId, name: `组长自己的小组-${randomUUID()}` },
+      { id: otherGroupId, name: `其他小组-${randomUUID()}` },
+    ] });
+    const actorId = `${prefix}lead-${randomUUID()}`;
+    const actor = await db.user.create({ data: { id: actorId, username: actorId, name: "渠道组长", role: "LEAD", groupId: ownGroupId } });
+    const otherChannelId = `${prefix}other-channel-${randomUUID()}`;
+    await db.channel.create({ data: { id: otherChannelId, groupId: otherGroupId, name: "其他组渠道", normalizedName: `${prefix}other-${randomUUID()}` } });
+    vi.spyOn(auth, "requireRole").mockResolvedValue(actor);
+
+    const created = await POST(new Request("http://localhost/api/admin/channels", {
+      method: "POST",
+      body: JSON.stringify({ groupId: ownGroupId, name: `${prefix}本组投流-${randomUUID()}`, channelType: "ADS" }),
+    }));
+    expect(created.status).toBe(201);
+    await expect(created.json()).resolves.toMatchObject({ groupId: ownGroupId, channelType: "ADS" });
+
+    const listed = await GET();
+    expect(listed.status).toBe(200);
+    const payload = await listed.json() as { channels: Array<{ id: string }> };
+    expect(payload.channels.some((channel) => channel.id === otherChannelId)).toBe(false);
+    expect(payload.channels).toHaveLength(1);
+
+    const crossGroup = await POST(new Request("http://localhost/api/admin/channels", {
+      method: "POST",
+      body: JSON.stringify({ groupId: otherGroupId, name: `${prefix}越权渠道-${randomUUID()}`, channelType: "SMS" }),
+    }));
+    expect(crossGroup.status).toBe(403);
+    const global = await POST(new Request("http://localhost/api/admin/channels", {
+      method: "POST",
+      body: JSON.stringify({ global: true, name: `${prefix}越权全局-${randomUUID()}` }),
+    }));
+    expect(global.status).toBe(403);
+  });
+
   it("rejects a resource manager that tries to modify an unassigned channel", async () => {
     const actorId = `${prefix}scoped-user-${randomUUID()}`;
     const actor = await db.user.create({ data: { id: actorId, username: actorId, name: "短信资源管理员", passwordHash: hashPassword("Scoped-resource@56790"), role: "RESOURCE_MANAGER" } });

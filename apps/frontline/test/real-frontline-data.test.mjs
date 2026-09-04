@@ -19,6 +19,15 @@ test("组员工作台使用统一日报、财务、客户和设备入口", () =>
   assert.match(source, /展开查看操作说明/);
 });
 
+test("组长可以新增渠道且请求固定携带自己的 groupId", () => {
+  const workspace = read("FreshWorkspace.tsx");
+  const channelPanel = read("ChannelManagementPanel.tsx");
+  assert.match(workspace, /isLead \? <button data-active=\{view === "channels"\}/);
+  assert.match(workspace, /<ChannelManagementPanel scope="group" groupId=\{user\.groupId\}/);
+  assert.match(channelPanel, /\{ groupId, name, channelType \}/);
+  assert.match(channelPanel, /只添加到组长自己负责的小组/);
+});
+
 test("统一组员表按渠道读取并保存真实每日数据", () => {
   const source = read("UnifiedMemberDataSheet.tsx");
   assert.match(source, /requestJson<Context>\("\/api\/daily-stats"\)/);

@@ -20,6 +20,13 @@ test("公司范围页面只读取组织网关的真实 API", () => {
   assert.ok(source.includes("<NotificationBadge count={notificationUnread} />"));
 });
 
+test("公司管理员可以新增只覆盖本公司的渠道", () => {
+  const channelPanel = readFileSync(new URL("../components/ChannelManagementPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /<ChannelManagementPanel scope="company"/);
+  assert.match(channelPanel, /scope === "company" \? \{ company: true, name, channelType \}/);
+  assert.match(channelPanel, /保存一次，自动覆盖本公司当前所有启用小组/);
+});
+
 test("公司组织管理按真实对象执行部门、部门管理员、小组和组长流程", () => {
   for (const endpoint of ["/api/org/departments", "/api/org/department-managers", "/api/org/groups", "/api/org/group-leads"]) assert.ok(source.includes(endpoint));
   for (const label of ["先开部门", "再开管理员账号", "请选择本公司已存在的部门", "请选择暂无组长的小组"]) assert.ok(source.includes(label));

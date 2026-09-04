@@ -36,7 +36,7 @@ export const attendanceWriteRoles = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXP
 export const notificationWriteRoles = ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER", "LEAD"] as const;
 export const deviceAccountWriteRoles = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
 export const adminWriteRoles = ["ADMIN"] as const;
-export const channelManagementWriteRoles = ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER"] as const;
+export const channelManagementWriteRoles = ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER", "LEAD"] as const;
 
 type PermissionClient = Pick<typeof db, "user"> | Prisma.TransactionClient;
 
@@ -74,7 +74,7 @@ export function canWriteAdminSettings(user: PermissionUser): boolean {
 }
 
 export function canWriteChannelManagement(user: PermissionUser): boolean {
-  return user.active && channelManagementWriteRoles.includes(user.role as (typeof channelManagementWriteRoles)[number]);
+  return user.active && channelManagementWriteRoles.some((role) => hasAssignedRole(user, role));
 }
 
 export type ReportReadableGroup = {

@@ -370,7 +370,9 @@ export function DepartmentCustomerProgress({
   const [day, setDay] = useState("all");
   const [memberFilter, setMemberFilter] = useState("");
   const [channelFilter, setChannelFilter] = useState("");
-  const [compactView, setCompactView] = useState(true);
+  // 退群、续充和出金都属于实际业务操作，默认完整展示，避免用户
+  // 因为精简视图隐藏列而误以为系统没有对应入口。
+  const [compactView, setCompactView] = useState(false);
   const [hiddenColumns, setHiddenColumns] = useState<ColumnKey[]>(
     compactHiddenByView.group,
   );

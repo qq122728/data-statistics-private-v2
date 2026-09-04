@@ -52,6 +52,7 @@ test("五个客户阶段使用按日编号并支持编号搜索", () => {
 });
 
 test("共享表完整保留已进群客户业务字段", () => {
+  assert.match(component, /const \[compactView, setCompactView\] = useState\(false\)/);
   for (const field of ["客户日期", "客户信息", "客户归属", "群维护", "设备号", "群内天数", "炒群情况", "退群信息", "专家负责人", "专家情况", "注册信息", "开单 / 首充", "续充", "出金", "净业绩", "最后修改"]) {
     assert.match(component, new RegExp(field));
   }

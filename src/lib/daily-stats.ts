@@ -331,6 +331,16 @@ export async function saveDailyStat(
   let existing = input.entryId
     ? requestedExisting
     : await tx.dailyStatEntry.findUnique({ where: { identityKey }, include: { revisions: { orderBy: { version: "desc" }, take: 1 } } });
+  // 切换统一组员日报时，极少数范围同时保留了旧 RECEPTION 行和新版统一行。
+  // 旧页面或浏览器缓存可能仍提交旧行 id；此时必须把修改写进唯一的新版行，
+  // 不能返回 409 让用户看起来永远保存失败，也不能再制造第三条记录。
+  if (existing && input.position === "RECEPTION" && !isUnifiedDailyStatIdentity(existing.identityKey)) {
+    const canonical = await tx.dailyStatEntry.findUnique({
+      where: { identityKey },
+      include: { revisions: { orderBy: { version: "desc" }, take: 1 } },
+    });
+    if (canonical) existing = canonical;
+  }
   // 旧 RECEPTION 行的 identityKey 没有 unified-member-v1 标记。第一次用新页面保存时
   // 复用原行并升级标记，不另建一条导致同日同渠道重复。
   if (!existing && input.position === "RECEPTION") {
@@ -421,9 +431,32 @@ export async function saveDailyStat(
     include: dailyStatEntryInclude,
   });
 
+  const numberTrackedReception = group.groupType === "HACKER" && usesCustomerNumberTracking(input.businessDate);
+  if (input.position === "RECEPTION" && isUnifiedDailyStatIdentity(updated.identityKey) && numberTrackedReception) {
+    // 号码统计切换期若残留旧接粉行，统一行保存成功后立即封存旧行。
+    // 修订内容继续保留用于审计，但旧行不再是正式账，也不会参与任何汇总。
+    await tx.dailyStatEntry.updateMany({
+      where: {
+        id: { not: updated.id },
+        ownerId: updated.ownerId,
+        groupId: updated.groupId,
+        channelId: updated.channelId,
+        businessDate: updated.businessDate,
+        position: "RECEPTION",
+        status: { not: "RETURNED" },
+      },
+      data: {
+        status: "RETURNED",
+        approvedRevisionId: null,
+        reviewedById: actor.id,
+        reviewedAt: savedAt,
+        reviewReason: `已由统一组员日报 ${updated.id} 替代`,
+      },
+    });
+  }
+
   // 旧版曾把同一个人的接粉、炒群、专家数据拆成三行。统一组员日报直接保存后，
   // 只有在新行已经完整覆盖旧行时才停用旧行，避免正式报表重复相加。
-  const numberTrackedReception = group.groupType === "HACKER" && usesCustomerNumberTracking(input.businessDate);
   if (input.position === "RECEPTION" && isUnifiedDailyStatIdentity(updated.identityKey) && !numberTrackedReception) {
     const legacyCompanions = await tx.dailyStatEntry.findMany({
       where: {

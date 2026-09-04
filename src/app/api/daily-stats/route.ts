@@ -153,8 +153,10 @@ export async function GET(request: Request) {
     }
     const unifiedEntries = [...unifiedByScope.values()].map((rows) => {
       const numberTracking = group.groupType === "HACKER" && usesCustomerNumberTracking(rows[0].businessDate);
-      const primary = rows.find((entry) => entry.position === "RECEPTION" && isUnifiedDailyStatIdentity(entry.identityKey))
-        ?? rows.find((entry) => entry.position === "RECEPTION" && entry.ownerId === actor.id)
+      const isActiveEntry = (entry: (typeof rows)[number]) => entry.status !== "RETURNED"
+        && Boolean(entry.currentRevision ?? entry.approvedRevision);
+      const primary = rows.find((entry) => entry.position === "RECEPTION" && isUnifiedDailyStatIdentity(entry.identityKey) && isActiveEntry(entry))
+        ?? rows.find((entry) => entry.position === "RECEPTION" && entry.ownerId === actor.id && isActiveEntry(entry))
         ?? null;
       const primaryRevision = primary?.currentRevision ?? primary?.approvedRevision ?? null;
       const activeCompanions = rows.filter((entry) =>
@@ -201,7 +203,12 @@ export async function GET(request: Request) {
       if (primary && isUnifiedDailyStatIdentity(primary.identityKey) && primaryRevision && primaryCoversCompanions) {
         for (const field of numberFields) values[field] = primaryRevision[field];
       } else {
-        const receptionRows = rows.filter((entry) => entry.position === "RECEPTION");
+        const activeReceptionRows = rows.filter((entry) => entry.position === "RECEPTION" && isActiveEntry(entry));
+        // 同一人、同一天、同一渠道只要已有新版统一行，就以它作为唯一接粉底账。
+        // 切换期遗留的旧行只保留审计，不再叠加到页面或后续计算中。
+        const receptionRows = primary && isUnifiedDailyStatIdentity(primary.identityKey)
+          ? [primary]
+          : activeReceptionRows;
         const operatorRows = activeCompanions.filter((entry) => entry.position === "GROUP_OPERATOR");
         const expertRows = activeCompanions.filter((entry) => entry.position === "EXPERT");
         const isAiCustomerEvent = (entry: (typeof activeCompanions)[number]) => {

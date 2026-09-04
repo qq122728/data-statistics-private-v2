@@ -217,6 +217,83 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     expect(unauthorizedNewRow.status).toBe(201);
   });
 
+  it("uses the unified reception row when a cutover-day legacy duplicate still exists", async () => {
+    const data = await fixture();
+    signInAs(data.reception);
+    const created = await POST(request("POST", {
+      businessDate: "2026-09-01",
+      position: "RECEPTION",
+      channelId: data.channelId,
+      changeReason: "建立新版统一日报",
+      values: { ...emptyValues, dispatchCount: 2, replyCount: 1 },
+    }));
+    expect(created.status).toBe(201);
+    const canonicalId = (await created.json() as { entry: { id: string } }).entry.id;
+
+    const legacyId = `${prefix}cutover-legacy-${randomUUID()}`;
+    const legacyRevisionId = `${prefix}cutover-revision-${randomUUID()}`;
+    await db.dailyStatEntry.create({ data: {
+      id: legacyId,
+      identityKey: `legacy-metric-v1:${legacyId}`,
+      ownerId: data.reception.id,
+      groupId: data.groupId,
+      channelId: data.channelId,
+      businessDate: "2026-09-01",
+      timezone: "UTC",
+      position: "RECEPTION",
+      status: "APPROVED",
+    } });
+    await db.dailyStatRevision.create({ data: {
+      id: legacyRevisionId,
+      entryId: legacyId,
+      version: 1,
+      createdById: data.reception.id,
+      dispatchCount: 4,
+      lowAmountCount: 3,
+      noWsCount: 1,
+      effectiveCount: 0,
+    } });
+    await db.dailyStatEntry.update({
+      where: { id: legacyId },
+      data: { currentRevisionId: legacyRevisionId, approvedRevisionId: legacyRevisionId },
+    });
+
+    const context = await GET(new Request("http://localhost/api/daily-stats?from=2026-09-01&to=2026-09-01"));
+    expect(context.status).toBe(200);
+    await expect(context.json()).resolves.toMatchObject({
+      unifiedEntries: [{
+        entryId: canonicalId,
+        values: expect.objectContaining({
+          dispatchCount: 2,
+          lowAmountCount: 0,
+          noWsCount: 0,
+          replyCount: 1,
+        }),
+      }],
+    });
+
+    // 即使旧浏览器仍提交旧行 id，也应透明改到新版统一行。
+    const corrected = await POST(request("POST", {
+      entryId: legacyId,
+      businessDate: "2026-09-01",
+      position: "RECEPTION",
+      channelId: data.channelId,
+      changeReason: "修正切换日回复数",
+      values: { ...emptyValues, dispatchCount: 2, replyCount: 2 },
+    }));
+    expect(corrected.status).toBe(201);
+    await expect(corrected.json()).resolves.toMatchObject({
+      entry: { id: canonicalId, currentRevision: { version: 2, dispatchCount: 2, replyCount: 2 } },
+    });
+    await expect(db.dailyStatEntry.findUniqueOrThrow({ where: { id: legacyId } }))
+      .resolves.toMatchObject({
+        status: "RETURNED",
+        currentRevisionId: legacyRevisionId,
+        approvedRevisionId: null,
+        reviewReason: expect.stringContaining(canonicalId),
+      });
+  });
+
   it("lets a resource account confirm only explicitly assigned channel ids", async () => {
     const data = await fixture();
     const departmentId = (await db.teamGroup.findUniqueOrThrow({ where: { id: data.groupId } })).departmentId;

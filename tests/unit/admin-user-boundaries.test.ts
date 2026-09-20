@@ -129,7 +129,7 @@ describe.sequential("administrator member boundaries", () => {
       select: { role: true, mustChangePassword: true, roleAssignments: { select: { role: true }, orderBy: { role: "asc" } } },
     })).resolves.toEqual({
       role: "RECEPTION",
-      mustChangePassword: true,
+      mustChangePassword: false,
       roleAssignments: [{ role: "GROUP_OPERATOR" }, { role: "RECEPTION" }],
     });
   });

@@ -7,7 +7,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { generateSecureTemporaryPassword, requestJson } from "@/lib/backend";
+import { requestJson } from "@/lib/backend";
 import { Modal } from "./Modal";
 import { IconCheck, IconEdit, IconKey, IconPlus, IconTrash, IconUsers } from "./Icons";
 import { PersonnelTransferPanel } from "./PersonnelTransferPanel";
@@ -55,7 +55,6 @@ type CreatedAccount = {
   roleLabel: string;
   name: string;
   username: string;
-  password: string;
 };
 type ManagerAccountTarget = {
   kind: "company" | "department";
@@ -130,7 +129,6 @@ export function RealOrganizationManagement({
     "company" | "department" | "group" | null
   >(null);
   const [createParentId, setCreateParentId] = useState("");
-  const [createLeadWithGroup, setCreateLeadWithGroup] = useState(true);
   const [leadGroup, setLeadGroup] = useState<GroupNode | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [candidateId, setCandidateId] = useState("");
@@ -145,7 +143,8 @@ export function RealOrganizationManagement({
   const [accountEffectiveOn, setAccountEffectiveOn] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
-  const [temporaryPassword, setTemporaryPassword] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
+  const [accountPasswordConfirmation, setAccountPasswordConfirmation] = useState("");
   const [createdAccount, setCreatedAccount] = useState<CreatedAccount | null>(
     null,
   );
@@ -227,13 +226,15 @@ export function RealOrganizationManagement({
   function openLeadAccount(group: GroupNode) {
     setAccountGroup(group);
     setAccountEffectiveOn(new Date().toISOString().slice(0, 10));
-    setTemporaryPassword(generateSecureTemporaryPassword());
+    setAccountPassword("");
+    setAccountPasswordConfirmation("");
     setError("");
   }
 
   function openManagerAccount(target: ManagerAccountTarget) {
     setManagerAccountTarget(target);
-    setTemporaryPassword(generateSecureTemporaryPassword());
+    setAccountPassword("");
+    setAccountPasswordConfirmation("");
     setError("");
   }
 
@@ -243,12 +244,7 @@ export function RealOrganizationManagement({
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
     const timezone = String(data.get("timezone") ?? "Europe/Berlin");
-    const groupLeadAccount = createKind === "group" && createLeadWithGroup ? {
-      name: String(data.get("leadName") ?? "").trim(),
-      username: String(data.get("leadUsername") ?? "").trim(),
-      password: temporaryPassword,
-      effectiveOn: String(data.get("leadEffectiveOn") ?? ""),
-    } : null;
+    const groupLeadAccount = null;
     const config =
       createKind === "company"
         ? { url: "/api/org/companies", body: { name } }
@@ -257,10 +253,7 @@ export function RealOrganizationManagement({
               url: "/api/org/departments",
               body: { companyId: createParentId, name, timezone },
             }
-          : {
-              url: "/api/org/groups",
-              body: { departmentId: createParentId, name, leadAccount: groupLeadAccount },
-            };
+          : { url: "/api/org/groups", body: { departmentId: createParentId, name } };
     setBusy(true);
     setError("");
     try {
@@ -270,17 +263,8 @@ export function RealOrganizationManagement({
         body: JSON.stringify(config.body),
       });
       onToast(
-        createKind === "group" && groupLeadAccount
-          ? `已创建小组“${name}”并开设首任组长账号`
-          : `已创建${createKind === "company" ? "公司" : createKind === "department" ? "部门" : "小组"}“${name}”`,
+        `已创建${createKind === "company" ? "公司" : createKind === "department" ? "部门" : "小组"}“${name}”`,
       );
-      if (createKind === "group" && groupLeadAccount) setCreatedAccount({
-        scopeName: name,
-        roleLabel: "组长",
-        name: groupLeadAccount.name,
-        username: groupLeadAccount.username,
-        password: groupLeadAccount.password,
-      });
       setCreateKind(null);
       await load();
     } catch (caught) {
@@ -397,7 +381,9 @@ export function RealOrganizationManagement({
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
     const username = String(data.get("username") ?? "").trim();
-    if (!name || !username || !temporaryPassword) return;
+    if (!name || !username || !accountPassword) return;
+    if (accountPassword.length < 6) { setError("登录密码至少需要 6 位"); return; }
+    if (accountPassword !== accountPasswordConfirmation) { setError("两次输入的密码不一致，请重新核对"); return; }
 
     setBusy(true);
     setError("");
@@ -409,7 +395,7 @@ export function RealOrganizationManagement({
           groupId: accountGroup.id,
           name,
           username,
-          password: temporaryPassword,
+          password: accountPassword,
           effectiveOn: accountEffectiveOn,
         }),
       });
@@ -418,7 +404,6 @@ export function RealOrganizationManagement({
         roleLabel: "组长",
         name,
         username,
-        password: temporaryPassword,
       });
       onToast(`已给${accountGroup.name}开设组长账号`);
       setAccountGroup(null);
@@ -436,7 +421,9 @@ export function RealOrganizationManagement({
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
     const username = String(data.get("username") ?? "").trim();
-    if (!name || !username || !temporaryPassword) return;
+    if (!name || !username || !accountPassword) return;
+    if (accountPassword.length < 6) { setError("登录密码至少需要 6 位"); return; }
+    if (accountPassword !== accountPasswordConfirmation) { setError("两次输入的密码不一致，请重新核对"); return; }
     const isCompany = managerAccountTarget.kind === "company";
     const roleLabel = isCompany ? "公司管理员" : "部门管理员";
     setBusy(true);
@@ -453,7 +440,7 @@ export function RealOrganizationManagement({
             [isCompany ? "companyId" : "departmentId"]: managerAccountTarget.id,
             name,
             username,
-            password: temporaryPassword,
+            password: accountPassword,
           }),
         },
       );
@@ -462,7 +449,6 @@ export function RealOrganizationManagement({
         roleLabel,
         name,
         username,
-        password: temporaryPassword,
       });
       onToast(`已给${managerAccountTarget.name}开设${roleLabel}账号`);
       setManagerAccountTarget(null);
@@ -502,8 +488,6 @@ export function RealOrganizationManagement({
               <p style={{ margin: "7px 0 0" }}>
                 姓名：{createdAccount.name}　用户名：
                 <strong className="tnum">{createdAccount.username}</strong>
-                　临时密码：
-                <strong className="tnum">{createdAccount.password}</strong>
               </p>
               <p
                 style={{
@@ -512,7 +496,7 @@ export function RealOrganizationManagement({
                   fontSize: 12.5,
                 }}
               >
-                请现在把账号和临时密码交给本人；首次登录必须修改密码，关闭后系统不会再次显示明文密码。
+                已按填写的密码开通；本人可以直接登录。关闭后系统不会再次显示密码。
               </p>
             </div>
             <button
@@ -687,8 +671,6 @@ export function RealOrganizationManagement({
                           data-size="sm"
                           onClick={() => {
                             setCreateParentId(department.id);
-                            setCreateLeadWithGroup(true);
-                            setTemporaryPassword(generateSecureTemporaryPassword());
                             setEffectiveOn(new Date().toISOString().slice(0, 10));
                             setCreateKind("group");
                           }}
@@ -872,23 +854,7 @@ export function RealOrganizationManagement({
               style={{ width: "100%" }}
             />
           </label>
-          {createKind === "group" ? <>
-            <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="checkbox" checked={createLeadWithGroup} onChange={(event) => {
-                setCreateLeadWithGroup(event.target.checked);
-                if (event.target.checked && !temporaryPassword) setTemporaryPassword(generateSecureTemporaryPassword());
-              }} />
-              <span>同时开设首任组长账号（推荐）</span>
-            </label>
-            {createLeadWithGroup ? <div style={{ display: "grid", gap: 12, padding: 14, border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface-soft)" }}>
-              <strong>首任组长账号</strong>
-              <label><span className="label">组长姓名</span><input className="field" name="leadName" required maxLength={100} style={{ width: "100%" }} /></label>
-              <label><span className="label">登录用户名</span><input className="field" name="leadUsername" required autoComplete="off" maxLength={100} style={{ width: "100%" }} /></label>
-              <label><span className="label">生效日期</span><input className="field" name="leadEffectiveOn" type="date" required value={effectiveOn} onChange={(event) => setEffectiveOn(event.target.value)} style={{ width: "100%" }} /></label>
-              <label><span className="label">临时密码</span><div style={{ display: "flex", gap: 8 }}><input className="field" readOnly value={temporaryPassword} style={{ flex: 1 }} /><button type="button" className="btn" onClick={() => setTemporaryPassword(generateSecureTemporaryPassword())}>重新生成</button></div></label>
-              <p className="card-note" style={{ margin: 0 }}>账号首次登录必须修改密码。新组自动继承本部门时区和系统全部启用渠道。</p>
-            </div> : null}
-          </> : null}
+          {createKind === "group" ? <p className="card-note" style={{ margin: 0 }}>小组保存后，可在列表中开设组长账号并手动设置登录密码。新组自动继承本部门时区和系统全部启用渠道。</p> : null}
           {error ? (
             <p role="alert" style={{ color: "var(--bad)" }}>
               {error}
@@ -1093,35 +1059,15 @@ export function RealOrganizationManagement({
               onChange={(e) => setAccountEffectiveOn(e.target.value)}
             />
           </label>
-          <div>
-            <span className="label">系统生成的临时密码</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                className="field tnum"
-                readOnly
-                value={temporaryPassword}
-                style={{ width: "100%" }}
-              />
-              <button
-                type="button"
-                className="btn"
-                onClick={() =>
-                  setTemporaryPassword(generateSecureTemporaryPassword())
-                }
-              >
-                重新生成
-              </button>
-            </div>
-            <p
-              style={{
-                margin: "5px 0 0",
-                color: "var(--ink-3)",
-                fontSize: 12.5,
-              }}
-            >
-              保存成功后还会显示一次；本人首次登录时必须修改。
-            </p>
-          </div>
+          <label>
+            <span className="label">登录密码</span>
+            <input className="field" type="password" autoComplete="new-password" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} required minLength={6} maxLength={256} style={{ width: "100%" }} placeholder="至少 6 位" />
+          </label>
+          <label>
+            <span className="label">再次输入密码</span>
+            <input className="field" type="password" autoComplete="new-password" value={accountPasswordConfirmation} onChange={(event) => setAccountPasswordConfirmation(event.target.value)} required minLength={6} maxLength={256} style={{ width: "100%" }} placeholder="再输入一次确认" />
+            <p style={{ margin: "5px 0 0", color: "var(--ink-3)", fontSize: 12.5 }}>创建后可直接用这套密码登录，不会强制修改。</p>
+          </label>
           {error ? (
             <p role="alert" style={{ color: "var(--bad)" }}>
               {error}
@@ -1147,7 +1093,7 @@ export function RealOrganizationManagement({
         open={Boolean(managerAccountTarget)}
         onClose={() => !busy && setManagerAccountTarget(null)}
         title={`开设${managerAccountTarget?.kind === "company" ? "公司管理员" : "部门管理员"}账号 · ${managerAccountTarget?.name ?? ""}`}
-        note="账号保存后绑定到当前公司或部门；首次登录必须修改临时密码。"
+        note="账号保存后绑定到当前公司或部门；请手动设置登录密码并再次确认。"
       >
         <form
           onSubmit={createManagerAccount}
@@ -1177,26 +1123,15 @@ export function RealOrganizationManagement({
               placeholder="例如 germany_manager"
             />
           </label>
-          <div>
-            <span className="label">系统生成的临时密码</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                className="field tnum"
-                readOnly
-                value={temporaryPassword}
-                style={{ width: "100%" }}
-              />
-              <button
-                type="button"
-                className="btn"
-                onClick={() =>
-                  setTemporaryPassword(generateSecureTemporaryPassword())
-                }
-              >
-                重新生成
-              </button>
-            </div>
-          </div>
+          <label>
+            <span className="label">登录密码</span>
+            <input className="field" type="password" autoComplete="new-password" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} required minLength={6} maxLength={256} style={{ width: "100%" }} placeholder="至少 6 位" />
+          </label>
+          <label>
+            <span className="label">再次输入密码</span>
+            <input className="field" type="password" autoComplete="new-password" value={accountPasswordConfirmation} onChange={(event) => setAccountPasswordConfirmation(event.target.value)} required minLength={6} maxLength={256} style={{ width: "100%" }} placeholder="再输入一次确认" />
+            <p style={{ margin: "5px 0 0", color: "var(--ink-3)", fontSize: 12.5 }}>创建后可直接用这套密码登录，不会强制修改。</p>
+          </label>
           {error ? (
             <p role="alert" style={{ color: "var(--bad)" }}>
               {error}

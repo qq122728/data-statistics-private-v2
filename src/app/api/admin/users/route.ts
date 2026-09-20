@@ -129,7 +129,7 @@ export async function POST(request: Request) {
         : null;
       const created = await client.user.create({
         data: {
-          id: randomUUID(), employeeCode, username, name, passwordHash: hashPassword(password), mustChangePassword: true, role, groupId, departmentId, managementScopeName, managementCountryCode,
+          id: randomUUID(), employeeCode, username, name, passwordHash: hashPassword(password), mustChangePassword: false, role, groupId, departmentId, managementScopeName, managementCountryCode,
           roleAssignments: { create: [role, ...effectiveSecondaryRoles].map((assignedRole) => ({ role: assignedRole })) },
           ...(resourceChannels.value.length ? { resourceChannelAccess: { create: resourceChannels.value.map((channelId) => ({ channelId })) } } : {}),
           ...(groupId ? { membershipHistory: { create: { groupId, role, secondaryRoles: effectiveSecondaryRoles.join(",") || null, effectiveFrom: membershipEffectiveFrom!, reason: "创建人员档案", createdById: access.actor.id } } } : {}),

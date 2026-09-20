@@ -457,7 +457,7 @@ describe.sequential("阶段5a补充：创建 Duty.DEPARTMENT_MANAGER 账号 (POS
     const body = await response.json();
     expect(body.duty).toBe("DEPARTMENT_MANAGER");
     expect(body.departmentId).toBe(ids.deptA2);
-    expect(body.mustChangePassword).toBe(true);
+    expect(body.mustChangePassword).toBe(false);
 
     const created = await db.user.findUniqueOrThrow({ where: { id: body.id } });
     expect(created.role).toBe("COMPANY_MANAGER"); // 阶段5a既有占位惯例，权限判断不读这个字段
@@ -552,7 +552,7 @@ describe.sequential("阶段5a补充：创建 Duty.COMPANY_MANAGER 账号 (POST /
     const body = await response.json();
     expect(body.duty).toBe("COMPANY_MANAGER");
     expect(body.companyId).toBe(ids.companyB);
-    expect(body.mustChangePassword).toBe(true);
+    expect(body.mustChangePassword).toBe(false);
 
     const created = await db.user.findUniqueOrThrow({ where: { id: body.id } });
     expect(created.departmentId).toBeNull();
@@ -604,7 +604,7 @@ describe.sequential("阶段5a补充：创建 Duty.HQ_MANAGER 账号 (POST /api/o
     expect(response.status).toBe(201);
     const body = await response.json();
     expect(body.duty).toBe("HQ_MANAGER");
-    expect(body.mustChangePassword).toBe(true);
+    expect(body.mustChangePassword).toBe(false);
 
     const created = await db.user.findUniqueOrThrow({ where: { id: body.id } });
     expect(created.companyId).toBeNull();

@@ -45,7 +45,7 @@ export async function POST(request: Request) {
           username,
           name,
           passwordHash: hashPassword(password),
-          mustChangePassword: true,
+          mustChangePassword: false,
           role: "COMPANY_MANAGER",
           duty: "HQ_MANAGER",
         },

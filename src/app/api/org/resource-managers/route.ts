@@ -64,7 +64,7 @@ export async function POST(request: Request) {
           username,
           name,
           passwordHash: hashPassword(password),
-          mustChangePassword: true,
+          mustChangePassword: false,
           role: "RESOURCE_MANAGER",
           duty: "RESOURCE_MANAGER",
           resourceChannelAccess: { create: resourceChannelIds.map((channelId) => ({ channelId })) },

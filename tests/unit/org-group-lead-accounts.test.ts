@@ -126,7 +126,7 @@ describe.sequential("组织架构：给空缺小组开设全新组长账号", ()
       groupId: ids.groupDeptOwn,
       hireDate: body.effectiveOn,
       active: true,
-      mustChangePassword: true,
+      mustChangePassword: false,
     });
 
     const stored = await db.user.findUniqueOrThrow({

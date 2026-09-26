@@ -1913,9 +1913,16 @@ export function DepartmentCustomerProgress({
                         <td>
                           <div className={styles.stackedCell}>
                             <label>
-                              <span>组员</span>
+                              <span>原接粉归属</span>
                               <b>{attributedOwner?.name ?? "未分配"}</b>
                             </label>
+                            {customer.groupStatus === "NOT_JOINED" ? <label>
+                              <span>当前接粉</span>
+                              {isLead || canEditReception ? <select aria-label="修改当前接粉负责人" className={styles.cellSelect} value={customer.owner?.id ?? ""} disabled={Boolean(savingCell)} onChange={(event) => void patchCell(customer, { action: "assignReceptionOwner", userId: event.target.value }, "receptionOwner", "当前接粉负责人已调整；历史添加不变")}>
+                                <option value="" disabled>点击选择</option>
+                                {payload?.receptionOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                              </select> : <b>{customer.owner?.name ?? "未分配"}</b>}
+                            </label> : null}
                             <label>
                               <span>渠道</span>
                               <b>{customer.batch.channel.name}</b>

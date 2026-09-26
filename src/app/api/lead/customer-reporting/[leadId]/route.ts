@@ -27,6 +27,10 @@ import {
 
 const updateSchema = z.discriminatedUnion("action", [
   z.object({
+    action: z.literal("assignReceptionOwner"),
+    userId: z.string().min(1).max(API_LIMITS.identifierCharacters),
+  }),
+  z.object({
     action: z.literal("assignGroupOperator"),
     userId: z.string().min(1).max(API_LIMITS.identifierCharacters),
   }),
@@ -184,6 +188,26 @@ export async function PATCH(
         hasAssignedRole(actor, "GROUP_OPERATOR");
       const isAssignedExpert =
         lead.expertOwnerId === actor.id && hasAssignedRole(actor, "EXPERT");
+
+      // “当前接粉负责人”只决定谁继续处理未进群客户；原接粉归属、渠道和接粉日期不变。
+      // 因此离职后接手不补记添加，也不把历史业绩搬给接手人。
+      if (input.action === "assignReceptionOwner") {
+        if (lead.groupStatus !== "NOT_JOINED")
+          return { status: 400 as const, error: "客户已进群，接粉阶段已经结束，无需调整当前接粉负责人" };
+        const currentOwner = await transaction.user.findUnique({ where: { id: lead.ownerId }, select: { active: true } });
+        if (!isLead && (currentOwner?.active || input.userId !== actor.id || !hasAssignedRole(actor, "RECEPTION")))
+          return { status: 403 as const, error: "只有组长可调整接粉负责人；原负责人离职后，接手的接粉成员可把客户接到自己名下" };
+        const target = await transaction.user.findFirst({
+          where: { id: input.userId, groupId: actor.groupId, active: true, OR: [{ role: "RECEPTION" }, { roleAssignments: { some: { role: "RECEPTION" } } }] },
+          select: { id: true, name: true },
+        });
+        if (!target) return { status: 400 as const, error: "当前接粉负责人只能选择本组在职接粉成员" };
+        if (target.id === lead.ownerId) return { status: 400 as const, error: "当前接粉负责人没有变化" };
+        await transaction.leadCustomer.update({ where: { id: lead.id }, data: { ownerId: target.id } });
+        await transaction.leadActivity.create({ data: { leadId: lead.id, actorId: actor.id, kind: "PLAN_UPDATED", occurredOn: today, note: `当前接粉负责人调整为 ${target.name}；原接粉归属、渠道和历史添加数据保持不变` } });
+        await recordAudit(transaction, { actorId: actor.id, action: "CUSTOMER_RECEPTION_HANDOFF", entityType: "LeadCustomer", entityId: lead.id, summary: { previousOwnerId: lead.ownerId, currentOwnerId: target.id, attributionOwnerId: lead.attributionOwnerId ?? lead.ownerId, preserved: ["原接粉归属", "来源渠道", "接粉日期", "历史添加与业绩"] } });
+        return { status: 200 as const };
+      }
 
       // 接粉归属、来源渠道和接粉日期共同决定“这是谁的粉”和日报归属。
       // 正常共享表永久只读；确实录错时只能走组长专用的归属纠错接口，填写原因并留审计。

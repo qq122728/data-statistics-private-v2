@@ -61,3 +61,9 @@ test("小组日报只保留文字和 Excel，并由组长手动推送", () => {
   assert.doesNotMatch(analysis, /下载日报图片|format=png|ImageSquare/);
   assert.ok(analysis.includes("系统不会自动发送"));
 });
+
+test("组长可办理离职而不强制交接，并保留接手入口", () => {
+  assert.ok(team.includes("/api/lead/members/offboarding"));
+  assert.match(team, /办理离职/);
+  assert.match(team, /历史数据和在办客户都保留/);
+});

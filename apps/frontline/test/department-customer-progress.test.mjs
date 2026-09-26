@@ -196,3 +196,11 @@ test("表格视觉使用双层信息和清晰的冻结列", () => {
   assert.match(css, /\.table th\s*\{\s*text-align:\s*center/);
   assert.match(css, /\.table th,\s*\.table td\s*\{\s*height:\s*126px/);
 });
+
+test("离职后接手只改当前接粉负责人，不搬走原来的添加统计", () => {
+  assert.match(component, /原接粉归属/);
+  assert.match(component, /当前接粉/);
+  assert.match(component, /assignReceptionOwner/);
+  assert.match(customerPatch, /CUSTOMER_RECEPTION_HANDOFF/);
+  assert.match(customerPatch, /历史添加与业绩/);
+});

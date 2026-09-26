@@ -33,6 +33,8 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState(user.id);
   const [handoverReason, setHandoverReason] = useState("");
+  const [offboardingMember, setOffboardingMember] = useState<TeamMember | null>(null);
+  const [offboardingReason, setOffboardingReason] = useState("");
   const [notice, setNotice] = useState("");
   const activeMembers = useMemo(() => members.filter((member) => member.active), [members]);
   const filledCount = activeMembers.filter((member) => member.filledToday).length;
@@ -93,13 +95,15 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
     finally { setSaving(false); }
   }
 
-  async function toggleMember(member: TeamMember) {
+  async function confirmOffboarding() {
+    if (!offboardingMember) return;
     setSaving(true); setMemberLoadError("");
     try {
-      await requestJson("/api/lead/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: member.id, active: !member.active }) });
-      setNotice(`${member.name} 的工作账号已${member.active ? "停用" : "重新启用"}，历史数据没有删除。`);
+      await requestJson("/api/lead/members/offboarding", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ memberId: offboardingMember.id, reason: offboardingReason.trim() || undefined }) });
+      setNotice(`${offboardingMember.name} 已办理离职：账号已退出，历史数据和在办客户都保留；需要时可在客户表逐位安排同事接手。`);
+      setOffboardingMember(null); setOffboardingReason("");
       await loadMembers();
-    } catch (caught) { setMemberLoadError(caught instanceof Error ? caught.message : "账号状态更新失败"); }
+    } catch (caught) { setMemberLoadError(caught instanceof Error ? caught.message : "办理离职失败"); }
     finally { setSaving(false); }
   }
 
@@ -144,8 +148,8 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
           <td><span className="team-tag">组员</span>{member.roles.includes("GROUP_OPERATOR") ? <span className="team-tag">炒群</span> : null}{member.expert ? <span className="team-tag" data-tone="expert">专家</span> : null}{member.canViewAllGroupCustomers ? <span className="team-tag">全组客户只读</span> : null}</td>
           <td><span className="team-state" data-tone={member.filledToday ? "ok" : "warn"}>{member.filledToday ? "已填写" : "未填写"}</span></td>
           <td>{member.clients}</td><td>{member.devices}</td>
-          <td><span className="team-state" data-tone={member.active ? "ok" : "off"}>{member.active ? "启用" : "停用"}</span></td>
-          <td><div className="team-actions"><button onClick={() => onInspect({ id: member.id, name: member.name })}>查数据</button><button disabled={saving} onClick={() => openEdit(member)}>管理</button><button disabled={saving} data-danger={member.active} onClick={() => void toggleMember(member)}>{member.active ? "停用" : "启用"}</button></div></td>
+          <td><span className="team-state" data-tone={member.active ? "ok" : "off"}>{member.active ? "在职" : "已离职"}</span></td>
+          <td><div className="team-actions"><button onClick={() => onInspect({ id: member.id, name: member.name })}>查数据</button>{member.active ? <><button disabled={saving} onClick={() => openEdit(member)}>管理</button><button disabled={saving} data-danger onClick={() => { setOffboardingMember(member); setOffboardingReason(""); }}>办理离职</button></> : null}</div></td>
         </tr>)}</tbody>
       </table></div>
     </section>
@@ -172,6 +176,15 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
       <header><div><h2>数据修改记录</h2><p>组长帮助纠错时，系统保留修改前后数字、操作人和原因。</p></div><button className="team-outline" onClick={() => { const target = members.find((member) => member.id !== user.id) ?? members[0]; if (target) onInspect({ id: target.id, name: target.name }); }}>检查成员数据</button></header>
       <div className="team-table-wrap"><table className="team-table team-audit-table"><thead><tr><th>时间</th><th>数据归属</th><th>修改项目</th><th>修改前</th><th>修改后</th><th>操作人</th><th>原因</th></tr></thead><tbody>{externalAudits.length ? externalAudits.map((row, index) => <tr key={`${row.time}-${row.member}-${index}`}><td>{row.time}</td><td>{row.member}</td><td>{row.target}</td><td>{row.before}</td><td><strong>{row.after}</strong></td><td>{row.operator}</td><td>{row.reason}</td></tr>) : <tr><td colSpan={7}>暂无真实数据修改记录</td></tr>}</tbody></table></div>
     </section>
+
+    {offboardingMember ? <div className="team-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setOffboardingMember(null); }}>
+      <section className="team-dialog">
+        <header><div><h2>办理离职 · {offboardingMember.name}</h2><p>不交接客户也可以。系统只停止账号登录，不会删除或改写已有数据。</p></div><button type="button" disabled={saving} onClick={() => setOffboardingMember(null)}>×</button></header>
+        <div className="team-dialog__note">离职后：不再出现在在职名单、日报和预警中；历史添加、进群、业绩仍归原成员。在办客户需要时由接手人到客户表逐位改“当前接粉负责人”，不会新增添加数。</div>
+        <label><span>备注（选填）</span><textarea value={offboardingReason} maxLength={300} onChange={(event) => setOffboardingReason(event.target.value)} placeholder="例如：9 月 26 日离职" /></label>
+        <footer><button type="button" disabled={saving} onClick={() => setOffboardingMember(null)}>取消</button><button className="fresh-primary" data-danger disabled={saving} onClick={() => void confirmOffboarding()}>{saving ? "处理中…" : "确认办理离职"}</button></footer>
+      </section>
+    </div> : null}
 
     {editingId ? <div className="team-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingId(null); }}>
       <form className="team-dialog" onSubmit={saveMember}>

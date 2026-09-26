@@ -85,6 +85,23 @@ export async function GET(request: Request) {
       ? loadCurrentInGroupCustomers([group.id], range.to)
       : Promise.resolve([]),
   ]);
+  // 新号码流程会把进群及后段指标写到“炒群/专家”账中。
+  // 老组如果尚未产生这些自动账，接粉日报仍是唯一完整来源，不能把它清零。
+  const hasTrackedReplacement = entries.some((entry) => {
+    const revision = entry.currentRevision ?? entry.approvedRevision;
+    if (!revision || !usesCustomerNumberTracking(entry.businessDate)) return false;
+    return entry.position === "GROUP_OPERATOR"
+      ? revision.operatorReceivedCount > 0 ||
+          revision.normalLeaveCount > 0 ||
+          revision.abnormalLeaveCount > 0 ||
+          revision.expertIntroCount > 0
+      : entry.position === "EXPERT"
+        ? revision.expertReceivedCount > 0 ||
+          revision.expertContactedCount > 0 ||
+          revision.registrationCount > 0 ||
+          revision.orderCount > 0
+        : false;
+  });
   type Row = { channel: (typeof entries)[number]["channel"]; owner?: { id: string; name: string }; businessDate?: string; totals: ReturnType<typeof emptyBatchTotals>; lowAmount: number; noWs: number; manualInvalid: number; initialDepositCents: number; rechargeCents: number; inGroup: number; snapshotDate: string; lawyerRealCase?: number; lawyerAdded?: number; lawyerExpertAdded?: number; customerServicePush?: number; cryptoDepositCents?: number; bankDepositCents?: number };
   const byChannel = new Map<string, Row>();
   const byChannelMember = new Map<string, Row>();
@@ -128,6 +145,7 @@ export async function GET(request: Request) {
       businessDate: entry.businessDate,
       position: entry.position,
       groupType,
+      hasTrackedReplacement,
     }) : null;
     if (!value) return;
     row.totals.newFans += value.dispatchCount;

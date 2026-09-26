@@ -84,6 +84,7 @@ type Payload = {
   channelOptions: Option[];
   memberOptions: Option[];
   receptionOptions: Option[];
+  historicalReceptionOptions: Option[];
   operatorOptions: Option[];
   expertOptions: Option[];
 };
@@ -1465,11 +1466,28 @@ export function DepartmentCustomerProgress({
                           {createMode === "expert-recovery" ? (
                             <option value="">请选择原接粉组员</option>
                           ) : null}
-                          {payload?.receptionOptions.map((item) => (
+                          {createMode === "expert-recovery" ? (
+                            <optgroup label="本组在岗接粉人员">
+                              {payload?.receptionOptions.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : payload?.receptionOptions.map((item) => (
                             <option key={item.id} value={item.id}>
                               {item.name}
                             </option>
                           ))}
+                          {createMode === "expert-recovery" && payload?.historicalReceptionOptions.length ? (
+                            <optgroup label="历史人员（已转组或离职）">
+                              {payload.historicalReceptionOptions.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ) : null}
                         </select>
                       </label>
                       {createMode === "expert-recovery" ? (
@@ -1599,7 +1617,7 @@ export function DepartmentCustomerProgress({
                     {creating
                       ? "正在保存…"
                       : createMode === "expert-recovery"
-                        ? "历史接粉和进群日期只恢复档案，不补算旧月份；仅按本次推专家日期增加统计"
+                        ? "可选择本组历史人员作为原接粉归属；不会恢复其账号，也不会补算旧月份，只有本次推专家日期会增加统计"
                         : "客户号码、姓名、平台和被骗金额集中填写；日期默认今天，也可以修改"}
                   </td>
                 </tr>

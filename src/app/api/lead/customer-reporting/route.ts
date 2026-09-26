@@ -610,6 +610,25 @@ export async function GET(request: Request) {
   const option = (person: (typeof groupMembers)[number]) => ({ id: person.id, name: person.name });
   const memberOptions = groupMembers.map(option);
   const receptionOptions = groupMembers.filter((person) => hasAssignedRole(person, "RECEPTION")).map(option);
+  // 已调组或离职的接粉人员，只在“历史客户补录”中作为原归属可选。
+  // 不恢复账号、不算在当前组人数，也不会出现在日常新增录入里。
+  const historicalReceptionOptions = await db.user.findMany({
+    where: {
+      NOT: { groupId: group.id, active: true },
+      membershipHistory: {
+        some: {
+          groupId: group.id,
+          effectiveTo: { not: null },
+          OR: [
+            { role: "RECEPTION" },
+            { secondaryRoles: { contains: "RECEPTION" } },
+          ],
+        },
+      },
+    },
+    select: { id: true, name: true },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  });
   const operatorOptions = groupMembers.filter((person) => hasAssignedRole(person, "GROUP_OPERATOR") || hasAssignedRole(person, "LEAD")).map(option);
   const expertOptions = groupMembers.filter((person) => hasAssignedRole(person, "EXPERT") || hasAssignedRole(person, "LEAD")).map(option);
   return NextResponse.json(
@@ -633,6 +652,7 @@ export async function GET(request: Request) {
       }),
       memberOptions,
       receptionOptions,
+      historicalReceptionOptions,
       operatorOptions,
       expertOptions,
       summary: {
@@ -987,15 +1007,10 @@ export async function POST(request: Request) {
       return authorizationDenied(actor, "只有接粉组员或组长可以新增进群客户");
     const attributionOwnerId =
       input.attributionOwnerId || (ownFrontline ? actor.id : "");
-    const attributionOwner = await db.user.findFirst({
+    let attributionOwner = await db.user.findFirst({
       where: { id: attributionOwnerId, groupId: group.id, active: true, OR: [{ role: "RECEPTION" }, { roleAssignments: { some: { role: "RECEPTION" } } }] },
       select: { id: true, name: true },
     });
-    if (!attributionOwner)
-      return NextResponse.json(
-        { error: "接粉归属必须选择本组有接粉权限的在职成员" },
-        { status: 400 },
-      );
     const today = statisticsDate();
     const sourceDate = input.sourceDate ?? input.joinedOn;
     const dateError = entryDateError(input.joinedOn, today, "进群日期");
@@ -1038,6 +1053,41 @@ export async function POST(request: Request) {
       );
     }
     const resumesHistoricalCustomer = !usesCustomerNumberTracking(sourceDate);
+    // 历史补录可选原组的历史接粉人员：必须是组长操作，且接粉日期落在
+    // 该人员当时属于本组的有效期间内。这样既不需要造重复账号，也不能借此改写现在的人员归属。
+    if (!attributionOwner && resumesHistoricalCustomer && hasAssignedRole(actor, "LEAD")) {
+      attributionOwner = await db.user.findFirst({
+        where: {
+          id: attributionOwnerId,
+          membershipHistory: {
+            some: {
+              groupId: group.id,
+              effectiveFrom: { lte: sourceDate },
+              AND: [
+                {
+                  OR: [
+                    { effectiveTo: null },
+                    { effectiveTo: { gte: sourceDate } },
+                  ],
+                },
+                {
+                  OR: [
+                    { role: "RECEPTION" },
+                    { secondaryRoles: { contains: "RECEPTION" } },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        select: { id: true, name: true },
+      });
+    }
+    if (!attributionOwner)
+      return NextResponse.json(
+        { error: "接粉归属必须选择本组在岗接粉人员；历史补录仅组长可选择该组当时的历史接粉人员" },
+        { status: 400 },
+      );
     const countsCurrentJoin =
       resumesHistoricalCustomer && usesCustomerNumberTracking(input.joinedOn);
     const countsCurrentExpert = Boolean(

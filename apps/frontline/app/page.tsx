@@ -32,6 +32,10 @@ const ResourceWorkspace = dynamic(() => import("@/components/ResourceWorkspace")
   ssr: false,
   loading: () => <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#667085" }}>正在打开资源工作台…</main>,
 });
+const FinanceWorkspace = dynamic(() => import("@/components/FinanceWorkspace"), {
+  ssr: false,
+  loading: () => <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#667085" }}>正在打开财务数据工作台…</main>,
+});
 const SupportNotificationWorkspace = dynamic(() => import("@/components/SupportNotificationWorkspace"), {
   ssr: false,
   loading: () => <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#667085" }}>正在打开通知工作台…</main>,
@@ -75,7 +79,8 @@ export default function Page() {
   if (user.role === "ADMIN" || user.duty === "HQ_MANAGER") return <HeadquartersWorkspace user={user} onLogout={logout} />;
   if (user.duty === "COMPANY_MANAGER") return <CompanyWorkspace user={user} onLogout={logout} />;
   if (user.duty === "DEPARTMENT_MANAGER") return <DepartmentWorkspace user={user} onLogout={logout} />;
-  if (user.roles.includes("RESOURCE_MANAGER") || user.roles.includes("FINANCE")) return <ResourceWorkspace user={user} onLogout={logout} />;
+  if (user.roles.includes("RESOURCE_MANAGER")) return <ResourceWorkspace user={user} onLogout={logout} />;
+  if (user.roles.includes("FINANCE")) return <FinanceWorkspace user={user} onLogout={logout} />;
   if (user.roles.includes("HR")) return <SupportNotificationWorkspace user={user} onLogout={logout} />;
   return <FreshWorkspace user={user} onLogout={logout} />;
 }

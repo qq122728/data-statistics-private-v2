@@ -10,7 +10,7 @@ import { WorkspaceNavButton, WorkspaceNavGroup, WorkspaceShell, type WorkspaceIc
 import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 
-export type ResourceWorkspaceProps = { user: BackendUser; onLogout: () => void };
+export type ResourceWorkspaceProps = { user: BackendUser; onLogout: () => void; audience?: "resource" | "finance" };
 
 type View = "dashboard" | "daily" | "summary" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
 type SummaryMode = "channel" | "department" | "group" | "day";
@@ -59,8 +59,8 @@ const localDate = () => {
 };
 const typeLabel = (type: Channel["channelType"]) => type === "SMS" ? "短信粉" : type === "ADS" ? "投流粉" : "底料返点";
 
-export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceProps) {
-  const financeReadOnly = user.roles.includes("FINANCE") && !user.roles.includes("RESOURCE_MANAGER");
+export default function ResourceWorkspace({ user, onLogout, audience = "resource" }: ResourceWorkspaceProps) {
+  const financeReadOnly = audience === "finance" || (user.roles.includes("FINANCE") && !user.roles.includes("RESOURCE_MANAGER"));
   const [aiOpen, setAiOpen] = useState(false);
   const [view, setView] = useState<View>("dashboard");
   const [range, setRange] = useState<SmartDatePreset>("month");

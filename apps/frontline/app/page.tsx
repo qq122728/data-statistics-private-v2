@@ -50,20 +50,23 @@ export default function Page() {
     void requestJson<{ user: BackendUser }>("/api/auth/me")
       .then(({ user: current }) => {
         if (cancelled) return;
+        // 旧会话偶尔只带主岗位、不带完整岗位列表。把主岗位合并进去，
+        // 才不会让财务等管理账号误落到默认工作台。
+        const normalized = { ...current, roles: [...new Set([...(current.roles ?? []), current.role])] };
         if (
-          current.role === "ADMIN"
-          || ["DEPARTMENT_MANAGER", "COMPANY_MANAGER", "HQ_MANAGER"].includes(current.duty ?? "")
-          || current.roles.some((role) => ["ADMIN", "RESOURCE_MANAGER", "FINANCE", "HR"].includes(role))
+          normalized.role === "ADMIN"
+          || ["DEPARTMENT_MANAGER", "COMPANY_MANAGER", "HQ_MANAGER"].includes(normalized.duty ?? "")
+          || normalized.roles.some((role) => ["ADMIN", "RESOURCE_MANAGER", "FINANCE", "HR"].includes(role))
         ) {
-          setUser(current);
+          setUser(normalized);
           return;
         }
-        const entry = resolveFrontlineEntry(current.roles, current.groupId);
+        const entry = resolveFrontlineEntry(normalized.roles, normalized.groupId);
         if (entry.workspace === "ADMIN") {
           window.location.replace(workspaceOrigin("ADMIN"));
           return;
         }
-        setUser(current);
+        setUser(normalized);
       })
       .catch(() => window.location.assign("/login"))
       .finally(() => { if (!cancelled) setReady(true); });
@@ -79,8 +82,10 @@ export default function Page() {
   if (user.role === "ADMIN" || user.duty === "HQ_MANAGER") return <HeadquartersWorkspace user={user} onLogout={logout} />;
   if (user.duty === "COMPANY_MANAGER") return <CompanyWorkspace user={user} onLogout={logout} />;
   if (user.duty === "DEPARTMENT_MANAGER") return <DepartmentWorkspace user={user} onLogout={logout} />;
+  // 主岗位为财务时必须优先进入财务工作台；即使旧会话残留了资源部兼任岗位，
+  // 也不能把财务账号错误显示为资源部账号。
+  if (user.role === "FINANCE" || (user.roles.includes("FINANCE") && !user.roles.includes("RESOURCE_MANAGER"))) return <FinanceWorkspace user={user} onLogout={logout} />;
   if (user.roles.includes("RESOURCE_MANAGER")) return <ResourceWorkspace user={user} onLogout={logout} />;
-  if (user.roles.includes("FINANCE")) return <FinanceWorkspace user={user} onLogout={logout} />;
   if (user.roles.includes("HR")) return <SupportNotificationWorkspace user={user} onLogout={logout} />;
   return <FreshWorkspace user={user} onLogout={logout} />;
 }

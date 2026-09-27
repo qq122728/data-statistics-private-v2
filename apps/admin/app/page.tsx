@@ -136,6 +136,12 @@ export default function Page() {
     void requestJson<{ user: BackendUser }>("/api/auth/me")
       .then(({ user }) => {
         if (cancelled) return;
+        // 财务、人事属于前台工作台。旧书签打开 /admin 时也要回到正确页面，
+        // 不让它们落入后台默认的组长页面。
+        if (user.role === "FINANCE" || user.role === "HR") {
+          window.location.assign(workspaceOrigin("FRONTLINE"));
+          return;
+        }
         const nextRole = roleForUser(user);
         if (nextRole) {
           setSessionUser(user);

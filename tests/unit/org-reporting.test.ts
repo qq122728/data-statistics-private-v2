@@ -83,6 +83,7 @@ const ids = {
   companyManager: id("company-manager"),
   hqManager: id("hq-manager"),
   resource: id("resource"),
+  finance: id("finance"),
 };
 
 beforeAll(async () => {
@@ -217,6 +218,12 @@ beforeAll(async () => {
         name: "资源部",
         role: "RESOURCE_MANAGER",
         duty: "RESOURCE_MANAGER",
+      },
+      {
+        id: ids.finance,
+        username: ids.finance,
+        name: "财务只读",
+        role: "FINANCE",
       },
     ],
   });
@@ -1550,6 +1557,18 @@ describe.sequential("组织管理员小组渠道报表 API", () => {
 });
 
 describe.sequential("资源部真实报表快照", () => {
+  it("财务可只读查看全部启用渠道，资源部仍仅能看明确授权渠道", async () => {
+    await signIn(ids.finance);
+    const reporting = await getResourceReporting(
+      new Request("http://localhost/api/resource/reporting?range=month"),
+    );
+    expect(reporting.status).toBe(200);
+    const body = await reporting.json();
+    expect(new Set(body.rows.map((row: { channel: { id: string } }) => row.channel.id))).toEqual(new Set([
+      id("berlin-channel"), id("new-york-channel"), id("other-channel"),
+    ]));
+  });
+
   it("资源账号只返回明确授权的渠道，并且不能读取或修改客户进度", async () => {
     await signIn(ids.resource);
     const reporting = await getResourceReporting(

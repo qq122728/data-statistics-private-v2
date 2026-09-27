@@ -22,8 +22,10 @@ export async function GET(request: Request) {
     if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });
     throw error;
   }
-  if (!actor.active || !hasAssignedRole(actor, "RESOURCE_MANAGER"))
-    return authorizationDenied(actor, "只有在职资源部管理员可以查看渠道数据");
+  const financeViewer = hasAssignedRole(actor, "FINANCE");
+  const resourceViewer = hasAssignedRole(actor, "RESOURCE_MANAGER");
+  if (!actor.active || (!resourceViewer && !financeViewer))
+    return authorizationDenied(actor, "只有在职资源部管理员或财务账号可以查看渠道数据");
 
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params)) return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
@@ -33,13 +35,15 @@ export async function GET(request: Request) {
     where: { id: actor.id },
     select: { active: true, role: true, duty: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } } },
   });
-  if (!liveActor?.active || !hasAssignedRole(liveActor, "RESOURCE_MANAGER"))
-    return authorizationDenied(actor, "当前资源部账号已停用或权限已变更");
+  const liveFinanceViewer = Boolean(liveActor?.active && hasAssignedRole(liveActor, "FINANCE"));
+  const liveResourceViewer = Boolean(liveActor?.active && hasAssignedRole(liveActor, "RESOURCE_MANAGER"));
+  if (!liveActor || (!liveFinanceViewer && !liveResourceViewer))
+    return authorizationDenied(actor, "当前账号已停用或权限已变更");
   const allowedChannelIds = liveActor.resourceChannelAccess.map((item) => item.channelId);
-  if (!allowedChannelIds.length) return NextResponse.json({ rows: [], channels: [], groups: [] }, { headers: { "Cache-Control": "private, no-store" } });
+  if (!liveFinanceViewer && !allowedChannelIds.length) return NextResponse.json({ rows: [], channels: [], groups: [] }, { headers: { "Cache-Control": "private, no-store" } });
 
   const channels = await db.channel.findMany({
-    where: { id: { in: allowedChannelIds }, active: true, group: { active: true } },
+    where: { ...(liveFinanceViewer ? {} : { id: { in: allowedChannelIds } }), active: true, group: { active: true } },
     select: {
       id: true, name: true, normalizedName: true,
       group: {

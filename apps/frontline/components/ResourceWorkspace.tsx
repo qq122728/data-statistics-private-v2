@@ -60,6 +60,7 @@ const localDate = () => {
 const typeLabel = (type: Channel["channelType"]) => type === "SMS" ? "短信粉" : type === "ADS" ? "投流粉" : "底料返点";
 
 export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceProps) {
+  const financeReadOnly = user.roles.includes("FINANCE") && !user.roles.includes("RESOURCE_MANAGER");
   const [aiOpen, setAiOpen] = useState(false);
   const [view, setView] = useState<View>("dashboard");
   const [range, setRange] = useState<SmartDatePreset>("month");
@@ -90,13 +91,13 @@ export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceP
       if (range === "custom") { query.set("sourceDateFrom", from); query.set("sourceDateTo", to); }
       const [nextReport, channelPayload, notificationPayload] = await Promise.all([
         requestJson<Reporting>(`/api/resource/reporting?${query}`),
-        requestJson<{ channels: Channel[] }>("/api/admin/channels"),
+        financeReadOnly ? Promise.resolve<{ channels: Channel[] }>({ channels: [] }) : requestJson<{ channels: Channel[] }>("/api/admin/channels"),
         requestJson<{ unread: number }>("/api/notifications"),
       ]);
       setReport(nextReport); setChannels(channelPayload.channels); setUnread(notificationPayload.unread);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "资源工作区读取失败"); }
     finally { setLoading(false); }
-  }, [from, range, to]);
+  }, [financeReadOnly, from, range, to]);
   useEffect(() => { void load(); }, [load]);
 
   const typedGroups = useMemo(() => (report?.groups ?? []).filter((group) => group.groupType === groupTypeFilter), [groupTypeFilter, report]);
@@ -152,16 +153,20 @@ export default function ResourceWorkspace({ user, onLogout }: ResourceWorkspaceP
     catch (caught) { setError(caught instanceof Error ? caught.message : "渠道状态修改失败"); }
     finally { setSavingId(""); }
   }
-  const title = ({ dashboard: "资源工作台", daily: "每日渠道数据", summary: "渠道数据汇总", channels: "渠道与单价", usage: "渠道使用情况", accounts: "资源账号管理", comparison: "渠道表现对比", anomalies: "异常数据提醒", notifications: "通知中心" } satisfies Record<View, string>)[view];
+  const title = ({ dashboard: financeReadOnly ? "财务数据查看" : "资源工作台", daily: "每日渠道数据", summary: "渠道数据汇总", channels: "渠道与单价", usage: "渠道使用情况", accounts: "资源账号管理", comparison: "渠道表现对比", anomalies: "异常数据提醒", notifications: "通知中心" } satisfies Record<View, string>)[view];
   const showFilters = ["dashboard", "daily", "summary", "comparison", "anomalies", "usage"].includes(view);
   const resourceTypeLabel = channels.length && channels.every((channel) => channel.channelType === "ADS") ? "投流资源" : channels.length && channels.every((channel) => channel.channelType === "SMS") ? "短信资源" : channels.length ? "授权资源" : "未授权资源";
 
-  return <WorkspaceShell mark="资" workspaceLabel="资源部管理员" title={title} subtitle="所有数据均来自已保存的真实业务记录" userName={user.name} userLabel={resourceTypeLabel} onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={{ label: resourceTypeLabel, value: "仅显示已授权渠道，不可切换资源类型" }} navigation={<>
+  const workspaceLabel = financeReadOnly ? "财务数据工作台" : "资源部管理员";
+  const scope = financeReadOnly
+    ? { label: "财务只读", value: "可查看全部启用渠道与小组明细，不可修改数据" }
+    : { label: resourceTypeLabel, value: "仅显示已授权渠道，不可切换资源类型" };
+  return <WorkspaceShell mark={financeReadOnly ? "财" : "资"} workspaceLabel={workspaceLabel} title={title} subtitle="所有数据均来自已保存的真实业务记录" userName={user.name} userLabel={financeReadOnly ? "财务账号 · 数据只读" : resourceTypeLabel} onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={scope} navigation={<>
       <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon="dashboard">资源工作台</NavButton>
       <NavButton active={view === "daily"} onClick={() => setView("daily")} icon="calendar">每日渠道数据</NavButton>
       <NavButton active={view === "summary"} onClick={() => setView("summary")} icon="sigma">渠道数据汇总</NavButton>
-      <NavGroup label="资源管理"><NavButton active={view === "channels"} onClick={() => setView("channels")} icon="channel">渠道与单价</NavButton><NavButton active={view === "usage"} onClick={() => setView("usage")} icon="usage">渠道使用情况</NavButton><NavButton active={view === "accounts"} onClick={() => setView("accounts")} icon="accounts">资源账号管理</NavButton></NavGroup>
-      <NavGroup label="分析报告"><NavButton active={view === "comparison"} onClick={() => setView("comparison")} icon="analysis">渠道表现对比</NavButton><NavButton active={view === "anomalies"} onClick={() => setView("anomalies")} icon="warning">异常数据提醒</NavButton></NavGroup>
+      {!financeReadOnly ? <><NavGroup label="资源管理"><NavButton active={view === "channels"} onClick={() => setView("channels")} icon="channel">渠道与单价</NavButton><NavButton active={view === "usage"} onClick={() => setView("usage")} icon="usage">渠道使用情况</NavButton><NavButton active={view === "accounts"} onClick={() => setView("accounts")} icon="accounts">资源账号管理</NavButton></NavGroup>
+      <NavGroup label="分析报告"><NavButton active={view === "comparison"} onClick={() => setView("comparison")} icon="analysis">渠道表现对比</NavButton><NavButton active={view === "anomalies"} onClick={() => setView("anomalies")} icon="warning">异常数据提醒</NavButton></NavGroup></> : null}
       <NavButton active={view === "notifications"} onClick={() => setView("notifications")} icon="notifications">通知中心{unread ? <b>{unread}</b> : null}</NavButton>
       </>}>
         {showFilters ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>律师组数据</button></div> : null}

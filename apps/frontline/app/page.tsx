@@ -75,7 +75,7 @@ export default function Page() {
   if (user.role === "ADMIN" || user.duty === "HQ_MANAGER") return <HeadquartersWorkspace user={user} onLogout={logout} />;
   if (user.duty === "COMPANY_MANAGER") return <CompanyWorkspace user={user} onLogout={logout} />;
   if (user.duty === "DEPARTMENT_MANAGER") return <DepartmentWorkspace user={user} onLogout={logout} />;
-  if (user.roles.includes("RESOURCE_MANAGER")) return <ResourceWorkspace user={user} onLogout={logout} />;
-  if (user.roles.includes("FINANCE") || user.roles.includes("HR")) return <SupportNotificationWorkspace user={user} onLogout={logout} />;
+  if (user.roles.includes("RESOURCE_MANAGER") || user.roles.includes("FINANCE")) return <ResourceWorkspace user={user} onLogout={logout} />;
+  if (user.roles.includes("HR")) return <SupportNotificationWorkspace user={user} onLogout={logout} />;
   return <FreshWorkspace user={user} onLogout={logout} />;
 }

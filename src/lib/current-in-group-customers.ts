@@ -91,8 +91,7 @@ export async function loadCurrentInGroupCustomers(
       { currentGroupId: null, batch: { groupId: { in: groupIds } } },
     ],
   };
-  const [rows, trackedRows] = await Promise.all([
-    db.leadCustomer.findMany({
+  const rows = await db.leadCustomer.findMany({
     where: {
       AND: [
         currentGroupWhere,
@@ -113,15 +112,13 @@ export async function loadCurrentInGroupCustomers(
         },
       },
     },
-    }),
-    db.leadCustomer.findMany({
-      where: currentGroupWhere,
-      select: { currentGroupId: true, batch: { select: { groupId: true } } },
-    }),
-  ]);
-  const trackedGroupIds = new Set(trackedRows.map((row) => row.currentGroupId ?? row.batch.groupId));
+    });
+  // 迁移过程中有些小组只产生过少量新版测试记录，但当前在群客户仍全部
+  // 留在旧明细。只有新版表实际查到当前在群客户时，才把它作为该小组的来源。
+  // 否则继续使用旧明细，避免“小组有一条新版记录”就把旧存量错误清零。
+  const groupsWithCurrentTrackedCustomers = new Set(rows.map((row) => row.currentGroupId ?? row.batch.groupId));
   const legacyRows = await loadLegacySheetCurrentInGroup(
-    groupIds.filter((groupId) => !trackedGroupIds.has(groupId)),
+    groupIds.filter((groupId) => !groupsWithCurrentTrackedCustomers.has(groupId)),
     asOf,
   );
   return [...rows.map((row) => ({

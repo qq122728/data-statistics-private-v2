@@ -12,7 +12,7 @@ import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 
 export type ResourceWorkspaceProps = { user: BackendUser; onLogout: () => void; audience?: "resource" | "finance" };
 
-type View = "dashboard" | "daily" | "summary" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
+type View = "dashboard" | "daily" | "groupDetail" | "summary" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
 type SummaryMode = "channel" | "department" | "group" | "day";
 type Totals = {
   added: number; collision: number; lowAmount: number; noWs: number; manualInvalid: number; effective: number;
@@ -153,8 +153,8 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
     catch (caught) { setError(caught instanceof Error ? caught.message : "渠道状态修改失败"); }
     finally { setSavingId(""); }
   }
-  const title = ({ dashboard: financeReadOnly ? "财务数据查看" : "资源工作台", daily: "每日渠道数据", summary: "渠道数据汇总", channels: "渠道与单价", usage: "渠道使用情况", accounts: "资源账号管理", comparison: "渠道表现对比", anomalies: "异常数据提醒", notifications: "通知中心" } satisfies Record<View, string>)[view];
-  const showFilters = ["dashboard", "daily", "summary", "comparison", "anomalies", "usage"].includes(view);
+  const title = ({ dashboard: financeReadOnly ? "渠道数据看板" : "资源工作台", daily: "每日渠道数据", groupDetail: "小组数据明细", summary: "渠道数据汇总", channels: "渠道与单价", usage: "渠道使用情况", accounts: "资源账号管理", comparison: "渠道表现对比", anomalies: "异常数据提醒", notifications: "通知中心" } satisfies Record<View, string>)[view];
+  const showFilters = ["dashboard", "daily", "groupDetail", "summary", "comparison", "anomalies", "usage"].includes(view);
   const resourceTypeLabel = channels.length && channels.every((channel) => channel.channelType === "ADS") ? "投流资源" : channels.length && channels.every((channel) => channel.channelType === "SMS") ? "短信资源" : channels.length ? "授权资源" : "未授权资源";
 
   const workspaceLabel = financeReadOnly ? "财务数据工作台" : "资源部管理员";
@@ -162,11 +162,13 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
     ? { label: "财务只读", value: "可查看全部启用渠道与小组明细，不可修改数据" }
     : { label: resourceTypeLabel, value: "仅显示已授权渠道，不可切换资源类型" };
   return <WorkspaceShell mark={financeReadOnly ? "财" : "资"} workspaceLabel={workspaceLabel} title={title} subtitle="所有数据均来自已保存的真实业务记录" userName={user.name} userLabel={financeReadOnly ? "财务账号 · 数据只读" : resourceTypeLabel} onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={scope} navigation={<>
-      <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon="dashboard">资源工作台</NavButton>
+      <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon="dashboard">{financeReadOnly ? "渠道数据看板" : "资源工作台"}</NavButton>
       <NavButton active={view === "daily"} onClick={() => setView("daily")} icon="calendar">每日渠道数据</NavButton>
+      {financeReadOnly ? <NavButton active={view === "groupDetail"} onClick={() => setView("groupDetail")} icon="usage">小组数据明细</NavButton> : null}
       <NavButton active={view === "summary"} onClick={() => setView("summary")} icon="sigma">渠道数据汇总</NavButton>
       {!financeReadOnly ? <><NavGroup label="资源管理"><NavButton active={view === "channels"} onClick={() => setView("channels")} icon="channel">渠道与单价</NavButton><NavButton active={view === "usage"} onClick={() => setView("usage")} icon="usage">渠道使用情况</NavButton><NavButton active={view === "accounts"} onClick={() => setView("accounts")} icon="accounts">资源账号管理</NavButton></NavGroup>
-      <NavGroup label="分析报告"><NavButton active={view === "comparison"} onClick={() => setView("comparison")} icon="analysis">渠道表现对比</NavButton><NavButton active={view === "anomalies"} onClick={() => setView("anomalies")} icon="warning">异常数据提醒</NavButton></NavGroup></> : null}
+      </> : null}
+      <NavGroup label="分析报告"><NavButton active={view === "comparison"} onClick={() => setView("comparison")} icon="analysis">渠道表现对比</NavButton><NavButton active={view === "anomalies"} onClick={() => setView("anomalies")} icon="warning">异常数据提醒</NavButton></NavGroup>
       <NavButton active={view === "notifications"} onClick={() => setView("notifications")} icon="notifications">通知中心{unread ? <b>{unread}</b> : null}</NavButton>
       </>}>
         {showFilters ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>律师组数据</button></div> : null}
@@ -176,6 +178,7 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
         {error ? <div className={styles.error}>{error}</div> : null}{notice ? <div className={styles.success}>{notice}</div> : null}
         {!loading && view === "dashboard" ? <Dashboard groupType={groupTypeFilter} totals={totals} rows={visibleBaseRows} /> : null}
         {!loading && view === "daily" ? <>{groupId ? <MemberMatrix report={report} day={day} channelId={channelId} groupId={groupId} memberId={memberId} /> : <><StateCard>请按“日期 → 渠道 → 公司 → 部门 → 小组”定位，选定小组后会展开员工共享表。</StateCard><DataTable groupType={groupTypeFilter} title="每日渠道数据" rows={visibleDailyRows.map((row) => ({ label: row.displayDate, sub: `${row.group.companyName} / ${row.group.departmentName} / ${row.group.name} / ${row.channel.name}`, totals: row.totals }))} /></>}</> : null}
+        {!loading && view === "groupDetail" ? <>{groupId ? <MemberMatrix report={report} day="" channelId={channelId} groupId={groupId} memberId={memberId} /> : <StateCard>请选择公司、部门和小组，即可查看该小组每位成员的完整指标。</StateCard>}</> : null}
         {!loading && view === "summary" ? <><div className={styles.tabs}>{([ ["channel", "按渠道"], ["department", "按公司/部门"], ["group", "按小组"], ["day", "按日期"] ] as const).map(([key, label]) => <button key={key} data-active={summaryMode === key} onClick={() => setSummaryMode(key)}>{label}</button>)}</div><DataTable groupType={groupTypeFilter} title="渠道数据汇总" rows={groupedRows} /></> : null}
         {!loading && view === "channels" ? <ChannelCatalog channels={activeChannels} authorizedChannelType={authorizedChannelType} search={channelSearch} setSearch={setChannelSearch} createOpen={createChannel} setCreateOpen={setCreateChannel} savingId={savingId} onSave={saveChannel} onToggle={(channel) => void toggleChannel(channel)} /> : null}
         {!loading && view === "usage" ? <UsageTable rows={visibleBaseRows} channels={channels} /> : null}

@@ -89,6 +89,14 @@ test("资源部使用净业绩口径且不显示审核入口", async () => {
   assert.doesNotMatch(resource, /净入金|PendingTable|ReviewTable|待确认每日数据|待渠道对账|\/api\/resource\/channel-review/);
 });
 
+test("财务小组明细可按成员和渠道查看每日完整明细", async () => {
+  const resource = await readFile(new URL("components/ResourceWorkspace.tsx", root), "utf8");
+  for (const label of ["小组数据明细", "归属成员", "每日完整明细", "日期 / 组织", "成员", "渠道"]) assert.match(resource, new RegExp(label));
+  assert.match(resource, /<DailyMemberDetails/);
+  assert.match(resource, /report\?\.memberRows/);
+  assert.match(resource, /financeReadOnly/);
+});
+
 test("组长和各级管理账号的汇总、渠道对比共用智能日期筛选", async () => {
   const files = await Promise.all([
     "components/GroupChannelAnalysis.tsx",

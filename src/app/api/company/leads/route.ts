@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (!username || !name || !password || !groupId) return NextResponse.json({ error: "请完整填写组长账号信息" }, { status: 400 });
   if (username.length > API_LIMITS.loginUsernameCharacters || name.length > API_LIMITS.accountDisplayNameCharacters || groupId.length > API_LIMITS.identifierCharacters)
     return NextResponse.json({ error: "账号、姓名或小组参数过长" }, { status: 400 });
-  if (password.length < PASSWORD_MIN_LENGTH || password.length > API_LIMITS.loginPasswordCharacters) return NextResponse.json({ error: `临时密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` }, { status: 400 });
+  if (password.length < PASSWORD_MIN_LENGTH || password.length > API_LIMITS.loginPasswordCharacters) return NextResponse.json({ error: `密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` }, { status: 400 });
   const settings = await getSystemSettings();
   const now = new Date();
   try {
@@ -68,7 +68,7 @@ export async function PATCH(request: Request) {
   if (typeof body.name === "string") { const value = body.name.trim(); if (!value || value.length > API_LIMITS.accountDisplayNameCharacters) return NextResponse.json({ error: "组长姓名不能为空且不能超过 100 个字" }, { status: 400 }); requested.name = value; }
   if (typeof body.groupId === "string") { if (body.groupId.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "小组参数过长" }, { status: 400 }); requested.groupId = body.groupId; }
   if (typeof body.active === "boolean") requested.active = body.active;
-  if (typeof body.password === "string") { if (body.password.length < PASSWORD_MIN_LENGTH || body.password.length > API_LIMITS.loginPasswordCharacters) return NextResponse.json({ error: `临时密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` }, { status: 400 }); requested.passwordHash = hashPassword(body.password); }
+  if (typeof body.password === "string") { if (body.password.length < PASSWORD_MIN_LENGTH || body.password.length > API_LIMITS.loginPasswordCharacters) return NextResponse.json({ error: `密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` }, { status: 400 }); requested.passwordHash = hashPassword(body.password); }
   if (!Object.keys(requested).length) return NextResponse.json({ error: "没有可更新的组长信息" }, { status: 400 });
   try {
     const result = await db.$transaction(async (client) => {

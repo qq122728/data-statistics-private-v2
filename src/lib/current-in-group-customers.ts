@@ -39,9 +39,19 @@ async function loadLegacySheetCurrentInGroup(groupIds: string[], asOf: string): 
   const where = Prisma.join(groupIds.map((groupId) => Prisma.sql`
     ("groupId" = ${groupId} OR "data" LIKE ${`%"__statisticsGroupId":"${groupId}"%`})
   `), " OR ");
-  const rows = await db.$queryRaw<Array<{ groupId: string; ownerId: string; data: string }>>(Prisma.sql`
-    SELECT "groupId", "ownerId", "data" FROM "CustomerSheetRow" WHERE ${where}
-  `);
+  let rows: Array<{ groupId: string; ownerId: string; data: string }>;
+  try {
+    rows = await db.$queryRaw<Array<{ groupId: string; ownerId: string; data: string }>>(Prisma.sql`
+      SELECT "groupId", "ownerId", "data" FROM "CustomerSheetRow" WHERE ${where}
+    `);
+  } catch (error) {
+    // 新安装的数据库只使用 LeadCustomer，不会创建已退役的旧客户明细表。
+    // 这时没有旧数据可合并，直接继续使用新版数据；不能让统计页面整体报错。
+    if (error instanceof Prisma.PrismaClientKnownRequestError
+      && error.code === "P2010"
+      && /(?:no such table|relation .* does not exist).*CustomerSheetRow/i.test(error.message)) return [];
+    throw error;
+  }
   const parsed = rows.flatMap((row) => {
     try {
       const data = JSON.parse(row.data) as LegacySheetData;

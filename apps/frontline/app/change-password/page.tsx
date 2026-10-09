@@ -36,11 +36,11 @@ export default function ChangePasswordPage() {
   return <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 20 }}>
     <section className="card" style={{ width: "100%", maxWidth: 440, padding: 28 }}>
       <h1 style={{ marginTop: 0 }}>修改密码</h1>
-      <p style={{ color: "var(--ink-3)" }}>新密码至少 12 位。保存后全部旧登录会失效，需要重新登录。</p>
+      <p style={{ color: "var(--ink-3)" }}>新密码至少 6 位。保存后全部旧登录会失效，需要重新登录。</p>
       <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <label><span className="label">当前密码</span><input className="field" style={{ width: "100%" }} type="password" name="currentPassword" autoComplete="current-password" required /></label>
-        <label><span className="label">新密码</span><input className="field" style={{ width: "100%" }} type="password" name="newPassword" autoComplete="new-password" minLength={12} required /></label>
-        <label><span className="label">再次填写新密码</span><input className="field" style={{ width: "100%" }} type="password" name="confirmPassword" autoComplete="new-password" minLength={12} required /></label>
+        <label><span className="label">新密码</span><input className="field" style={{ width: "100%" }} type="password" name="newPassword" autoComplete="new-password" minLength={6} required /></label>
+        <label><span className="label">再次填写新密码</span><input className="field" style={{ width: "100%" }} type="password" name="confirmPassword" autoComplete="new-password" minLength={6} required /></label>
         {error ? <p role="alert" style={{ color: "var(--bad)", margin: 0 }}>{error}</p> : null}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button type="button" className="btn" onClick={() => history.back()}>返回</button>

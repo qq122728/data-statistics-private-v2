@@ -16,6 +16,9 @@ export async function PATCH(request: Request) {
     if (error instanceof AuthorizationError) return authorizationErrorResponse(error, "只有行政、财务或管理员可以补充人员归属");
     throw error;
   }
+  // 人员档案接口没有按小组拆分的安全读写范围；受限财务账号不能借它越过小组白名单。
+  if (actor.role === "FINANCE" && actor.financeScopeConfigured)
+    return authorizationDenied(actor, "受小组限制的财务账号不能修改未按小组拆分的人员档案");
   const body = await request.json() as RequestBody;
   if (typeof body.id !== "string" || !body.id || body.id.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "员工参数不正确" }, { status: 400 });
   const memberId = body.id;

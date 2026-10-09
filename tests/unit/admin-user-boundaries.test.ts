@@ -54,6 +54,33 @@ afterEach(async () => {
 });
 
 describe.sequential("administrator member boundaries", () => {
+  it("allows a manually entered six-character password when creating a finance account", async () => {
+    await seededAdmin();
+    const groupId = `${fixturePrefix}finance-group-${randomUUID()}`;
+    await db.teamGroup.create({ data: { id: groupId, name: "财务六码密码测试组", active: true } });
+
+    const username = `${fixturePrefix}finance-${randomUUID()}`;
+    const response = await POST(new Request("http://localhost/api/admin/users", {
+      method: "POST",
+      body: JSON.stringify({
+        username,
+        name: "财务六码密码测试",
+        password: "abc123",
+        role: "FINANCE",
+        financeGroupIds: [groupId],
+      }),
+    }));
+
+    expect(response.status).toBe(201);
+    const created = await db.user.findUniqueOrThrow({
+      where: { username },
+      select: { passwordHash: true, financeScopeConfigured: true, financeGroupAccess: { select: { groupId: true } } },
+    });
+    expect(verifyPassword("abc123", created.passwordHash)).toBe(true);
+    expect(created.financeScopeConfigured).toBe(true);
+    expect(created.financeGroupAccess.map((item) => item.groupId)).toEqual([groupId]);
+  });
+
   it("allows identity-only edits for an active member whose group is inactive", async () => {
     await seededAdmin();
     const { userId } = await createInactiveGroupMember();
@@ -88,19 +115,19 @@ describe.sequential("administrator member boundaries", () => {
     expect(audit.summary).not.toContain(temporaryPassword);
   });
 
-  it("rejects 6- and 8-character temporary passwords when creating a member", async () => {
+  it("rejects passwords shorter than six characters when creating a member", async () => {
     await seededAdmin();
     const groupId = `${fixturePrefix}group-${randomUUID()}`;
     const username = `${fixturePrefix}${randomUUID()}`;
     await db.teamGroup.create({ data: { id: groupId, name: "短密码测试组" } });
 
-    for (const password of ["123456", "12345678"]) {
+    for (const password of ["12345"]) {
       const response = await POST(new Request("http://localhost/api/admin/users", {
         method: "POST",
         body: JSON.stringify({ username, name: "短密码成员", password, role: "RECEPTION", groupId }),
       }));
       expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({ error: "临时密码至少需要 12 位" });
+      await expect(response.json()).resolves.toEqual({ error: "密码至少需要 6 位" });
     }
     await expect(db.user.findUnique({ where: { username } })).resolves.toBeNull();
   });

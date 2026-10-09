@@ -33,6 +33,8 @@ describe("auth me route", () => {
       updatedAt: new Date(),
       roleAssignments: [{ role: "LEAD" }],
       resourceChannelAccess: [],
+      financeScopeConfigured: false,
+      financeGroupAccess: [],
     });
 
     const response = await GET();

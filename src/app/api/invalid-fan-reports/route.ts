@@ -52,7 +52,7 @@ export async function GET() {
   let user = null;
   try {
     user = await requireUser();
-    const readableGroupIds = user.role === "COMPANY_MANAGER"
+    const readableGroupIds = user.role === "COMPANY_MANAGER" || user.role === "FINANCE"
       ? resolveReadableReportGroups(user, await db.teamGroup.findMany({ select: { id: true, departmentId: true, countryCode: true, department: { select: { countryCode: true, companyId: true } } } })).map((group) => group.id)
       : [];
     const where = hasAssignedRole(user, "RECEPTION")
@@ -63,7 +63,9 @@ export async function GET() {
           ? { batch: { groupId: { in: readableGroupIds } } }
           : user.role === "RESOURCE_MANAGER"
           ? { batch: { channelId: { in: user.resourceChannelAccess?.map((access) => access.channelId) ?? [] } } }
-          : user.role === "ADMIN" || user.role === "FINANCE"
+          : user.role === "FINANCE"
+          ? { batch: { groupId: { in: readableGroupIds } } }
+          : user.role === "ADMIN"
           ? {}
           : null;
     if (!where) return authorizationDenied(user, "没有查看无效粉数据的权限");

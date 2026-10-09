@@ -33,10 +33,10 @@ export async function POST(request: Request) {
     ? [...new Set(body.resourceChannelIds.filter((value): value is string => typeof value === "string" && Boolean(value)))]
     : [];
 
-  if (!username || !name || !password) return NextResponse.json({ error: "请完整填写账号、姓名和临时密码" }, { status: 400 });
+  if (!username || !name || !password) return NextResponse.json({ error: "请完整填写账号、姓名和密码" }, { status: 400 });
   if (username.length > API_LIMITS.loginUsernameCharacters || name.length > API_LIMITS.accountDisplayNameCharacters || password.length > API_LIMITS.loginPasswordCharacters)
     return NextResponse.json({ error: "账号、姓名或密码长度超过限制" }, { status: 400 });
-  if (password.length < PASSWORD_MIN_LENGTH) return NextResponse.json({ error: `临时密码至少需要 ${PASSWORD_MIN_LENGTH} 位` }, { status: 400 });
+  if (password.length < PASSWORD_MIN_LENGTH) return NextResponse.json({ error: `密码至少需要 ${PASSWORD_MIN_LENGTH} 位` }, { status: 400 });
   if (!resourceChannelIds.length) return NextResponse.json({ error: "请先创建渠道，再至少选择一个渠道" }, { status: 400 });
   if (resourceChannelIds.length > API_LIMITS.batchRows || resourceChannelIds.some((id) => id.length > API_LIMITS.identifierCharacters))
     return NextResponse.json({ error: "资源渠道参数不正确" }, { status: 400 });

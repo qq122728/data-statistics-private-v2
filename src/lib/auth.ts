@@ -5,12 +5,13 @@ import { db } from "./db";
 import { hasAssignedRole } from "./role-access";
 
 export const SESSION_COOKIE = "data-statistics-session";
-export const PASSWORD_MIN_LENGTH = 12;
+export const PASSWORD_MIN_LENGTH = 6;
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type SessionUser = User & {
   roleAssignments?: Array<{ role: Role }>;
   resourceChannelAccess?: Array<{ channelId: string }>;
+  financeGroupAccess?: Array<{ groupId: string }>;
   managedDepartments?: Array<{ departmentId: string }>;
 };
 
@@ -79,7 +80,7 @@ export async function getSessionUser(sessionId?: string): Promise<SessionUser | 
 
   const session = await db.session.findUnique({
     where: { id: sessionId },
-    include: { user: { include: { roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, managedDepartments: { select: { departmentId: true } } } }, },
+    include: { user: { include: { roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, financeGroupAccess: { select: { groupId: true } }, managedDepartments: { select: { departmentId: true } } } }, },
   });
 
   if (!session || session.expiresAt <= new Date() || !session.user.active) {

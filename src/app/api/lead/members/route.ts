@@ -199,7 +199,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "本组客户只读权限参数不正确" }, { status: 400 });
   if (password.length < PASSWORD_MIN_LENGTH) {
     return NextResponse.json(
-      { error: `临时密码至少需要 ${PASSWORD_MIN_LENGTH} 位` },
+      { error: `密码至少需要 ${PASSWORD_MIN_LENGTH} 位` },
       { status: 400 },
     );
   }
@@ -340,7 +340,7 @@ export async function PATCH(request: Request) {
   if (typeof body.password === "string") {
     if (body.password.length < PASSWORD_MIN_LENGTH || body.password.length > API_LIMITS.loginPasswordCharacters) {
       return NextResponse.json(
-        { error: `临时密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` },
+        { error: `密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` },
         { status: 400 },
       );
     }

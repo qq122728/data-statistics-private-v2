@@ -59,6 +59,8 @@
     "20260902030000_add_persistent_login_throttle/migration.sql": "f38f266e62e91c89d26a9ae6c1c970bc5f1b914bf55e8d07b865cbf4c2f1cbf2",
     "20260902040000_archive_august_customer_tracking/migration.sql": "4a3a6534ab4062b71632040d81d874598fad65d2099e6442acadd5153a67f08c",
     "20260902050000_archive_pre_september_joined_customers/migration.sql": "74654b9de22ce1ad225a28f14378b484d96f641d8067070f76f952478d1bfeed",
-    "20260902060000_add_group_customer_read_access/migration.sql": "4fba90b0af132bb6933df6269ab7afca7113612b9f4e3a98431dd8e2c509c110"
+    "20260902060000_add_group_customer_read_access/migration.sql": "4fba90b0af132bb6933df6269ab7afca7113612b9f4e3a98431dd8e2c509c110",
+    "20261002090000_add_marketing_ops/migration.sql": "cf3a07e50adca7a7726322e4ae3d5742d469e37bcd6ded57a088e9eebd80b205",
+    "20261009090000_add_finance_group_access/migration.sql": "62ec62bfeef368bcd451f5786f2e647f4b5862534c4720f03811e01ca332331d"
   }
 }

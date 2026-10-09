@@ -53,13 +53,13 @@ export async function POST(request: Request) {
   if (!groupId || groupId.length > API_LIMITS.identifierCharacters)
     return NextResponse.json({ error: "请选择启用中的小组" }, { status: 400 });
   if (!username || !name || !password)
-    return NextResponse.json({ error: "请完整填写账号、姓名和临时密码" }, { status: 400 });
+    return NextResponse.json({ error: "请完整填写账号、姓名和密码" }, { status: 400 });
   if (username.length > API_LIMITS.loginUsernameCharacters
     || name.length > API_LIMITS.accountDisplayNameCharacters
     || password.length > API_LIMITS.loginPasswordCharacters)
     return NextResponse.json({ error: "账号、姓名或密码长度超过限制" }, { status: 400 });
   if (password.length < PASSWORD_MIN_LENGTH)
-    return NextResponse.json({ error: `临时密码至少需要 ${PASSWORD_MIN_LENGTH} 位` }, { status: 400 });
+    return NextResponse.json({ error: `密码至少需要 ${PASSWORD_MIN_LENGTH} 位` }, { status: 400 });
   if (!isDateOnly(effectiveOn))
     return NextResponse.json({ error: "请选择正确的生效日期" }, { status: 400 });
 

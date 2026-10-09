@@ -33,17 +33,21 @@ export async function GET(request: Request) {
   // 重新读取该账号当前明确绑定的渠道 ID，未绑定渠道绝不会混入结果。
   const liveActor = await db.user.findUnique({
     where: { id: actor.id },
-    select: { active: true, role: true, duty: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } } },
+    select: { active: true, role: true, duty: true, financeScopeConfigured: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, financeGroupAccess: { select: { groupId: true } } },
   });
   const liveFinanceViewer = Boolean(liveActor?.active && hasAssignedRole(liveActor, "FINANCE"));
   const liveResourceViewer = Boolean(liveActor?.active && hasAssignedRole(liveActor, "RESOURCE_MANAGER"));
   if (!liveActor || (!liveFinanceViewer && !liveResourceViewer))
     return authorizationDenied(actor, "当前账号已停用或权限已变更");
   const allowedChannelIds = liveActor.resourceChannelAccess.map((item) => item.channelId);
+  const financeGroupIds = liveFinanceViewer && liveActor.financeScopeConfigured
+    ? [...new Set(liveActor.financeGroupAccess.map((item) => item.groupId))]
+    : null;
+  if (financeGroupIds && !financeGroupIds.length) return NextResponse.json({ rows: [], channels: [], groups: [] }, { headers: { "Cache-Control": "private, no-store" } });
   if (!liveFinanceViewer && !allowedChannelIds.length) return NextResponse.json({ rows: [], channels: [], groups: [] }, { headers: { "Cache-Control": "private, no-store" } });
 
   const channels = await db.channel.findMany({
-    where: { ...(liveFinanceViewer ? {} : { id: { in: allowedChannelIds } }), active: true, group: { active: true } },
+    where: { ...(liveFinanceViewer ? {} : { id: { in: allowedChannelIds } }), ...(financeGroupIds ? { groupId: { in: financeGroupIds } } : {}), active: true, group: { active: true } },
     select: {
       id: true, name: true, normalizedName: true,
       group: {
@@ -74,6 +78,7 @@ export async function GET(request: Request) {
   const entries = minimumFrom && maximumTo ? await db.dailyStatEntry.findMany({
     where: {
       channelId: { in: channels.map((channel) => channel.id) },
+      ...(financeGroupIds ? { groupId: { in: financeGroupIds } } : {}),
       currentRevisionId: { not: null },
       businessDate: { gte: minimumFrom, lte: maximumTo },
     },
@@ -93,6 +98,7 @@ export async function GET(request: Request) {
   const snapshotEntries = maximumTo ? await db.dailyStatEntry.findMany({
     where: {
       channelId: { in: channels.map((channel) => channel.id) },
+      ...(financeGroupIds ? { groupId: { in: financeGroupIds } } : {}),
       position: "GROUP_OPERATOR",
       currentRevisionId: { not: null },
       businessDate: { lte: maximumTo },

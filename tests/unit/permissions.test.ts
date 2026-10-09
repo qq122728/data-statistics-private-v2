@@ -40,6 +40,21 @@ describe("data permissions", () => {
     expect(canReadReportGroup({ ...companyManager, active: false }, { id: "group-a", departmentId: "company-a" })).toBe(false);
   });
 
+  it("limits a scoped finance account to its explicitly authorized groups", () => {
+    const finance = {
+      id: "finance-1",
+      role: "FINANCE" as const,
+      groupId: null,
+      active: true,
+      financeScopeConfigured: true,
+      financeGroupAccess: [{ groupId: "group-a" }],
+    };
+    expect(canReadReportGroup(finance, { id: "group-a" })).toBe(true);
+    expect(canReadReportGroup(finance, { id: "chenming-group" })).toBe(false);
+    // Historical finance accounts stay compatible until an administrator gives them a scope.
+    expect(canReadReportGroup({ ...finance, financeScopeConfigured: false, financeGroupAccess: [] }, { id: "chenming-group" })).toBe(true);
+  });
+
   it("limits a department manager to groups in the assigned market", () => {
     const departmentManager = { id: "us-manager", role: "COMPANY_MANAGER" as const, groupId: null, departmentId: "company-a", managementCountryCode: "US", active: true };
     expect(canReadReportGroup(departmentManager, { id: "us-direct", departmentId: "company-a", countryCode: "US" })).toBe(true);

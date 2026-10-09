@@ -37,7 +37,7 @@ describe.sequential("password hardening", () => {
       .not.toThrow();
   });
 
-  it("rejects 6- and 8-character self-service passwords", async () => {
+  it("requires at least six characters for self-service passwords", async () => {
     const user = await db.user.create({
       data: {
         id: `${prefix}${randomUUID()}`,
@@ -51,17 +51,21 @@ describe.sequential("password hardening", () => {
     });
     vi.spyOn(auth, "requireUser").mockResolvedValue(user);
 
-    for (const newPassword of ["123456", "12345678"]) {
-      const response = await changePassword(new Request("http://localhost/api/auth/change-password", {
-        method: "POST",
-        body: JSON.stringify({ currentPassword: "temporary-password", newPassword }),
-      }));
-      expect(response.status).toBe(400);
-      await expect(response.json()).resolves.toEqual({ error: "新密码至少需要 12 位" });
-    }
+    const tooShort = await changePassword(new Request("http://localhost/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword: "temporary-password", newPassword: "12345" }),
+    }));
+    expect(tooShort.status).toBe(400);
+    await expect(tooShort.json()).resolves.toEqual({ error: "新密码至少需要 6 位" });
 
     await expect(db.user.findUniqueOrThrow({ where: { id: user.id }, select: { mustChangePassword: true } }))
       .resolves.toEqual({ mustChangePassword: true });
+
+    const accepted = await changePassword(new Request("http://localhost/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword: "temporary-password", newPassword: "123456" }),
+    }));
+    expect(accepted.status).toBe(200);
   });
 
   it("clears the temporary-password state and revokes every old session", async () => {

@@ -21,6 +21,8 @@ type ScopedAccount = {
   department: { id: string; name: string; companyId: string | null } | null;
   companyId: string | null;
   resourceChannelAccess: Array<{ channelId: string }>;
+  financeScopeConfigured: boolean;
+  financeGroupAccess: Array<{ groupId: string; group: { name: string; active: boolean } }>;
   roleAssignments: Array<{ role: Role }>;
   updatedAt: Date;
 };
@@ -37,6 +39,8 @@ const accountSelect = {
   department: { select: { id: true, name: true, companyId: true } },
   companyId: true,
   resourceChannelAccess: { select: { channelId: true }, orderBy: { channelId: "asc" } },
+  financeScopeConfigured: true,
+  financeGroupAccess: { select: { groupId: true, group: { select: { name: true, active: true } } }, orderBy: { groupId: "asc" } },
   roleAssignments: { select: { role: true }, orderBy: { createdAt: "asc" } },
   updatedAt: true,
 } as const;
@@ -44,7 +48,7 @@ const accountSelect = {
 function canManageAccount(actor: SessionUser, target: ScopedAccount): boolean {
   if (actor.id === target.id || target.role === "ADMIN" || target.duty === "HQ_MANAGER") return false;
   if (actor.role === "ADMIN" || actor.duty === "HQ_MANAGER") {
-    return Boolean(target.groupId || target.role === "RESOURCE_MANAGER" || target.duty === "DEPARTMENT_MANAGER" || target.duty === "COMPANY_MANAGER");
+    return Boolean(target.groupId || target.role === "RESOURCE_MANAGER" || target.role === "FINANCE" || target.duty === "DEPARTMENT_MANAGER" || target.duty === "COMPANY_MANAGER");
   }
   if (actor.duty === "COMPANY_MANAGER") {
     if (!actor.companyId || target.duty === "COMPANY_MANAGER") return false;
@@ -62,7 +66,7 @@ export async function GET() {
   const access = await requireOrgManagerRequest();
   if ("response" in access) return access.response;
   const accounts = await db.user.findMany({
-    where: { id: { not: access.actor.id }, role: { notIn: ["ADMIN", "FINANCE", "HR"] } },
+    where: { id: { not: access.actor.id }, role: { notIn: ["ADMIN", "HR"] } },
     select: accountSelect,
     orderBy: [{ active: "desc" }, { name: "asc" }],
   });
@@ -76,6 +80,8 @@ export async function GET() {
     groupName: account.group?.name ?? null,
     departmentName: account.department?.name ?? null,
     resourceChannelIds: account.resourceChannelAccess.map((item) => item.channelId),
+    financeGroupIds: account.financeGroupAccess.map((item) => item.groupId),
+    financeScopeConfigured: account.financeScopeConfigured,
     secondaryRoles: account.roleAssignments.map((item) => item.role).filter((role) => role !== account.role),
     updatedAt: account.updatedAt,
   })));
@@ -84,17 +90,34 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const access = await requireOrgManagerRequest();
   if ("response" in access) return access.response;
-  const body = await request.json() as { id?: unknown; active?: unknown };
+  const body = await request.json() as { id?: unknown; active?: unknown; financeGroupIds?: unknown };
   const id = typeof body.id === "string" ? body.id : "";
   if (!id || id.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "账号参数不正确" }, { status: 400 });
-  if (typeof body.active !== "boolean") return NextResponse.json({ error: "账号状态不正确" }, { status: 400 });
+  const changesFinanceGroups = Object.prototype.hasOwnProperty.call(body, "financeGroupIds");
+  if (typeof body.active !== "boolean" && !changesFinanceGroups) return NextResponse.json({ error: "账号状态不正确" }, { status: 400 });
+  if (typeof body.active !== "undefined" && typeof body.active !== "boolean") return NextResponse.json({ error: "账号状态不正确" }, { status: 400 });
   const active = body.active;
+  const financeGroupIds = Array.isArray(body.financeGroupIds)
+    ? [...new Set(body.financeGroupIds.filter((value): value is string => typeof value === "string" && Boolean(value)))]
+    : [];
+  if (changesFinanceGroups && (!Array.isArray(body.financeGroupIds) || !financeGroupIds.length || financeGroupIds.length > API_LIMITS.batchRows || financeGroupIds.some((groupId) => groupId.length > API_LIMITS.identifierCharacters)))
+    return NextResponse.json({ error: "请至少选择一个有效的财务可见小组" }, { status: 400 });
 
   const result = await db.$transaction(async (client) => {
     const target = await client.user.findUnique({ where: { id }, select: accountSelect });
     if (!target || !canManageAccount(access.actor, target)) return { denied: true as const };
+    if (changesFinanceGroups) {
+      if (access.actor.role !== "ADMIN" && access.actor.duty !== "HQ_MANAGER") return { denied: true as const };
+      if (target.role !== "FINANCE") return { error: "只有财务账号可以设置可见小组", status: 400 as const };
+      const groups = await client.teamGroup.findMany({ where: { id: { in: financeGroupIds }, active: true }, select: { id: true } });
+      if (groups.length !== financeGroupIds.length) return { error: "所选小组不存在或已停用", status: 400 as const };
+      const account = await client.user.update({ where: { id }, data: { financeScopeConfigured: true, financeGroupAccess: { deleteMany: {}, create: financeGroupIds.map((groupId) => ({ groupId })) } }, select: accountSelect });
+      await client.session.deleteMany({ where: { userId: id } });
+      await recordAudit(client, { actorId: access.actor.id, action: "ORG_FINANCE_GROUP_SCOPE_UPDATED", entityType: "User", entityId: id, summary: { changedFields: ["financeGroupIds"], financeGroupIds, username: target.username } });
+      return { account };
+    }
     if (target.active === active) return { account: target };
-    const account = await client.user.update({ where: { id }, data: { active } });
+    const account = await client.user.update({ where: { id }, data: { active: active! } });
     if (!active) await client.session.deleteMany({ where: { userId: id } });
     await recordAudit(client, {
       actorId: access.actor.id,
@@ -105,7 +128,8 @@ export async function PATCH(request: Request) {
     });
     return { account };
   });
-  if ("denied" in result) return authorizationDenied(access.actor, "无权修改这个账号的状态");
+  if ("denied" in result) return authorizationDenied(access.actor, "无权修改这个账号的状态或小组范围");
+  if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
   return NextResponse.json({ id: result.account.id, active: result.account.active });
 }
 

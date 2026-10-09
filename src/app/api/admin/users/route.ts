@@ -13,7 +13,7 @@ import { API_LIMITS } from "../../../../lib/request-limits";
 import { getSystemSettings } from "../../../../lib/settings";
 import { resolveGroupBusinessDate } from "../../../../lib/business-time";
 
-type UserRequest = { id?: unknown; employeeCode?: unknown; username?: unknown; name?: unknown; password?: unknown; role?: unknown; secondaryRoles?: unknown; resourceChannelIds?: unknown; groupId?: unknown; departmentId?: unknown; managementScopeName?: unknown; managementCountryCode?: unknown; active?: unknown; hireDate?: unknown; recruitmentSource?: unknown; referrerName?: unknown; stageOverride?: unknown; stageOverrideReason?: unknown; highRiskReason?: unknown; currentPassword?: unknown };
+type UserRequest = { id?: unknown; employeeCode?: unknown; username?: unknown; name?: unknown; password?: unknown; role?: unknown; secondaryRoles?: unknown; resourceChannelIds?: unknown; financeGroupIds?: unknown; groupId?: unknown; departmentId?: unknown; managementScopeName?: unknown; managementCountryCode?: unknown; active?: unknown; hireDate?: unknown; recruitmentSource?: unknown; referrerName?: unknown; stageOverride?: unknown; stageOverrideReason?: unknown; highRiskReason?: unknown; currentPassword?: unknown };
 const roles = ["ADMIN", "RESOURCE_MANAGER", "COMPANY_MANAGER", "FINANCE", "HR", "LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
 type UserRole = (typeof roles)[number];
 type UserMutationClient = Prisma.TransactionClient | Pick<PrismaClient, "teamGroup" | "department">;
@@ -25,6 +25,8 @@ const safeUserSelect = {
   department: { select: { id: true, name: true, active: true } },
   roleAssignments: { select: { role: true }, orderBy: { role: "asc" } },
   resourceChannelAccess: { select: { channelId: true }, orderBy: { channelId: "asc" } },
+  financeScopeConfigured: true,
+  financeGroupAccess: { select: { groupId: true, group: { select: { name: true, active: true } } }, orderBy: { groupId: "asc" } },
   membershipHistory: { select: { id: true, groupId: true, role: true, secondaryRoles: true, effectiveFrom: true, effectiveTo: true, reason: true, group: { select: { name: true } } }, orderBy: { effectiveFrom: "desc" } },
 } as const;
 
@@ -40,6 +42,16 @@ function parseResourceChannelIds(role: UserRole, value: unknown): { success: tru
   if (value.length > API_LIMITS.batchRows || value.some((item) => typeof item !== "string" || item.length === 0 || item.length > API_LIMITS.identifierCharacters)) return { success: false, error: "资源渠道参数不正确" };
   const ids = [...new Set(value as string[])];
   if (!ids.length) return { success: false, error: "资源部管理员必须选择至少一个可见渠道" };
+  return { success: true, value: ids };
+}
+
+function parseFinanceGroupIds(role: UserRole, value: unknown): { success: true; value: string[] | null } | { success: false; error: string } {
+  if (role !== "FINANCE") return Array.isArray(value) && value.length ? { success: false, error: "只有财务账号可以绑定可见小组" } : { success: true, value: [] };
+  if (value === undefined) return { success: true, value: null };
+  if (!Array.isArray(value) || value.length > API_LIMITS.batchRows || value.some((item) => typeof item !== "string" || !item || item.length > API_LIMITS.identifierCharacters))
+    return { success: false, error: "财务小组参数不正确" };
+  const ids = [...new Set(value as string[])];
+  if (!ids.length) return { success: false, error: "财务账号至少要选择一个可见小组" };
   return { success: true, value: ids };
 }
 
@@ -93,7 +105,9 @@ export async function POST(request: Request) {
   if (!secondaryRoles.success) return NextResponse.json({ error: secondaryRoles.error }, { status: 400 });
   const resourceChannels = parseResourceChannelIds(role, body.resourceChannelIds);
   if (!resourceChannels.success) return NextResponse.json({ error: resourceChannels.error }, { status: 400 });
-  if (password.length < PASSWORD_MIN_LENGTH) return NextResponse.json({ error: `临时密码至少需要 ${PASSWORD_MIN_LENGTH} 位` }, { status: 400 });
+  const requestedFinanceGroups = parseFinanceGroupIds(role, body.financeGroupIds);
+  if (!requestedFinanceGroups.success) return NextResponse.json({ error: requestedFinanceGroups.error }, { status: 400 });
+  if (password.length < PASSWORD_MIN_LENGTH) return NextResponse.json({ error: `密码至少需要 ${PASSWORD_MIN_LENGTH} 位` }, { status: 400 });
   const employment = parseEmploymentUpdate(body as Record<string, unknown>);
   if (!employment.success) return NextResponse.json({ error: employment.error }, { status: 400 });
   const recruitment = parseRecruitmentUpdate(body as Record<string, unknown>);
@@ -116,6 +130,15 @@ export async function POST(request: Request) {
         ? await client.teamGroup.findUnique({ where: { id: groupId }, select: { groupType: true } })
         : null;
       const effectiveSecondaryRoles = applyHackerGroupDefaultRoles(role, secondaryRoles.value, targetGroup?.groupType);
+      // 新建财务账号没手工选择范围时，安全默认值就是全部启用小组减去“辰明组”。
+      const financeGroupIds = role === "FINANCE"
+        ? requestedFinanceGroups.value ?? (await client.teamGroup.findMany({ where: { active: true, name: { not: "辰明组" } }, select: { id: true } })).map((group) => group.id)
+        : [];
+      if (role === "FINANCE") {
+        if (!financeGroupIds.length) return { error: "没有可授权给财务账号的小组", status: 400 as const };
+        const groups = await client.teamGroup.findMany({ where: { id: { in: financeGroupIds }, active: true }, select: { id: true } });
+        if (groups.length !== financeGroupIds.length) return { error: "所选财务小组不存在或已停用", status: 400 as const };
+      }
       if (resourceChannels.value.length) {
         const channels = await client.channel.findMany({ where: { id: { in: resourceChannels.value } }, select: { id: true, channelType: true } });
         if (new Set(channels.map((channel) => channel.id)).size !== resourceChannels.value.length) return { error: "选择的资源渠道不存在", status: 400 as const };
@@ -130,8 +153,10 @@ export async function POST(request: Request) {
       const created = await client.user.create({
         data: {
           id: randomUUID(), employeeCode, username, name, passwordHash: hashPassword(password), mustChangePassword: false, role, groupId, departmentId, managementScopeName, managementCountryCode,
+          financeScopeConfigured: role === "FINANCE",
           roleAssignments: { create: [role, ...effectiveSecondaryRoles].map((assignedRole) => ({ role: assignedRole })) },
           ...(resourceChannels.value.length ? { resourceChannelAccess: { create: resourceChannels.value.map((channelId) => ({ channelId })) } } : {}),
+          ...(financeGroupIds.length ? { financeGroupAccess: { create: financeGroupIds.map((groupId) => ({ groupId })) } } : {}),
           ...(groupId ? { membershipHistory: { create: { groupId, role, secondaryRoles: effectiveSecondaryRoles.join(",") || null, effectiveFrom: membershipEffectiveFrom!, reason: "创建人员档案", createdById: access.actor.id } } } : {}),
           ...employment.value,
           ...recruitment.value,
@@ -145,7 +170,7 @@ export async function POST(request: Request) {
         entityType: "User",
         entityId: created.id,
         summary: {
-          changedFields: ["employeeCode", "name", "username", "role", "secondaryRoles", ...(role === "RESOURCE_MANAGER" ? ["resourceChannelIds"] : []), ...(role === "COMPANY_MANAGER" ? ["departmentId", ...(managementCountryCode ? ["managementScopeName", "managementCountryCode"] : [])] : ["groupId"])],
+          changedFields: ["employeeCode", "name", "username", "role", "secondaryRoles", ...(role === "RESOURCE_MANAGER" ? ["resourceChannelIds"] : []), ...(role === "FINANCE" ? ["financeGroupIds"] : []), ...(role === "COMPANY_MANAGER" ? ["departmentId", ...(managementCountryCode ? ["managementScopeName", "managementCountryCode"] : [])] : ["groupId"])],
           ...(highRisk ? {
             name: created.name,
             highRiskReason: highRisk.highRiskReason,
@@ -245,7 +270,7 @@ export async function PATCH(request: Request) {
   }
   if (typeof body.active === "boolean") requested.active = body.active;
   if (typeof body.password === "string") {
-    if (body.password.length < PASSWORD_MIN_LENGTH || body.password.length > API_LIMITS.loginPasswordCharacters) return NextResponse.json({ error: `临时密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` }, { status: 400 });
+    if (body.password.length < PASSWORD_MIN_LENGTH || body.password.length > API_LIMITS.loginPasswordCharacters) return NextResponse.json({ error: `密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` }, { status: 400 });
     requested.passwordHash = hashPassword(body.password);
   }
   const employment = parseEmploymentUpdate(body as Record<string, unknown>);
@@ -256,11 +281,12 @@ export async function PATCH(request: Request) {
   Object.assign(requested, recruitment.value);
   const includesSecondaryRoles = Object.prototype.hasOwnProperty.call(body, "secondaryRoles");
   const includesResourceChannels = Object.prototype.hasOwnProperty.call(body, "resourceChannelIds");
-  if (!Object.keys(requested).length && !includesSecondaryRoles && !includesResourceChannels) return NextResponse.json({ error: "没有可更新的成员信息" }, { status: 400 });
+  const includesFinanceGroups = Object.prototype.hasOwnProperty.call(body, "financeGroupIds");
+  if (!Object.keys(requested).length && !includesSecondaryRoles && !includesResourceChannels && !includesFinanceGroups) return NextResponse.json({ error: "没有可更新的成员信息" }, { status: 400 });
 
   try {
     const result = await db.$transaction(async (client) => {
-      const existing = await client.user.findUnique({ where: { id: body.id as string }, select: { id: true, username: true, name: true, role: true, groupId: true, departmentId: true, managementScopeName: true, managementCountryCode: true, active: true, hireDate: true, recruitmentSource: true, referrerName: true, stageOverride: true, stageOverrideReason: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } } } });
+      const existing = await client.user.findUnique({ where: { id: body.id as string }, select: { id: true, username: true, name: true, role: true, groupId: true, departmentId: true, managementScopeName: true, managementCountryCode: true, active: true, hireDate: true, recruitmentSource: true, referrerName: true, stageOverride: true, stageOverrideReason: true, financeScopeConfigured: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, financeGroupAccess: { select: { groupId: true } } } });
       if (!existing) return { error: "成员不存在", status: 404 as const };
 
       const personnelRoles: UserRole[] = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"];
@@ -324,6 +350,26 @@ export async function PATCH(request: Request) {
         if (new Set(channels.map((channel) => channel.channelType)).size !== 1) return { error: "一个资源部账号只能选择一种渠道类型（投流或短信）", status: 400 as const };
         changedFields.push("resourceChannelIds");
       }
+      const currentFinanceGroupIds = existing.financeGroupAccess.map((access) => access.groupId).sort();
+      // 老财务账号没有白名单时，普通资料编辑不能意外把它改成受限账号。
+      const nextFinanceScopeConfigured = nextRole === "FINANCE"
+        && (includesFinanceGroups || existing.role !== "FINANCE" || existing.financeScopeConfigured);
+      const requestedFinanceGroupIds = includesFinanceGroups
+        ? body.financeGroupIds
+        : nextFinanceScopeConfigured && nextRole === existing.role ? currentFinanceGroupIds : undefined;
+      const nextFinanceGroups = parseFinanceGroupIds(nextRole, requestedFinanceGroupIds);
+      if (!nextFinanceGroups.success) return { error: nextFinanceGroups.error, status: 400 as const };
+      const sortedNextFinanceGroupIds = nextFinanceScopeConfigured
+        ? [...(nextFinanceGroups.value ?? (await client.teamGroup.findMany({ where: { active: true, name: { not: "辰明组" } }, select: { id: true } })).map((group) => group.id))].sort()
+        : [];
+      if (nextFinanceScopeConfigured) {
+        if (!sortedNextFinanceGroupIds.length) return { error: "财务账号至少要选择一个可见小组", status: 400 as const };
+        const groups = await client.teamGroup.findMany({ where: { id: { in: sortedNextFinanceGroupIds }, active: true }, select: { id: true } });
+        if (groups.length !== sortedNextFinanceGroupIds.length) return { error: "所选财务小组不存在或已停用", status: 400 as const };
+      }
+      const financeGroupsChanged = existing.financeScopeConfigured !== nextFinanceScopeConfigured
+        || currentFinanceGroupIds.join(",") !== sortedNextFinanceGroupIds.join(",");
+      if (financeGroupsChanged) changedFields.push("financeGroupIds");
       const currentSecondaryRoles = existing.roleAssignments.map((assignment) => assignment.role).filter((assignedRole) => assignedRole !== existing.role);
       const requestedSecondaryRoles = includesSecondaryRoles
         ? body.secondaryRoles
@@ -344,7 +390,7 @@ export async function PATCH(request: Request) {
       const nextManagementCountryCode = Object.prototype.hasOwnProperty.call(data, "managementCountryCode") ? data.managementCountryCode ?? null : existing.managementCountryCode;
       const nextActive = data.active ?? existing.active;
       if (nextRole === "COMPANY_MANAGER" && Boolean(nextManagementScopeName) !== Boolean(nextManagementCountryCode)) return { error: "部门管理员必须同时填写部门名称和市场国家", status: 400 as const };
-      const changesMembershipBoundary = changedFields.some((field) => field === "role" || field === "groupId" || field === "departmentId" || field === "managementScopeName" || field === "managementCountryCode" || field === "active");
+      const changesMembershipBoundary = changedFields.some((field) => field === "role" || field === "groupId" || field === "departmentId" || field === "managementScopeName" || field === "managementCountryCode" || field === "active" || field === "financeGroupIds");
       if (changesMembershipBoundary && nextActive && !(await hasValidOrganizationScope(nextRole, nextGroupId, nextDepartmentId, nextManagementCountryCode, client))) {
         return { error: organizationScopeError(nextRole), status: 400 as const };
       }
@@ -374,6 +420,7 @@ export async function PATCH(request: Request) {
         ...(data.passwordHash ? { mustChangePassword: true } : {}),
         ...(roleAssignmentsChanged ? { roleAssignments: { deleteMany: {}, create: [nextRole, ...nextSecondaryRoles.value].map((assignedRole) => ({ role: assignedRole })) } } : {}),
         ...(resourceChannelsChanged ? { resourceChannelAccess: { deleteMany: {}, create: sortedNextResourceChannelIds.map((channelId) => ({ channelId })) } } : {}),
+        ...(financeGroupsChanged ? { financeScopeConfigured: nextFinanceScopeConfigured, financeGroupAccess: { deleteMany: {}, create: sortedNextFinanceGroupIds.map((groupId) => ({ groupId })) } } : {}),
       }, select: safeUserSelect });
       let invalidatedSessions = 0;
       if (data.passwordHash || highRisk || changesMembershipBoundary) {

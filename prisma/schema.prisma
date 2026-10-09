@@ -332,6 +332,9 @@ model User {
   createdUserPositions        UserPosition[]                  @relation("UserPositionCreatedBy")
   historicalReviewedLeads     LeadCustomer[]                  @relation("HistoricalReviewedBy")
   resourceChannelAccess       ResourceChannelAccess[]
+  // 新建的受限财务账号必须在此明确列出可见小组；旧财务账号保持 false，沿用原来的全公司只读范围。
+  financeScopeConfigured      Boolean                         @default(false)
+  financeGroupAccess          FinanceGroupAccess[]
   sessions                    Session[]
   confirmations               DailyEntryConfirmation[]
   attendanceRecords           AttendanceRecord[]
@@ -341,6 +344,7 @@ model User {
   sentChannelReviews          ChannelReviewEntry[]            @relation("ChannelReviewSentBy")
   reviewedChannelReviews      ChannelReviewEntry[]            @relation("ChannelReviewReviewedBy")
   dailyStatEntries            DailyStatEntry[]                @relation("DailyStatOwner")
+  marketingDailyEntries       MarketingDailyEntry[]           @relation("MarketingDailyEntryCreator")
   reviewedDailyStats          DailyStatEntry[]                @relation("DailyStatReviewer")
   receptionSourceDailyStats   DailyStatEntry[]                @relation("DailyStatReceptionSource")
   operatorSourceDailyStats    DailyStatEntry[]                @relation("DailyStatOperatorSource")
@@ -444,6 +448,18 @@ model ResourceChannelAccess {
   @@index([channelId])
 }
 
+// 财务账号按小组的白名单。开启 financeScopeConfigured 后，未列在这里的小组一律不可见。
+model FinanceGroupAccess {
+  userId    String
+  groupId   String
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     TeamGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([userId, groupId])
+  @@index([groupId])
+}
+
 model TeamGroup {
   id                          String                @id
   name                        String
@@ -456,6 +472,7 @@ model TeamGroup {
   workStartMinutes            Int?
   workEndMinutes              Int?
   members                     User[]
+  financeAccess               FinanceGroupAccess[]
   membershipHistory           UserGroupMembership[]
   positionHistory             UserPosition[]
   channels                    Channel[]
@@ -635,6 +652,166 @@ model SourceBatch {
 
   @@unique([groupId, channelId, sourceDate])
   @@index([groupId, sourceDate])
+}
+
+// 投流与短信粉运营账和既有 SourceBatch / DailyStatEntry 是两套独立账本。
+// channelId 只保存资源部渠道目录 ID，用于复用 ResourceChannelAccess 的授权边界；
+// 不能建立 Channel 外键，因为 Channel 在不同小组有同一个目录 ID 的复制行。
+enum MarketingSourceType {
+  ADS
+  SMS
+}
+
+model TrafficBuyer {
+  id           String                 @id @default(cuid())
+  channelId    String
+  name         String
+  employeeCode String?
+  active       Boolean                @default(true)
+  adAccounts   AdAccount[]
+  attributions MarketingAttribution[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@unique([channelId, name])
+  @@index([channelId, active])
+}
+
+model AdAccount {
+  id           String                 @id @default(cuid())
+  channelId    String
+  name         String
+  platform     String
+  externalCode String?
+  buyerId      String?
+  buyer        TrafficBuyer?          @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  active       Boolean                @default(true)
+  campaigns    AdCampaign[]
+  attributions MarketingAttribution[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@unique([channelId, name])
+  @@index([channelId, active])
+  @@index([buyerId])
+}
+
+model AdCampaign {
+  id           String                 @id @default(cuid())
+  channelId    String
+  name         String
+  externalCode String?
+  adAccountId  String
+  adAccount    AdAccount              @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  active       Boolean                @default(true)
+  creatives    CreativeAsset[]
+  attributions MarketingAttribution[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@unique([adAccountId, name])
+  @@index([channelId, active])
+}
+
+model CreativeAsset {
+  id           String                 @id @default(cuid())
+  channelId    String
+  name         String
+  externalCode String?
+  campaignId   String
+  campaign     AdCampaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  active       Boolean                @default(true)
+  attributions MarketingAttribution[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@unique([campaignId, name])
+  @@index([channelId, active])
+}
+
+model SmsVendor {
+  id           String     @id @default(cuid())
+  channelId    String
+  name         String
+  contactName  String?
+  active       Boolean    @default(true)
+  batches      SmsBatch[]
+  attributions MarketingAttribution[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([channelId, name])
+  @@index([channelId, active])
+}
+
+model SmsBatch {
+  id           String                 @id @default(cuid())
+  channelId    String
+  name         String
+  externalCode String?
+  vendorId     String
+  vendor       SmsVendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  sentOn       String?
+  active       Boolean                @default(true)
+  attributions MarketingAttribution[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@unique([vendorId, name])
+  @@index([channelId, active])
+}
+
+// 一条归因是日报与质量排行榜的最小口径：投流可落到素材，短信可落到批次。
+// 各个关联均为可选，方便先建档、后补全；接口会按 ADS/SMS 校验最少关联。
+model MarketingAttribution {
+  id              String                 @id @default(cuid())
+  channelId       String
+  sourceType      MarketingSourceType
+  name            String
+  trafficBuyerId  String?
+  adAccountId     String?
+  adCampaignId    String?
+  creativeAssetId String?
+  smsVendorId     String?
+  smsBatchId      String?
+  active          Boolean                @default(true)
+  trafficBuyer    TrafficBuyer?          @relation(fields: [trafficBuyerId], references: [id], onDelete: SetNull)
+  adAccount       AdAccount?             @relation(fields: [adAccountId], references: [id], onDelete: SetNull)
+  adCampaign      AdCampaign?            @relation(fields: [adCampaignId], references: [id], onDelete: SetNull)
+  creativeAsset   CreativeAsset?         @relation(fields: [creativeAssetId], references: [id], onDelete: SetNull)
+  smsVendor       SmsVendor?             @relation(fields: [smsVendorId], references: [id], onDelete: SetNull)
+  smsBatch        SmsBatch?              @relation(fields: [smsBatchId], references: [id], onDelete: SetNull)
+  dailyEntries    MarketingDailyEntry[]
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@unique([channelId, sourceType, name])
+  @@index([channelId, sourceType, active])
+  @@index([creativeAssetId])
+  @@index([smsBatchId])
+}
+
+// 运营日报是“同一天、同一归因”一行；重复导入会覆盖当天同一归因的数据，不会累加两遍。
+model MarketingDailyEntry {
+  id            String               @id @default(cuid())
+  businessDate  String
+  attributionId String
+  spendCents    Int                  @default(0)
+  sentCount     Int                  @default(0)
+  deliveredCount Int                 @default(0)
+  fansCount     Int                  @default(0)
+  validFansCount Int                 @default(0)
+  conversionCount Int                @default(0)
+  note          String?
+  createdById   String
+  attribution   MarketingAttribution @relation(fields: [attributionId], references: [id], onDelete: Cascade)
+  createdBy     User                 @relation("MarketingDailyEntryCreator", fields: [createdById], references: [id])
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@unique([businessDate, attributionId])
+  @@index([businessDate])
+  @@index([attributionId, businessDate])
 }
 
 model MetricEvent {

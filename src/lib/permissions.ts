@@ -25,6 +25,8 @@ export type PermissionUser = {
   active: boolean;
   roleAssignments?: Array<{ role: Role }>;
   resourceChannelAccess?: Array<{ channelId: string }>;
+  financeScopeConfigured?: boolean;
+  financeGroupAccess?: Array<{ groupId: string }>;
   managedDepartments?: Array<{ departmentId: string }>;
 };
 
@@ -46,7 +48,7 @@ export async function findLivePermissionUser(
 ): Promise<PermissionUser | null> {
   return client.user.findFirst({
     where: { id: userId, active: true },
-    select: { id: true, role: true, duty: true, groupId: true, departmentId: true, companyId: true, managementCountryCode: true, active: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, managedDepartments: { select: { departmentId: true } } },
+    select: { id: true, role: true, duty: true, groupId: true, departmentId: true, companyId: true, managementCountryCode: true, active: true, financeScopeConfigured: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, financeGroupAccess: { select: { groupId: true } }, managedDepartments: { select: { departmentId: true } } },
   });
 }
 
@@ -119,7 +121,9 @@ export function canReadReportGroup(user: PermissionUser, group: ReportReadableGr
   // 资源部不能走通用组织报表。资源账号必须使用 /api/resource/*，由接口按
   // ResourceChannelAccess 中明确授权的 channelId 过滤，不能仅凭岗位看到全公司。
   if (user.role === "RESOURCE_MANAGER") return false;
-  if (user.role === "ADMIN" || user.duty === "HQ_MANAGER" || user.role === "FINANCE") return true;
+  if (user.role === "ADMIN" || user.duty === "HQ_MANAGER") return true;
+  // 旧财务账号没有配置白名单，保持原有全公司只读范围；新受限账号只看明确授权的小组。
+  if (user.role === "FINANCE") return !user.financeScopeConfigured || Boolean(user.financeGroupAccess?.some((item) => item.groupId === group.id));
   if (user.duty === "COMPANY_MANAGER") {
     return Boolean(user.companyId && group.department?.companyId === user.companyId);
   }

@@ -24,6 +24,11 @@ export default function LoginPage() {
       if (payload.mustChangePassword) {
         window.location.assign("/change-password");
       } else {
+        const requestedPath = new URLSearchParams(window.location.search).get("next");
+        if (requestedPath?.startsWith("/") && !requestedPath.startsWith("//")) {
+          window.location.assign(requestedPath);
+          return;
+        }
         const workspace = payload.user?.role === "LEAD" ? "FRONTLINE" : (payload.workspace ?? "FRONTLINE");
         window.location.assign(workspaceOrigin(workspace));
       }

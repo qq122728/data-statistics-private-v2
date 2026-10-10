@@ -22,8 +22,6 @@ describe("frontend currency display", () => {
     const sources = (await Promise.all([
       frontendSources(join(root, "apps/frontline/components")),
       frontendSources(join(root, "apps/frontline/app")),
-      frontendSources(join(root, "apps/admin/components")),
-      frontendSources(join(root, "apps/admin/app")),
       readFile(join(root, "src/lib/metrics.ts"), "utf8").then((source) => [source]),
     ])).flat().join("\n");
 

@@ -36,7 +36,7 @@ npm run db:seed
 
 ## 3. 启动当前界面
 
-当前系统在同一个仓库里有三个服务：根目录是后端，`apps/frontline` 是员工入口，`apps/admin` 是管理入口。这是按职责拆开的同一套系统，不是三套旧版界面。
+本地整理后的代码只需两个运行服务：根目录是后端，`apps/frontline` 承载组员、组长、财务、资源部和各级管理员。管理入口 `/admin` 与普通入口 `/` 使用同一套前端。线上目前仍运行原有部署，本次本地整理尚未切换线上服务。
 
 只想查看五组演示数据时，使用单独的 `prisma/local-demo.db`，不会覆盖上面的 `prisma/dev.db`：
 
@@ -48,15 +48,14 @@ npm run seed:local-demo
 npm run seed:local-five-groups
 ```
 
-随后在三个终端分别运行（终端 1 保留上面的 `DATABASE_URL`，其他终端从同一项目目录启动）：
+随后在两个终端分别运行（终端 1 保留上面的 `DATABASE_URL`，另一个终端从同一项目目录启动）：
 
 ```bash
 DATABASE_URL="file:$PWD/prisma/local-demo.db" APP_PUBLIC_ORIGIN=http://localhost:3000 npm run dev -- -p 3003
 npm run dev --prefix apps/frontline -- -p 3000
-npm run dev --prefix apps/admin -- -p 3002
 ```
 
-打开 [员工入口](http://localhost:3000)；管理入口是 [http://localhost:3002](http://localhost:3002)。`npm run dev` 单独在根目录运行只会启动后端。三个服务停止后，演示数据仍保存在 `prisma/local-demo.db`。
+打开 [工作台](http://localhost:3000)；管理入口是 [http://localhost:3000/admin](http://localhost:3000/admin)。`npm run dev` 单独在根目录运行只会启动后端。两个服务停止后，演示数据仍保存在 `prisma/local-demo.db`。
 
 ## 4. 仅本机可用的初始账号
 

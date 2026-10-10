@@ -32,7 +32,7 @@ export function workspaceOrigin(workspace: LoginResponse["workspace"]): string {
   if (typeof window !== "undefined") {
     return workspace === "ADMIN" ? `${window.location.origin}/admin/` : `${window.location.origin}/`;
   }
-  return workspace === "ADMIN" ? "http://127.0.0.1:3002/" : "http://127.0.0.1:3000/";
+  return workspace === "ADMIN" ? "http://127.0.0.1:3000/admin/" : "http://127.0.0.1:3000/";
 }
 
 export async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {

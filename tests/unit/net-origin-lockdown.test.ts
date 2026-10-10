@@ -14,7 +14,6 @@ const routes = readFileSync(join(root, "ops/nginx/data-statistics-v2-routes.conf
 const nextConfigs = [
   "next.config.ts",
   "apps/frontline/next.config.ts",
-  "apps/admin/next.config.ts",
 ].map((path) => readFileSync(join(root, path), "utf8"));
 const runbook = readFileSync(join(root, "ops/runbooks/NET-02-origin-lockdown-and-security-headers.md"), "utf8");
 const service = readFileSync(join(root, "ops/systemd/data-statistics-cloudflare-ufw.service"), "utf8");

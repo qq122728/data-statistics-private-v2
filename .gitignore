@@ -27,5 +27,9 @@ design-qa-assets/
 .claude/
 test-backups/
 artifacts/
+# Local review evidence and temporary files are kept on this computer.
+/.tmp/
+/outputs/
+/*.png
 __pycache__/
 *.pyc

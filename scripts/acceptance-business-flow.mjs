@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const baseUrl = process.env.ACCEPTANCE_BASE_URL ?? "http://127.0.0.1:3002";
+const baseUrl = process.env.ACCEPTANCE_BASE_URL ?? "http://127.0.0.1:3000";
 const parsedBaseUrl = new URL(baseUrl);
 if (!["127.0.0.1", "localhost", "::1"].includes(parsedBaseUrl.hostname)) {
   throw new Error("验收脚本只允许访问本机服务，已拒绝非本地地址。");

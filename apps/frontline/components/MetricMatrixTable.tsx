@@ -18,7 +18,7 @@ type Metric = { label: string; tone?: "bad" | "good" | "money" | "rate"; value: 
 
 const count = (value: number | undefined) => value ?? 0;
 const percent = (numerator: number | undefined, denominator: number | undefined) => count(denominator) > 0 ? `${(count(numerator) / count(denominator) * 100).toFixed(1)}%` : "—";
-const money = (cents: number | undefined) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(count(cents) / 100);
+const money = (cents: number | undefined) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(count(cents) / 100);
 const normalLeave = (totals: MatrixTotals) => totals.leftNormal ?? Math.max(0, count(totals.left) - count(totals.leftAbnormal));
 
 function metricsFor(groupType: GroupType): Metric[] {
@@ -68,13 +68,30 @@ function metricsFor(groupType: GroupType): Metric[] {
   ];
 }
 
-export function MetricMatrixTable({ title, groupType, total, channels, members, onClose }: { title: string; groupType: GroupType; total: MatrixTotals; channels: MatrixColumn[]; members: MatrixColumn[]; onClose?: () => void }) {
-  const metrics = metricsFor(groupType);
-  const columns = [{ id: "total", name: "合计", sub: "全组", totals: total }, ...channels.map((row) => ({ ...row, sub: "渠道" })), ...members.map((row) => ({ ...row, sub: "组员" }))];
-  return <section className="fresh-sheet-card metric-matrix-card">
-    <div className="fresh-sheet-title"><div><h2>{title}</h2><p>左侧是指标，横向同时对比合计、渠道和组员</p></div>{onClose ? <button type="button" className="metric-matrix-close" onClick={onClose}>收起明细</button> : <span className="metric-matrix-live">实时汇总</span>}</div>
-    <div className="metric-matrix-scroll"><table style={{ minWidth: Math.max(760, 170 + columns.length * 116) }}><thead><tr><th>数据指标</th>{columns.map((column) => <th key={column.id}><strong>{column.name}</strong><small>{column.sub}</small></th>)}</tr></thead><tbody>{metrics.map((metric) => <tr key={metric.label} data-tone={metric.tone}><th>{metric.label}</th>{columns.map((column) => <td key={column.id}>{metric.value(column.totals)}</td>)}</tr>)}</tbody></table></div>
-    <footer>数据口径与上方汇总一致；金额为 USD，比率由系统自动计算。</footer>
+export function MetricMatrixTable({ title, groupType, total, channels, members, onClose, compact = false, days = [], onInspect, hideControls = false }: { hideControls?: boolean; days?: MatrixColumn[]; onInspect?: (kind: string, id: string) => void; compact?: boolean; title: string; groupType: GroupType; total: MatrixTotals; channels: MatrixColumn[]; members: MatrixColumn[]; onClose?: () => void }) {
+  const [scope, setScope] = useState<"all" | "channel" | "member" | "day">("all");
+  const [search, setSearch] = useState("");
+  const originalMetrics = metricsFor(groupType);
+  const metrics = compact ? originalMetrics.filter(m => m.tone !== "rate") : originalMetrics;
+  const candidates = scope === "day" && compact ? days.map(row=>({...row,sub:"日期"})) : [...(compact && scope === "member" ? [] : channels).map(row=>({...row,sub:"渠道"})), ...(compact && scope === "channel" ? [] : members).map(row=>({...row,sub:"组员"}))];
+  const columns = [{id:"total",name:"合计",sub:hideControls?"当前明细":"全组",totals:total},...candidates.filter(row=>!compact || row.name.toLowerCase().includes(search.trim().toLowerCase()))];
+  function renderTable(items: Metric[]) {
+    return <table aria-label="小组数量和金额" style={{ minWidth: Math.max(760, 170 + columns.length * 116), tableLayout: compact ? "fixed" : undefined }}>
+      <colgroup><col style={{width:170}}/>{columns.map(column=><col key={`${column.sub}-${column.id}`}/>)}</colgroup>
+      <thead><tr><th>数据指标</th>{columns.map(column=><th key={`${column.sub}-${column.id}`}>{onInspect && column.id!=="total" ? <button className="matrix-drill" title="点击查看明细" onClick={()=>onInspect(column.sub,column.id)}>{column.name}<span aria-hidden="true"> ↗</span></button> : <strong>{column.name}</strong>}<small>{column.sub}</small></th>)}</tr></thead>
+      {items.map(metric=><tbody key={metric.label}>
+        {compact && [groupType==="LAWYER"?"接粉":"添加数据", groupType==="LAWYER"?"添加律师":"回复", groupType==="LAWYER"?"加密货币充值":"首充"].includes(metric.label) ? <tr className="matrix-section"><th colSpan={columns.length+1}>{metric.tone==="money" ? "资金数据 · USD" : ["回复","添加律师"].includes(metric.label) ? "客户跟进" : "添加与有效数据"}</th></tr> : null}
+        <tr data-tone={metric.tone}><th>{metric.label}</th>{columns.map(column=><td key={`${column.sub}-${column.id}`}>{metric.value(column.totals)}</td>)}</tr>
+      </tbody>)}
+    </table>;
+  }
+
+  return <section className="fresh-sheet-card metric-matrix-card" data-compact={compact}>
+    <div className="fresh-sheet-title"><div><h2>{title}</h2>{!compact ? <p>左侧是指标，横向同时对比合计、渠道和组员</p> : null}</div>{compact && !hideControls ? <div className="analysis-switch" aria-label="对比范围"><input aria-label="搜索对比列" placeholder={scope==="day"?"搜索日期":"搜索渠道或组员"} value={search} onChange={e=>setSearch(e.target.value)}/>{([['all','全部'],['channel','按渠道'],['member','按组员'],['day','按日期']] as const).map(([key,label])=><button key={key} aria-pressed={scope===key} data-active={scope===key} onClick={()=>{setScope(key);setSearch("");}}>{label}</button>)}</div> : onClose ? <button type="button" className="metric-matrix-close" onClick={onClose}>收起明细</button> : <span className="metric-matrix-live">实时汇总</span>}</div>
+    {compact && columns.length===1 ? <p className="matrix-empty">{search ? "没有匹配的项目，合计仍为全组数据。" : "这个范围暂无明细。"}</p> : null}
+    {compact ? <div className="metric-matrix-scroll compact-rates"><table aria-label="小组渠道与组员比率"><thead><tr><th>渠道 / 组员</th>{originalMetrics.filter(m=>m.tone==="rate").map(m=><th key={m.label}>{m.label}</th>)}</tr></thead><tbody>{columns.map(column=><tr key={`${column.sub}-${column.id}`} data-total={column.id==="total"}><th>{column.name}<small>{column.sub}</small></th>{originalMetrics.filter(m=>m.tone==="rate").map(m=><td key={m.label}>{m.value(column.totals)}</td>)}</tr>)}</tbody></table></div> : null}
+    <div className="metric-matrix-scroll matrix-data-scroll">{renderTable(metrics)}</div>
+    <footer>金额为 USD；比率自动计算。当前在群为截至结束日期累计，其他数量为所选区间发生数。搜索仅筛选显示列，合计不随搜索改变。</footer>
   </section>;
 }
 

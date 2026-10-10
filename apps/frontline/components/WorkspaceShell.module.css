@@ -41,8 +41,7 @@
   font-weight: 750;
 }
 
-.brand div,
-.user div {
+.brand div {
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -53,8 +52,7 @@
   font-size: 15px;
 }
 
-.brand small,
-.user small {
+.brand small {
   margin-top: 2px;
   color: #8a94a6;
   font-size: 11px;
@@ -86,8 +84,7 @@
   background: #f3f6fb;
 }
 
-.navButton:focus-visible,
-.logout:focus-visible {
+.navButton:focus-visible {
   outline: 2px solid #1a73e8;
   outline-offset: 2px;
 }
@@ -180,7 +177,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 8px 24px;
   background: rgba(255, 255, 255, 0.98);
   border-bottom: 1px solid #e0e4eb;
@@ -203,41 +201,10 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  flex: 0 0 auto;
-}
-
-.user {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex: 0 0 auto;
-}
-
-.user > span {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #303846;
-  color: #fff;
-  font-weight: 700;
-}
-
-.user div {
-  min-width: 120px;
-}
-
-.user strong {
-  font-size: 13px;
-}
-
-.logout {
-  padding: 8px;
-  border: 0;
-  background: transparent;
-  color: #7b8495;
-  cursor: pointer;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
 }
 
 .content {
@@ -262,8 +229,7 @@
   }
   .brand div,
   .navGroup > small,
-  .scope,
-  .user div {
+  .scope {
     display: none;
   }
   .navButton,
@@ -328,9 +294,6 @@
   .navGroup .navButton {
     font-size: 10px;
   }
-  .logout {
-    padding-inline: 2px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -338,3 +301,5 @@
     transition: none;
   }
 }
+
+@media (max-width: 760px) { .headerActions { flex-basis: 100%; gap: 6px; } }

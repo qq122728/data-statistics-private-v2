@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { requestJson } from "@/lib/backend";
 import styles from "./UnifiedNotificationCenter.module.css";
+import compact from "./LowFrequencyForms.module.css";
 
 type NotificationType = "GENERAL" | "IMPORTANT" | "REWARD" | "REMINDER";
 type TargetType = "ALL" | "GROUP" | "ROLE" | "USERS";
@@ -37,6 +38,7 @@ export function NotificationBadge({ count }: { count: number }) {
 }
 
 export function UnifiedNotificationCenter({ onUnreadChange }: { onUnreadChange?: (count: number) => void }) {
+  const publisher = useRef<HTMLDetailsElement>(null);
   const [payload, setPayload] = useState<Payload | null>(null);
   const [mode, setMode] = useState<"ALL" | "UNREAD">("ALL");
   const [loading, setLoading] = useState(true);
@@ -105,15 +107,16 @@ export function UnifiedNotificationCenter({ onUnreadChange }: { onUnreadChange?:
         }),
       });
       formElement.reset(); setType("GENERAL"); setTargetType("ALL"); setDepartmentId(""); setGroupId(""); setSelectedUserIds([]); setRequiresAck(false);
-      setNotice(`通知已真实发送给 ${result.recipientCount} 人。`); await load();
+      if (publisher.current) publisher.current.open = false;
+      setNotice(`通知已发送给 ${result.recipientCount} 人。`); await load();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "通知发送失败"); }
     finally { setSaving(false); }
   }
 
   return <div className={styles.center}>
-    <section className={styles.header}><div><h2>通知中心</h2><p>未读 {payload?.unread ?? 0} 条；重要通知需要确认后才算已知晓。</p></div><button type="button" disabled={loading} onClick={() => void load()}>{loading ? "刷新中…" : "刷新"}</button></section>
-    {payload?.canSend && payload.sendScope ? <form className={styles.publisher} onSubmit={publish}>
-      <header><div><h2>发布通知</h2><p>接收人只能从你的真实管理范围中选择。</p></div></header>
+
+    {payload?.canSend && payload.sendScope ? <details ref={publisher} className={compact.disclosure}><summary>＋ 发布通知<span>选择接收人并填写内容</span></summary><form className={styles.publisher} onSubmit={publish}>
+
       <div className={styles.formGrid}><label><span>标题</span><input name="title" minLength={2} maxLength={80} required placeholder="请输入通知标题" /></label><label className={styles.content}><span>内容</span><textarea name="content" minLength={2} maxLength={2000} required placeholder="请写清要求和时间" /></label></div>
       <div className={styles.filters}><label><span>类型</span><select value={type} onChange={(event) => setType(event.target.value as NotificationType)}><option value="GENERAL">普通通知</option><option value="IMPORTANT">重要通知</option><option value="REWARD">奖励表扬</option><option value="REMINDER">工作提醒</option></select></label><label><span>发送范围</span><select value={targetType} onChange={(event) => { setTargetType(event.target.value as TargetType); setSelectedUserIds([]); }}><option value="ALL">全部权限范围</option><option value="GROUP">指定小组</option><option value="ROLE">指定岗位</option><option value="USERS">指定人员</option></select></label>
         {targetType === "ALL" && payload.sendScope.departments.length ? <label><span>部门（可选）</span><select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}><option value="">全部范围</option>{payload.sendScope.departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label> : null}
@@ -123,9 +126,9 @@ export function UnifiedNotificationCenter({ onUnreadChange }: { onUnreadChange?:
         <button className={styles.primary} disabled={saving || (targetType === "USERS" && !selectedUserIds.length)}>{saving ? "发送中…" : "确认发布"}</button>
       </div>
       {targetType === "USERS" ? <div className={styles.people}><strong>选择接收人（已选 {selectedUserIds.length} 人）</strong><div>{availableUsers.map((item) => <label key={item.id}><input type="checkbox" checked={selectedUserIds.includes(item.id)} onChange={() => setSelectedUserIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id])} /><span>{item.name}<small>{roleLabel[item.role] ?? item.role}</small></span></label>)}</div>{!availableUsers.length ? <p>当前范围没有可选人员。</p> : null}</div> : null}
-    </form> : null}
+    </form></details> : null}
     {error ? <div className={styles.error} role="alert">{error}</div> : null}{notice ? <div className={styles.success} role="status">{notice}</div> : null}
-    <section className={styles.list}><header><div><h2>我的通知</h2><p>通知内容来自真实发布记录。</p></div><div><button data-active={mode === "ALL"} onClick={() => setMode("ALL")}>全部</button><button data-active={mode === "UNREAD"} onClick={() => setMode("UNREAD")}>未读 {payload?.unread ?? 0}</button></div></header>
+    <section className={styles.list}><header><div><h2>收件列表</h2><p>重要通知需点击“我已知晓”确认。</p></div><div><button data-active={mode === "ALL"} onClick={() => setMode("ALL")}>全部</button><button data-active={mode === "UNREAD"} onClick={() => setMode("UNREAD")}>未读 {payload?.unread ?? 0}</button><button type="button" disabled={loading} onClick={() => void load()}>{loading ? "刷新中…" : "刷新"}</button></div></header>
       {loading && !payload ? <div className={styles.empty}>正在读取通知…</div> : visibleItems.map((item) => <article key={item.id} data-unread={!item.readAt}><div className={styles.itemTop}><div><span data-type={item.notification.type}>{typeLabel[item.notification.type]}</span>{!item.readAt ? <b>未读</b> : null}{item.acknowledgedAt ? <b data-done>已确认</b> : null}</div><time>{new Date(item.notification.createdAt).toLocaleString("zh-CN")}</time></div><h3>{item.notification.title}</h3><p>{item.notification.content}</p><footer><small>{item.notification.sender.name}</small>{item.notification.requiresAck && !item.acknowledgedAt ? <button disabled={actingId === item.id} onClick={() => void mark(item, "ACKNOWLEDGE")}>我已知晓</button> : !item.readAt ? <button disabled={actingId === item.id} onClick={() => void mark(item, "READ")}>标为已读</button> : null}</footer></article>)}
       {mode === "ALL" && payload?.hasMore ? <div className={styles.empty}><button type="button" disabled={loadingMore} onClick={() => void loadMore()}>{loadingMore ? "加载中…" : "加载更多通知"}</button></div> : null}
       {!loading && !visibleItems.length ? <div className={styles.empty}>{mode === "UNREAD" ? "没有未读通知" : "目前没有通知"}</div> : null}

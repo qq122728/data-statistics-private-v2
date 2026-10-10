@@ -1,5 +1,6 @@
 "use client";
 
+import CalendarDateInput from "../../../packages/customer-sheet/CalendarDateInput";
 import { useEffect, useMemo, useState } from "react";
 import { requestJson } from "@/lib/backend";
 import { localCalendarDate } from "@/components/SmartDateRangeToolbar";
@@ -17,7 +18,7 @@ type UnifiedEntry = {
   channel: { id: string; name: string };
   values: Values;
 };
-type Context = { groupType: "HACKER" | "LAWYER"; unifiedEntries: UnifiedEntry[] };
+type Context = { groupType: "HACKER" | "LAWYER"; unifiedEntries: UnifiedEntry[]; currentInGroupCount: number };
 type HistoryRow = Values & { key: string; businessDate: string; channelName: string; statuses: string[] };
 
 const EMPTY: Values = {
@@ -48,15 +49,6 @@ function rowsFrom(entries: UnifiedEntry[]) {
   })).sort((a, b) => b.businessDate.localeCompare(a.businessDate) || a.channelName.localeCompare(b.channelName));
 }
 
-function monthOptions(today: string, count = 36) {
-  const [year, month] = today.slice(0, 7).split("-").map(Number);
-  return Array.from({ length: count }, (_, index) => {
-    const date = new Date(Date.UTC(year, month - 1 - index, 1));
-    const value = date.toISOString().slice(0, 7);
-    return { value, label: `${date.getUTCFullYear()}年${date.getUTCMonth() + 1}月` };
-  });
-}
-
 function selectedBounds(month: string, day: string, today: string) {
   if (!month) return { from: "", to: "" };
   if (day) {
@@ -79,11 +71,12 @@ function sumRows(rows: HistoryRow[]) {
 export function MemberDailyRecords({ mode: _mode }: { mode: "history" | "finance" }) {
   const today = localCalendarDate();
   const [entries, setEntries] = useState<UnifiedEntry[]>([]);
+  const [currentInGroupCount, setCurrentInGroupCount] = useState(0);
   const [groupType, setGroupType] = useState<"HACKER" | "LAWYER">("HACKER");
-  const [month, setMonth] = useState("");
+  const [month, setMonth] = useState(today.slice(0,7));
   const [day, setDay] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(`${today.slice(0,7)}-01`);
+  const [to, setTo] = useState(today);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -96,6 +89,7 @@ export function MemberDailyRecords({ mode: _mode }: { mode: "history" | "finance
       if (nextTo) params.set("to", nextTo);
       const result = await requestJson<Context>(`/api/daily-stats${params.size ? `?${params}` : ""}`);
       setEntries(result.unifiedEntries);
+      setCurrentInGroupCount(result.currentInGroupCount);
       setGroupType(result.groupType);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "历史数据读取失败");
@@ -121,8 +115,6 @@ export function MemberDailyRecords({ mode: _mode }: { mode: "history" | "finance
   }, [from, to]);
   const rows = useMemo(() => rowsFrom(entries), [entries]);
   const totals = useMemo(() => sumRows(rows), [rows]);
-  const months = useMemo(() => monthOptions(today), [today]);
-  const dayCount = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate() : 0;
   const rangeLabel = from && to ? (from === to ? from : `${from} 至 ${to}`) : "全部时间";
   const applyFilter = () => {
     const next = selectedBounds(month, day, today);
@@ -131,16 +123,17 @@ export function MemberDailyRecords({ mode: _mode }: { mode: "history" | "finance
     void load(next.from, next.to);
   };
   const totalEffective = totals.dispatchCount - totals.duplicateCount - totals.lowAmountCount - totals.noWsCount - totals.manualInvalidCount;
-  const totalCurrent = Math.max(0, totals.joinCount - totals.normalLeaveCount - totals.abnormalLeaveCount);
+  const totalCurrent = currentInGroupCount;
   const totalFirst = totals.cryptoInitialDepositCents + totals.bankInitialDepositCents;
   const totalRecharge = totals.cryptoRechargeCents + totals.bankRechargeCents;
 
   return <div className="member-history">
     <section className="card member-history__toolbar">
-      <div><h2>我的历史数据</h2><p>同一天、同一渠道合并为一行，不再按接粉、炒群、专家账号拆开。</p></div>
+      <div><h2>我的历史数据</h2><p>同一天、同一渠道合并为一行。当前在群按截至该日累计计算；汇总为截止日全渠道存量。</p></div>
       <div className="member-history__filters">
-        <label><span>月份</span><select className="field" aria-label="选择月份" value={month} onChange={(event) => { setMonth(event.target.value); setDay(""); }}><option value="">全部月份</option>{months.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-        <label><span>日期</span><select className="field" aria-label="选择日期" value={day} disabled={!month} onChange={(event) => setDay(event.target.value)}><option value="">整月</option>{Array.from({ length: dayCount }, (_, index) => index + 1).map((value) => { const date = `${month}-${String(value).padStart(2, "0")}`; return <option key={value} value={value} disabled={date > today}>{value}日</option>; })}</select></label>
+        <label><span>日期</span><CalendarDateInput className="field" aria-label="选择日期" value={month?(day?`${month}-${day.padStart(2,"0")}`:`${month}-01`):""} max={today} onChange={event=>{const date=event.target.value;setMonth(date.slice(0,7));setDay(date?String(Number(date.slice(8,10))):"");}}/></label>
+        <button className="btn" onClick={()=>setDay("")} disabled={!month}>整月</button>
+        <button className="btn" onClick={()=>{setMonth("");setDay("");}}>全部日期</button>
         <button className="btn" data-variant="primary" onClick={applyFilter} disabled={loading}>{loading ? "查询中…" : "查询"}</button>
         <span className="member-history__range">当前：<strong>{rangeLabel}</strong></span>
       </div>
@@ -157,7 +150,7 @@ export function MemberDailyRecords({ mode: _mode }: { mode: "history" | "finance
         </tbody>
       </table> : <table className="grid-table member-history__table">
         <thead><tr><th>日期</th><th>来源渠道</th><th>添加</th><th>有效</th><th>回复</th><th>回复率</th><th>进群</th><th>进群率</th><th>异常退群率</th><th>当前在群</th><th>推专家</th><th>注册</th><th>注册率</th><th>开单</th><th>开单率</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th></tr></thead>
-        <tbody>{loading && !rows.length ? <tr><td colSpan={19} className="member-history__empty">正在读取真实历史数据…</td></tr> : null}{!loading && !rows.length ? <tr><td colSpan={19} className="member-history__empty">所选日期没有填写过数据。</td></tr> : null}{rows.length ? <tr className="member-history__summary"><td><strong>所选时间汇总</strong></td><td>{rows.length} 条</td><td>{totals.dispatchCount}</td><td><strong>{totalEffective}</strong></td><td>{totals.replyCount}</td><td>{percent(totals.replyCount, totalEffective)}</td><td>{totals.joinCount}</td><td>{percent(totals.joinCount, totalEffective)}</td><td>{percent(totals.abnormalLeaveCount, Math.max(0, totals.joinCount - totals.normalLeaveCount))}</td><td>{totalCurrent}</td><td>{totals.expertIntroCount}</td><td>{totals.registrationCount}</td><td>{percent(totals.registrationCount, totals.expertIntroCount)}</td><td>{totals.orderCount}</td><td>{percent(totals.orderCount, totals.registrationCount)}</td><td>{money(totalFirst)}</td><td>{money(totalRecharge)}</td><td>{money(totals.withdrawalCents)}</td><td><strong>{money(totalFirst + totalRecharge - totals.withdrawalCents)}</strong></td></tr> : null}{rows.map((row) => { const effective = row.dispatchCount - row.duplicateCount - row.lowAmountCount - row.noWsCount - row.manualInvalidCount; const current = Math.max(0, row.joinCount - row.normalLeaveCount - row.abnormalLeaveCount); const first = row.cryptoInitialDepositCents + row.bankInitialDepositCents; const recharge = row.cryptoRechargeCents + row.bankRechargeCents; return <tr key={row.key}><td><strong>{row.businessDate}</strong></td><td>{row.channelName}</td><td>{row.dispatchCount}</td><td><strong>{effective}</strong></td><td>{row.replyCount}</td><td>{percent(row.replyCount, effective)}</td><td>{row.joinCount}</td><td>{percent(row.joinCount, effective)}</td><td>{percent(row.abnormalLeaveCount, Math.max(0, row.joinCount - row.normalLeaveCount))}</td><td>{current}</td><td>{row.expertIntroCount}</td><td>{row.registrationCount}</td><td>{percent(row.registrationCount, row.expertIntroCount)}</td><td>{row.orderCount}</td><td>{percent(row.orderCount, row.registrationCount)}</td><td>{money(first)}</td><td>{money(recharge)}</td><td>{money(row.withdrawalCents)}</td><td><strong>{money(first + recharge - row.withdrawalCents)}</strong></td></tr>; })}</tbody>
+        <tbody>{loading && !rows.length ? <tr><td colSpan={19} className="member-history__empty">正在读取真实历史数据…</td></tr> : null}{!loading && !rows.length ? <tr><td colSpan={19} className="member-history__empty">所选日期没有填写过数据。</td></tr> : null}{rows.length ? <tr className="member-history__summary"><td><strong>所选时间汇总</strong></td><td>{rows.length} 条</td><td>{totals.dispatchCount}</td><td><strong>{totalEffective}</strong></td><td>{totals.replyCount}</td><td>{percent(totals.replyCount, totalEffective)}</td><td>{totals.joinCount}</td><td>{percent(totals.joinCount, totalEffective)}</td><td>{percent(totals.abnormalLeaveCount, Math.max(0, totals.joinCount - totals.normalLeaveCount))}</td><td>{totalCurrent}</td><td>{totals.expertIntroCount}</td><td>{totals.registrationCount}</td><td>{percent(totals.registrationCount, totals.expertIntroCount)}</td><td>{totals.orderCount}</td><td>{percent(totals.orderCount, totals.registrationCount)}</td><td>{money(totalFirst)}</td><td>{money(totalRecharge)}</td><td>{money(totals.withdrawalCents)}</td><td><strong>{money(totalFirst + totalRecharge - totals.withdrawalCents)}</strong></td></tr> : null}{rows.map((row) => { const effective = row.dispatchCount - row.duplicateCount - row.lowAmountCount - row.noWsCount - row.manualInvalidCount; const current = row.currentInGroupCount; const first = row.cryptoInitialDepositCents + row.bankInitialDepositCents; const recharge = row.cryptoRechargeCents + row.bankRechargeCents; return <tr key={row.key}><td><strong>{row.businessDate}</strong></td><td>{row.channelName}</td><td>{row.dispatchCount}</td><td><strong>{effective}</strong></td><td>{row.replyCount}</td><td>{percent(row.replyCount, effective)}</td><td>{row.joinCount}</td><td>{percent(row.joinCount, effective)}</td><td>{percent(row.abnormalLeaveCount, Math.max(0, row.joinCount - row.normalLeaveCount))}</td><td>{current}</td><td>{row.expertIntroCount}</td><td>{row.registrationCount}</td><td>{percent(row.registrationCount, row.expertIntroCount)}</td><td>{row.orderCount}</td><td>{percent(row.orderCount, row.registrationCount)}</td><td>{money(first)}</td><td>{money(recharge)}</td><td>{money(row.withdrawalCents)}</td><td><strong>{money(first + recharge - row.withdrawalCents)}</strong></td></tr>; })}</tbody>
       </table>}</div>
       <footer className="table-footer"><span>共 {rows.length} 条渠道记录</span><button className="btn" data-size="sm" onClick={() => void load()}>刷新</button></footer>
     </section>

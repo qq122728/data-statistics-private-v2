@@ -1,3 +1,5 @@
+import { localWorkspaceOrigin } from "../../../packages/auth/local-workspace-origin";
+
 export type Position = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
 
 export type Member = {
@@ -41,7 +43,7 @@ export function workspaceOrigin(workspace: LoginResponse["workspace"]): string {
   const configured = workspace === "ADMIN"
     ? process.env.NEXT_PUBLIC_ADMIN_ORIGIN?.trim()
     : process.env.NEXT_PUBLIC_FRONTLINE_ORIGIN?.trim();
-  if (configured) return configured;
+  if (configured) return localWorkspaceOrigin(configured);
   if (typeof window !== "undefined" && window.location.hostname.endsWith(".localtest.me")) {
     return workspace === "ADMIN" ? "http://admin.localtest.me:3002/" : "http://frontline.localtest.me:3000/";
   }

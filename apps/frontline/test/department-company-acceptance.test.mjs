@@ -34,20 +34,11 @@ test("公司与部门汇总覆盖各维度、全漏斗并保留表底合计", ()
   assert.match(company, /className=\{styles\.total\}/);
 });
 
-test("管理员客户进度是统一只读共享表", () => {
-  assert.match(customers, /客户协作进度/);
-  assert.match(customers, /仅显示你接粉或参与炒群、专家的客户/);
-  assert.match(customers, /\{canCreateInView \? \([^]*新增进群客户/);
-  assert.match(customers, /\/api\/lead\/customer-reporting/);
-  assert.match(customers, /canEditGroupStage/);
-  assert.match(customers, /canEditExpertStage/);
-  assert.match(customers, /归属纠错/);
-  assert.match(customers, /只有绑定小组的一线账号有入口，组织管理员保持只读/);
-  assert.match(customers, /payload\?\.receptionOptions\.length/);
-  assert.match(customers, /payload\.operatorOptions\.length/);
-  assert.doesNotMatch(customers, /action: "setOwner"/);
-  assert.doesNotMatch(customers, /action: "setChannel"/);
-  assert.doesNotMatch(customers, /action: "setSourceDate"/);
+test("管理账号与成员入口共用客户表，权限由后端返回", () => {
+ assert.match(customers, /<CustomerSheet groups=\{groups\} initialGroupId=\{member\?\.groupId/);
+ const sheet=readFileSync(new URL("../../../packages/customer-sheet/CustomerSheet.tsx",import.meta.url),"utf8");
+ assert.match(sheet, /payload\?\.canCreate/);
+ assert.match(sheet, /row\.editable\.includes/);
 });
 
 test("人员跨组只搬当前工作对象，历史归属不变", () => {

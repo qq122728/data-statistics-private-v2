@@ -672,3 +672,6 @@ kbd {
   .shared-daily__toolbar { align-items: flex-start; flex-direction: column; }
   .shared-daily__cards { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Shared working-table layout */
+.workspace-nav-label{display:block;padding:12px 12px 4px;color:#52647c;font-size:12px}.compact-rates{max-height:240px;overflow:auto;border-bottom:2px solid #9aabc0}.compact-rates table{width:100%;min-width:650px!important;table-layout:auto!important}.compact-rates th,.compact-rates td{padding:6px 12px!important;height:32px!important;border:1px solid #c3cedd!important;font-size:13px!important}.compact-rates thead th{background:#edf1f5;position:sticky;top:0;z-index:1}.compact-rates tbody td{background:#f4f6f8;text-align:right}.compact-rates [data-total=true]>*{background:#eaf2ff!important;font-weight:600}.compact-rates small{display:inline;margin-left:8px;color:#64748b;font-size:11px}.fresh-sheet-card table th,.fresh-sheet-card table td{border-color:#c3cedd}

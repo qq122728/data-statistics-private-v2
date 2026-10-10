@@ -1,4 +1,5 @@
 "use client";
+import { accountRoleLabel } from "../../../packages/auth/account-role";
 
 import { useState } from "react";
 import type { BackendUser } from "@/lib/backend";
@@ -16,7 +17,7 @@ export default function SupportNotificationWorkspace({ user, onLogout }: { user:
   const [unread, setUnread] = useNotificationUnread();
   const copy = roleCopy[user.role === "HR" ? "HR" : "FINANCE"];
 
-  return <WorkspaceShell mark={copy.label.slice(0, 1)} workspaceLabel={`${copy.label}工作台`} title={copy.title} subtitle={copy.description} userName={user.name} userLabel={`${copy.label}账号 · 只读通知权限`} onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${copy.title}`} user={user} />} navigation={<WorkspaceNavButton active icon="notifications" onClick={() => undefined}>通知中心<NotificationBadge count={unread} /></WorkspaceNavButton>}>
+  return <WorkspaceShell mark={copy.label.slice(0, 1)} workspaceLabel={`${copy.label}工作台`} title={copy.title} subtitle={copy.description} userName={user.name} userLabel={accountRoleLabel(user)} accountScope="本人通知" onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${copy.title}`} user={user} />} navigation={<WorkspaceNavButton active icon="notifications" onClick={() => undefined}>通知中心<NotificationBadge count={unread} /></WorkspaceNavButton>}>
         <section className="fresh-sheet-card" style={{ marginBottom: 14, padding: "14px 16px" }}>
           <strong>只读通知权限</strong>
           <p style={{ margin: "4px 0 0", color: "#7a879a", fontSize: 12 }}>这个账号可以查看、标记已读和确认重要通知，不能向其他人发布通知。</p>

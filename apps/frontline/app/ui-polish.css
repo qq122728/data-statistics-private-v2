@@ -33,14 +33,12 @@
 }
 
 .fresh-sidebar nav button,
-.fresh-user button,
 .fresh-primary,
 .fresh-segment button {
   transition: background-color 0.14s, border-color 0.14s, color 0.14s, box-shadow 0.14s;
 }
 
 .fresh-sidebar nav button:focus-visible,
-.fresh-user button:focus-visible,
 .fresh-primary:focus-visible,
 .fresh-segment button:focus-visible {
   outline: 3px solid rgba(26, 115, 232, 0.24);
@@ -49,12 +47,6 @@
 
 .fresh-sidebar nav button[data-active="true"] {
   box-shadow: inset 3px 0 0 #1a73e8;
-}
-
-.fresh-user button:hover {
-  color: #1769d2;
-  background: #f3f6fb;
-  border-radius: 6px;
 }
 
 .fresh-primary:hover:not(:disabled) {
@@ -177,19 +169,6 @@
     padding: 10px !important;
   }
 
-  .fresh-user {
-    flex-shrink: 0;
-  }
-
-  .fresh-user div {
-    display: none;
-  }
-
-  .fresh-user > span {
-    width: 30px;
-    height: 30px;
-  }
-
   .fresh-toolbar {
     align-items: flex-end;
   }
@@ -243,3 +222,8 @@
     white-space: normal;
   }
 }
+
+/* Keep the account identity and actions readable at every width. */
+.fresh-header { flex-wrap: wrap; gap: 10px; padding-block: 8px; }
+.fresh-header-actions { flex-wrap: wrap; justify-content: flex-end; min-width: 0; max-width: 100%; margin-left: auto; }
+@media (max-width: 760px) { .fresh-header-actions { flex-basis: 100%; gap: 6px; } }

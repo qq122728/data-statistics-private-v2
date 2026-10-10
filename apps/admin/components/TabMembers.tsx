@@ -1,17 +1,17 @@
 "use client";
+import { WORKSPACE_LABELS as labels } from "../../../packages/workspace/navigation";
 
 import { useState } from "react";
+import { MemberWorkHandover } from "./MemberWorkHandover";
 import type { Confirm } from "./ConfirmDialog";
 import { Modal } from "./Modal";
 import { IconCheck, IconEdit, IconKey, IconPlus, IconTrash } from "./Icons";
 import {
   POSITION_META,
   POSITION_ORDER,
-  TODAY,
   type Member,
   type Position,
-  type TransferRecord,
-} from "@/lib/mock-data";
+} from "@/lib/member-metadata";
 
 function Badge({
   children,
@@ -61,25 +61,20 @@ function togglePositionValue(current: Position[], p: Position): Position[] {
   return has ? current.filter((x) => x !== p) : [...current, p];
 }
 
-/** 组员管理——组长给前台开设账号（姓名/用户名/初始密码）、设置岗位、配置接粉炒群配对、
- *  指定专家；发起转岗时强制要求先选交接人（需求文档 1.6 ⚠️）。开通账号/设置岗位/发起
- *  转岗都是弹窗表单，提交后走 ConfirmDialog 二次确认才真正生效。 */
+/** 组员账号、岗位设置与配对交接。人员转岗由页面中的 PersonnelTransferPanel 处理。 */
 export function TabMembers({
   members,
-  transfers,
   defaultDualFrontline = false,
   onUpdateMemberSetup,
-  onSubmitTransfer,
   onCreateAccount,
   onResetPassword,
   onDeleteAccount,
-  onPreviewHandoff,
-  onConfirmHandoff,
+  lead,
+  onHandoverComplete,
   onToast,
   onConfirm,
 }: {
   members: Member[];
-  transfers: TransferRecord[];
   defaultDualFrontline?: boolean;
   onUpdateMemberSetup: (
     memberId: string,
@@ -87,14 +82,6 @@ export function TabMembers({
     pairedGroupOperatorId: string | null,
     profile: { name: string; username: string },
   ) => Promise<void>;
-  onSubmitTransfer?: (draft: {
-    memberId: string;
-    toLabel: string;
-    fromLabel: string;
-    effectiveDate: string;
-    reason: string;
-    handoffToId: string;
-  }) => Promise<void>;
   onCreateAccount: (draft: {
     name: string;
     username: string;
@@ -103,18 +90,8 @@ export function TabMembers({
   }) => Promise<string>;
   onResetPassword: (memberId: string) => Promise<string>;
   onDeleteAccount: (memberId: string) => Promise<void>;
-  onPreviewHandoff: (draft: {
-    receptionistId: string;
-    fromGroupOperatorId: string;
-    toGroupOperatorId: string;
-  }) => Promise<number>;
-  onConfirmHandoff: (draft: {
-    receptionistId: string;
-    fromGroupOperatorId: string;
-    toGroupOperatorId: string;
-    expectedCount: number;
-    reason: string;
-  }) => Promise<number>;
+  lead: { id: string; name: string };
+  onHandoverComplete: () => Promise<void>;
   onToast: (msg: string, tone?: "ok" | "warn") => void;
   onConfirm: (c: Confirm) => void;
 }) {
@@ -124,13 +101,6 @@ export function TabMembers({
     username: string;
     positions: Position[];
     pairedGroupOperatorId: string;
-  } | null>(null);
-  const [transferDraft, setTransferDraft] = useState<{
-    memberId: string;
-    toPositions: Position[];
-    effectiveDate: string;
-    reason: string;
-    handoffToId: string;
   } | null>(null);
   const [newAccountOpen, setNewAccountOpen] = useState(false);
   const [newAccountDraft, setNewAccountDraft] = useState({
@@ -145,17 +115,6 @@ export function TabMembers({
     username: string;
     password: string;
   } | null>(null);
-  const [handoffDraft, setHandoffDraft] = useState({
-    receptionistId: "",
-    fromGroupOperatorId: "",
-    toGroupOperatorId: "",
-    reason: "",
-  });
-  const [handoffPreviewCount, setHandoffPreviewCount] = useState<number | null>(
-    null,
-  );
-  const [handoffBusy, setHandoffBusy] = useState(false);
-
   const groupOperators = members.filter((m) =>
     m.positions.includes("GROUP_OPERATOR"),
   );
@@ -263,58 +222,6 @@ export function TabMembers({
     });
   }
 
-  function openTransferDraft(m: Member) {
-    setTransferDraft({
-      memberId: m.id,
-      toPositions: m.positions,
-      effectiveDate: TODAY,
-      reason: "",
-      handoffToId: "",
-    });
-  }
-
-  function submitTransfer() {
-    if (!transferDraft) return;
-    const m = members.find((x) => x.id === transferDraft.memberId);
-    if (!m) return;
-    if (!transferDraft.reason.trim()) {
-      onToast("请填转岗原因", "warn");
-      return;
-    }
-    // 只要这个人当前有岗位在办客户（简化：只要有岗位就视为可能有在办客户），转岗前必须选交接人
-    if (m.positions.length && !transferDraft.handoffToId) {
-      onToast("转岗前必须先把手上在办客户交接给一个人，请选交接对象", "warn");
-      return;
-    }
-    const fromLabel =
-      m.positions.map((p) => POSITION_META[p]).join("+") || "（无岗位）";
-    const toLabel =
-      transferDraft.toPositions.map((p) => POSITION_META[p]).join("+") ||
-      "（无岗位）";
-    const handoffName =
-      members.find((x) => x.id === transferDraft.handoffToId)?.name ?? "";
-    onConfirm({
-      title: "确认提交转岗",
-      confirmLabel: "确认转岗",
-      target: m.name,
-      danger: true,
-      desc: `${m.name}：${fromLabel} → ${toLabel}，生效日 ${transferDraft.effectiveDate}${handoffName ? `，在办客户交接给 ${handoffName}` : ""}。旧岗位期间的历史成绩会保留在旧榜单里，不会因为转岗消失。`,
-      onConfirm: async () => {
-        if (!onSubmitTransfer) return;
-        await onSubmitTransfer({
-          memberId: m.id,
-          fromLabel,
-          toLabel,
-          effectiveDate: transferDraft.effectiveDate,
-          reason: transferDraft.reason.trim(),
-          handoffToId: transferDraft.handoffToId,
-        });
-        setTransferDraft(null);
-        onToast(`已提交 ${m.name} 的转岗`);
-      },
-    });
-  }
-
   function submitNewAccount() {
     const name = newAccountDraft.name.trim();
     const username = newAccountDraft.username.trim();
@@ -373,168 +280,30 @@ export function TabMembers({
     });
   }
 
-  function PositionTable({ position }: { position: Position }) {
-    const list = members.filter((m) => m.positions.includes(position));
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: 13.5,
-              fontWeight: 700,
-              color: "var(--ink-2)",
-            }}
-          >
-            {POSITION_META[position]}
-          </h3>
-          <span style={{ fontSize: 12, color: "var(--ink-3)" }}>
-            {list.length} 人
-          </span>
-        </div>
-        <div
-          style={{
-            border: "1px solid var(--line)",
-            borderRadius: "var(--radius)",
-            overflow: "hidden",
-          }}
-        >
-          {list.map((m, i) => {
-            const pairedGroupOperator = m.pairedGroupOperatorId
-              ? members.find((x) => x.id === m.pairedGroupOperatorId)
-              : undefined;
-            const pairedReceptions = members.filter(
-              (x) => x.pairedGroupOperatorId === m.id,
-            );
-            const otherPositions = m.positions.filter((p) => p !== position);
-            return (
-              <div
-                key={m.id}
-                style={{
-                  padding: "10px 12px",
-                  background: "var(--surface)",
-                  borderTop: i ? "1px solid var(--line)" : undefined,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <div
-                  style={{
-                    width: 26,
-                    height: 26,
-                    borderRadius: 999,
-                    background: "var(--surface-sunken)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: 700,
-                    fontSize: 12,
-                    flexShrink: 0,
-                  }}
-                >
-                  {m.name[0]}
-                </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <strong style={{ fontSize: 13.5 }}>{m.name}</strong>
-                    {otherPositions.map((p) => (
-                      <Badge key={p}>兼{POSITION_META[p]}</Badge>
-                    ))}
-                    {m.isDefaultExpert ? (
-                      <Badge tone="ok">默认专家</Badge>
-                    ) : null}
-                  </div>
-                  <p
-                    style={{
-                      margin: "2px 0 0",
-                      fontSize: 12,
-                      color: "var(--ink-3)",
-                    }}
-                  >
-                    用户名：{m.username} · {position === "GROUP_OPERATOR"
-                      ? pairedReceptions.length
-                        ? `配对：${pairedReceptions.map((r) => r.name).join("、")}`
-                        : "暂无配对接粉"
-                      : position === "RECEPTION"
-                        ? `配对：${m.pairedGroupOperatorId === m.id ? "兼任·本人承接" : (pairedGroupOperator?.name ?? "未配对")}`
-                        : `入组 ${m.joinedGroupDate}`}
-                  </p>
-                </div>
-                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                  <button
-                    className="btn"
-                    data-size="sm"
-                    title="编辑成员资料与配对"
-                    onClick={() => openEdit(m)}
-                  >
-                    <IconEdit size={12} />
-                  </button>
-                  <button
-                    className="btn"
-                    data-size="sm"
-                    title="重置密码"
-                    onClick={() => askResetPassword(m)}
-                  >
-                    <IconKey size={12} />
-                  </button>
-                  <button
-                    className="btn"
-                    data-size="sm"
-                    title="删除误开账号"
-                    style={{ color: "var(--bad)" }}
-                    onClick={() => askDeleteAccount(m)}
-                  >
-                    <IconTrash size={12} />
-                  </button>
-                  {onSubmitTransfer ? (
-                    <button
-                      className="btn"
-                      data-size="sm"
-                      onClick={() => openTransferDraft(m)}
-                    >
-                      转岗
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-          {!list.length ? (
-            <div
-              style={{
-                padding: "20px 0",
-                textAlign: "center",
-                color: "var(--ink-3)",
-                fontSize: 12.5,
-              }}
-            >
-              暂无成员
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
+  function MemberList() {
+    return <div style={{ border: "1px solid var(--line)", borderRadius: "var(--radius)", overflow: "hidden" }}>
+      {members.map((m, i) => {
+        const paired = members.find(x => x.id === m.pairedGroupOperatorId);
+        const receptions = members.filter(x => x.pairedGroupOperatorId === m.id);
+        return <div key={m.id} className="member-account-row" style={{ padding: "14px 12px", borderTop: i ? "1px solid var(--line)" : undefined, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+          <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}><strong>{m.name}</strong>{m.positions.map(p => <Badge key={p}>{POSITION_META[p]}</Badge>)}{!m.active ? <Badge>已停用</Badge> : null}{m.isDefaultExpert ? <Badge tone="ok">默认专家</Badge> : null}</div>
+            <p style={{ margin: "5px 0 0", color: "var(--ink-2)", fontSize: 12 }}>登录账号：{m.username}</p>
+            <p style={{ margin: "3px 0 0", color: "var(--ink-2)", fontSize: 12 }}>{m.positions.includes("RECEPTION") ? `配对炒群：${m.pairedGroupOperatorId === m.id ? "本人承接" : paired?.name ?? "未配对"}` : ""}{m.positions.includes("RECEPTION") && receptions.length ? " · " : ""}{receptions.length ? `配对接粉：${receptions.map(r => r.name).join("、")}` : ""}</p>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button className="btn" data-size="sm" aria-label={`编辑 ${m.name} 的资料与配对`} onClick={() => openEdit(m)}><IconEdit size={13} />编辑资料</button>
+            <button className="btn" data-size="sm" aria-label={`重置 ${m.name} 的密码`} onClick={() => askResetPassword(m)}><IconKey size={13} />重置密码</button>
+            <button className="btn" data-size="sm" aria-label={`删除误开账号 ${m.name}`} style={{ color: "var(--bad)" }} onClick={() => askDeleteAccount(m)}><IconTrash size={13} />删除误开账号</button>
+          </div>
+        </div>;
+      })}
+      {!members.length ? <p style={{ padding: 16 }}>暂无成员，请先开通账号。</p> : null}
+    </div>;
   }
 
   const editingMember = editingMemberId
     ? members.find((m) => m.id === editingMemberId)
-    : null;
-  const transferMember = transferDraft
-    ? members.find((m) => m.id === transferDraft.memberId)
     : null;
 
   return (
@@ -604,9 +373,9 @@ export function TabMembers({
       <div className="card">
         <div className="card-head">
           <div>
-            <h2 className="card-title">组员管理</h2>
+            <h2 className="card-title">{labels.members}</h2>
             <p className="card-note">
-              接粉、炒群、专家可以任意组合在同一个账号。这里改岗位、配对，都是给员工账号“开权限”，不是复制人员或客户。
+              每人只显示一行，岗位权限列在姓名旁。这里编辑资料、配对或重置密码；需要调整岗位时使用下方人员调岗。
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -628,258 +397,15 @@ export function TabMembers({
           style={{
             padding: 16,
             display: "grid",
-            gridTemplateColumns: "repeat(3, minmax(0,1fr))",
+            gridTemplateColumns: "minmax(0,1fr)",
             gap: 18,
           }}
         >
-          <PositionTable position="RECEPTION" />
-          <PositionTable position="GROUP_OPERATOR" />
-          <PositionTable position="EXPERT" />
+          <MemberList />
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-head">
-          <div>
-            <h2 className="card-title">在办客户交接</h2>
-            <p className="card-note">
-              换配对只影响之后的新客户；已有在办客户必须在这里先预览数量，再明确确认交接。
-            </p>
-          </div>
-        </div>
-        <div
-          style={{
-            padding: 16,
-            display: "grid",
-            gridTemplateColumns: "repeat(4,minmax(0,1fr))",
-            gap: 12,
-            alignItems: "end",
-          }}
-        >
-          <label>
-            <span className="label">接粉员</span>
-            <select
-              className="field"
-              style={{ width: "100%" }}
-              value={handoffDraft.receptionistId}
-              onChange={(e) => {
-                setHandoffDraft({
-                  ...handoffDraft,
-                  receptionistId: e.target.value,
-                });
-                setHandoffPreviewCount(null);
-              }}
-            >
-              <option value="">请选择</option>
-              {members
-                .filter((m) => m.positions.includes("RECEPTION"))
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label>
-            <span className="label">原炒群负责人</span>
-            <select
-              className="field"
-              style={{ width: "100%" }}
-              value={handoffDraft.fromGroupOperatorId}
-              onChange={(e) => {
-                setHandoffDraft({
-                  ...handoffDraft,
-                  fromGroupOperatorId: e.target.value,
-                });
-                setHandoffPreviewCount(null);
-              }}
-            >
-              <option value="">请选择</option>
-              {groupOperators.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span className="label">新炒群负责人</span>
-            <select
-              className="field"
-              style={{ width: "100%" }}
-              value={handoffDraft.toGroupOperatorId}
-              onChange={(e) => {
-                setHandoffDraft({
-                  ...handoffDraft,
-                  toGroupOperatorId: e.target.value,
-                });
-                setHandoffPreviewCount(null);
-              }}
-            >
-              <option value="">请选择</option>
-              {groupOperators
-                .filter((m) => m.id !== handoffDraft.fromGroupOperatorId)
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <button
-            className="btn"
-            data-variant="primary"
-            disabled={handoffBusy}
-            onClick={async () => {
-              if (
-                !handoffDraft.receptionistId ||
-                !handoffDraft.fromGroupOperatorId ||
-                !handoffDraft.toGroupOperatorId
-              ) {
-                onToast("请完整选择接粉员、新旧炒群负责人", "warn");
-                return;
-              }
-              setHandoffBusy(true);
-              try {
-                setHandoffPreviewCount(await onPreviewHandoff(handoffDraft));
-              } catch (caught) {
-                onToast(
-                  caught instanceof Error ? caught.message : "预览失败",
-                  "warn",
-                );
-              } finally {
-                setHandoffBusy(false);
-              }
-            }}
-          >
-            {handoffBusy ? "正在查询…" : "预览交接数量"}
-          </button>
-        </div>
-        {handoffPreviewCount !== null ? (
-          <div
-            style={{
-              margin: "0 16px 16px",
-              padding: 14,
-              border: "1px solid var(--warn-line)",
-              background: "var(--warn-soft)",
-              borderRadius: 10,
-            }}
-          >
-            <strong>将交接 {handoffPreviewCount} 个在办客户</strong>
-            <div
-              style={{
-                display: "flex",
-                gap: 10,
-                marginTop: 10,
-                alignItems: "end",
-              }}
-            >
-              <label style={{ flex: 1 }}>
-                <span className="label">交接原因</span>
-                <input
-                  className="field"
-                  style={{ width: "100%" }}
-                  value={handoffDraft.reason}
-                  onChange={(e) =>
-                    setHandoffDraft({ ...handoffDraft, reason: e.target.value })
-                  }
-                  placeholder="至少填写2个字"
-                />
-              </label>
-              <button
-                className="btn"
-                data-variant="primary"
-                data-confirm-action="交接在办客户"
-                data-confirm-description="确认后，预览到的在办客户会改由新炒群负责人承接。"
-                disabled={handoffBusy || handoffDraft.reason.trim().length < 2}
-                onClick={async () => {
-                  setHandoffBusy(true);
-                  try {
-                    const count = await onConfirmHandoff({
-                      ...handoffDraft,
-                      expectedCount: handoffPreviewCount,
-                    });
-                    onToast(`已交接 ${count} 个在办客户`);
-                    setHandoffPreviewCount(null);
-                    setHandoffDraft({
-                      receptionistId: "",
-                      fromGroupOperatorId: "",
-                      toGroupOperatorId: "",
-                      reason: "",
-                    });
-                  } catch (caught) {
-                    onToast(
-                      caught instanceof Error
-                        ? caught.message
-                        : "交接失败，请重新预览",
-                      "warn",
-                    );
-                    setHandoffPreviewCount(null);
-                  } finally {
-                    setHandoffBusy(false);
-                  }
-                }}
-              >
-                确认交接
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {onSubmitTransfer ? (
-        <div className="card">
-          <div className="card-head">
-            <div>
-              <h2 className="card-title">转岗记录</h2>
-              <p className="card-note">
-                转岗前必须先交接在办客户；旧岗位期间的历史成绩不会因转岗消失，留在旧榜单里。
-              </p>
-            </div>
-          </div>
-          <div
-            style={{
-              padding: transfers.length ? 0 : "30px 0",
-              textAlign: transfers.length ? undefined : "center",
-              color: "var(--ink-3)",
-              fontSize: 13,
-            }}
-          >
-            {transfers.length
-              ? transfers.map((t) => {
-                  const m = members.find((x) => x.id === t.memberId);
-                  const handoffName = t.handoffToId
-                    ? members.find((x) => x.id === t.handoffToId)?.name
-                    : null;
-                  return (
-                    <div
-                      key={t.id}
-                      style={{
-                        padding: "12px 16px",
-                        borderBottom: "1px solid var(--line)",
-                        fontSize: 13.5,
-                      }}
-                    >
-                      <strong>{m?.name}</strong>
-                      <span style={{ color: "var(--ink-3)" }}>
-                        ：{t.fromLabel} → {t.toLabel} · 生效 {t.effectiveDate}
-                      </span>
-                      {handoffName ? (
-                        <span style={{ color: "var(--ink-3)" }}>
-                          {" "}
-                          · 交接给 {handoffName}
-                        </span>
-                      ) : null}
-                      <p style={{ margin: "3px 0 0", color: "var(--ink-3)" }}>
-                        {t.reason}
-                      </p>
-                    </div>
-                  );
-                })
-              : "暂无转岗记录"}
-          </div>
-        </div>
-      ) : null}
+      <MemberWorkHandover members={members} lead={lead} onComplete={onHandoverComplete} onToast={onToast} />
 
       {/* 开通账号弹窗 */}
       <Modal
@@ -1069,106 +595,7 @@ export function TabMembers({
         ) : null}
       </Modal>
 
-      {/* 发起转岗弹窗 */}
-      <Modal
-        open={Boolean(transferDraft && transferMember)}
-        onClose={() => setTransferDraft(null)}
-        title={`发起转岗 · ${transferMember?.name ?? ""}`}
-        note="修改目标岗位、生效日期，手上有在办客户必须选交接对象才能提交。"
-      >
-        {transferDraft && transferMember ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div>
-              <label className="label">转去哪些岗位</label>
-              <PositionPicker
-                value={transferDraft.toPositions}
-                onToggle={(p) =>
-                  setTransferDraft({
-                    ...transferDraft,
-                    toPositions: togglePositionValue(
-                      transferDraft.toPositions,
-                      p,
-                    ),
-                  })
-                }
-              />
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 12,
-              }}
-            >
-              <div>
-                <label className="label">生效日期</label>
-                <input
-                  className="field"
-                  type="date"
-                  style={{ width: "100%" }}
-                  value={transferDraft.effectiveDate}
-                  onChange={(e) =>
-                    setTransferDraft({
-                      ...transferDraft,
-                      effectiveDate: e.target.value,
-                    })
-                  }
-                />
-              </div>
-              <div>
-                <label className="label">交接给谁 *（有在办客户必须选）</label>
-                <select
-                  className="field"
-                  style={{ width: "100%" }}
-                  value={transferDraft.handoffToId}
-                  onChange={(e) =>
-                    setTransferDraft({
-                      ...transferDraft,
-                      handoffToId: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">未选择</option>
-                  {members
-                    .filter((x) => x.id !== transferMember.id)
-                    .map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="label">转岗原因</label>
-              <input
-                className="field"
-                style={{ width: "100%" }}
-                placeholder="必填"
-                value={transferDraft.reason}
-                onChange={(e) =>
-                  setTransferDraft({ ...transferDraft, reason: e.target.value })
-                }
-              />
-            </div>
-            <div
-              style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}
-            >
-              <button className="btn" onClick={() => setTransferDraft(null)}>
-                取消
-              </button>
-              <button
-                className="btn"
-                data-variant="primary"
-                onClick={submitTransfer}
-              >
-                <IconCheck size={15} />
-                提交转岗
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </Modal>
+
     </div>
   );
 }

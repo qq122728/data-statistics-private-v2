@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { requestJson, type BackendUser } from "@/lib/backend";
+import compact from "./LowFrequencyForms.module.css";
+import MemberPasswordReset from "./MemberPasswordReset";
 import type { InspectorMember } from "@/components/MemberDataInspector";
 
 type TeamMember = {
@@ -29,12 +31,11 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [passwordResetMember, setPasswordResetMember] = useState<TeamMember | null>(null);
   const [draft, setDraft] = useState<MemberDraft>(emptyDraft);
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState(user.id);
   const [handoverReason, setHandoverReason] = useState("");
-  const [offboardingMember, setOffboardingMember] = useState<TeamMember | null>(null);
-  const [offboardingReason, setOffboardingReason] = useState("");
   const [notice, setNotice] = useState("");
   const activeMembers = useMemo(() => members.filter((member) => member.active), [members]);
   const filledCount = activeMembers.filter((member) => member.filledToday).length;
@@ -95,15 +96,13 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
     finally { setSaving(false); }
   }
 
-  async function confirmOffboarding() {
-    if (!offboardingMember) return;
+  async function toggleMember(member: TeamMember) {
     setSaving(true); setMemberLoadError("");
     try {
-      await requestJson("/api/lead/members/offboarding", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ memberId: offboardingMember.id, reason: offboardingReason.trim() || undefined }) });
-      setNotice(`${offboardingMember.name} 已办理离职：账号已退出，历史数据和在办客户都保留；需要时可在客户表逐位安排同事接手。`);
-      setOffboardingMember(null); setOffboardingReason("");
+      await requestJson("/api/lead/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: member.id, active: !member.active }) });
+      setNotice(`${member.name} 的工作账号已${member.active ? "停用" : "重新启用"}，历史数据没有删除。`);
       await loadMembers();
-    } catch (caught) { setMemberLoadError(caught instanceof Error ? caught.message : "办理离职失败"); }
+    } catch (caught) { setMemberLoadError(caught instanceof Error ? caught.message : "账号状态更新失败"); }
     finally { setSaving(false); }
   }
 
@@ -111,7 +110,7 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
     const source = members.find((member) => member.id === fromId);
     const target = handoverTargets.find((member) => member.id === toId);
     if (!source || !target || source.id === target.id || handoverReason.trim().length < 4) return;
-    setSaving(true); setMemberLoadError("");
+    setSaving(true); setMemberLoadError(""); setNotice("");
     try {
       const result = await requestJson<{ transferred: { reception: number; operator: number; expert: number; physicalDevices: number; deviceAccounts: number } }>("/api/lead/members/handover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sourceId: source.id, targetId: target.id, reason: handoverReason.trim() }) });
       const customerTotal = result.transferred.reception + result.transferred.operator + result.transferred.expert;
@@ -133,30 +132,35 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
 
     <div className="team-kpis">
       <article><span>启用组员</span><strong>{activeMembers.length}</strong><small>不含组长本人</small></article>
-      <article><span>今日已填写</span><strong>{filledCount}/{activeMembers.length}</strong><small>{activeMembers.length - filledCount} 人尚未填写</small></article>
+      <article><span>今日有归属统计</span><strong>{filledCount}/{activeMembers.length}</strong><small>{activeMembers.length - filledCount} 人暂无归属统计</small></article>
       <article><span>在办客户</span><strong>{clientCount}</strong><small>组内共享跟进</small></article>
       <article><span>设备账号</span><strong>{deviceCount}</strong><small>RCS、SIG 等平台</small></article>
     </div>
 
+      <section className="team-panel team-missing">
+        <header><div><h2>今日待处理</h2><p>数量与资金按客户动作自动统计；无归属统计不代表当天没有工作。</p></div></header>
+        <div className="team-task"><i data-tone={activeMembers.length - filledCount > 0 ? "warn" : "ok"}>!</i><div><strong>{activeMembers.length - filledCount} 人今日暂无归属统计，请核对客户记录</strong><span>{activeMembers.filter((member) => !member.filledToday).map((member) => member.name).join("、") || "全部已有归属统计"}</span></div>{activeMembers.some((member) => !member.filledToday) ? <button onClick={() => { const target = activeMembers.find((member) => !member.filledToday); if (target) onInspect({ id: target.id, name: target.name }); }}>查看</button> : null}</div>
+      </section>
+
     <section className="team-panel">
       <header><div><h2>成员管理</h2><p>普通组员拥有同一套工作台；“专家”是附加权限，不是另一种账号。</p></div><span>{activeMembers.length} 人启用</span></header>
       <div className="team-table-wrap"><table className="team-table">
-        <thead><tr><th>成员</th><th>登录用户名</th><th>权限</th><th>今日填写</th><th>在办客户</th><th>设备</th><th>状态</th><th>操作</th></tr></thead>
+        <thead><tr><th>成员</th><th>登录用户名</th><th>权限</th><th>今日统计</th><th>在办客户</th><th>设备</th><th>状态</th><th>操作</th></tr></thead>
         <tbody>{loading ? <tr><td colSpan={8}>正在读取本组成员…</td></tr> : members.length === 0 ? <tr><td colSpan={8}>{memberLoadError ? "成员读取失败，请刷新后重试" : "本组暂无组员"}</td></tr> : members.map((member) => <tr key={member.id} data-inactive={!member.active}>
           <td><div className="team-person"><i>{member.name.slice(0, 1)}</i><div><strong>{member.name}</strong><small>组员</small></div></div></td>
           <td>{member.username}</td>
           <td><span className="team-tag">组员</span>{member.roles.includes("GROUP_OPERATOR") ? <span className="team-tag">炒群</span> : null}{member.expert ? <span className="team-tag" data-tone="expert">专家</span> : null}{member.canViewAllGroupCustomers ? <span className="team-tag">全组客户只读</span> : null}</td>
-          <td><span className="team-state" data-tone={member.filledToday ? "ok" : "warn"}>{member.filledToday ? "已填写" : "未填写"}</span></td>
+          <td><span className="team-state" data-tone={member.filledToday ? "ok" : "neutral"}>{member.filledToday ? "有归属统计" : "暂无归属统计"}</span></td>
           <td>{member.clients}</td><td>{member.devices}</td>
-          <td><span className="team-state" data-tone={member.active ? "ok" : "off"}>{member.active ? "在职" : "已离职"}</span></td>
-          <td><div className="team-actions"><button onClick={() => onInspect({ id: member.id, name: member.name })}>查数据</button>{member.active ? <><button disabled={saving} onClick={() => openEdit(member)}>管理</button><button disabled={saving} data-danger onClick={() => { setOffboardingMember(member); setOffboardingReason(""); }}>办理离职</button></> : null}</div></td>
+          <td><span className="team-state" data-tone={member.active ? "ok" : "off"}>{member.active ? "启用" : "停用"}</span></td>
+          <td><div className="team-actions"><button onClick={() => onInspect({ id: member.id, name: member.name })}>查数据</button><button disabled={saving} onClick={() => openEdit(member)}>管理</button><button disabled={saving} onClick={() => { setNotice(""); setPasswordResetMember(member); }}>重置密码</button><button disabled={saving} data-danger={member.active} onClick={() => void toggleMember(member)}>{member.active ? "停用" : "启用"}</button></div></td>
         </tr>)}</tbody>
       </table></div>
     </section>
 
-    <div className="team-management__split">
-      <section className="team-panel team-handover">
-        <header><div><h2>人员调动与工作交接</h2><p>只转移当前还在进行的客户和设备，原成员历史数据保持不动。</p></div></header>
+    <details className={`team-panel ${compact.disclosure}`}>
+      <summary>人员调动与工作交接<span>仅转移在办客户和设备，保留历史归属</span></summary>
+      <div className="team-handover">
         <div className="team-handover__flow">
           <label><span>原负责人</span><select value={fromId} onChange={(event) => setFromId(event.target.value)}>{members.filter((member) => member.id !== user.id).map((member) => <option key={member.id} value={member.id}>{member.name} · {member.clients} 客户 / {member.devices} 设备</option>)}</select></label>
           <b>→</b>
@@ -164,34 +168,25 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
         </div>
         <label className="team-reason"><span>交接原因</span><textarea value={handoverReason} onChange={(event) => setHandoverReason(event.target.value)} placeholder="至少填写 4 个字，方便以后追查" /></label>
         <div className="team-handover__footer"><span>客户、设备一次性交接；历史业绩不会改名</span><button className="fresh-primary" disabled={saving || !fromId || fromId === toId || handoverReason.trim().length < 4} onClick={() => void confirmHandover()}>确认交接</button></div>
-      </section>
-
-      <section className="team-panel team-missing">
-        <header><div><h2>今日待处理</h2><p>组长每天优先看这里。</p></div></header>
-        <div className="team-task"><i data-tone={activeMembers.length - filledCount > 0 ? "warn" : "ok"}>!</i><div><strong>{activeMembers.length - filledCount} 人尚未填写当日数据</strong><span>{activeMembers.filter((member) => !member.filledToday).map((member) => member.name).join("、") || "全部已填写"}</span></div>{activeMembers.some((member) => !member.filledToday) ? <button onClick={() => { const target = activeMembers.find((member) => !member.filledToday); if (target) onInspect({ id: target.id, name: target.name }); }}>查看</button> : null}</div>
-      </section>
-    </div>
+      </div>
+    </details>
 
     <section className="team-panel">
       <header><div><h2>数据修改记录</h2><p>组长帮助纠错时，系统保留修改前后数字、操作人和原因。</p></div><button className="team-outline" onClick={() => { const target = members.find((member) => member.id !== user.id) ?? members[0]; if (target) onInspect({ id: target.id, name: target.name }); }}>检查成员数据</button></header>
       <div className="team-table-wrap"><table className="team-table team-audit-table"><thead><tr><th>时间</th><th>数据归属</th><th>修改项目</th><th>修改前</th><th>修改后</th><th>操作人</th><th>原因</th></tr></thead><tbody>{externalAudits.length ? externalAudits.map((row, index) => <tr key={`${row.time}-${row.member}-${index}`}><td>{row.time}</td><td>{row.member}</td><td>{row.target}</td><td>{row.before}</td><td><strong>{row.after}</strong></td><td>{row.operator}</td><td>{row.reason}</td></tr>) : <tr><td colSpan={7}>暂无真实数据修改记录</td></tr>}</tbody></table></div>
     </section>
 
-    {offboardingMember ? <div className="team-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) setOffboardingMember(null); }}>
-      <section className="team-dialog">
-        <header><div><h2>办理离职 · {offboardingMember.name}</h2><p>不交接客户也可以。系统只停止账号登录，不会删除或改写已有数据。</p></div><button type="button" disabled={saving} onClick={() => setOffboardingMember(null)}>×</button></header>
-        <div className="team-dialog__note">离职后：不再出现在在职名单、日报和预警中；历史添加、进群、业绩仍归原成员。在办客户需要时由接手人到客户表逐位改“当前接粉负责人”，不会新增添加数。</div>
-        <label><span>备注（选填）</span><textarea value={offboardingReason} maxLength={300} onChange={(event) => setOffboardingReason(event.target.value)} placeholder="例如：9 月 26 日离职" /></label>
-        <footer><button type="button" disabled={saving} onClick={() => setOffboardingMember(null)}>取消</button><button className="fresh-primary" data-danger disabled={saving} onClick={() => void confirmOffboarding()}>{saving ? "处理中…" : "确认办理离职"}</button></footer>
-      </section>
-    </div> : null}
+    {passwordResetMember ? <MemberPasswordReset member={passwordResetMember} onClose={() => setPasswordResetMember(null)} onSuccess={() => {
+      setNotice(`已重置 ${passwordResetMember.name}（${passwordResetMember.username}）的密码。请将临时密码交给本人；原登录已退出，下次登录须先修改密码。${passwordResetMember.active ? "" : "该账号仍处于停用状态。"}`);
+      setPasswordResetMember(null);
+    }} /> : null}
 
     {editingId ? <div className="team-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingId(null); }}>
       <form className="team-dialog" onSubmit={saveMember}>
         <header><div><h2>{editingId === "new" ? "开通组员账号" : `管理成员 · ${editingMember?.name || ""}`}</h2><p>新成员默认拥有本组全部启用渠道。</p></div><button type="button" onClick={() => setEditingId(null)}>×</button></header>
         <label><span>成员姓名</span><input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} required /></label>
         <label><span>登录用户名</span><input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} required /></label>
-        {editingId === "new" ? <label><span>初始密码</span><input type="password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} placeholder="请手动输入，至少 6 位" required minLength={6} /></label> : null}
+        {editingId === "new" ? <label><span>初始密码</span><input type="password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} placeholder="至少 6 位，首次登录后要求修改" required minLength={6} /></label> : null}
         <label className="team-check"><input type="checkbox" checked={draft.expert} disabled={Boolean(editingMember?.expert)} onChange={(event) => setDraft((current) => ({ ...current, expert: event.target.checked }))} /><span><strong>增加专家权限</strong><small>{editingMember?.expert ? "已有专家岗位；如需取消，请通过人员调岗并交接在办客户。" : "保留普通组员功能，同时兼任专家岗位。"}</small></span></label>
         <label className="team-check"><input type="checkbox" checked={draft.canViewAllGroupCustomers} onChange={(event) => setDraft((current) => ({ ...current, canViewAllGroupCustomers: event.target.checked }))} /><span><strong>查看本组全部客户（只读）</strong><small>可以查看和搜索其他组员的客户，但不能修改他人的渠道、进度、资金，也不能因此获得导出权限。</small></span></label>
         <div className="team-dialog__note">全部渠道自动可用，不需要逐个分配。</div>

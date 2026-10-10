@@ -1,4 +1,5 @@
 "use client";
+import { WORKSPACE_LABELS as labels } from "../../../packages/workspace/navigation";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { requestJson } from "@/lib/backend";
@@ -81,7 +82,7 @@ export function RealChannelSettings() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ global: true, name: name.trim(), channelType, ...credentials }),
         });
-        setSuccess(`第 1 步完成：渠道“${name.trim()}”已添加并同步到全部小组。现在可到“全局人事”创建资源部账号，并绑定这一种渠道类型。`);
+        setSuccess(`第 1 步完成：渠道“${name.trim()}”已添加并同步到全部小组。现在可到“${labels.organization}”创建资源部账号，并绑定这一种渠道类型。`);
       } else if (operation.kind === "edit") {
         await requestJson("/api/admin/channels", {
           method: "PATCH",
@@ -114,7 +115,7 @@ export function RealChannelSettings() {
   return <div style={{ display: "grid", gap: 16 }}>
     <section className="card">
       <div className="card-head">
-        <div><h2 className="card-title">第 1 步：先创建资源渠道</h2><p className="card-note">渠道创建成功后，再到“全局人事”创建资源部账号并绑定渠道。账号不能无渠道存在，也不能混合投流和短信类型。</p></div>
+        <div><h2 className="card-title">第 1 步：先创建资源渠道</h2><p className="card-note">渠道创建成功后，再到“{labels.organization}”创建资源部账号并绑定渠道。账号不能无渠道存在，也不能混合投流和短信类型。</p></div>
         <button type="button" className="btn" data-variant="primary" onClick={() => open({ kind: "create" })}>＋ 添加渠道</button>
       </div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", padding: "0 16px 16px" }}>

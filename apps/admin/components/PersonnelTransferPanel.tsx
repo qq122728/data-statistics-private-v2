@@ -1,12 +1,14 @@
 "use client";
 
+import { applyHackerGroupDefaultRoles } from "../../../src/lib/role-assignments";
+import CalendarDateInput from "../../../packages/customer-sheet/CalendarDateInput";
 import { useEffect, useMemo, useState } from "react";
 import { requestJson } from "@/lib/backend";
 
 type Role = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT" | "LEAD";
 type Member = { id: string; name: string; role: Role; duty: string | null; groupId: string; roleAssignments: Array<{ role: Role }> };
-type Group = { id: string; name: string; departmentId: string; department: { name: string; companyId: string | null; company: { name: string } | null }; members: Member[] };
-type Preview = { groupChanged: boolean; counts: { reception: number; operator: number; expert: number }; customerCount: number; movingCustomerCount: number; deviceCount: number; deviceAccountCount: number; conflicts: string[] };
+type Group = { groupType: "HACKER" | "LAWYER"; id: string; name: string; departmentId: string; department: { name: string; companyId: string | null; company: { name: string } | null }; members: Member[] };
+type Preview = { effectiveRoles: Role[]; snapshot: string; groupChanged: boolean; counts: { reception: number; operator: number; expert: number }; customerCount: number; movingCustomerCount: number; deviceCount: number; deviceAccountCount: number; conflicts: string[] };
 const labels: Record<Role, string> = { RECEPTION: "接粉", GROUP_OPERATOR: "炒群", EXPERT: "专家", LEAD: "组长" };
 const frontlineRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
 
@@ -24,6 +26,9 @@ export function PersonnelTransferPanel({ onToast }: { onToast: (message: string,
   const members = useMemo(() => groups.flatMap((group) => group.members), [groups]);
   const member = members.find((item) => item.id === memberId);
   const sourceGroup = groups.find((group) => group.id === member?.groupId);
+  const targetGroup = groups.find(group => group.id === targetGroupId);
+  const effectiveSecondaryRoles = applyHackerGroupDefaultRoles(role, secondaryRoles, targetGroup?.groupType);
+  const isRequiredRole = (value: Role) => targetGroup?.groupType === "HACKER" && role !== "LEAD" && (value === "RECEPTION" || value === "GROUP_OPERATOR");
 
   function selectMember(nextMemberId: string) {
     const selected = members.find((item) => item.id === nextMemberId);
@@ -71,9 +76,10 @@ export function PersonnelTransferPanel({ onToast }: { onToast: (message: string,
   }
   function payload(mode: "preview" | "confirm") {
     return {
-      mode, userId: memberId, targetGroupId, role, secondaryRoles, effectiveOn, reason,
+      mode, userId: memberId, targetGroupId, role, secondaryRoles: effectiveSecondaryRoles, effectiveOn, reason,
       receptionHandoffId: handoff.reception || null, operatorHandoffId: handoff.operator || null, expertHandoffId: handoff.expert || null,
       expectedCounts: preview?.counts,
+      expectedSnapshot: preview?.snapshot,
     };
   }
   async function run(mode: "preview" | "confirm") {
@@ -89,15 +95,16 @@ export function PersonnelTransferPanel({ onToast }: { onToast: (message: string,
     <h2 className="card-title">人员调岗与跨组调动</h2>
     <p className="card-note">跨组调动：历史客户、历史数据仍记在原组；目前还在进行的客户、本人设备和设备账号自动跟到新组。同组转岗且不再兼任原岗位时，才需要选择接手人。</p>
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10, marginTop: 14 }}>
-      <select className="field" value={memberId} onChange={(e) => selectMember(e.target.value)}><option value="">选择员工</option>{groups.map((group) => <optgroup key={group.id} label={`${group.department.name} / ${group.name}`}>{group.members.map((item) => <option key={item.id} value={item.id}>{item.name} · {labels[item.role]}</option>)}</optgroup>)}</select>
-      <select className="field" value={targetGroupId} onChange={(e) => { setTargetGroupId(e.target.value); resetPreview(); }}><option value="">目标小组</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.department.company?.name ? `${group.department.company.name} / ` : ""}{group.department.name} / {group.name}</option>)}</select>
-      <select className="field" value={role} onChange={(e) => selectPrimaryRole(e.target.value as Role)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-      {role === "LEAD" ? <div className="card-note">组长按业务规则自带专家处理权限，不另设一线兼任岗位</div> : <fieldset style={{ border: 0, padding: 0, margin: 0 }}><legend className="label">兼任岗位（可多选）</legend><div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 5 }}>{frontlineRoles.filter((item) => item !== role).map((item) => <label key={item} className="label" style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={secondaryRoles.includes(item)} onChange={() => toggleSecondaryRole(item)} />兼任{labels[item]}</label>)}</div></fieldset>}
-      <input className="field" type="date" value={effectiveOn} onChange={(e) => { setEffectiveOn(e.target.value); resetPreview(); }} />
-      <input className="field" placeholder="调动原因（至少4个字）" value={reason} onChange={(e) => { setReason(e.target.value); resetPreview(); }} />
+      <select className="field" aria-label="调动员工" disabled={busy} value={memberId} onChange={(e) => selectMember(e.target.value)}><option value="">选择员工</option>{groups.map((group) => <optgroup key={group.id} label={`${group.department.name} / ${group.name}`}>{group.members.map((item) => <option key={item.id} value={item.id}>{item.name} · {labels[item.role]}</option>)}</optgroup>)}</select>
+      <select className="field" aria-label="目标小组" disabled={busy} value={targetGroupId} onChange={(e) => { setTargetGroupId(e.target.value); resetPreview(); }}><option value="">目标小组</option>{groups.map((group) => <option key={group.id} value={group.id}>{group.department.company?.name ? `${group.department.company.name} / ` : ""}{group.department.name} / {group.name}</option>)}</select>
+      <select className="field" aria-label="调动后主岗位" disabled={busy} value={role} onChange={(e) => selectPrimaryRole(e.target.value as Role)}>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+      {role === "LEAD" ? <div className="card-note">组长按业务规则自带专家处理权限，不另设一线兼任岗位</div> : <fieldset style={{ border: 0, padding: 0, margin: 0 }}><legend className="label">兼任岗位（可多选）</legend><div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 5 }}>{frontlineRoles.filter((item) => item !== role).map((item) => <label key={item} className="label" style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="checkbox" checked={effectiveSecondaryRoles.includes(item)} disabled={busy || isRequiredRole(item)} onChange={() => toggleSecondaryRole(item)} />兼任{labels[item]}</label>)}</div>{targetGroup?.groupType === "HACKER" ? <p className="card-note">本组默认保留接粉和炒群权限；专家权限另外添加。</p> : null}</fieldset>}
+      <CalendarDateInput className="field"  aria-label="调动生效日期" disabled={busy} value={effectiveOn} onChange={(e) => { setEffectiveOn(e.target.value); resetPreview(); }} />
+      <input className="field" aria-label="调动原因" disabled={busy} placeholder="调动原因（至少4个字）" value={reason} onChange={(e) => { setReason(e.target.value); resetPreview(); }} />
       <button className="btn" data-variant="primary" disabled={busy || !memberId || !targetGroupId || reason.trim().length < 4} onClick={() => void run("preview")}>预览调动影响</button>
     </div>
     {preview ? <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+      <p><strong>调动后实际岗位：{preview.effectiveRoles.map(item => labels[item]).join(" + ")}</strong></p>
       {preview.groupChanged ? <div style={{ padding: 12, borderRadius: 10, background: "var(--surface-muted)" }}>
         <strong>随本人转入新组</strong>
         <div className="card-note" style={{ marginTop: 6 }}>在办客户 {preview.movingCustomerCount} 位 · 设备 {preview.deviceCount} 台 · 设备账号 {preview.deviceAccountCount} 个</div>

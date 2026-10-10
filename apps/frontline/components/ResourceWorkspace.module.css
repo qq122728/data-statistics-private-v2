@@ -390,6 +390,7 @@
 }
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 5px;
   background: #fff;
   border: 1px solid #dfe5ee;
@@ -412,7 +413,8 @@
 }
 .insights {
   display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 .insights article {
@@ -666,4 +668,8 @@
 .empty {
   min-height: 68px;
   font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .insights { grid-template-columns: minmax(0, 1fr); }
 }

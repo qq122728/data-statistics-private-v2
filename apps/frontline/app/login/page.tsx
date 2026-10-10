@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import CredentialForm from "../../../../packages/auth/CredentialForm";
 import { IconChart } from "@/components/Icons";
 import { workspaceOrigin, type LoginResponse } from "@/lib/backend";
 
@@ -45,12 +46,12 @@ export default function LoginPage() {
         <span style={{ width: 40, height: 40, borderRadius: 10, display: "grid", placeItems: "center", background: "var(--accent)", color: "white" }}><IconChart size={21} /></span>
         <div><h1 style={{ margin: 0, fontSize: 20 }}>数据统计一线工作台</h1><p style={{ margin: 0, color: "var(--ink-3)", fontSize: 13 }}>使用真实系统账号登录</p></div>
       </div>
-      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <CredentialForm action="/api/auth/login" busy={busy} onSubmit={submit}>
         <label><span className="label">账号</span><input className="field" name="username" autoComplete="username" required autoFocus style={{ width: "100%" }} /></label>
         <label><span className="label">密码</span><input className="field" name="password" type="password" autoComplete="current-password" required style={{ width: "100%" }} /></label>
         {error ? <p role="alert" style={{ margin: 0, color: "var(--bad)" }}>{error}</p> : null}
-        <button className="btn" data-variant="primary" disabled={busy} style={{ justifyContent: "center", height: 40 }}>{busy ? "正在登录…" : "登录"}</button>
-      </form>
+        <button type="submit" className="btn" data-variant="primary" disabled={busy} style={{ justifyContent: "center", height: 40 }}>{busy ? "正在登录…" : "登录"}</button>
+      </CredentialForm>
       <p style={{ margin: "18px 0 0", color: "var(--ink-3)", fontSize: 12.5 }}>登录后系统会按真实岗位自动进入一线端或管理端，不需要自己选择入口。</p>
     </section>
   </main>;

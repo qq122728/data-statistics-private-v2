@@ -6,11 +6,13 @@ const source = readFileSync(new URL("../components/CompanyWorkspace.tsx", import
 const css = readFileSync(new URL("../components/CompanyWorkspace.module.css", import.meta.url), "utf8");
 const flowCss = readFileSync(new URL("../components/CompanyOrganizationFlow.module.css", import.meta.url), "utf8");
 const shellCss = readFileSync(new URL("../components/WorkspaceShell.module.css", import.meta.url), "utf8");
+const navigation = readFileSync(new URL("../../../packages/workspace/navigation.ts", import.meta.url), "utf8");
 
-test("公司工作台导出签名和六个主导航保持稳定", () => {
+test("公司工作台保留当前线上导航", () => {
   assert.match(source, /export default function CompanyWorkspace\(\{ user, onLogout \}/);
-  for (const label of ["公司工作台", "数据汇总", "客户进度", "组织管理", "资源管理"]) assert.ok(source.includes(`label="${label}"`));
-  assert.ok(source.includes("通知中心"));
+  for (const label of ["公司工作台", "数据汇总", "客户进度表", "资源管理"]) assert.ok(navigation.includes(label));
+  assert.match(source, /NAV_GROUPS/);
+  assert.ok(navigation.includes("通知中心"));
 });
 
 test("公司范围页面只读取组织网关的真实 API", () => {

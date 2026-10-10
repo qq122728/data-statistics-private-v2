@@ -1,3 +1,5 @@
+import { localWorkspaceOrigin } from "../../../packages/auth/local-workspace-origin";
+
 export type BackendUser = {
   id: string;
   username: string;
@@ -10,6 +12,7 @@ export type BackendUser = {
   departmentName: string | null;
   companyName: string | null;
   mustChangePassword: boolean;
+  resourceChannelTypes?: string[];
 };
 
 export type LoginResponse = {
@@ -22,7 +25,7 @@ export function workspaceOrigin(workspace: LoginResponse["workspace"]): string {
   const configured = workspace === "ADMIN"
     ? process.env.NEXT_PUBLIC_ADMIN_ORIGIN?.trim()
     : process.env.NEXT_PUBLIC_FRONTLINE_ORIGIN?.trim();
-  if (configured) return configured;
+  if (configured) return localWorkspaceOrigin(configured);
   if (typeof window !== "undefined" && window.location.hostname.endsWith(".localtest.me")) {
     return workspace === "ADMIN" ? "http://frontline.localtest.me:3000/admin/" : "http://frontline.localtest.me:3000/";
   }
@@ -37,7 +40,7 @@ export async function requestJson<T>(url: string, init?: RequestInit): Promise<T
   const payload = await response.json().catch(() => ({})) as T & { error?: string; fields?: Record<string, string[]> };
   if (!response.ok) {
     const fieldMessage = payload.fields ? Object.values(payload.fields).flat().find(Boolean) : undefined;
-    throw new Error(fieldMessage ? `${payload.error ?? "请检查填写内容"}：${fieldMessage}` : payload.error ?? "操作失败，请稍后重试");
+    throw new Error(fieldMessage ? `${payload.error ?? "请检查填写内容"}：${fieldMessage}` : payload.error ?? (response.status===502||response.status===504?"服务暂时未响应，尚未确认的数据不会保存，请重试":response.status===429?"请求较频繁，请稍后再试":`操作未完成（HTTP ${response.status}），请稍后重试`));
   }
   return payload;
 }

@@ -6,6 +6,7 @@ import { RealEntityMetricsTable, RealMetricMatrix, type RealMetricColumn, type R
 
 type RangePreset = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth";
 type Totals = {
+  lawyerRealCase?:number; lawyerAdded?:number; lawyerExpertAdded?:number; customerServicePush?:number; bankDepositCents?:number; cryptoDepositCents?:number; initialDepositCents?:number; rechargeCents?:number;
   added: number; collision: number; lowAmount: number; noWs: number; effective: number;
   replied: number; joined: number; left: number; leftAbnormal: number; inGroup: number;
   pushed: number; registered: number; ordered: number; depositCents: number; withdrawalCents: number; netCents: number;
@@ -23,6 +24,7 @@ const OPTIONS: Array<{ value: RangePreset; label: string }> = [
 
 function metrics(totals: Totals): RealMetrics {
   return {
+    ...totals,
     added: totals.added, collision: totals.collision, lowAmount: totals.lowAmount, noWs: totals.noWs,
     effective: totals.effective, replied: totals.replied, joined: totals.joined,
     leftNormal: Math.max(0, totals.left - totals.leftAbnormal), leftAbnormal: totals.leftAbnormal,
@@ -31,7 +33,7 @@ function metrics(totals: Totals): RealMetrics {
   };
 }
 
-export function RealChannelReporting({ groupId = "" }: { groupId?: string; embedded?: boolean }) {
+export function RealChannelReporting({ groupId = "", groupType }: { groupId?: string; groupType?: "HACKER" | "LAWYER"; embedded?: boolean }) {
   const [range, setRange] = useState<RangePreset>("month");
   const [view, setView] = useState<"detail" | "compare">("detail");
   const [channel, setChannel] = useState("");
@@ -90,17 +92,17 @@ export function RealChannelReporting({ groupId = "" }: { groupId?: string; embed
     {!loading && !error && view === "detail" && selected ? <RealMetricMatrix
       title={`${selected.name} · 区间汇总`}
       note={`${data?.range.from} 至 ${data?.range.to} 累计 · 只读，用来和资源部核对；不发送审核。`}
-      columns={matrixColumns}
+      columns={matrixColumns} groupType={groupType}
     /> : null}
     {!loading && !error && view === "detail" && selected ? <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div><h2 className="card-title">每日明细</h2><p className="card-note">当前渠道在所选区间内的逐日数据，最新日期排在最上面。</p></div>
         <span className="badge" data-tone="mute">共 {dailyMatrices.length} 天</span>
       </div>
-      {dailyMatrices.map((day) => <RealMetricMatrix key={day.date} title={`${selected.name} · ${day.date}`} columns={day.columns} />)}
+      {dailyMatrices.map((day) => <RealMetricMatrix key={day.date} title={`${selected.name} · ${day.date}`} columns={day.columns} groupType={groupType} />)}
       {!dailyMatrices.length ? <section className="card" style={{ padding: 44, textAlign: "center", color: "var(--ink-3)" }}>所选区间内没有渠道每日明细</section> : null}
     </div> : null}
-    {!loading && !error && view === "compare" ? <RealEntityMetricsTable title="渠道对比" note={`${data?.range.label ?? "当前区间"} · 每行一个来源渠道。`} entityLabel="渠道" rows={comparisonRows} /> : null}
+    {!loading && !error && view === "compare" ? <RealEntityMetricsTable title="渠道对比" note={`${data?.range.label ?? "当前区间"} · 每行一个来源渠道。`} entityLabel="渠道" groupType={groupType} rows={comparisonRows} /> : null}
     {!loading && !error && !data?.rows.length ? <section className="card" style={{ padding: 48, textAlign: "center", color: "var(--ink-3)" }}>当前日期范围没有渠道数据</section> : null}
   </div>;
 }

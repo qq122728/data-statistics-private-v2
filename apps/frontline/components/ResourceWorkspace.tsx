@@ -1,25 +1,26 @@
 "use client";
+import { accountRoleLabel } from "../../../packages/auth/account-role";
+
+import { WORKSPACE_LABELS as labels, NAV_GROUPS } from "../../../packages/workspace/navigation";
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import type { BackendUser } from "@/lib/backend";
 import { requestJson } from "@/lib/backend";
 import styles from "./ResourceWorkspace.module.css";
-import standard from "./ResourceWorkspaceStandard.module.css";
+import { ResourceReportTable } from "../../../packages/reporting/ResourceReportTable";
+import { ResourceFieldControls, useResourceFields } from "../../../packages/reporting/ResourceFieldControls";
+import { hasHistoricalResourceValues, isPreviousResourceMonth, type ResourceField, type ResourceTotals } from "../../../packages/reporting/resource-fields";
 import { UnifiedNotificationCenter } from "@/components/UnifiedNotificationCenter";
 import { WorkspaceNavButton, WorkspaceNavGroup, WorkspaceShell, type WorkspaceIcon } from "@/components/WorkspaceShell";
 import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import { AiSmartAssistant } from "@/components/AiSmartAssistant";
+import { GroupDataDetail } from "../../../packages/reporting/GroupDataDetail";
 
 export type ResourceWorkspaceProps = { user: BackendUser; onLogout: () => void; audience?: "resource" | "finance" };
 
-type View = "dashboard" | "daily" | "groupDetail" | "summary" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
+type View = "dashboard" | "daily" | "summary" | "finance" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
 type SummaryMode = "channel" | "department" | "group" | "day";
-type Totals = {
-  added: number; collision: number; lowAmount: number; noWs: number; manualInvalid: number; effective: number;
-  lawyerRealCase: number; lawyerAdded: number; lawyerExpertAdded: number; customerServicePush: number;
-  replied: number; joined: number; left: number; abnormalLeft: number; inGroup: number;
-  pushed: number; registered: number; ordered: number; initialDepositCents: number; rechargeCents: number; depositCents: number; cryptoDepositCents: number; bankDepositCents: number; withdrawalCents: number;
-};
+type Totals = ResourceTotals;
 type ReportRow = {
   channel: { id: string; name: string; normalizedName: string };
   group: { id: string; name: string; groupType: "HACKER" | "LAWYER"; departmentId?: string; departmentName: string; companyId?: string | null; companyName?: string };
@@ -60,7 +61,7 @@ const localDate = () => {
 const typeLabel = (type: Channel["channelType"]) => type === "SMS" ? "短信粉" : type === "ADS" ? "投流粉" : "底料返点";
 
 export default function ResourceWorkspace({ user, onLogout, audience = "resource" }: ResourceWorkspaceProps) {
-  const financeReadOnly = audience === "finance" || (user.roles.includes("FINANCE") && !user.roles.includes("RESOURCE_MANAGER"));
+  const financeViewer = audience === "finance";
   const [aiOpen, setAiOpen] = useState(false);
   const [view, setView] = useState<View>("dashboard");
   const [range, setRange] = useState<SmartDatePreset>("month");
@@ -89,15 +90,18 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
     try {
       const query = new URLSearchParams({ range });
       if (range === "custom") { query.set("sourceDateFrom", from); query.set("sourceDateTo", to); }
+      const channelRequest = financeViewer
+        ? Promise.resolve({ channels: [] as Channel[] })
+        : requestJson<{ channels: Channel[] }>("/api/admin/channels");
       const [nextReport, channelPayload, notificationPayload] = await Promise.all([
         requestJson<Reporting>(`/api/resource/reporting?${query}`),
-        financeReadOnly ? Promise.resolve<{ channels: Channel[] }>({ channels: [] }) : requestJson<{ channels: Channel[] }>("/api/admin/channels"),
+        channelRequest,
         requestJson<{ unread: number }>("/api/notifications"),
       ]);
       setReport(nextReport); setChannels(channelPayload.channels); setUnread(notificationPayload.unread);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "资源工作区读取失败"); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : `${financeViewer ? "财务" : "资源"}工作区读取失败`); }
     finally { setLoading(false); }
-  }, [financeReadOnly, from, range, to]);
+  }, [financeViewer, from, range, to]);
   useEffect(() => { void load(); }, [load]);
 
   const typedGroups = useMemo(() => (report?.groups ?? []).filter((group) => group.groupType === groupTypeFilter), [groupTypeFilter, report]);
@@ -153,77 +157,83 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
     catch (caught) { setError(caught instanceof Error ? caught.message : "渠道状态修改失败"); }
     finally { setSavingId(""); }
   }
-  const title = ({ dashboard: financeReadOnly ? "渠道数据看板" : "资源工作台", daily: "每日渠道数据", groupDetail: "小组数据明细", summary: "渠道数据汇总", channels: "渠道与单价", usage: "渠道使用情况", accounts: "资源账号管理", comparison: "渠道表现对比", anomalies: "异常数据提醒", notifications: "通知中心" } satisfies Record<View, string>)[view];
-  const showFilters = ["dashboard", "daily", "groupDetail", "summary", "comparison", "anomalies", "usage"].includes(view);
+  const historyRows = view === "daily" ? visibleDailyRows : visibleBaseRows;
+  const historyTotals = view === "daily" && groupId
+    ? (report?.memberRows ?? []).filter(row => row.groupId === groupId && (!day || row.date === day) && (!channelId || row.channelId === channelId)).map(row => row.totals)
+    : historyRows.map(row => row.totals);
+  const fieldState = useResourceFields({
+    userId: user.id, business: groupTypeFilter, reportType: `${audience}:${view === "daily" && groupId ? "members" : view}`,
+    historyContext: JSON.stringify([historyRows.map(row => [row.period.from, row.period.to]), channelId, company, department, groupId, view === "daily" ? day : ""]),
+    historicalValues: hasHistoricalResourceValues(historyTotals), previousMonth: isPreviousResourceMonth(historyRows.map(row => row.period)),
+  });
+  const title = ({ dashboard: financeViewer ? "渠道数据看板" : labels.resourceDashboard, daily: labels.resourceDaily, summary: labels.resourceSummary, finance: labels.groupDataDetail, channels: labels.resourceChannels, usage: labels.resourceUsage, accounts: labels.resourceAccounts, comparison: labels.resourceComparison, anomalies: labels.resourceAnomalies, notifications: labels.notifications } satisfies Record<View, string>)[view];
+  const showFilters = ["dashboard", "daily", "summary", "comparison", "anomalies", "usage"].includes(view);
   const resourceTypeLabel = channels.length && channels.every((channel) => channel.channelType === "ADS") ? "投流资源" : channels.length && channels.every((channel) => channel.channelType === "SMS") ? "短信资源" : channels.length ? "授权资源" : "未授权资源";
 
-  const workspaceLabel = financeReadOnly ? "财务数据工作台" : "资源部管理员";
-  const scope = financeReadOnly
-    ? { label: "财务只读", value: "可查看全部启用渠道与小组明细，不可修改数据" }
-    : { label: resourceTypeLabel, value: "仅显示已授权渠道，不可切换资源类型" };
-  return <WorkspaceShell mark={financeReadOnly ? "财" : "资"} workspaceLabel={workspaceLabel} title={title} subtitle="所有数据均来自已保存的真实业务记录" userName={user.name} userLabel={financeReadOnly ? "财务账号 · 数据只读" : resourceTypeLabel} onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={scope} navigation={<>
-      <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon="dashboard">{financeReadOnly ? "渠道数据看板" : "资源工作台"}</NavButton>
-      <NavButton active={view === "daily"} onClick={() => setView("daily")} icon="calendar">每日渠道数据</NavButton>
-      {financeReadOnly ? <NavButton active={view === "groupDetail"} onClick={() => setView("groupDetail")} icon="usage">小组数据明细</NavButton> : null}
-      <NavButton active={view === "summary"} onClick={() => setView("summary")} icon="sigma">渠道数据汇总</NavButton>
-      {!financeReadOnly ? <><NavGroup label="资源管理"><NavButton active={view === "channels"} onClick={() => setView("channels")} icon="channel">渠道与单价</NavButton><NavButton active={view === "usage"} onClick={() => setView("usage")} icon="usage">渠道使用情况</NavButton><NavButton active={view === "accounts"} onClick={() => setView("accounts")} icon="accounts">资源账号管理</NavButton></NavGroup>
-      </> : null}
-      <NavGroup label="分析报告"><NavButton active={view === "comparison"} onClick={() => setView("comparison")} icon="analysis">渠道表现对比</NavButton><NavButton active={view === "anomalies"} onClick={() => setView("anomalies")} icon="warning">异常数据提醒</NavButton></NavGroup>
-      <NavButton active={view === "notifications"} onClick={() => setView("notifications")} icon="notifications">通知中心{unread ? <b>{unread}</b> : null}</NavButton>
-      </>}>
+  return <WorkspaceShell mark={financeViewer ? "财" : "资"} workspaceLabel={financeViewer ? "财务工作台" : "资源部管理员"} title={title} subtitle={financeViewer ? "只读查看全部渠道、每日明细和全公司资金数据" : "所有数据均来自已保存的真实业务记录"} userName={user.name} userLabel={accountRoleLabel(user)} accountScope={financeViewer ? "全部渠道 · 只读" : "已授权渠道"} onLogout={onLogout} assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${title}`} user={user} />} scope={{ label: financeViewer ? "全部渠道" : resourceTypeLabel, value: financeViewer ? "自动包含全部启用渠道，只读" : "仅显示已授权渠道，不可切换资源类型" }} navigation={<>
+      <WorkspaceNavGroup label={NAV_GROUPS.work}>
+        <NavButton active={view === "dashboard"} onClick={() => setView("dashboard")} icon="dashboard">{financeViewer ? "渠道数据看板" : labels.resourceDashboard}</NavButton>
+        <NavButton active={view === "notifications"} onClick={() => setView("notifications")} icon="notifications">{labels.notifications}{unread ? <b>{unread}</b> : null}</NavButton>
+      </WorkspaceNavGroup>
+      <WorkspaceNavGroup label={NAV_GROUPS.data}>
+        {financeViewer ? <NavButton active={view === "finance"} onClick={() => setView("finance")} icon="summary">{labels.groupDataDetail}</NavButton> : null}
+        <NavButton active={view === "daily"} onClick={() => setView("daily")} icon="calendar">{labels.resourceDaily}</NavButton>
+        <NavButton active={view === "summary"} onClick={() => setView("summary")} icon="sigma">{labels.resourceSummary}</NavButton>
+        <NavButton active={view === "comparison"} onClick={() => setView("comparison")} icon="analysis">{labels.resourceComparison}</NavButton>
+        <NavButton active={view === "anomalies"} onClick={() => setView("anomalies")} icon="warning">{labels.resourceAnomalies}</NavButton>
+      </WorkspaceNavGroup>
+      {!financeViewer ? <WorkspaceNavGroup label={NAV_GROUPS.resources}>
+        <NavButton active={view === "channels"} onClick={() => setView("channels")} icon="channel">{labels.resourceChannels}</NavButton>
+        <NavButton active={view === "usage"} onClick={() => setView("usage")} icon="usage">{labels.resourceUsage}</NavButton>
+        <NavButton active={view === "accounts"} onClick={() => setView("accounts")} icon="accounts">{labels.resourceAccounts}</NavButton>
+      </WorkspaceNavGroup> : null}
+    </>}>
         {showFilters ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setCompany(""); setDepartment(""); setGroupId(""); setMemberId(""); }}>律师组数据</button></div> : null}
-        {showFilters ? <SmartDateRangeToolbar range={range} from={from} to={to} loading={loading} title="资源数据日期" note="汇总、渠道对比和每日明细共用同一个日期范围" onRange={setRange} onFrom={setFrom} onTo={setTo} onRefresh={() => void load()} /> : null}
-        {showFilters ? <Filters report={report} channelId={channelId} company={company} department={department} groupId={groupId} memberId={memberId} day={view === "daily" ? day : undefined} showMember={view === "daily" || view === "groupDetail"} companies={companies} departments={departments} groups={filterGroups} members={filterMembers} setChannelId={setChannelId} setCompany={(value) => { setCompany(value); setDepartment(""); setGroupId(""); setMemberId(""); }} setDepartment={(value) => { setDepartment(value); setGroupId(""); setMemberId(""); }} setGroupId={(value) => { setGroupId(value); setMemberId(""); }} setMemberId={setMemberId} setDay={setDay} onRefresh={() => void load()} /> : null}
-        {loading ? <StateCard>正在读取已授权渠道数据…</StateCard> : null}
+        {showFilters ? <SmartDateRangeToolbar range={range} from={from} to={to} loading={loading} title={financeViewer ? "财务核对日期" : "资源数据日期"} note="汇总、渠道对比和每日明细共用同一个日期范围" onRange={setRange} onFrom={setFrom} onTo={setTo} onRefresh={() => void load()} /> : null}
+        {showFilters ? <Filters report={report} channelId={channelId} company={company} department={department} groupId={groupId} memberId={memberId} day={view === "daily" ? day : undefined} allChannelLabel={financeViewer ? "全部渠道" : "全部授权渠道"} companies={companies} departments={departments} groups={filterGroups} members={filterMembers} setChannelId={setChannelId} setCompany={(value) => { setCompany(value); setDepartment(""); setGroupId(""); setMemberId(""); }} setDepartment={(value) => { setDepartment(value); setGroupId(""); setMemberId(""); }} setGroupId={(value) => { setGroupId(value); setMemberId(""); }} setMemberId={setMemberId} setDay={setDay} onRefresh={() => void load()} /> : null}
+        {loading ? <StateCard>正在读取{financeViewer ? "全部" : "已授权"}渠道数据…</StateCard> : null}
         {error ? <div className={styles.error}>{error}</div> : null}{notice ? <div className={styles.success}>{notice}</div> : null}
-        {!loading && view === "dashboard" ? <Dashboard groupType={groupTypeFilter} totals={totals} rows={visibleBaseRows} /> : null}
-        {!loading && view === "daily" ? <>{groupId ? <MemberMatrix report={report} day={day} channelId={channelId} groupId={groupId} memberId={memberId} /> : <><StateCard>请按“日期 → 渠道 → 公司 → 部门 → 小组”定位，选定小组后会展开员工共享表。</StateCard><DataTable groupType={groupTypeFilter} title="每日渠道数据" rows={visibleDailyRows.map((row) => ({ label: row.displayDate, sub: `${row.group.companyName} / ${row.group.departmentName} / ${row.group.name} / ${row.channel.name}`, totals: row.totals }))} /></>}</> : null}
-        {!loading && view === "groupDetail" ? <>{groupId ? <><MemberMatrix report={report} day="" channelId={channelId} groupId={groupId} memberId={memberId} /><DailyMemberDetails report={report} channelId={channelId} groupId={groupId} memberId={memberId} /></> : <StateCard>请选择公司、部门和小组，即可查看该小组每位成员的完整指标。</StateCard>}</> : null}
-        {!loading && view === "summary" ? <><div className={styles.tabs}>{([ ["channel", "按渠道"], ["department", "按公司/部门"], ["group", "按小组"], ["day", "按日期"] ] as const).map(([key, label]) => <button key={key} data-active={summaryMode === key} onClick={() => setSummaryMode(key)}>{label}</button>)}</div><DataTable groupType={groupTypeFilter} title="渠道数据汇总" rows={groupedRows} /></> : null}
+        {!loading && ["dashboard", "daily", "summary", "comparison"].includes(view) ? <ResourceFieldControls state={fieldState} /> : null}
+        {!loading && view === "dashboard" ? <Dashboard fields={fieldState.fields} groupType={groupTypeFilter} totals={totals} rows={visibleBaseRows} /> : null}
+        {!loading && view === "daily" ? <>{groupId ? <MemberMatrix fields={fieldState.fields} report={report} day={day} channelId={channelId} groupId={groupId} memberId={memberId} allChannelLabel={financeViewer ? "全部渠道" : "全部授权渠道"} /> : <><StateCard>请按“日期 → 渠道 → 公司 → 部门 → 小组”定位，选定小组后会展开员工共享表。</StateCard><DataTable fields={fieldState.fields} groupType={groupTypeFilter} title="每日渠道数据" rows={visibleDailyRows.map((row) => ({ label: row.displayDate, sub: `${row.group.companyName} / ${row.group.departmentName} / ${row.group.name} / ${row.channel.name}`, totals: row.totals }))} /></>}</> : null}
+        {!loading && view === "summary" ? <><div className={styles.tabs}>{([ ["channel", "按渠道"], ["department", "按公司/部门"], ["group", "按小组"], ["day", "按日期"] ] as const).map(([key, label]) => <button key={key} data-active={summaryMode === key} onClick={() => setSummaryMode(key)}>{label}</button>)}</div><DataTable fields={fieldState.fields} groupType={groupTypeFilter} title="渠道数据汇总" rows={groupedRows} /></> : null}
         {!loading && view === "channels" ? <ChannelCatalog channels={activeChannels} authorizedChannelType={authorizedChannelType} search={channelSearch} setSearch={setChannelSearch} createOpen={createChannel} setCreateOpen={setCreateChannel} savingId={savingId} onSave={saveChannel} onToggle={(channel) => void toggleChannel(channel)} /> : null}
         {!loading && view === "usage" ? <UsageTable rows={visibleBaseRows} channels={channels} /> : null}
         {!loading && view === "accounts" ? <ReadOnlyAccount user={user} channels={channels} /> : null}
-        {!loading && view === "comparison" ? <><SmartAnalysis rows={visibleBaseRows} /><DataTable groupType={groupTypeFilter} title="渠道表现对比" rows={groupByChannel(visibleBaseRows)} /></> : null}
+        {!loading && view === "comparison" ? <><SmartAnalysis rows={visibleBaseRows} /><DataTable fields={fieldState.fields} groupType={groupTypeFilter} title="渠道表现对比" rows={groupByChannel(visibleBaseRows)} /></> : null}
         {!loading && view === "anomalies" ? <Anomalies rows={visibleBaseRows} /> : null}
         {!loading && view === "notifications" ? <UnifiedNotificationCenter onUnreadChange={setUnread} /> : null}
+        {view === "finance" ? <GroupDataDetail permissionLabel="只读 · 财务总公司范围" finance /> : null}
   </WorkspaceShell>;
 }
 
-function NavGroup({ label, children }: { label: string; children: React.ReactNode }) { return <WorkspaceNavGroup label={label}>{children}</WorkspaceNavGroup>; }
 function NavButton({ active, icon, onClick, children }: { active: boolean; icon: WorkspaceIcon; onClick: () => void; children: React.ReactNode }) { return <WorkspaceNavButton active={active} icon={icon} onClick={onClick}>{children}</WorkspaceNavButton>; }
 function StateCard({ children }: { children: React.ReactNode }) { return <section className={`fresh-sheet-card ${styles.card} ${styles.state}`}>{children}</section>; }
 
-function Filters(props: { report: Reporting | null; channelId: string; company: string; department: string; groupId: string; memberId: string; day?: string; showMember?: boolean; companies: string[]; departments: string[]; groups: Reporting["groups"]; members: Reporting["members"]; setChannelId: (value: string) => void; setCompany: (value: string) => void; setDepartment: (value: string) => void; setGroupId: (value: string) => void; setMemberId: (value: string) => void; setDay: (value: string) => void; onRefresh: () => void }) {
+function Filters(props: { report: Reporting | null; channelId: string; company: string; department: string; groupId: string; memberId: string; day?: string; allChannelLabel: string; companies: string[]; departments: string[]; groups: Reporting["groups"]; members: Reporting["members"]; setChannelId: (value: string) => void; setCompany: (value: string) => void; setDepartment: (value: string) => void; setGroupId: (value: string) => void; setMemberId: (value: string) => void; setDay: (value: string) => void; onRefresh: () => void }) {
   return <section className={`fresh-toolbar ${styles.filters}`}>
     {props.day !== undefined ? <label><span>1. 区间内日期</span><select value={props.day} onChange={(event) => props.setDay(event.target.value)}><option value="">全部日期</option>{props.report?.days.map((item) => <option key={item.date}>{item.date}</option>)}</select></label> : null}
-    <label><span>{props.day !== undefined ? "2. " : ""}渠道</span><select value={props.channelId} onChange={(event) => props.setChannelId(event.target.value)}><option value="">全部授权渠道</option>{props.report?.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>
+    <label><span>{props.day !== undefined ? "2. " : ""}渠道</span><select value={props.channelId} onChange={(event) => props.setChannelId(event.target.value)}><option value="">{props.allChannelLabel}</option>{props.report?.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>
     <label><span>{props.day !== undefined ? "3. " : ""}公司</span><select value={props.company} onChange={(event) => props.setCompany(event.target.value)}><option value="">全部公司</option>{props.companies.map((name) => <option key={name}>{name}</option>)}</select></label>
     <label><span>{props.day !== undefined ? "4. " : ""}部门</span><select value={props.department} onChange={(event) => props.setDepartment(event.target.value)}><option value="">全部部门</option>{props.departments.map((name) => <option key={name}>{name}</option>)}</select></label>
     <label><span>{props.day !== undefined ? "5. " : ""}小组</span><select value={props.groupId} onChange={(event) => props.setGroupId(event.target.value)}><option value="">全部小组</option>{props.groups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
-    {props.showMember ? <label><span>{props.day !== undefined ? "6. " : ""}归属成员</span><select value={props.memberId} disabled={!props.groupId} onChange={(event) => props.setMemberId(event.target.value)}><option value="">全部归属成员</option>{props.members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label> : null}
+    {props.day !== undefined ? <label><span>6. 归属成员</span><select value={props.memberId} onChange={(event) => props.setMemberId(event.target.value)}><option value="">全部归属成员</option>{props.members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label> : null}
     <button className="fresh-primary" onClick={props.onRefresh}>刷新</button>
   </section>;
 }
 
-function Dashboard({ groupType, totals, rows }: { groupType: "HACKER" | "LAWYER"; totals: Totals; rows: ReportRow[] }) {
+function Dashboard({ fields, groupType, totals, rows }: { fields: readonly ResourceField[]; groupType: "HACKER" | "LAWYER"; totals: Totals; rows: ReportRow[] }) {
   const cards = groupType === "LAWYER" ? [["接粉", totals.added], ["回复", totals.replied], ["真实案件", totals.lawyerRealCase], ["添加律师", totals.lawyerAdded], ["总注册", totals.registered], ["总开单", totals.ordered]] : [["添加数据", totals.added], ["有效数据", totals.effective], ["有效率", rate(totals.effective, totals.added)], ["进群", totals.joined], ["开单", totals.ordered], ["净业绩", money(totals.depositCents - totals.withdrawalCents)]];
-  return <><section className={styles.kpis}>{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><SmartAnalysis rows={rows} /><DataTable groupType={groupType} title="当前筛选范围汇总" rows={groupByChannel(rows)} /></>;
+  return <><section className={styles.kpis}>{cards.map(([label, value]) => <article key={label}><span>{label}</span><strong>{value}</strong></article>)}</section><SmartAnalysis rows={rows} /><DataTable fields={fields} groupType={groupType} title="当前筛选范围汇总" rows={groupByChannel(rows)} /></>;
 }
 
-function DataTable({ groupType, title, rows }: { groupType: "HACKER" | "LAWYER"; title: string; rows: Array<{ label: string; sub?: string; totals: Totals }> }) {
-  const totals = sumTotals(rows);
-  if (groupType === "LAWYER") {
-    const cells = (value: Totals) => <><td>{value.added}</td><td>{value.replied}</td><td>{Math.max(0, value.added - value.replied)}</td><td>{value.lowAmount}</td><td>{value.lawyerRealCase}</td><td>{rate(value.replied, value.added)}</td><td>{value.lawyerAdded}</td><td>{value.lawyerExpertAdded}</td><td>{rate(value.lawyerAdded, value.added)}</td><td>{rate(value.lawyerExpertAdded, value.added)}</td><td>{value.customerServicePush}</td><td>{value.registered}</td><td>{value.ordered}</td><td>{money(value.cryptoDepositCents)}</td><td>{money(value.bankDepositCents)}</td><td>{money(value.withdrawalCents)}</td></>;
-    return <section className={`fresh-sheet-card ${styles.card}`}><header className={`fresh-sheet-title ${styles.cardTitle}`}><div><h2>{title} · 律师组</h2><p>底部合计只计算当前筛选行；未回复和比例由系统计算</p></div><div><span>共</span><strong>{rows.length} 行</strong></div></header><div className={styles.tableWrap}><table className={styles.dataTable}><thead><tr><th>名称</th><th>接粉</th><th>回复</th><th>未回复</th><th>接粉小金额</th><th>接粉真实案件</th><th>回复率</th><th>添加律师</th><th>添加专家</th><th>添加律师率</th><th>添加专家率</th><th>总推客服</th><th>总注册</th><th>总开单</th><th>加密货币充值</th><th>银行卡充值</th><th>出金</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.label}-${row.sub ?? ""}-${index}`}><td><strong>{row.label}</strong>{row.sub ? <small>{row.sub}</small> : null}</td>{cells(row.totals)}</tr>)}<tr className={styles.total}><td><strong>合计</strong><small>当前显示 {rows.length} 行</small></td>{cells(totals)}</tr></tbody></table></div></section>;
-  }
-  const cells = (value: Totals) => {
-    const normalLeft = value.left - value.abnormalLeft;
-    return <><td>{value.added}</td><td>{value.collision}</td><td>{value.lowAmount}</td><td>{value.noWs}</td><td>{value.manualInvalid}</td><td><strong>{value.effective}</strong></td><td>{value.replied}</td><td>{value.joined}</td><td>{normalLeft}</td><td>{value.abnormalLeft}</td><td>{value.inGroup}</td><td>{value.pushed}</td><td>{value.registered}</td><td>{value.ordered}</td><td>{rate(value.replied, value.effective)}</td><td>{rate(value.joined, value.effective)}</td><td>{rate(value.abnormalLeft, value.joined - normalLeft)}</td><td>{rate(value.registered, value.pushed)}</td><td>{rate(value.ordered, value.registered)}</td><td>{money(value.initialDepositCents)}</td><td>{money(value.rechargeCents)}</td><td>{money(value.withdrawalCents)}</td><td><strong>{money(value.depositCents - value.withdrawalCents)}</strong></td></>;
-  };
-  return <section className={`fresh-sheet-card ${styles.card}`}><header className={`fresh-sheet-title ${styles.cardTitle}`}><div><h2>{title}</h2><p>底部合计只计算当前筛选后显示的行，转化率按合计数重新计算</p></div><div><span>共</span><strong>{rows.length} 行</strong></div></header><div className={styles.tableWrap}><table className={styles.dataTable}><thead><tr><th>名称</th><th>添加</th><th>撞粉</th><th>低金额</th><th>无 WS</th><th>人工无效</th><th>有效</th><th>回复</th><th>进群</th><th>正常退群</th><th>异常退群</th><th>在群</th><th>推专家</th><th>注册</th><th>开单</th><th>回复率</th><th>进群率</th><th>异常退群率</th><th>注册率</th><th>开单率</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.label}-${row.sub ?? ""}-${index}`}><td><strong>{row.label}</strong>{row.sub ? <small>{row.sub}</small> : null}</td>{cells(row.totals)}</tr>)}<tr className={styles.total}><td><strong>合计</strong><small>当前显示 {rows.length} 行</small></td>{cells(totals)}</tr></tbody></table></div></section>;
+function DataTable({ groupType, title, rows, fields }: { groupType: "HACKER" | "LAWYER"; title: string; rows: Array<{ label: string; sub?: string; totals: Totals }>; fields: readonly ResourceField[] }) {
+  return <ResourceReportTable title={`${title}${groupType === "LAWYER" ? " · 律师组" : ""}`} fields={fields}
+    note="底部合计计算当前筛选行，转化率按合计重新计算；数量和资金按发生日期汇总，在群为各行截止日存量。"
+    entities={[...rows.map((row, index) => ({ id: String(index), name: row.label, sub: row.sub, totals: row.totals })), { id: "total", name: "合计", sub: `当前显示 ${rows.length} 行`, totals: sumTotals(rows), total: true }]} />;
 }
 
-function MemberMatrix({ report, day, channelId, groupId, memberId }: { report: Reporting | null; day: string; channelId: string; groupId: string; memberId: string }) {
+function MemberMatrix({ fields, report, day, channelId, groupId, memberId, allChannelLabel }: { fields: readonly ResourceField[]; report: Reporting | null; day: string; channelId: string; groupId: string; memberId: string; allChannelLabel: string }) {
   const allMembers = (report?.members ?? []).filter((member) => member.groupId === groupId);
   const members = memberId ? allMembers.filter((member) => member.id === memberId) : allMembers;
   const rows = (report?.memberRows ?? []).filter((row) => row.groupId === groupId && (!day || row.date === day) && (!channelId || row.channelId === channelId));
@@ -231,39 +241,9 @@ function MemberMatrix({ report, day, channelId, groupId, memberId }: { report: R
   const byMember = new Map(allMembers.map((member) => [member.id, sumMemberTotals(rows.filter((row) => row.member.id === member.id))]));
   const filteredTotals = memberId ? byMember.get(memberId) ?? emptyTotals() : groupTotals;
   const group = report?.groups.find((item) => item.id === groupId);
-  const lawyerGroup = group?.groupType === "LAWYER";
-  const value = (metric: string, totals: Totals) => {
-    const normalLeft = totals.left - totals.abnormalLeft;
-    const values: Record<string, string | number> = {
-      "添加数据": totals.added, "撞粉": totals.collision, "低金额": totals.lowAmount, "无 WS 号码": totals.noWs, "人工无效": totals.manualInvalid,
-      "有效数据": totals.effective, "回复": totals.replied, "进群": totals.joined, "正常退群": normalLeft, "异常退群": totals.abnormalLeft, "当前在群": totals.inGroup,
-      "推专家": totals.pushed, "注册": totals.registered, "开单": totals.ordered, "回复率": rate(totals.replied, totals.effective), "进群率": rate(totals.joined, totals.effective),
-      "异常退群率": rate(totals.abnormalLeft, totals.joined - normalLeft), "注册率": rate(totals.registered, totals.pushed), "开单率": rate(totals.ordered, totals.registered),
-      "首充": money(totals.initialDepositCents), "续充": money(totals.rechargeCents), "出金": money(totals.withdrawalCents), "净业绩": money(totals.depositCents - totals.withdrawalCents),
-      "接粉": totals.added, "未回复": Math.max(0, totals.added - totals.replied), "接粉小金额": totals.lowAmount, "接粉真实案件": totals.lawyerRealCase,
-      "添加律师": totals.lawyerAdded, "添加专家": totals.lawyerExpertAdded, "添加律师率": rate(totals.lawyerAdded, totals.added), "添加专家率": rate(totals.lawyerExpertAdded, totals.added),
-      "总推客服数量": totals.customerServicePush, "总注册数量": totals.registered, "总开单数量": totals.ordered, "加密货币充值金额": money(totals.cryptoDepositCents), "银行卡充值金额": money(totals.bankDepositCents), "出金金额": money(totals.withdrawalCents),
-    };
-    return values[metric];
-  };
-  const metrics = lawyerGroup ? ["接粉", "回复", "未回复", "接粉小金额", "接粉真实案件", "回复率", "添加律师", "添加专家", "添加律师率", "添加专家率", "总推客服数量", "总注册数量", "总开单数量", "加密货币充值金额", "银行卡充值金额", "出金金额"] : ["添加数据", "撞粉", "低金额", "无 WS 号码", "人工无效", "有效数据", "回复", "进群", "正常退群", "异常退群", "当前在群", "推专家", "注册", "开单", "回复率", "进群率", "异常退群率", "注册率", "开单率", "首充", "续充", "出金", "净业绩"];
-  return <section className={`fresh-sheet-card ${styles.card}`}><header className={`fresh-sheet-title ${styles.cardTitle}`}><div><h2>{group?.name ?? "小组"} · 员工归属汇总表</h2><p>{day || "当前周期"} · {channelId ? report?.channels.find((item) => item.id === channelId)?.name : "全部授权渠道"} · 每名组员一列，后续数据归最初来源组员</p></div><div><span>当前列</span><strong>{members.length} 名归属成员</strong></div></header><div className={styles.tableWrap}><table className={standard.matrix}><thead><tr><th>数据指标</th><th>小组合计</th>{members.map((member) => <th key={member.id}>{member.name}<small>{member.role}</small></th>)}<th>当前筛选汇总</th></tr></thead><tbody>{metrics.map((metric) => <tr key={metric}><td><strong>{metric}</strong></td><td className={standard.groupTotal}>{value(metric, groupTotals)}</td>{members.map((member) => <td key={member.id}>{value(metric, byMember.get(member.id) ?? emptyTotals())}</td>)}<td className={standard.currentTotal}>{value(metric, filteredTotals)}</td></tr>)}</tbody></table></div></section>;
-}
-
-function DailyMemberDetails({ report, channelId, groupId, memberId }: { report: Reporting | null; channelId: string; groupId: string; memberId: string }) {
-  const group = report?.groups.find((item) => item.id === groupId);
-  const members = new Map((report?.members ?? []).map((member) => [member.id, member]));
-  const channels = new Map((report?.channels ?? []).map((channel) => [channel.id, channel]));
-  const rows = (report?.memberRows ?? []).filter((row) => row.groupId === groupId && (!memberId || row.member.id === memberId) && (!channelId || row.channelId === channelId)).sort((left, right) => right.date.localeCompare(left.date) || left.member.name.localeCompare(right.member.name, "zh-CN") || (channels.get(left.channelId)?.name ?? "").localeCompare(channels.get(right.channelId)?.name ?? "", "zh-CN"));
-  const period = report?.rows.find((row) => row.group.id === groupId)?.period;
-  const lawyerGroup = group?.groupType === "LAWYER";
-  const organization = [group?.companyName, group?.departmentName, group?.name].filter(Boolean).join(" · ");
-  const hackerCells = (totals: Totals) => {
-    const normalLeft = Math.max(0, totals.left - totals.abnormalLeft);
-    return <><td>{totals.added}</td><td>{totals.collision}</td><td>{totals.lowAmount}</td><td>{totals.noWs}</td><td>{totals.manualInvalid}</td><td>{totals.effective}</td><td>{totals.replied}</td><td>{totals.joined}</td><td>{normalLeft}</td><td>{totals.abnormalLeft}</td><td>{totals.inGroup}</td><td>{totals.pushed}</td><td>{totals.registered}</td><td>{totals.ordered}</td><td>{money(totals.initialDepositCents)}</td><td>{money(totals.rechargeCents)}</td><td>{money(totals.withdrawalCents)}</td><td><strong>{money(totals.depositCents - totals.withdrawalCents)}</strong></td></>;
-  };
-  const lawyerCells = (totals: Totals) => <><td>{totals.added}</td><td>{totals.replied}</td><td>{Math.max(0, totals.added - totals.replied)}</td><td>{totals.lowAmount}</td><td>{totals.lawyerRealCase}</td><td>{totals.lawyerAdded}</td><td>{totals.lawyerExpertAdded}</td><td>{totals.customerServicePush}</td><td>{totals.registered}</td><td>{totals.ordered}</td><td>{money(totals.cryptoDepositCents)}</td><td>{money(totals.bankDepositCents)}</td><td>{money(totals.withdrawalCents)}</td></>;
-  return <section className={`fresh-sheet-card ${styles.card}`} aria-label="每日完整明细"><header className={`fresh-sheet-title ${styles.cardTitle}`}><div><h2>每日完整明细</h2><p>{period ? `${period.from} 至 ${period.to} · ` : ""}每行对应一天、一个小组、一名成员和一个渠道</p></div><div><span>当前筛选</span><strong>{rows.length} 条</strong></div></header><div className={styles.tableWrap}><table className={styles.dataTable}><thead><tr><th>日期 / 组织</th><th>成员</th><th>渠道</th>{lawyerGroup ? <><th>接粉</th><th>回复</th><th>未回复</th><th>接粉小金额</th><th>真实案件</th><th>添加律师</th><th>添加专家</th><th>总推客服</th><th>总注册</th><th>总开单</th><th>加密货币充值</th><th>银行卡充值</th><th>出金</th></> : <><th>添加</th><th>撞粉</th><th>低金额</th><th>无 WS</th><th>人工无效</th><th>有效</th><th>回复</th><th>进群</th><th>正常退群</th><th>异常退群</th><th>在群</th><th>推专家</th><th>注册</th><th>开单</th><th>首充</th><th>续充</th><th>出金</th><th>净业绩</th></>}</tr></thead><tbody>{rows.map((row) => <tr key={`${row.date}-${row.groupId}-${row.member.id}-${row.channelId}`}><td><strong>{row.date}</strong><small>{organization}</small></td><td>{members.get(row.member.id)?.name ?? row.member.name}</td><td>{channels.get(row.channelId)?.name ?? "未知渠道"}</td>{lawyerGroup ? lawyerCells(row.totals) : hackerCells(row.totals)}</tr>)}{!rows.length ? <tr><td colSpan={lawyerGroup ? 16 : 21}>当前筛选范围没有已保存的每日数据</td></tr> : null}</tbody></table></div></section>;
+  return <ResourceReportTable title={`${group?.name ?? "小组"} · 员工归属汇总表`} fields={fields} layout="columns"
+    note={`${day || "当前周期"} · ${channelId ? report?.channels.find(item => item.id === channelId)?.name : allChannelLabel} · 每名组员一列，后续数据归最初来源组员；数量和资金按发生日期汇总，当前在群为截止日存量。`}
+    entities={[{ id: "group-total", name: "小组合计", totals: groupTotals, total: true }, ...members.map(member => ({ id: member.id, name: member.name, sub: member.role, totals: byMember.get(member.id) ?? emptyTotals() })), { id: "filtered-total", name: "当前筛选汇总", totals: filteredTotals, total: true }]} />;
 }
 
 function ChannelCatalog(props: { channels: Channel[]; authorizedChannelType: Channel["channelType"] | null; search: string; setSearch: (value: string) => void; createOpen: boolean; setCreateOpen: (value: boolean) => void; savingId: string; onSave: (event: FormEvent<HTMLFormElement>) => void; onToggle: (channel: Channel) => void }) {
@@ -273,5 +253,16 @@ function UsageTable({ rows, channels }: { rows: ReportRow[]; channels: Channel[]
 function ReadOnlyAccount({ user, channels }: { user: BackendUser; channels: Channel[] }) { return <section className={`${styles.card} ${styles.readOnlyPanel}`}><span>只读</span><h2>当前资源账号</h2><dl><div><dt>姓名</dt><dd>{user.name}</dd></div><div><dt>登录账号</dt><dd>{user.username}</dd></div><div><dt>已授权渠道</dt><dd>{channels.length} 个</dd></div></dl><p>资源账号的创建、停用和渠道授权会影响数据边界，现有安全接口只允许总公司管理员操作。本页不提供虚假的编辑按钮，如需改权限，请联系总公司管理员。</p></section>; }
 
 function groupByChannel(rows: ReportRow[]) { const map = new Map<string, { label: string; totals: Totals }>(); for (const row of rows) { const current = map.get(row.channel.id) ?? { label: row.channel.name, totals: emptyTotals() }; current.totals = sumTotals([{ totals: current.totals }, row]); map.set(row.channel.id, current); } return [...map.values()]; }
-function SmartAnalysis({ rows }: { rows: ReportRow[] }) { const groups = groupByChannel(rows).filter((row) => row.totals.added > 0); if (!groups.length) return <StateCard>当前筛选范围没有可分析数据</StateCard>; const best = [...groups].sort((a, b) => b.totals.effective / Math.max(1, b.totals.added) - a.totals.effective / Math.max(1, a.totals.added))[0]; const mostOrders = [...groups].sort((a, b) => b.totals.ordered - a.totals.ordered)[0]; return <section className={styles.insights}><article data-tone="good"><span>有效率领先</span><strong>{best.label}</strong><p>{rate(best.totals.effective, best.totals.added)}，{best.totals.effective} 条有效数据</p></article><article data-tone="info"><span>开单最多</span><strong>{mostOrders.label}</strong><p>{mostOrders.totals.ordered} 单，净业绩 {money(mostOrders.totals.depositCents - mostOrders.totals.withdrawalCents)}</p></article></section>; }
+function SmartAnalysis({ rows }: { rows: ReportRow[] }) {
+  const groups = groupByChannel(rows);
+  const best = groups.filter(row => row.totals.added > 0 && row.totals.effective > 0)
+    .sort((a, b) => b.totals.effective / b.totals.added - a.totals.effective / a.totals.added)[0];
+  const mostOrders = groups.filter(row => row.totals.ordered > 0)
+    .sort((a, b) => b.totals.ordered - a.totals.ordered)[0];
+  if (!groups.length) return <StateCard>当前筛选范围没有可分析数据</StateCard>;
+  return <section className={styles.insights}>
+    <article data-tone="good"><span>有效率领先</span><strong>{best?.label ?? "暂无有效数据"}</strong><p>{best ? `${rate(best.totals.effective, best.totals.added)}，${best.totals.effective} 条有效数据` : "当前范围没有有效数据，暂不排名"}</p></article>
+    <article data-tone="info"><span>开单最多</span><strong>{mostOrders?.label ?? "暂无开单"}</strong><p>{mostOrders ? `${mostOrders.totals.ordered} 单，净业绩 ${money(mostOrders.totals.depositCents - mostOrders.totals.withdrawalCents)}` : "当前范围没有开单，暂不排名"}</p></article>
+  </section>;
+}
 function Anomalies({ rows }: { rows: ReportRow[] }) { const items = groupByChannel(rows).flatMap((row) => { const result: Array<{ tone: string; title: string; detail: string }> = []; if (row.totals.added > 0 && row.totals.effective / row.totals.added < .6) result.push({ tone: "bad", title: `${row.label}：有效率偏低`, detail: `当前 ${rate(row.totals.effective, row.totals.added)}，有效 ${row.totals.effective} / 添加 ${row.totals.added}` }); if (row.totals.added > 0 && row.totals.collision / row.totals.added > .2) result.push({ tone: "warn", title: `${row.label}：撞粉占比偏高`, detail: `${rate(row.totals.collision, row.totals.added)}，撞粉 ${row.totals.collision} 条` }); if (row.totals.joined > 0 && row.totals.abnormalLeft / row.totals.joined > .1) result.push({ tone: "warn", title: `${row.label}：异常退群需关注`, detail: `${rate(row.totals.abnormalLeft, row.totals.joined)}，异常退群 ${row.totals.abnormalLeft} 人` }); return result; }); return <section className={styles.alerts}><header><h2>根据当前筛选数据自动检查</h2><p>规则：有效率低于 60%、撞粉超过 20%、异常退群超过进群 10%</p></header>{items.length ? items.map((item, index) => <article key={`${item.title}-${index}`} data-tone={item.tone}><strong>{item.title}</strong><p>{item.detail}</p></article>) : <div className={styles.empty}>当前未触发异常规则</div>}</section>; }

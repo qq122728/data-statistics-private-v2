@@ -1,5 +1,6 @@
 "use client";
 
+import CalendarDateInput from "../../../packages/customer-sheet/CalendarDateInput";
 import { useEffect, useRef, useState } from "react";
 import { IconAlert } from "./Icons";
 
@@ -46,7 +47,7 @@ export function ConfirmDialog({
     setNum(confirm?.defaultNumber ?? "");
     setKind(confirm?.defaultKind ?? confirm?.kindOptions?.[0]?.value ?? "");
     setDate(confirm?.defaultDate ?? "");
-    setPhase("form");
+    setPhase(confirm?.reasonLabel || confirm?.numberLabel || confirm?.dateLabel || confirm?.kindOptions?.length ? "form" : "review");
   }, [confirm]);
 
   useEffect(() => {
@@ -63,6 +64,7 @@ export function ConfirmDialog({
 
   if (!confirm) return null;
 
+  const needsInput = Boolean(confirm.reasonLabel || confirm.numberLabel || confirm.dateLabel || confirm.kindOptions?.length);
   const needReason = Boolean(confirm.reasonLabel);
   const needNum = Boolean(confirm.numberLabel);
   const needDate = Boolean(confirm.dateLabel);
@@ -150,8 +152,8 @@ export function ConfirmDialog({
             {needDate ? (
               <div>
                 <label className="label">{confirm.dateLabel}</label>
-                <input
-                  className="field" style={{ width: "100%" }} type="date"
+                <CalendarDateInput
+                  className="field" style={{ width: "100%" }}
                   value={date} onChange={(e) => setDate(e.target.value)}
                 />
               </div>
@@ -185,20 +187,16 @@ export function ConfirmDialog({
             ) : null}
 
             <p style={{ margin: 0, fontSize: 12.5, color: "var(--ink-3)" }}>
-              点下面的按钮之后才会真正保存。
+              下一步会显示核对内容，确认后才会保存。
             </p>
           </div>
         ) : (
           <div style={{ padding: "0 20px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
             <p style={{ margin: 0, fontSize: 12.5, color: "var(--ink-3)" }}>
-              请再确认一遍，点击「{confirm.confirmLabel}」后立刻生效：
+              点击「{confirm.confirmLabel}」后生效，请核对操作内容。
             </p>
-            <div
-              style={{
-                padding: "9px 12px", borderRadius: "var(--radius)",
-                background: "var(--surface-sunken)", border: "1px solid var(--line)",
-                display: "flex", flexDirection: "column", gap: 8,
-              }}
+            {confirm.target || needsInput ? <div
+              style={{ padding: "9px 12px", borderRadius: "var(--radius)", background: "var(--surface-sunken)", border: "1px solid var(--line)", display: "flex", flexDirection: "column", gap: 8 }}
             >
               {confirm.target ? <SummaryRow label="操作对象" value={confirm.target} /> : null}
               {confirm.kindOptions?.length ? (
@@ -212,7 +210,7 @@ export function ConfirmDialog({
               {needReason ? (
                 <SummaryRow label={confirm.reasonLabel ?? "原因"} value={reason.trim() || "（未填）"} />
               ) : null}
-            </div>
+            </div> : null}
           </div>
         )}
 
@@ -236,7 +234,7 @@ export function ConfirmDialog({
             </>
           ) : (
             <>
-              <button className="btn" onClick={() => setPhase("form")}>返回修改</button>
+              <button className="btn" onClick={needsInput ? () => setPhase("form") : onClose}>{needsInput ? "返回修改" : "取消"}</button>
               <button
                 className="btn"
                 data-variant="primary"

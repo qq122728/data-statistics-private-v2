@@ -1,0 +1,21 @@
+.tabs { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 14px; border-bottom: 1px solid #d5dfeb; }
+.tabs button { min-height: 30px; padding: 4px 12px; border: 1px solid #ccd7e5; border-radius: 5px; background: #fff; color: #46566c; font: inherit; font-size: 12px; cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: #eaf2ff; border-color: #93b8eb; color: #215b9f; font-weight: 650; }
+.tabs button:focus-visible { outline: 2px solid #1a73e8; outline-offset: 2px; }
+.table:not([data-column-group="all"]) table { min-width: 0; width: 100%; }
+.table table th, .table table td { border-right: 1px solid #d5dfeb; border-bottom: 1px solid #d5dfeb; }
+.table table th { font-size: 12px; }
+.table table td { font-size: 13px; }
+.table table th:first-child, .table table td:first-child { position: sticky; left: 0; background: #f7faff; z-index: 1; }
+.table[data-layout="company"][data-column-group="common"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(2)):not(:nth-child(3)):not(:nth-child(8)):not(:nth-child(9)):not(:nth-child(11)):not(:nth-child(16)):not(:nth-child(20)):not(:nth-child(25)) { display: none; }
+.table[data-layout="company"][data-column-group="counts"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(2)):not(:nth-child(3)):not(:nth-child(4)):not(:nth-child(5)):not(:nth-child(6)):not(:nth-child(7)):not(:nth-child(8)):not(:nth-child(9)):not(:nth-child(11)):not(:nth-child(13)):not(:nth-child(14)):not(:nth-child(16)):not(:nth-child(17)):not(:nth-child(18)):not(:nth-child(20)) { display: none; }
+.table[data-layout="company"][data-column-group="rates"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(10)):not(:nth-child(12)):not(:nth-child(15)):not(:nth-child(19)):not(:nth-child(21)) { display: none; }
+.table[data-layout="company"][data-column-group="funds"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(22)):not(:nth-child(23)):not(:nth-child(24)):not(:nth-child(25)) { display: none; }
+.table[data-layout="department"][data-column-group="common"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(2)):not(:nth-child(3)):not(:nth-child(8)):not(:nth-child(9)):not(:nth-child(10)):not(:nth-child(13)):not(:nth-child(16)):not(:nth-child(25)) { display: none; }
+.table[data-layout="department"][data-column-group="counts"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(2)):not(:nth-child(3)):not(:nth-child(4)):not(:nth-child(5)):not(:nth-child(6)):not(:nth-child(7)):not(:nth-child(8)):not(:nth-child(9)):not(:nth-child(10)):not(:nth-child(11)):not(:nth-child(12)):not(:nth-child(13)):not(:nth-child(14)):not(:nth-child(15)):not(:nth-child(16)) { display: none; }
+.table[data-layout="department"][data-column-group="rates"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(17)):not(:nth-child(18)):not(:nth-child(19)):not(:nth-child(20)):not(:nth-child(21)) { display: none; }
+.table[data-layout="department"][data-column-group="funds"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(22)):not(:nth-child(23)):not(:nth-child(24)):not(:nth-child(25)) { display: none; }
+.table[data-layout="lawyer"][data-column-group="common"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(2)):not(:nth-child(3)):not(:nth-child(4)):not(:nth-child(7)):not(:nth-child(9)):not(:nth-child(10)):not(:nth-child(15)):not(:nth-child(18)) { display: none; }
+.table[data-layout="lawyer"][data-column-group="counts"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(2)):not(:nth-child(3)):not(:nth-child(4)):not(:nth-child(5)):not(:nth-child(6)):not(:nth-child(7)):not(:nth-child(9)):not(:nth-child(10)):not(:nth-child(13)):not(:nth-child(14)):not(:nth-child(15)) { display: none; }
+.table[data-layout="lawyer"][data-column-group="rates"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(8)):not(:nth-child(11)):not(:nth-child(12)) { display: none; }
+.table[data-layout="lawyer"][data-column-group="funds"] tr > :is(th, td):not(:nth-child(1)):not(:nth-child(16)):not(:nth-child(17)):not(:nth-child(18)) { display: none; }

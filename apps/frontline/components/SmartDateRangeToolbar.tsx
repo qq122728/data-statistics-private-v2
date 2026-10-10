@@ -1,4 +1,6 @@
 "use client";
+import type { ReactNode } from "react";
+import MonthDaySelect from "../../../packages/customer-sheet/MonthDaySelect";
 
 export type SmartDatePreset = "today" | "yesterday" | "7d" | "week" | "30d" | "month" | "lastMonth" | "custom";
 
@@ -11,22 +13,6 @@ const presets: Array<{ value: Exclude<SmartDatePreset, "custom">; label: string 
   { value: "month", label: "本月" },
   { value: "lastMonth", label: "上月" },
 ];
-
-function monthOptions(today: string, count = 36) {
-  const [year, month] = today.slice(0, 7).split("-").map(Number);
-  return Array.from({ length: count }, (_, index) => {
-    const date = new Date(Date.UTC(year, month - 1 - index, 1));
-    const value = date.toISOString().slice(0, 7);
-    return { value, label: `${date.getUTCFullYear()}年${date.getUTCMonth() + 1}月` };
-  });
-}
-
-function monthBounds(month: string, today: string) {
-  const [year, monthNumber] = month.split("-").map(Number);
-  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
-  const naturalTo = `${month}-${String(lastDay).padStart(2, "0")}`;
-  return { from: `${month}-01`, to: naturalTo > today ? today : naturalTo, dayCount: lastDay };
-}
 
 export function localCalendarDate() {
   const now = new Date();
@@ -43,8 +29,10 @@ export function localCalendarDate() {
 
 export function SmartDateRangeToolbar({
   range, from, to, currentLabel, loading, title = "统计日期", note = "统一按北京时间统计，每天 14:00 切换到下一统计日",
-  onRange, onFrom, onTo, onRefresh,
+  onRange, onFrom, onTo, onRefresh, actions, compact = false,
 }: {
+  compact?: boolean;
+  actions?: ReactNode;
   range: string;
   from: string;
   to: string;
@@ -58,29 +46,20 @@ export function SmartDateRangeToolbar({
   onRefresh: () => void;
 }) {
   const today = localCalendarDate();
-  const selectedMonth = /^\d{4}-\d{2}-\d{2}$/.test(from) ? from.slice(0, 7) : today.slice(0, 7);
-  const selectedDay = range === "custom" && from === to ? String(Number(from.slice(8, 10))) : "";
-  const selectedBounds = monthBounds(selectedMonth, today);
-  const selectMonth = (month: string) => {
-    const bounds = monthBounds(month, today);
-    onRange("custom");
-    onFrom(bounds.from);
-    onTo(bounds.to);
-  };
-  const selectDay = (day: string) => {
-    onRange("custom");
-    if (!day) {
-      onFrom(selectedBounds.from);
-      onTo(selectedBounds.to);
-      return;
-    }
-    const date = `${selectedMonth}-${day.padStart(2, "0")}`;
-    onFrom(date);
-    onTo(date);
-  };
   const current = range === "custom" && from && to
     ? (from === to ? from : `${from} 至 ${to}`)
     : currentLabel || presets.find((item) => item.value === range)?.label || "当前区间";
+  if (compact) return <section className="fresh-toolbar analysis-date-toolbar" aria-label="智能日期筛选">
+    <div className="fresh-history-intro"><strong>{title}</strong></div>
+    <div className="analysis-date-presets">
+      {presets.filter(p=>["today","yesterday","month"].includes(p.value)).map(p=><button key={p.value} data-active={range===p.value} disabled={loading} onClick={()=>onRange(p.value)}>{p.label}</button>)}
+      <button data-active={range==="custom"} disabled={loading} onClick={()=>onRange("custom")}>自定义</button>
+      <select aria-label="更多日期范围" value={["7d","week","30d","lastMonth"].includes(range)?range:""} disabled={loading} onChange={e=>{if(e.target.value)onRange(e.target.value as SmartDatePreset);}}><option value="">更多日期</option>{presets.filter(p=>["7d","week","30d","lastMonth"].includes(p.value)).map(p=><option key={p.value} value={p.value}>{p.label}</option>)}</select>
+    </div>
+    <span className="summary-applied-range">当前显示：{currentLabel || "读取中…"}</span>
+    <button disabled={loading} onClick={onRefresh}>{loading ? "刷新中…" : "刷新"}</button>{actions}
+    {range==="custom" ? <div className="analysis-custom-range"><span>选择范围</span><MonthDaySelect label="开始日期" max={today} value={from} onChange={onFrom} clearable={false}/><span>至</span><MonthDaySelect label="结束日期" max={today} value={to} onChange={onTo} clearable={false}/><button className="fresh-primary" disabled={loading||!from||!to||from>to} onClick={onRefresh}>查询</button><small>{from>to ? "结束日期不能早于开始日期" : "选择后点击查询"}</small></div> : null}
+  </section>;
   return <section className="fresh-toolbar analysis-date-toolbar" aria-label="智能日期筛选">
     <div className="fresh-history-intro"><strong>{title}</strong><span>{note}</span></div>
     <div className="analysis-date-presets" aria-label="快捷日期筛选">
@@ -88,17 +67,17 @@ export function SmartDateRangeToolbar({
       <button type="button" data-active={range === "custom"} onClick={() => onRange("custom")}>自定义</button>
     </div>
     <div className="analysis-month-day" aria-label="按月份和日期筛选">
-      <label><span>月份</span><select value={selectedMonth} onChange={(event) => selectMonth(event.target.value)}>{monthOptions(today).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-      <label><span>日期</span><select value={selectedDay} onChange={(event) => selectDay(event.target.value)}><option value="">整月</option>{Array.from({ length: selectedBounds.dayCount }, (_, index) => index + 1).map((day) => <option key={day} value={day} disabled={`${selectedMonth}-${String(day).padStart(2, "0")}` > today}>{day}日</option>)}</select></label>
+      <label><span>日期</span><MonthDaySelect label="筛选日期" value={from||today} max={today} clearable={false} onChange={date=>{onRange("custom");onFrom(date);onTo(date);}}/></label>
       <button type="button" className="fresh-primary" disabled={loading} onClick={onRefresh}>查询</button>
     </div>
     {range === "custom" ? <div className="analysis-custom-range">
-      <label><span>开始</span><input type="date" max={today} value={from} onChange={(event) => onFrom(event.target.value)} /></label>
+      <label><span>开始</span><MonthDaySelect label="开始日期" max={today} value={from} onChange={onFrom} clearable={false}/></label>
       <b>至</b>
-      <label><span>结束</span><input type="date" max={today} value={to} onChange={(event) => onTo(event.target.value)} /></label>
+      <label><span>结束</span><MonthDaySelect label="结束日期" max={today} value={to} onChange={onTo} clearable={false}/></label>
       <button type="button" className="fresh-primary" disabled={!from || !to || loading} onClick={onRefresh}>应用</button>
     </div> : null}
     <div className="analysis-range-current"><span>当前范围</span><strong>{current}</strong></div>
     <button type="button" className="fresh-primary" disabled={loading} onClick={onRefresh}>{loading ? "刷新中…" : "刷新"}</button>
+    {actions}
   </section>;
 }

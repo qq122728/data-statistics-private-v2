@@ -2,6 +2,7 @@ node_modules/
 .next/
 .next-e2e/
 .next-dev/
+.next-main-*/
 coverage/
 playwright-report/
 test-results/

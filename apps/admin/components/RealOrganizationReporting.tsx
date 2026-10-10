@@ -1,5 +1,6 @@
 "use client";
 
+import CalendarDateInput from "../../../packages/customer-sheet/CalendarDateInput";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { requestJson } from "@/lib/backend";
 import { timezoneLabel } from "@/lib/timezone-label";
@@ -8,6 +9,7 @@ import { RealEntityMetricsTable, RealMetricMatrix, type RealMetricColumn, type R
 type Range = "today" | "yesterday" | "7d" | "30d" | "month" | "lastMonth" | "custom";
 type Rates = { replyRate?: number | null; groupRate?: number | null; leaveRate?: number | null };
 type Group = {
+  groupType: "HACKER" | "LAWYER";
   id: string; name: string; timezone: string; period: { today: string; from: string; to: string };
   department: { id: string; name: string }; company: { id: string; name: string } | null;
   totals: RealMetrics; rates: Rates;
@@ -107,21 +109,21 @@ export function RealOrganizationReporting({ permissionLabel, actorGroupMode = fa
     </div> : null}
     {usesDateInputs ? <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
       <span className="label" style={{ margin: 0 }}>统计区间</span>
-      <input className="field" type="date" value={from} max={to} onChange={(event) => { setFrom(event.target.value); setRange("custom"); }} />
+      <CalendarDateInput className="field"  value={from} max={to} onChange={(event) => { setFrom(event.target.value); setRange("custom"); }} />
       <span style={{ color: "var(--ink-3)" }}>至</span>
-      <input className="field" type="date" value={to} min={from} max={dateLimit} onChange={(event) => { setTo(event.target.value); setRange("custom"); }} />
+      <CalendarDateInput className="field"  value={to} min={from} max={dateLimit} onChange={(event) => { setTo(event.target.value); setRange("custom"); }} />
       <button className="btn" data-size="sm" onClick={() => { setFrom(`${dateLimit.slice(0, 7)}-01`); setTo(dateLimit); setRange("custom"); }}>本月</button>
       <span className="badge" data-tone="mute" style={{ marginLeft: "auto" }}>只读 · 汇总口径</span>
     </div> : <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><span className="label">统计区间</span>{OPTIONS.map(([id, label]) => <button key={id} className="btn" data-size="sm" data-variant={range === id ? "primary" : undefined} onClick={() => setRange(id)}>{label}</button>)}</div>}
     {loading ? <section className="card" style={{ padding: 48, textAlign: "center", color: "var(--ink-3)" }}>正在读取真实统计数据…</section> : null}
     {error ? <section className="card" style={{ padding: 48, textAlign: "center", color: "var(--bad)" }}>{error}</section> : null}
-    {!loading && !error && selectedGroup ? <RealMetricMatrix title={`${selectedGroup.name} · 区间汇总`} note={`${selectedGroup.period.from} 至 ${selectedGroup.period.to} 累计 · 总计比例按总数重新计算，不取个人比例平均值。`} columns={columns} /> : null}
+    {!loading && !error && selectedGroup ? <RealMetricMatrix title={`${selectedGroup.name} · 区间汇总`} note={`${selectedGroup.period.from} 至 ${selectedGroup.period.to} 累计 · 总计比例按总数重新计算，不取个人比例平均值。`} columns={columns} groupType={selectedGroup.groupType} /> : null}
     {!loading && !error && selectedGroup ? <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div><h2 className="card-title">每日明细</h2><p className="card-note">所选区间内实际有填写记录的日期，最新日期排在最上面。</p></div>
         <span className="badge" data-tone="mute">共 {dayMatrices.length} 天</span>
       </div>
-      {dayMatrices.map((day) => <RealMetricMatrix key={day.date} title={day.date} columns={day.columns} />)}
+      {dayMatrices.map((day) => <RealMetricMatrix key={day.date} title={day.date} columns={day.columns} groupType={selectedGroup.groupType} />)}
       {!dayMatrices.length ? <section className="card" style={{ padding: 44, textAlign: "center", color: "var(--ink-3)" }}>所选区间内没有每日明细</section> : null}
     </div> : null}
     {!loading && !error && !selectedGroup ? <RealEntityMetricsTable title="小组对比" note={`${data?.range.label ?? "当前区间"} · 选择一个具体小组后可以查看逐人明细。`} entityLabel="小组" rows={groupRows} /> : null}

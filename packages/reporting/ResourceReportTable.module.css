@@ -1,0 +1,26 @@
+.card { min-width: 0; overflow: hidden; border: 1px solid #d5dfeb; border-radius: 9px; background: #fff; }
+.heading { padding: 13px 16px; border-bottom: 1px solid #e3e8ef; }
+.heading h2 { margin: 0; font-size: 14px; color: #26374e; }
+.heading p { margin: 5px 0 0; font-size: 12px; line-height: 1.6; color: #63748b; }
+.controls { padding: 12px 14px; background: #fff; border: 1px solid #d5dfeb; border-radius: 9px; }
+.options { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; color: #33465f; font-size: 13px; }
+.options label { display: flex; align-items: center; gap: 6px; min-height: 32px; cursor: pointer; }
+.options input { width: 16px; height: 16px; accent-color: #2164ce; }
+.options button { min-height: 34px; padding: 6px 11px; border: 1px solid #c7d5e6; border-radius: 6px; background: #f8faff; color: #245d9c; font: inherit; cursor: pointer; }
+.options button:disabled { opacity: .5; cursor: wait; }
+.options :focus-visible, .wrap:focus-visible { outline: 2px solid #2164ce; outline-offset: 2px; }
+.controls p, .explanation { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: #65748b; }
+.controls .history { padding: 8px 10px; background: #fff7e5; color: #805315; border-radius: 5px; }
+.explanation { padding: 8px 12px; background: #edf4fc; border-radius: 6px; }
+.scrollHint { margin: 0; padding: 8px 16px; background: #f3f7fc; color: #60718a; font-size: 12px; line-height: 1.5; }
+.wrap { overflow: auto; max-height: min(62vh, 660px); scrollbar-gutter: stable; }
+.table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; font-variant-numeric: tabular-nums; color: #33465f; }
+.table th, .table td { min-width: 92px; padding: 11px 12px; border-bottom: 1px solid #dce4ee; border-right: 1px solid #e4eaf2; white-space: nowrap; text-align: right; }
+.table th { background: #edf2f8; }
+.table thead th { position: sticky; top: 0; z-index: 3; }
+.table tr > :first-child { position: sticky; left: 0; z-index: 2; min-width: 140px; width: 180px; max-width: 220px; white-space: normal; overflow-wrap: anywhere; text-align: left; background: #f5f8fc; }
+.table thead tr > :first-child { z-index: 4; background: #eaf0f7; }
+.table th small { display: block; margin-top: 4px; font-size: 11px; line-height: 1.4; font-weight: 400; color: #63758e; }
+.table .total, .table .total > * { background: #e8f1ff; color: #245489; font-weight: 700; }
+.empty { padding: 20px; color: #6d7d92; text-align: center; }
+@media (max-width: 600px) { .heading, .controls { padding: 10px; } .options { gap: 6px 12px; } .options > strong { flex-basis: 100%; } .table tr > :first-child { min-width: 120px; width: 120px; max-width: 140px; } .scrollHint { padding: 8px 10px; } }

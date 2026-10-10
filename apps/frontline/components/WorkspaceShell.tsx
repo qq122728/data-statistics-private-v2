@@ -1,5 +1,6 @@
 "use client";
 
+import { AccountMenu } from "../../../packages/auth/AccountMenu";
 import type { ReactNode } from "react";
 import {
   ArrowsLeftRight, Bell, Broadcast, CalendarBlank, ChartLine, Devices,
@@ -35,6 +36,7 @@ export type WorkspaceShellProps = {
   subtitle: string;
   userName: string;
   userLabel: string;
+  accountScope?: ReactNode;
   onLogout: () => void;
   navigation: ReactNode;
   assistant?: ReactNode;
@@ -42,7 +44,7 @@ export type WorkspaceShellProps = {
   children: ReactNode;
 };
 
-export function WorkspaceShell({ mark, workspaceLabel, title, subtitle, userName, userLabel, onLogout, navigation, assistant, scope, children }: WorkspaceShellProps) {
+export function WorkspaceShell({ mark, workspaceLabel, title, subtitle, userName, userLabel, accountScope, onLogout, navigation, assistant, scope, children }: WorkspaceShellProps) {
   return <div className={styles.shell}>
     <aside className={styles.sidebar}>
       <div className={styles.brand}><span>{mark}</span><div><strong>数据统计</strong><small>{workspaceLabel}</small></div></div>
@@ -52,7 +54,7 @@ export function WorkspaceShell({ mark, workspaceLabel, title, subtitle, userName
     <section className={styles.main}>
       <header className={styles.header}>
         <div><h1>{title}</h1><p>{subtitle}</p></div>
-        <div className={styles.headerActions}>{assistant}<div className={styles.user}><span>{userName.slice(0, 1)}</span><div><strong>{userName}</strong><small>{userLabel}</small></div><button type="button" className={styles.logout} onClick={onLogout}>退出</button></div></div>
+        <div className={styles.headerActions}>{assistant}<AccountMenu name={userName} roleLabel={userLabel} scope={accountScope ?? scope?.value ?? "本人通知"} changePasswordHref="/change-password" onLogout={onLogout} /></div>
       </header>
       <main className={styles.content}>{children}</main>
     </section>

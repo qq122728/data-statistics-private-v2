@@ -1,12 +1,18 @@
 "use client";
+import { UnifiedMemberDataSheet } from "../../frontline/components/UnifiedMemberDataSheet";
+import { AiSmartAssistant } from "../../frontline/components/AiSmartAssistant";
 
 import { useEffect, useState } from "react";
+import { ADMIN_PAGES as PAGE_META, type View } from "@/lib/navigation";
+import { accountRoleLabel } from "../../../packages/auth/account-role";
+import { logoutSession } from "../../../packages/auth/logout";
+import { adminPath } from "@/lib/app-path";
 import { AppShell, type Role } from "@/components/AppShell";
 import { ConfirmDialog, type Confirm } from "@/components/ConfirmDialog";
-import { SharedDailyDataSheet } from "../../frontline/components/SharedDailyDataSheet";
 import { IconAlert, IconCheck } from "@/components/Icons";
 import { Leaderboard } from "@/components/Leaderboard";
 import { ManagementCustomerProgress } from "@/components/ManagementCustomerProgress";
+import { GroupDataDetail } from "../../../packages/reporting/GroupDataDetail";
 import { OrganizationDetailWorkspace } from "@/components/OrganizationDetailWorkspace";
 import { RealChannelReporting } from "@/components/RealChannelReporting";
 import { RealCustomerProgress } from "@/components/RealCustomerProgress";
@@ -31,14 +37,6 @@ import {
   type Position,
 } from "@/lib/backend";
 
-type View =
-  | "members" | "followup" | "expert-daily" | "summary" | "channel" | "dashboard" | "notice" | "devices" | "leaderboard"
-  | "team-overview" | "team-detail" | "group-leadership" | "dept-notice" | "dept-leaderboard"
-  | "company-overview" | "company-detail" | "company-leadership" | "company-notice" | "company-leaderboard"
-  | "hq-overview" | "hq-detail" | "hq-leadership" | "hq-notice" | "hq-leaderboard"
-  | "resource-summary" | "resource-group-detail" | "resource-notice"
-  | "management-customer-progress" | "channel-settings";
-
 const DEFAULT_VIEW: Record<Role, View> = {
   LEAD: "followup",
   DEPT_MANAGER: "team-overview",
@@ -46,38 +44,6 @@ const DEFAULT_VIEW: Record<Role, View> = {
   HQ_MANAGER: "hq-overview",
   RESOURCE_TRAFFIC: "resource-summary",
   RESOURCE_SMS: "resource-summary",
-};
-
-const PAGE_META: Record<View, { title: string; section: string }> = {
-  members: { title: "组员管理", section: "我的数据" },
-  followup: { title: "客户进度工作台", section: "日常工作" },
-  "expert-daily": { title: "每日数据填写", section: "日常工作" },
-  summary: { title: "数据汇总", section: "日常工作" },
-  channel: { title: "渠道数据核对", section: "日常工作" },
-  dashboard: { title: "我的看板", section: "我的数据" },
-  notice: { title: "通知中心", section: "日常工作" },
-  devices: { title: "设备管理", section: "我的数据" },
-  leaderboard: { title: "精英榜", section: "我的数据" },
-  "team-overview": { title: "部门工作台", section: "日常工作" },
-  "team-detail": { title: "数据汇总", section: "日常工作" },
-  "group-leadership": { title: "小组与人员管理", section: "组织管理" },
-  "dept-notice": { title: "通知中心", section: "日常工作" },
-  "dept-leaderboard": { title: "精英榜", section: "组织管理" },
-  "company-overview": { title: "部门汇总", section: "日常工作" },
-  "company-detail": { title: "部门明细", section: "日常工作" },
-  "company-leadership": { title: "部门与组长人事", section: "组织管理" },
-  "company-notice": { title: "通知中心", section: "日常工作" },
-  "company-leaderboard": { title: "精英榜", section: "组织管理" },
-  "hq-overview": { title: "公司汇总", section: "日常工作" },
-  "hq-detail": { title: "公司明细", section: "日常工作" },
-  "hq-leadership": { title: "全局人事", section: "组织管理" },
-  "hq-notice": { title: "通知中心", section: "日常工作" },
-  "hq-leaderboard": { title: "精英榜", section: "组织管理" },
-  "resource-summary": { title: "渠道数据汇总", section: "日常工作" },
-  "resource-group-detail": { title: "小组明细", section: "日常工作" },
-  "resource-notice": { title: "通知中心", section: "日常工作" },
-  "management-customer-progress": { title: "客户进度", section: "日常工作" },
-  "channel-settings": { title: "渠道设置", section: "组织管理" },
 };
 
 function roleForUser(user: BackendUser): Role | null {
@@ -112,18 +78,11 @@ function scopeLabel(user: BackendUser, role: Role): string {
   return user.groupName ?? "所属小组";
 }
 
-function roleTitle(user: BackendUser, role: Role): string {
-  if (role === "HQ_MANAGER") return "总公司管理员";
-  if (role === "COMPANY_MANAGER") return "公司管理员";
-  if (role === "DEPT_MANAGER") return "部门管理员";
-  if (role === "RESOURCE_SMS") return "资源部·短信";
-  if (role === "RESOURCE_TRAFFIC") return "资源部·投流";
-  return user.roles.includes("LEAD") ? "组长" : "管理账号";
-}
 
 export default function Page() {
   const [sessionUser, setSessionUser] = useState<BackendUser | null | undefined>(undefined);
   const [role, setRole] = useState<Role>("LEAD");
+  const [aiOpen, setAiOpen] = useState(false);
   const [view, setView] = useState<View>("followup");
   const [members, setMembers] = useState<Member[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
@@ -136,12 +95,6 @@ export default function Page() {
     void requestJson<{ user: BackendUser }>("/api/auth/me")
       .then(({ user }) => {
         if (cancelled) return;
-        // 财务、人事属于前台工作台。旧书签打开 /admin 时也要回到正确页面，
-        // 不让它们落入后台默认的组长页面。
-        if (user.role === "FINANCE" || user.role === "HR") {
-          window.location.assign(workspaceOrigin("FRONTLINE"));
-          return;
-        }
         const nextRole = roleForUser(user);
         if (nextRole) {
           setSessionUser(user);
@@ -156,7 +109,7 @@ export default function Page() {
       .catch(() => {
         if (!cancelled) {
           setSessionUser(null);
-          window.location.assign("/login");
+          window.location.assign(adminPath("/login"));
         }
       });
     return () => { cancelled = true; };
@@ -244,21 +197,9 @@ export default function Page() {
     setConfirm(null);
   }
 
-  async function previewHandoff(draft: { receptionistId: string; fromGroupOperatorId: string; toGroupOperatorId: string }) {
-    return (await requestJson<{ count: number }>("/api/lead/collaborations/handoff", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "preview", ...draft }),
-    })).count;
-  }
-
-  async function confirmHandoff(draft: { receptionistId: string; fromGroupOperatorId: string; toGroupOperatorId: string; expectedCount: number; reason: string }) {
-    return (await requestJson<{ transferredCount: number }>("/api/lead/collaborations/handoff", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "confirm", ...draft }),
-    })).transferredCount;
-  }
-
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
-    window.location.assign("/login");
+    await logoutSession();
+    window.location.replace(adminPath("/login"));
   }
 
   if (sessionUser === undefined || sessionUser === null) {
@@ -283,18 +224,19 @@ export default function Page() {
       breadcrumb={breadcrumb}
       reviewPendingCount={0}
       onNavigate={(id) => setView(id as View)}
-      viewer={{ name: sessionUser.name, title: roleTitle(sessionUser, role), scope }}
+      viewer={{ name: sessionUser.name, title: accountRoleLabel(sessionUser), scope }}
       onLogout={logout}
+      assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} user={sessionUser} contextLabel={`管理端 · ${meta.title}`} />}
       onToast={showToast}
     >
       {view === "followup" ? <RealCustomerProgress members={members} readOnly expertActorId={sessionUser.id} />
-        : view === "expert-daily" ? <SharedDailyDataSheet currentName={sessionUser.name} initialPosition="EXPERT" availablePositions={["RECEPTION", "GROUP_OPERATOR", "EXPERT"]} editablePositions={["EXPERT"]} leadView />
+        : view === "expert-daily" ? <UnifiedMemberDataSheet memberName={sessionUser.name} mode="daily" />
         : view === "summary" ? <RealOrganizationReporting permissionLabel="本组管理" actorGroupMode />
           : view === "channel" ? <RealChannelReporting />
             : view === "members" ? <>
               {membersLoading ? <div className="card" style={{ padding: 16, marginBottom: 14, color: "var(--ink-3)" }}>正在读取真实组员与配对数据…</div> : null}
               {membersError ? <div className="card" style={{ padding: 16, marginBottom: 14, color: "var(--bad)", borderColor: "var(--bad-line)" }}>{membersError}<button className="btn" data-size="sm" style={{ marginLeft: 12 }} onClick={() => void loadLeadWorkspace()}>重试</button></div> : null}
-              <TabMembers members={members} transfers={[]} defaultDualFrontline={sessionUser.groupType === "HACKER"} onUpdateMemberSetup={updateMemberSetup} onCreateAccount={createAccount} onResetPassword={resetPassword} onDeleteAccount={deleteAccount} onPreviewHandoff={previewHandoff} onConfirmHandoff={confirmHandoff} onToast={showToast} onConfirm={setConfirm} />
+              <TabMembers members={members} defaultDualFrontline={sessionUser.groupType === "HACKER"} onUpdateMemberSetup={updateMemberSetup} onCreateAccount={createAccount} onResetPassword={resetPassword} onDeleteAccount={deleteAccount} lead={sessionUser} onHandoverComplete={loadLeadWorkspace} onToast={showToast} onConfirm={setConfirm} />
               <PersonnelTransferPanel onToast={showToast} />
             </>
               : view === "devices" ? <RealGroupDeviceManagement members={members} />
@@ -308,8 +250,9 @@ export default function Page() {
                               : view === "hq-detail" ? <OrganizationDetailWorkspace scope="hq" />
                                 : view === "hq-overview" ? <RealHierarchyOverview level="company" title="公司汇总" fixedMonth />
                                   : view === "management-customer-progress" ? <ManagementCustomerProgress permissionLabel={managementPermission} />
-                                    : view === "resource-summary" ? <RealResourceReporting detail={false} />
-                                      : view === "resource-group-detail" ? <RealResourceReporting detail />
+                                    : view === "management-group-detail" ? <GroupDataDetail permissionLabel={managementPermission} />
+                                    : view === "resource-summary" ? <RealResourceReporting userId={sessionUser.id} detail={false} />
+                                      : view === "resource-group-detail" ? <RealResourceReporting userId={sessionUser.id} detail />
                                           : ["leaderboard", "dept-leaderboard", "company-leaderboard", "hq-leaderboard"].includes(view) ? <Leaderboard />
                                             : ["notice", "dept-notice", "company-notice", "hq-notice"].includes(view) ? <RealNotificationCenter canSend />
                                               : view === "resource-notice" ? <RealNotificationCenter canSend={false} />

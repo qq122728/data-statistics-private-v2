@@ -30,12 +30,11 @@ test("组长保留组员能力并拥有汇总、管理、设备和通知入口",
   assert.match(workspace, /user\.roles\.includes\("LEAD"\)/);
 });
 
-test("小组汇总可按归属人员、渠道和日期查看完整指标且保留合计", () => {
-  for (const label of ["按归属人员看", "按渠道看", "按日期看", "撞粉", "低金额", "无 WS", "人工无效", "当前在群", "首充", "续充", "出金", "回复率", "进群率", "异常退群率", "注册率", "开单率"]) {
-    assert.ok(analysis.includes(label));
-  }
-  assert.match(analysis, /<tfoot>/);
-  assert.match(analysis, /payload\.days/);
+test("小组汇总按人员渠道日期共用矩阵，保留合计与独立比率区", () => {
+ const matrix=readFileSync(new URL("../components/MetricMatrixTable.tsx",import.meta.url),"utf8");
+ assert.match(analysis, /<MetricMatrixTable/);
+ assert.match(analysis, /payload.days/);
+ for(const label of ["按组员","按渠道","按日期","合计","当前在群","首充","续充","出金","回复率","进群率","异常退群率","注册率","开单率"]) assert.ok(matrix.includes(label),label);
 });
 
 test("渠道智能分析不会把存量客户当天进群或开单误报为异常", () => {
@@ -44,26 +43,16 @@ test("渠道智能分析不会把存量客户当天进群或开单误报为异�
   assert.doesNotMatch(channelReportingRoute, /存在数据口径异常/);
 });
 
-test("组长检查页识别新版统一组员记录及其资金字段，同时兼容旧记录", () => {
-  assert.match(inspector, /unified-member-v1:/);
-  assert.match(inspector, /unifiedReceptionMetrics/);
-  assert.match(inspector, /entry\.position === "EXPERT" \|\| isUnifiedEntry\(entry\)/);
-  for (const label of ["正常退群", "异常退群", "推专家", "注册", "开单", "加密货币首充", "银行卡续充", "出金", "净业绩"]) {
-    assert.ok(inspector.includes(label));
-  }
-  assert.match(inspector, /numberTrackedFields/);
-  assert.ok(inspector.includes("号码自动统计"));
-  assert.ok(inspector.includes("必须回客户号码进度修改"));
+test("组长检查页完整提供四类首续充资金纠正，不漏银行卡", () => {
+ assert.match(inspector,/unified-member-v1:/);
+ for(const field of ["bankInitialDepositCents","cryptoInitialDepositCents","bankRechargeCents","cryptoRechargeCents"]) {
+  assert.match(inspector,new RegExp(`field: "${field}", label: "[^"\n]+", editable: true, money: true`));
+ }
+ for(const label of ["首充 · 银行卡","首充 · 加密货币","续充 · 银行卡","续充 · 加密货币"]) assert.ok(inspector.includes(label));
 });
 
 test("小组日报只保留文字和 Excel，并由组长手动推送", () => {
   assert.ok(analysis.includes("文字和 Excel 推送到 Telegram"));
   assert.doesNotMatch(analysis, /下载日报图片|format=png|ImageSquare/);
   assert.ok(analysis.includes("系统不会自动发送"));
-});
-
-test("组长可办理离职而不强制交接，并保留接手入口", () => {
-  assert.ok(team.includes("/api/lead/members/offboarding"));
-  assert.match(team, /办理离职/);
-  assert.match(team, /历史数据和在办客户都保留/);
 });

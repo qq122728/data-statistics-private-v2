@@ -1,0 +1,17 @@
+.account { min-width: 0; max-width: 100%; flex: 0 1 auto; }
+.trigger { display: flex; align-items: center; gap: 9px; width: 100%; max-width: 320px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #202b3c; font: inherit; cursor: pointer; text-align: left; }
+.trigger:hover, .trigger[aria-expanded="true"] { background: #f0f5fc; border-color: #d3dfef; }
+.trigger:focus-visible, .menu a:focus-visible, .menu button:focus-visible { outline: 2px solid #2164ce; outline-offset: 2px; }
+.avatar { flex: 0 0 32px; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: #303846; color: #fff; font-size: 13px; font-weight: 700; }
+.identity { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.identity strong { font-size: 13px; font-weight: 650; line-height: 1.4; }
+.role, .scope { font-size: 11px; line-height: 1.4; color: #56647a; }
+.scope { color: #67768b; }
+.chevron { flex-shrink: 0; margin-left: auto; font-size: 18px; }
+.menu { position: fixed; z-index: 1200; width: min(280px, calc(100vw - 16px)); box-sizing: border-box; overflow-y: auto; padding: 6px; background: #fff; border: 1px solid #cbd5e1; border-radius: 9px; box-shadow: 0 10px 30px #192b4530; color: #202b3c; }
+.menu a, .menu button { display: block; width: 100%; box-sizing: border-box; min-height: 44px; padding: 11px 12px; border: 0; border-radius: 6px; text-decoration: none; background: transparent; color: inherit; font: inherit; font-size: 14px; line-height: 1.5; text-align: left; cursor: pointer; }
+.menu a:hover, .menu button:hover { background: #eef4fc; }
+.menu .logout { color: #b32318; }
+.trigger:disabled, .menu button:disabled, .menu a[aria-disabled="true"] { opacity: .6; cursor: wait; }
+.error { margin: 6px; color: #b32318; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .account { flex-basis: 100%; } .trigger { max-width: none; } }

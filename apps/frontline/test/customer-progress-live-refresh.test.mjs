@@ -1,40 +1,28 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+const read = path => readFileSync(new URL(path, import.meta.url), "utf8");
+const dailySheet = read("../components/UnifiedMemberDataSheet.tsx");
+const customerTable = read("../../../packages/customer-sheet/CustomerSheet.tsx");
 
-const dailySheet = readFileSync(new URL("../components/UnifiedMemberDataSheet.tsx", import.meta.url), "utf8");
-const customerTable = readFileSync(new URL("../components/DepartmentCustomerProgress.tsx", import.meta.url), "utf8");
-
-test("客户进程保存后会实时刷新日报，不再因统计日未变而丢弃新数据", () => {
-  assert.match(dailySheet, /setContext\(next\)/);
-  assert.doesNotMatch(dailySheet, /current\.today === next\.today/);
-  assert.match(dailySheet, /window\.addEventListener\("customer-data-updated"/);
-  assert.match(dailySheet, /window\.addEventListener\("focus"/);
-  assert.match(dailySheet, /document\.addEventListener\("visibilitychange"/);
-  assert.match(dailySheet, /15_000/);
-  assert.ok(dailySheet.includes("刷新进度"));
+test("客户表调用独立客户接口，保存后通知相关页面刷新", () => {
+ assert.match(customerTable, /\/api\/customer-sheet/);
+ assert.doesNotMatch(customerTable, /\/api\/(?:daily-stats|customer-orders|customer-finance|lead\/customer-reporting)/);
+ assert.match(customerTable, /dispatchEvent\(new Event\("ai-data-updated"\)\)/);
 });
-
-test("进群、注册和开单入口都会通知日报同步", () => {
-  assert.match(customerTable, /window\.dispatchEvent\(new Event\("ai-data-updated"\)\)/);
-  assert.match(customerTable, /action: "setRegistration"/);
-  assert.match(customerTable, /\/api\/customer-orders/);
+test("日报保留主动刷新且不订阅客户进度事件", () => {
+ assert.match(dailySheet, /刷新进度/);
+ assert.doesNotMatch(dailySheet, /addEventListener\("customer-data-updated"/);
+ assert.match(dailySheet, /addEventListener\("ai-data-updated"/);
 });
-
-test("客户进度定时同步保留当前表格，不再整页闪动", () => {
-  assert.match(customerTable, /const loadedCustomerQuery = useRef\(""\)/);
-  assert.match(customerTable, /const silentlyRefresh = loadedCustomerQuery\.current === requestKey/);
-  assert.match(customerTable, /if \(!silentlyRefresh\) setLoading\(true\)/);
-  assert.match(customerTable, /loadedCustomerQuery\.current = requestKey/);
+test("客户表后台刷新避开正在编辑或保存的内容", () => {
+ assert.match(customerTable, /if\(!paused.current\)void load\(\)/);
+ assert.match(customerTable, /paused.current=findOpen\|\|busy\|\|cellSaves>0\|\|addingRow\|\|!!editing/);
+ assert.match(customerTable, /requestId===sequence.current/);
 });
-
-test("界面明确说明老客户不受当日添加数限制", () => {
-  assert.match(dailySheet, /当天添加为 0 也不影响/);
-  for (const label of ["进群", "注册", "开单", "号码自动统计"]) assert.ok(dailySheet.includes(label));
-});
-
-test("所有日期都禁止手填号码漏斗，历史数字只读保留", () => {
-  assert.match(dailySheet, /const numberEntryLocked = Boolean\(context && !lawyerGroup && mode === "daily"\)/);
-  assert.match(dailySheet, /numberEntryLocked && NUMBER_TRACKED_METRIC_KEYS\.has\(metric\.key\)/);
-  assert.ok(dailySheet.includes("历史数据只读"));
+test("历史日报可编辑并沿用自动保存与版本保护", () => {
+ assert.doesNotMatch(dailySheet, /numberEntryLocked|NUMBER_TRACKED_METRIC_KEYS|历史数字只读/);
+ assert.match(dailySheet, /<DailyNumberInput/);
+ assert.match(dailySheet, /expectedRevisionId/);
+ assert.match(dailySheet, /自动保存/);
 });

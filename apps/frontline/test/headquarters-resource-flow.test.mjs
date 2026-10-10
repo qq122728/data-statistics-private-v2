@@ -23,7 +23,9 @@ test("总公司首页按部门和小组纵向排列、按渠道横向汇总", as
 
 test("资源部报表包含小组组员筛选、完整指标比率和底部合计，但没有审核入口", async () => {
   const source = await readFile(new URL("components/ResourceWorkspace.tsx", root), "utf8");
-  for (const text of ["小组", "组员", "人工无效", "回复率", "进群率", "异常退群率", "注册率", "开单率", "合计"]) assert.match(source, new RegExp(text));
+  const detail = await readFile(new URL("../../packages/reporting/GroupDataDetail.tsx", root), "utf8");
+  for (const text of ["小组", "组员", "合计"]) assert.match(source, new RegExp(text));
+  for (const text of ["人工无效", "回复率", "进群率", "异常退群", "注册率", "开单率"]) assert.match(detail, new RegExp(text));
   assert.doesNotMatch(source, /数据审核|待审核|\/api\/resource\/daily-stats/);
   assert.doesNotMatch(source, /客户进度|新增进群客户|\/api\/lead\/customer-reporting/);
 });

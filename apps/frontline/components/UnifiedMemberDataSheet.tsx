@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import MonthDaySelect from "../../../packages/customer-sheet/MonthDaySelect";
+import { inGroupDelta } from "../../../packages/customer-sheet/in-group";
+import DailyNumberInput from "./DailyNumberInput";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { requestJson } from "@/lib/backend";
 
 type Values = {
@@ -38,22 +41,24 @@ type Entry = {
   position: "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
   status: string;
   channel: { id: string; name: string };
-  currentRevision: (Values & { changeReason: string | null }) | null;
+  currentRevision: (Values & { id: string; changeReason: string | null }) | null;
   approvedRevision: Values | null;
 };
 
 type Context = {
   actorId: string;
+  numberStockBaseline?: Record<string,number> | null;
   groupType: "HACKER" | "LAWYER";
   today: string;
   timezone: string;
   rolloverHour: number;
   rolloverLabel: string;
-  numberTrackingFrom: string;
   channels: Array<{ id: string; name: string; channelType: string }>;
   entries: Entry[];
   unifiedEntries: Array<{
     entryId: string | null;
+    revisionId: string | null;
+    sourceMode?: string;
     businessDate: string;
     channel: { id: string; name: string };
     status: string;
@@ -62,7 +67,7 @@ type Context = {
 };
 
 type Mode = "daily" | "finance";
-type ChannelState = { values: Values; entryId: string | null; approved: boolean };
+type ChannelState = { sourceMode?:string; values: Values; entryId: string | null; revisionId: string | null; approved: boolean };
 
 const EMPTY_VALUES: Values = {
   dispatchCount: 0,
@@ -124,10 +129,6 @@ function effective(values: Values) {
   return values.dispatchCount - values.duplicateCount - values.lowAmountCount - values.noWsCount - values.manualInvalidCount;
 }
 
-function currentInGroup(values: Values) {
-  return Math.max(0, values.joinCount - values.normalLeaveCount - values.abnormalLeaveCount);
-}
-
 function rate(numerator: number, denominator: number) {
   return denominator > 0 ? numerator / denominator * 100 : Number.NaN;
 }
@@ -166,7 +167,7 @@ const DAILY_METRICS: Metric[] = [
   numberMetric("normalLeaveCount", "正常退群", "bad"),
   numberMetric("abnormalLeaveCount", "异常退群", "bad"),
   { key: "abnormalLeaveRate", label: "异常退群率", kind: "rate", read: (values) => rate(values.abnormalLeaveCount, Math.max(0, values.joinCount - values.normalLeaveCount)) },
-  { key: "currentInGroupCount", label: "当前在群", kind: "computed", tone: "ok", read: currentInGroup },
+  {key:"currentInGroupCount",label:"当前在群",kind:"computed",read:v=>v.currentInGroupCount},
   numberMetric("expertIntroCount", "推专家"),
   numberMetric("registrationCount", "注册"),
   { key: "registrationRate", label: "注册率", kind: "rate", read: (values) => rate(values.registrationCount, values.expertIntroCount) },
@@ -195,13 +196,14 @@ const LAWYER_DAILY_METRICS: Metric[] = [
 ];
 
 const FINANCE_METRICS: Metric[] = [
-  moneyMetric("initialDeposit", "首充", firstDeposit, (values, value) => ({ ...values, cryptoInitialDepositCents: value, bankInitialDepositCents: 0 }), "ok"),
-  moneyMetric("recharge", "续充", recharge, (values, value) => ({ ...values, cryptoRechargeCents: value, bankRechargeCents: 0 }), "ok"),
+  moneyMetric("bankFirst", "首充 · 银行卡", v=>v.bankInitialDepositCents, (v,n)=>({...v,bankInitialDepositCents:n})),
+  moneyMetric("cryptoFirst", "首充 · 加密货币", v=>v.cryptoInitialDepositCents, (v,n)=>({...v,cryptoInitialDepositCents:n})),
+  moneyMetric("bankRecharge", "续充 · 银行卡", v=>v.bankRechargeCents, (v,n)=>({...v,bankRechargeCents:n})),
+  moneyMetric("cryptoRecharge", "续充 · 加密货币", v=>v.cryptoRechargeCents, (v,n)=>({...v,cryptoRechargeCents:n})),
   moneyMetric("withdrawal", "出金", (values) => values.withdrawalCents, (values, value) => ({ ...values, withdrawalCents: value }), "bad"),
   { key: "netPerformance", label: "净业绩", kind: "computedMoney", tone: "ok", read: netPerformance },
 ];
 
-const NUMBER_TRACKED_METRIC_KEYS = new Set(["joinCount", "normalLeaveCount", "abnormalLeaveCount", "expertIntroCount", "registrationCount", "orderCount"]);
 
 function display(value: number, kind: Metric["kind"]) {
   if (!Number.isFinite(value)) return "—";
@@ -219,13 +221,17 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [savedAt, setSavedAt] = useState<string>("");
-  const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const gridRef = useRef(grid);
   const dirtyRef = useRef(dirty);
   const savingRef = useRef(saving);
+  const typingRef = useRef(false);
+  const recentEntries=useRef(new Map<string,Context["unifiedEntries"][number]>());
+  useEffect(()=>{recentEntries.current.clear();},[context]);
+  function dailyEntries(){const entries=new Map((context?.unifiedEntries??[]).map(e=>[`${e.businessDate}:${e.channel.id}`,e]));for(const [key,value] of recentEntries.current)entries.set(key,value);return [...entries.values()];}
+  const [ratesOpen,setRatesOpen]=useState(true);
   const editVersionRef = useRef<Record<string, number>>({});
   gridRef.current = grid;
   dirtyRef.current = dirty;
@@ -246,7 +252,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
   }, []);
 
   const refresh = useCallback(async () => {
-    if (dirtyRef.current.size || savingRef.current.size) return;
+    if (dirtyRef.current.size || savingRef.current.size || typingRef.current) return;
     setRefreshing(true);
     try {
       const next = await requestJson<Context>("/api/daily-stats");
@@ -266,12 +272,12 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     const handleFocus = () => { void refresh(); };
     const handleVisibility = () => { if (document.visibilityState === "visible") void refresh(); };
     window.addEventListener("ai-data-updated", handleDataUpdated);
-    window.addEventListener("customer-data-updated", handleDataUpdated);
+
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
     return () => {
       window.removeEventListener("ai-data-updated", handleDataUpdated);
-      window.removeEventListener("customer-data-updated", handleDataUpdated);
+
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
@@ -286,10 +292,14 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     if (!context || !date) return;
     const next: Record<string, ChannelState> = {};
     for (const channel of context.channels) {
-      const entry = context.unifiedEntries.find((item) => item.businessDate === date && item.channel.id === channel.id) ?? null;
+      const entry = dailyEntries().find((item) => item.businessDate === date && item.channel.id === channel.id) ?? null;
       next[channel.id] = {
-        values: entry ? { ...EMPTY_VALUES, ...entry.values } : { ...EMPTY_VALUES },
+        values: { ...(entry ? { ...EMPTY_VALUES, ...entry.values } : { ...EMPTY_VALUES }), currentInGroupCount:context.groupType==="HACKER"
+          ? (dailyEntries().filter(e=>e.channel.id===channel.id&&e.businessDate<=date&&(date<"2026-09-01"||e.businessDate>="2026-09-01")).sort((a,b)=>b.businessDate.localeCompare(a.businessDate))[0]?.values.currentInGroupCount ?? (date>="2026-09-01"?context.numberStockBaseline?.[channel.id]??0:0))
+          : dailyEntries().filter(e=>e.channel.id===channel.id&&e.businessDate<date).reduce((n,e)=>n+inGroupDelta(e.values),0)+inGroupDelta(entry?.values??EMPTY_VALUES) },
+        sourceMode:entry?.sourceMode,
         entryId: entry?.entryId ?? null,
+        revisionId: entry?.revisionId ?? null,
         approved: entry?.status === "APPROVED",
       };
     }
@@ -297,34 +307,30 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     setDirty(new Set());
     setSavedAt("");
     setError("");
-    setReason("");
     editVersionRef.current = {};
   }, [context, date]);
 
   const lawyerGroup = context?.groupType === "LAWYER";
-  const metrics = mode === "finance" ? FINANCE_METRICS : lawyerGroup ? LAWYER_DAILY_METRICS : DAILY_METRICS;
-  const isHistorical = Boolean(context && date < context.today);
-  const numberTracking = Boolean(context && !lawyerGroup && date >= context.numberTrackingFrom);
-  // 黑客组的客户漏斗指标已经统一改为按号码维护。历史日期仍保留原值查看，
-  // 但也不能再从每日数据表手工改写，避免同一指标同时存在两套入口。
-  const numberEntryLocked = Boolean(context && !lawyerGroup && mode === "daily");
+  const metrics = [...(lawyerGroup ? LAWYER_DAILY_METRICS.filter((m) => !["cryptoDeposits", "bankDeposits", "lawyerWithdrawal"].includes(m.key)) : DAILY_METRICS.filter((m) => m.key !== "netPerformance")), ...FINANCE_METRICS];
 
   function update(channelId: string, metric: Metric, rawValue: number) {
-    if (!metric.write || (numberEntryLocked && NUMBER_TRACKED_METRIC_KEYS.has(metric.key))) return;
+    if (!lawyerGroup || !metric.write || grid[channelId]?.sourceMode==="NUMBER") return;
     const value = metric.kind === "money" ? Math.max(0, Math.round(rawValue * 100)) : rawValue;
-    setGrid((current) => ({
-      ...current,
-      [channelId]: { ...current[channelId], values: metric.write!(current[channelId]?.values ?? EMPTY_VALUES, value) },
-    }));
+    setGrid((current) => {
+      const values=metric.write!(current[channelId]?.values??EMPTY_VALUES,value);
+      values.currentInGroupCount=dailyEntries().filter(e=>e.channel.id===channelId&&e.businessDate<date).reduce((n,e)=>n+inGroupDelta(e.values),0)+inGroupDelta(values);
+      return {...current,[channelId]:{...current[channelId],values}};
+    });
     setDirty((current) => new Set(current).add(channelId));
     editVersionRef.current[channelId] = (editVersionRef.current[channelId] ?? 0) + 1;
-    setSavedAt("");
+    setSavedAt("");setError("");
   }
 
   const saveChannel = useCallback(async (channelId: string) => {
     const current = gridRef.current[channelId];
-    if (!current || !context) return;
-    if (isHistorical && !reason.trim()) return;
+    if (!current || !context || context.groupType!=="LAWYER") return;
+    if (savingRef.current.has(channelId)) return;
+    savingRef.current = new Set(savingRef.current).add(channelId);
     const savingVersion = editVersionRef.current[channelId] ?? 0;
     setSaving((items) => new Set(items).add(channelId));
     setError("");
@@ -332,7 +338,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
       const values = {
         ...current.values,
         effectiveCount: effective(current.values),
-        currentInGroupCount: currentInGroup(current.values),
+        currentInGroupCount: 0,
       };
       const result = await requestJson<{ entry: Entry }>("/api/daily-stats", {
         method: "POST",
@@ -341,15 +347,17 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
           ...(current.entryId ? { entryId: current.entryId } : {}),
           businessDate: date,
           expectedStatisticsDate: context.today,
+          expectedRevisionId: current.revisionId,
           position: "RECEPTION",
           channelId,
           sourceReceptionId: null,
           sourceGroupOperatorId: null,
-          changeReason: isHistorical ? reason.trim() : null,
+          changeReason: null,
           values,
         }),
       });
-      setGrid((items) => ({ ...items, [channelId]: { ...items[channelId], entryId: result.entry.id, approved: Boolean(result.entry.approvedRevision) } }));
+      if(result.entry.currentRevision)recentEntries.current.set(`${date}:${channelId}`,{entryId:result.entry.id,revisionId:result.entry.currentRevision.id,businessDate:date,channel:result.entry.channel,status:result.entry.status,values:result.entry.currentRevision});
+      setGrid((items) => ({ ...items, [channelId]: { ...items[channelId], entryId: result.entry.id, revisionId: result.entry.currentRevision?.id ?? null, approved: Boolean(result.entry.approvedRevision) } }));
       setDirty((items) => {
         if ((editVersionRef.current[channelId] ?? 0) !== savingVersion) return items;
         const next = new Set(items);
@@ -360,16 +368,17 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "保存失败，请稍后重试");
     } finally {
+      savingRef.current = new Set([...savingRef.current].filter(id=>id!==channelId));
       setSaving((items) => { const next = new Set(items); next.delete(channelId); return next; });
     }
-  }, [context, date, isHistorical, reason]);
+  }, [context, date]);
 
   useEffect(() => {
-    if (!dirty.size || isHistorical) return;
-    const channelIds = [...dirty];
+    if (!dirty.size || error) return;
+    const channelIds = [...dirty].filter(id=>!saving.has(id));
     const timer = window.setTimeout(() => { channelIds.forEach((channelId) => void saveChannel(channelId)); }, 850);
     return () => window.clearTimeout(timer);
-  }, [dirty, isHistorical, saveChannel]);
+  }, [dirty, saving, error, saveChannel]);
 
   const totals = useMemo(() => {
     const aggregate = { ...EMPTY_VALUES };
@@ -380,6 +389,15 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     return Object.fromEntries(metrics.map((metric) => [metric.key, metric.read(aggregate)]));
   }, [context, grid, metrics]);
 
+  const ratios=metrics.filter(m=>m.kind==="rate");
+  const entryMetrics=metrics.filter(m=>m.kind!=="rate");
+  const acquisition=new Set(lawyerGroup?["dispatchCount","replyCount","unrepliedCount","lowAmountCount","lawyerRealCaseCount"]:["dispatchCount","duplicateCount","lowAmountCount","noWsCount","manualInvalidCount","effectiveCount"]);
+  const sections=[
+    {name:lawyerGroup?"添加与案件数据":"添加与有效数据",items:entryMetrics.filter(m=>acquisition.has(m.key))},
+    {name:"客户跟进",items:entryMetrics.filter(m=>!acquisition.has(m.key)&&!["money","computedMoney"].includes(m.kind))},
+    {name:"资金数据 · USD",items:entryMetrics.filter(m=>["money","computedMoney"].includes(m.kind))},
+  ];
+  const yesterday=context?new Date(Date.parse(context.today+"T00:00:00Z")-86400000).toISOString().slice(0,10):"";
   if (loading && !context) return <section className="card unified-sheet-loading">正在读取真实数据…</section>;
   if (!context) return <section className="card unified-sheet-loading unified-sheet-error">{error || "数据暂时不可用"}</section>;
 
@@ -387,52 +405,50 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     <div className="card unified-sheet-toolbar">
       <div>
         <strong>{mode === "finance" ? "我的财务填写" : lawyerGroup ? "我的律师组渠道数据" : "我的渠道数据"}</strong>
-        <span>{mode === "finance" ? "填写公司最终认账的首充、续充和出金；客户明细金额只作跟踪" : numberTracking ? "只填写接粉到回复；进群及后续按号码自动统计" : "每个渠道单独填写；比例与绿色数据由系统计算"}</span>
+        <span>{memberName} · {context.channels.length} 个渠道</span>
       </div>
-      <label><span>统计日期（北京时间 14:00 换日）</span><input className="field" type="date" max={context.today} value={date} onChange={(event) => setDate(event.target.value)} /></label>
+      <details className="unified-help"><summary>{lawyerGroup?"填写说明":"统计说明"}</summary><div>{lawyerGroup?"按日期和渠道填写数量、金额，修改后自动保存。比率与灰底格自动计算。":"黑客组所有渠道均按客户号码和资金流水统计，不能手填数量或金额。添加按接粉日期，后续动作按发生日期计入；待进群只是全部客户的一部分。"}当前在群＝截至所选日期累计进群－累计正常退群－累计异常退群。发现差异请核对对应日期的原始记录。</div></details>
+      <label><span>统计日期（北京时间 14:00 换日）</span><MonthDaySelect label="统计日期" max={context.today} value={date} onChange={setDate} clearable={false} disabled={Boolean(dirty.size||saving.size)}/></label>
+      <button className="btn" data-size="sm" disabled={Boolean(dirty.size||saving.size)} onClick={()=>setDate(context.today)}>今天</button>
+      <button className="btn" data-size="sm" disabled={Boolean(dirty.size||saving.size)} onClick={()=>setDate(yesterday)}>昨天</button>
       <button className="btn" data-size="sm" type="button" disabled={refreshing || Boolean(dirty.size) || Boolean(saving.size)} onClick={() => void refresh()}>{refreshing ? "同步中…" : "刷新进度"}</button>
       <span className="unified-save-state" data-state={error ? "error" : dirty.size || saving.size ? "saving" : "saved"}>
         {error ? "保存失败" : dirty.size || saving.size ? "正在自动保存…" : savedAt ? `${savedAt} 已保存` : "已同步"}
       </span>
     </div>
 
-    {error ? <div className="notice" data-tone="bad" role="alert">{error}</div> : null}
-    {numberTracking && mode === "daily" ? <div className="unified-number-tracking-note">
-      <strong>客户进度自动统计</strong>
-      <span>当天添加为 0 也不影响：老客户今天进群、注册或开单，会按实际发生日期自动计入。</span>
-    </div> : null}
-    {isHistorical ? <div className="card unified-history-reason">
-      <label><span>历史数据修改原因</span><input className="field" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：回复数少填 1 人" /></label>
-      <button className="btn" data-variant="primary" disabled={!reason.trim() || !dirty.size || Boolean(saving.size)} onClick={() => [...dirty].forEach((channelId) => void saveChannel(channelId))}>保存历史修改</button>
-    </div> : null}
+    {error ? <div className="notice" data-tone="bad" role="alert">{error}<button className="btn" onClick={()=>setError("")}>重试保存</button></div> : null}
 
-    <div className="card unified-sheet-card">
-      <header className="unified-sheet-title">
-        <div><h2>{date} · {memberName}</h2><p>输入后自动保存，浅蓝框可填写，绿色格由系统自动计算</p></div>
-        <div><span>{context.channels.length} 个渠道</span><strong>{mode === "finance" ? "金额单位：USD" : "本人数据"}</strong></div>
-      </header>
-      <div className="unified-sheet-scroll">
-        <table className="unified-sheet-table">
-          <thead><tr><th>数据指标</th><th>我的总计</th>{context.channels.map((channel) => <th key={channel.id}>{channel.name}<small>{channel.channelType}</small></th>)}</tr></thead>
-          <tbody>{metrics.map((metric) => <tr key={metric.key} data-tone={metric.tone}>
+
+
+    <div className="card unified-sheet-card unified-transposed-card">
+      <div className="daily-rates-heading"><strong>渠道比率 <span>自动计算 · {context.channels.length} 个渠道</span></strong><button type="button" aria-expanded={ratesOpen} aria-controls="daily-channel-rates" onClick={()=>setRatesOpen(open=>!open)}>{ratesOpen ? "收起比率" : "展开比率"}</button></div>
+      {ratesOpen ? <div id="daily-channel-rates" className="daily-rates-scroll">
+        <table className="daily-rates-table" aria-label="各渠道比率"><thead><tr><th scope="col">渠道</th>{ratios.map(metric=><th scope="col" key={metric.key}>{metric.label}</th>)}</tr></thead><tbody>
+          <tr className="daily-rates-total"><th scope="row">我的总计</th>{ratios.map(metric=><td key={metric.key}>{display(totals[metric.key],metric.kind)}</td>)}</tr>
+          {context.channels.map(channel=><tr key={channel.id}><th scope="row">{channel.name}<small>{channel.channelType}{context.groupType==="LAWYER"?" · 手填日报":grid[channel.id]?.sourceMode==="MANUAL"?" · 历史手填（只读）":" · 号码自动统计"}</small></th>{ratios.map(metric=><td key={metric.key}>{display(metric.read(grid[channel.id]?.values??EMPTY_VALUES),metric.kind)}</td>)}</tr>)}
+        </tbody></table>
+      </div> : null}
+      <div className="unified-sheet-scroll unified-entry-scroll">
+        <table className="unified-sheet-table" aria-label={lawyerGroup?"数量和金额填写":"数量和金额汇总（只读）"}>
+          <thead><tr><th>数据指标</th><th>我的总计</th>{context.channels.map((channel) => <th key={channel.id}>{channel.name}<small>{channel.channelType}{context.groupType==="LAWYER"?" · 手填日报":grid[channel.id]?.sourceMode==="MANUAL"?" · 历史手填（只读）":" · 号码自动统计"}</small></th>)}</tr></thead>
+          <tbody>{sections.map(section=><Fragment key={section.name}><tr className="unified-section-row"><th colSpan={context.channels.length+2}>{section.name}</th></tr>{section.items.map((metric) => <tr key={metric.key} data-tone={metric.tone}>
             <th>{metric.label}{metric.kind === "rate" || metric.kind === "computed" || metric.kind === "computedMoney" ? <small>系统计算</small> : null}</th>
             <td className="unified-sheet-total">{display(totals[metric.key] ?? 0, metric.kind)}</td>
             {context.channels.map((channel) => {
               const values = grid[channel.id]?.values ?? EMPTY_VALUES;
               const value = metric.read(values);
-              const editable = Boolean(metric.write) && !(numberEntryLocked && NUMBER_TRACKED_METRIC_KEYS.has(metric.key));
-              const customerTracked = numberTracking && NUMBER_TRACKED_METRIC_KEYS.has(metric.key);
-              const historicalNumberLocked = numberEntryLocked && !numberTracking && NUMBER_TRACKED_METRIC_KEYS.has(metric.key);
-              return <td key={channel.id} data-formula={!editable} data-customer-tracked={customerTracked || undefined}>
-                {editable ? <input aria-label={`${channel.name}-${metric.label}`} type="number" min="0" step={metric.kind === "money" ? "0.01" : "1"} value={metric.kind === "money" ? (value / 100).toFixed(2) : Math.round(value)} onChange={(event) => update(channel.id, metric, Number(event.target.value || 0))} /> : <span title={customerTracked ? "由客户号码进度自动统计" : historicalNumberLocked ? "历史数字只读，不能再手工修改" : undefined}>{display(value, metric.kind)}{customerTracked ? <small>号码自动统计</small> : historicalNumberLocked ? <small>历史数据只读</small> : null}</span>}
+              const editable = lawyerGroup && Boolean(metric.write) && grid[channel.id]?.sourceMode!=="NUMBER";
+              return <td key={channel.id} data-formula={!editable}>
+                {editable ? <DailyNumberInput key={`${date}-${channel.id}-${metric.key}`} label={`${channel.name}-${metric.label}`} money={metric.kind === "money"} value={metric.kind === "money" ? value / 100 : value} onChange={(next) => update(channel.id, metric, next)} onEditing={active=>{typingRef.current=active;}} /> : <span>{display(value, metric.kind)}</span>}
               </td>;
             })}
-          </tr>)}</tbody>
+          </tr>)}</Fragment>)}</tbody>
         </table>
       </div>
       <footer>
-        <span>切换到没有填写过的日期时，所有数字从 0 开始</span>
-        <span>{mode === "finance" ? "公司认账净业绩＝首充＋续充－出金" : numberTracking ? "进群、推专家、注册和开单以客户号码明细为准" : lawyerGroup ? "未回复＝接粉－回复；添加率＝添加数量÷接粉" : "有效数据＝添加数据－撞粉－低金额－无 WS－人工无效"}</span>
+        <span>{context.groupType==="LAWYER"?"律师组数量和金额手动填写，编辑后自动保存；客户记录不覆盖日报":"黑客组所有渠道只读，数量和资金按号码明细自动统计；历史手填记录保留"}</span>
+        <span>{mode === "finance" ? "公司认账净业绩＝首充＋续充－出金" : lawyerGroup ? "未回复＝接粉－回复；添加率＝添加数量÷接粉" : "有效数据＝添加数据－撞粉－低金额－无 WS－人工无效"}</span>
       </footer>
     </div>
   </section>;

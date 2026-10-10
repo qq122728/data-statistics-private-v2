@@ -34,7 +34,7 @@ const ResourceWorkspace = dynamic(() => import("@/components/ResourceWorkspace")
 });
 const FinanceWorkspace = dynamic(() => import("@/components/FinanceWorkspace"), {
   ssr: false,
-  loading: () => <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#667085" }}>正在打开财务数据工作台…</main>,
+  loading: () => <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", color: "#667085" }}>正在打开财务工作台…</main>,
 });
 const SupportNotificationWorkspace = dynamic(() => import("@/components/SupportNotificationWorkspace"), {
   ssr: false,

@@ -9,20 +9,20 @@
 :root {
   color-scheme: light;
 
-  /* 画布与卡片——暖色调的柔和白，不要冷调的蓝灰 */
-  --canvas: #f5f5f2;
+  /* 画布与卡片：与每日数据统一的浅蓝灰 */
+  --canvas: #f6f8fb;
   --surface: #ffffff;
-  --surface-sunken: #f6f6f3;
+  --surface-sunken: #f1f5fa;
 
   /* 边框（网格线） */
-  --line: #e3e8f0;
+  --line: #c5d2e3;
   --line-strong: #cfd6e4;
   --line-header: #b9c2d4;
 
   /* 文字 */
   --ink: #131824;
   --ink-2: #5a6376;
-  --ink-3: #8f97a8;
+  --ink-3: #65758d;
 
   /* 强调色 */
   --accent: #2f5cd8;

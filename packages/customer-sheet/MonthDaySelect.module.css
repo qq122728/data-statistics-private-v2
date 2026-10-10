@@ -1,0 +1,3 @@
+.control{display:inline-flex!important;align-items:center;gap:3px;min-width:0;width:100%}
+.control input{flex:1;width:100%!important;min-width:0;padding:4px 2px!important;height:30px;font-size:13px!important;background:#fff;border:1px solid #bbc7d6;border-radius:4px;color:#26364a;font-variant-numeric:tabular-nums;cursor:pointer}
+.control button{flex:0 0 18px;width:18px!important;padding:0!important;border:0!important;background:transparent!important;color:#768395;font-size:15px}

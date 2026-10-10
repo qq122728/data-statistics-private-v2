@@ -9,6 +9,7 @@ import { RealOrganizationReporting } from "./RealOrganizationReporting";
 type Scope = "department" | "company" | "hq";
 type Tab = "summary" | "channel";
 type Group = {
+  groupType: "HACKER" | "LAWYER";
   id: string; name: string; timezone: string;
   activePeople: number;
   department: { id: string; name: string };
@@ -17,7 +18,7 @@ type Group = {
 };
 type Payload = { groups: Group[] };
 
-const empty = (): RealMetrics => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, effective: 0, replied: 0, joined: 0, leftNormal: 0, leftAbnormal: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, depositCents: 0, withdrawalCents: 0, netCents: 0 });
+const empty = (): RealMetrics => ({ added: 0, collision: 0, lowAmount: 0, noWs: 0, manualInvalid: 0, effective: 0, replied: 0, joined: 0, leftNormal: 0, leftAbnormal: 0, inGroup: 0, pushed: 0, registered: 0, ordered: 0, initialDepositCents: 0, rechargeCents: 0, depositCents: 0, withdrawalCents: 0, netCents: 0 });
 function add(target: RealMetrics, value: RealMetrics) { for (const key of Object.keys(target) as Array<keyof RealMetrics>) target[key] += value[key] ?? 0; }
 function rates(metrics: RealMetrics) {
   const abnormalBase = metrics.joined - metrics.leftNormal;
@@ -33,14 +34,14 @@ function preferredGroup(groups: Group[], departmentId: string) {
   return candidates.find(hasBusinessData) ?? candidates[0] ?? null;
 }
 
-function GroupTabs({ groupId }: { groupId: string }) {
+function GroupTabs({ groupId, groupType }: { groupId: string; groupType?: "HACKER" | "LAWYER" }) {
   const [tab, setTab] = useState<Tab>("summary");
   return <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
       {([['summary', '数据汇总'], ['channel', '渠道数据核对']] as Array<[Tab, string]>).map(([id, label]) => <button key={id} className="btn" data-variant={tab === id ? "primary" : undefined} onClick={() => setTab(id)}>{label}</button>)}
     </div>
     {tab === "summary" ? <RealOrganizationReporting permissionLabel="只读 · 汇总口径" fixedGroupId={groupId} /> : null}
-    {tab === "channel" ? <RealChannelReporting groupId={groupId} embedded /> : null}
+    {tab === "channel" ? <RealChannelReporting groupId={groupId} groupType={groupType} embedded /> : null}
   </div>;
 }
 
@@ -99,7 +100,7 @@ export function OrganizationDetailWorkspace({ scope }: { scope: Scope }) {
       <div style={{ display: "flex", gap: 8 }}><button className="btn" data-variant={companyMode === "departments" ? "primary" : undefined} onClick={() => setCompanyMode("departments")}>公司内部门对比</button><button className="btn" data-variant={companyMode === "department" ? "primary" : undefined} onClick={() => setCompanyMode("department")}>部门明细</button></div>
     </> : null}
 
-    {scope === "hq" && companyMode === "departments" ? <RealEntityMetricsTable title="部门汇总" note="本公司各部门并排对比；每一行按自己的小组统计汇总。" entityLabel="部门" rows={departmentRows} /> : null}
+    {scope === "hq" && companyMode === "departments" ? <RealEntityMetricsTable title="部门汇总" note="本公司各部门并排对比；比率置顶，数量与资金按指标展示。" entityLabel="部门" rows={departmentRows} /> : null}
 
     {(scope !== "hq" || companyMode === "department") && scope !== "department" ? <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span className="label" style={{ margin: 0 }}>选择部门</span><select className="field" value={departmentId} onChange={(event) => chooseDepartment(event.target.value)}>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select><span className="badge" data-tone="mute" style={{ marginLeft: "auto" }}>只读 · 公司口径</span></div>
@@ -108,7 +109,7 @@ export function OrganizationDetailWorkspace({ scope }: { scope: Scope }) {
 
     {(scope === "department" || ((scope !== "hq" || companyMode === "department") && departmentMode === "group")) ? <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}><span className="label" style={{ margin: 0 }}>选择小组</span><select className="field" value={groupId} onChange={(event) => setGroupId(event.target.value)}>{departmentGroups.map((group) => <option key={group.id} value={group.id}>{group.name}</option>)}</select><span className="badge" data-tone="mute" style={{ marginLeft: "auto" }}>只读 · 部门口径</span></div>
-      {groupId ? <GroupTabs key={groupId} groupId={groupId} /> : <section className="card" style={{ padding: 48, textAlign: "center", color: "var(--ink-3)" }}>当前部门还没有小组</section>}
+      {groupId ? <GroupTabs key={groupId} groupId={groupId} groupType={groups.find(g=>g.id===groupId)?.groupType} /> : <section className="card" style={{ padding: 48, textAlign: "center", color: "var(--ink-3)" }}>当前部门还没有小组</section>}
     </> : null}
 
     {(scope !== "department" && (scope !== "hq" || companyMode === "department") && departmentMode === "groups") ? <RealEntityMetricsTable title="团队汇总" note="所选部门内各小组并排对比。" entityLabel="小组" rows={groupRows} /> : null}

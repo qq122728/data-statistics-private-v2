@@ -9,7 +9,7 @@ import { statisticsDate } from "../../../../lib/statistics-date";
 
 const allowedRanges = new Set(["today", "yesterday", "7d", "week", "30d", "month", "lastMonth", "custom"]);
 
-/** Headquarters-only, read-only detail behind the existing order totals. */
+/** Top-level administrators' read-only detail behind the existing order totals. */
 export async function GET(request: Request) {
   let actor;
   try {
@@ -19,8 +19,8 @@ export async function GET(request: Request) {
     if (error instanceof AuthorizationError) return authorizationErrorResponse(error, error.message);
     throw error;
   }
-  if (actor.duty !== "HQ_MANAGER")
-    return authorizationDenied(actor, "只有总公司管理员可以查看开单来源");
+  if (actor.role !== "ADMIN" && actor.duty !== "HQ_MANAGER")
+    return authorizationDenied(actor, "只有系统管理员或总公司管理员可以查看开单来源");
 
   const params = new URL(request.url).searchParams;
   if (hasOversizedQueryValue(params)) return NextResponse.json({ error: "查询条件过长" }, { status: 400 });

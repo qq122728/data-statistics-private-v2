@@ -84,6 +84,7 @@ const ids = {
   departmentManager: id("department-manager"),
   companyManager: id("company-manager"),
   hqManager: id("hq-manager"),
+  systemAdmin: id("system-admin"),
   resource: id("resource"),
   finance: id("finance"),
 };
@@ -213,6 +214,12 @@ beforeAll(async () => {
         name: "总公司管理员",
         role: "COMPANY_MANAGER",
         duty: "HQ_MANAGER",
+      },
+      {
+        id: ids.systemAdmin,
+        username: ids.systemAdmin,
+        name: "系统管理员",
+        role: "ADMIN",
       },
       {
         id: ids.resource,
@@ -531,7 +538,7 @@ beforeAll(async () => {
 });
 
 describe.sequential("总公司开单来源权限与日期", () => {
-  it("仅总公司管理员可读，并且只返回汇总数字", async () => {
+  it("系统管理员和总公司管理员可读，并且只返回汇总数字", async () => {
     const phone = `9977${Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")}`;
     const channel = await db.channel.findFirstOrThrow({ where: { groupId: ids.berlinGroup } });
     const created = await db.customerSheetRow.create({ data: {
@@ -545,6 +552,8 @@ describe.sequential("总公司开单来源权限与日期", () => {
       const body = await response.json();
       expect(body.rows).toContainEqual(expect.objectContaining({ groupId: ids.berlinGroup, channelName: channel.name, current: 0, previous: 1 }));
       expect(JSON.stringify(body)).not.toContain(phone);
+      await signIn(ids.systemAdmin);
+      expect((await getOrderCohorts(request("range=month"))).status).toBe(200);
       await signIn(ids.companyManager);
       expect((await getOrderCohorts(request("range=month"))).status).toBe(403);
       await signIn(ids.finance);

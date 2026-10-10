@@ -11,6 +11,7 @@ import { GET as getOrgStructure } from "../../src/app/api/org/structure/route";
 import { POST as createDepartmentManagerAccount } from "../../src/app/api/org/department-managers/route";
 import { POST as createCompanyManagerAccount } from "../../src/app/api/org/company-managers/route";
 import { POST as createHqManagerAccount } from "../../src/app/api/org/hq-managers/route";
+import { POST as createFinanceAccount } from "../../src/app/api/org/finance-accounts/route";
 import { GET as getLeadCandidates } from "../../src/app/api/org/lead-candidates/route";
 import { DELETE as deleteOrgAccount, GET as getOrgAccounts, PATCH as updateOrgAccount } from "../../src/app/api/org/accounts/route";
 
@@ -100,6 +101,37 @@ function signInAs(id: string) {
 function jsonRequest(url: string, body: unknown, method = "POST") {
   return new Request(url, { method, body: JSON.stringify(body) });
 }
+
+describe.sequential("总公司创建财务账号", () => {
+  it("只授权选定小组，并允许新账号直接登录", async () => {
+    await signInAs(ids.hq);
+    const username = `finance-${randomUUID()}`;
+    const response = await createFinanceAccount(jsonRequest("http://localhost/api/org/finance-accounts", {
+      username, name: "新财务", password: "finance-123", financeGroupIds: [ids.groupA1, ids.groupB1],
+    }));
+    expect(response.status).toBe(201);
+    const created = await response.json();
+    expect(created).toMatchObject({ username, role: "FINANCE", duty: "FINANCE", mustChangePassword: false });
+    expect(created.financeGroupAccess.map((item: { groupId: string }) => item.groupId)).toEqual([ids.groupA1, ids.groupB1].sort());
+    const saved = await db.user.findUniqueOrThrow({ where: { id: created.id } });
+    expect(saved.financeScopeConfigured).toBe(true);
+    expect(verifyPassword("finance-123", saved.passwordHash)).toBe(true);
+  });
+
+  it("拒绝未选小组和非总公司管理员", async () => {
+    await signInAs(ids.hq);
+    const missingScope = await createFinanceAccount(jsonRequest("http://localhost/api/org/finance-accounts", {
+      username: `finance-no-scope-${randomUUID()}`, name: "无范围财务", password: "finance-123", financeGroupIds: [],
+    }));
+    expect(missingScope.status).toBe(400);
+
+    await signInAs(ids.companyAManager);
+    const forbidden = await createFinanceAccount(jsonRequest("http://localhost/api/org/finance-accounts", {
+      username: `finance-forbidden-${randomUUID()}`, name: "越权财务", password: "finance-123", financeGroupIds: [ids.groupA1],
+    }));
+    expect(forbidden.status).toBe(403);
+  });
+});
 
 describe.sequential("阶段5a组织架构路由：新公司/新部门 (总公司管理员专属)", () => {
   it("treats the system ADMIN as an HQ manager for the shared organization workbench", async () => {

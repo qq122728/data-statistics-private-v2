@@ -5,6 +5,7 @@ import * as leadMembers from "../../src/lib/lead-members";
 import { hashPassword, verifyPassword } from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { DELETE, GET, PATCH, POST } from "../../src/app/api/lead/members/route";
+import { POST as login } from "../../src/app/api/auth/login/route";
 
 const fixturePrefix = "lead-members-test-";
 
@@ -83,12 +84,20 @@ describe.sequential("lead member API", () => {
     const created = await createResponse.json() as { id: string; role: string; groupId: string; passwordHash?: string };
     expect(created).toMatchObject({ username, role: "RECEPTION", groupId: ownGroupId });
     expect(created).not.toHaveProperty("passwordHash");
-    await expect(db.user.findUnique({ where: { id: created.id }, select: { role: true, groupId: true, roleAssignments: { select: { role: true } } } }))
+    await expect(db.user.findUnique({ where: { id: created.id }, select: { role: true, groupId: true, mustChangePassword: true, roleAssignments: { select: { role: true } } } }))
       .resolves.toEqual({
         role: "RECEPTION",
         groupId: ownGroupId,
+        mustChangePassword: false,
         roleAssignments: expect.arrayContaining([{ role: "RECEPTION" }, { role: "GROUP_OPERATOR" }]),
       });
+
+    const loginResponse = await login(new Request("http://localhost/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password: "member-password" }),
+    }));
+    expect(loginResponse.status).toBe(200);
+    await expect(loginResponse.json()).resolves.toMatchObject({ mustChangePassword: false });
 
     const sameGroupMember = await createUser({ role: "RECEPTION", groupId: ownGroupId });
     const crossGroupMember = await createUser({ role: "RECEPTION", groupId: otherGroupId });

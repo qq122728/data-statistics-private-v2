@@ -75,7 +75,9 @@ export async function GET(request: Request) {
   const canRead = actor.role === "ADMIN" || actor.role === "FINANCE" || isLead || actor.duty === "DEPARTMENT_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "HQ_MANAGER";
   if (!canRead) return authorizationDenied(actor, "该账号不能查看组织业绩");
 
-  const groupWhere = actor.role === "ADMIN" || actor.role === "FINANCE" || actor.duty === "HQ_MANAGER"
+  const groupWhere = actor.role === "FINANCE" && actor.financeScopeConfigured
+    ? { active: true, id: { in: actor.financeGroupAccess?.map((access) => access.groupId) ?? [] } }
+    : actor.role === "ADMIN" || actor.role === "FINANCE" || actor.duty === "HQ_MANAGER"
     ? { active: true }
     : actor.duty === "COMPANY_MANAGER"
       ? { active: true, department: { active: true, companyId: actor.companyId ?? "__missing_company__" } }

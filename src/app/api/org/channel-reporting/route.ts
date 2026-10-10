@@ -9,6 +9,7 @@ import { calculateConversionRates, emptyBatchTotals } from "../../../../lib/metr
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
 import { canManageDepartment } from "../../../../lib/managed-department-scope";
+import { canReadReportGroup } from "../../../../lib/permissions";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
 import { countCurrentInGroup, loadCurrentInGroupCustomers } from "../../../../lib/current-in-group-customers";
@@ -41,7 +42,9 @@ export async function GET(request: Request) {
   });
   if (!group) return NextResponse.json({ error: "小组不存在" }, { status: 404 });
   const selectedGroupType = group.groupType;
-  const inScope = actor.role === "ADMIN" || actor.role === "FINANCE" || actor.duty === "HQ_MANAGER"
+  const inScope = actor.role === "FINANCE"
+    ? canReadReportGroup(actor, group)
+    : actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
     || (actor.duty === "COMPANY_MANAGER" && Boolean(actor.companyId) && actor.companyId === group.department.companyId)
     || (actor.duty === "DEPARTMENT_MANAGER" && canManageDepartment(actor, group.departmentId));
   if (!inScope) return authorizationDenied(actor, "没有权限查看这个小组的渠道数据");

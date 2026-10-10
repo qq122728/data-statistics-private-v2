@@ -84,7 +84,7 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
     try {
       if (editingId === "new") {
         await requestJson("/api/lead/members", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: draft.name.trim(), username: draft.username.trim(), password: draft.password, role: "RECEPTION", secondaryRoles: draft.expert ? ["EXPERT"] : [], canViewAllGroupCustomers: draft.canViewAllGroupCustomers }) });
-        setNotice(`已开通 ${draft.name.trim()} 的组员账号；默认可以使用本组全部启用渠道。`);
+        setNotice(`已开通 ${draft.name.trim()} 的组员账号，可用设置的密码直接登录；默认可以使用本组全部启用渠道。`);
       } else if (editingMember) {
         const secondaryRoles = draft.expert && !editingMember.expert ? [...new Set([...editingMember.roles.filter((role) => role !== editingMember.role), "EXPERT"])] : undefined;
         await requestJson("/api/lead/members", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: editingMember.id, name: draft.name.trim(), username: draft.username.trim(), canViewAllGroupCustomers: draft.canViewAllGroupCustomers, ...(secondaryRoles ? { secondaryRoles } : {}) }) });
@@ -186,7 +186,7 @@ export default function TeamManagement({ user, externalAudits = [], onInspect }:
         <header><div><h2>{editingId === "new" ? "开通组员账号" : `管理成员 · ${editingMember?.name || ""}`}</h2><p>新成员默认拥有本组全部启用渠道。</p></div><button type="button" onClick={() => setEditingId(null)}>×</button></header>
         <label><span>成员姓名</span><input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} required /></label>
         <label><span>登录用户名</span><input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value }))} required /></label>
-        {editingId === "new" ? <label><span>初始密码</span><input type="password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} placeholder="至少 6 位，首次登录后要求修改" required minLength={6} /></label> : null}
+        {editingId === "new" ? <label><span>登录密码</span><input type="password" autoComplete="new-password" value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} placeholder="手动设置，至少 6 位，创建后直接登录" required minLength={6} maxLength={256} /></label> : null}
         <label className="team-check"><input type="checkbox" checked={draft.expert} disabled={Boolean(editingMember?.expert)} onChange={(event) => setDraft((current) => ({ ...current, expert: event.target.checked }))} /><span><strong>增加专家权限</strong><small>{editingMember?.expert ? "已有专家岗位；如需取消，请通过人员调岗并交接在办客户。" : "保留普通组员功能，同时兼任专家岗位。"}</small></span></label>
         <label className="team-check"><input type="checkbox" checked={draft.canViewAllGroupCustomers} onChange={(event) => setDraft((current) => ({ ...current, canViewAllGroupCustomers: event.target.checked }))} /><span><strong>查看本组全部客户（只读）</strong><small>可以查看和搜索其他组员的客户，但不能修改他人的渠道、进度、资金，也不能因此获得导出权限。</small></span></label>
         <div className="team-dialog__note">全部渠道自动可用，不需要逐个分配。</div>

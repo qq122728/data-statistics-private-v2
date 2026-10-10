@@ -16,6 +16,7 @@ import { POST as postCustomerOrder } from "../../src/app/api/customer-orders/rou
 import { GET as getPerformanceLeaderboard } from "../../src/app/api/performance-leaderboard/route";
 import { GET as getLeadMemberDailyStats } from "../../src/app/api/lead/member-daily-stats/[memberId]/route";
 import { GET as getResourceReporting } from "../../src/app/api/resource/reporting/route";
+import { GET as getFinanceLedger } from "../../src/app/api/finance/ledger/route";
 import { syncCustomerGroupEvent } from "../../src/lib/customer-number-event-sync";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
@@ -545,6 +546,7 @@ async function signIn(userId: string) {
     include: {
       roleAssignments: { select: { role: true } },
       resourceChannelAccess: { select: { channelId: true } },
+      financeGroupAccess: { select: { groupId: true } },
     },
   });
   vi.spyOn(auth, "requireUser").mockResolvedValue(user as auth.SessionUser);
@@ -1553,6 +1555,33 @@ describe.sequential("组织管理员小组渠道报表 API", () => {
         )
       ).status,
     ).toBe(403);
+  });
+
+  it("限定小组的财务只能读取授权小组的汇总、渠道和资金明细", async () => {
+    await db.user.update({
+      where: { id: ids.finance },
+      data: {
+        financeScopeConfigured: true,
+        financeGroupAccess: { create: [{ groupId: ids.berlinGroup }, { groupId: ids.newYorkGroup }] },
+      },
+    });
+    try {
+      await signIn(ids.finance);
+      const reporting = await getOrgReporting(request("range=month"));
+      expect(reporting.status).toBe(200);
+      const body = await reporting.json();
+      expect(body.groups.map((group: { id: string }) => group.id)).toEqual([ids.berlinGroup, ids.newYorkGroup]);
+      expect(body.members.every((member: { groupId: string }) => member.groupId !== ids.otherGroup)).toBe(true);
+      expect((await getOrgReporting(request(`range=month&groupId=${ids.otherGroup}`))).status).toBe(403);
+      expect((await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=month&groupId=${ids.berlinGroup}`))).status).toBe(200);
+      expect((await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=month&groupId=${ids.otherGroup}`))).status).toBe(403);
+      expect((await getFinanceLedger(new Request(`http://localhost/api/finance/ledger?from=2026-09-01&to=2026-09-30&groupId=${ids.otherGroup}`))).status).toBe(403);
+    } finally {
+      await db.user.update({
+        where: { id: ids.finance },
+        data: { financeScopeConfigured: false, financeGroupAccess: { deleteMany: {} } },
+      });
+    }
   });
 });
 

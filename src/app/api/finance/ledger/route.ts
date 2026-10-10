@@ -24,13 +24,20 @@ export async function GET(request: Request) {
   const groupId = params.get("groupId") ?? "";
   const groupIds = (params.get("groupIds") ?? "").split(",").filter(Boolean);
   const channelId = params.get("channelId") ?? "";
+  const financeGroupIds = actor.financeScopeConfigured
+    ? [...new Set(actor.financeGroupAccess?.map((access) => access.groupId) ?? [])]
+    : null;
+  if (financeGroupIds && [groupId, ...groupIds].some((id) => id && !financeGroupIds.includes(id)))
+    return authorizationDenied(actor, "没有权限查看这个小组的资金明细");
+  const requestedGroupIds = groupId ? [groupId] : [...new Set(groupIds)];
+  const visibleGroupIds = requestedGroupIds.length ? requestedGroupIds : financeGroupIds;
   if (!dateOnly.test(from) || !dateOnly.test(to) || from > to) {
     return NextResponse.json({ error: "请选择正确的资金日期范围" }, { status: 400 });
   }
   const days = Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
   if (days > 31) return NextResponse.json({ error: "资金明细一次最多查看31天" }, { status: 400 });
   const batchWhere = {
-    ...((groupId || groupIds.length) ? { groupId: { in: groupId ? [groupId] : [...new Set(groupIds)] } } : {}),
+    ...(visibleGroupIds ? { groupId: { in: visibleGroupIds } } : {}),
     ...(channelId ? { channelId } : {}),
     group: { active: true },
   };

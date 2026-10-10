@@ -334,12 +334,35 @@ function MetricTable({ title, rows, onRowClick, onOrderSourceClick, orderSourceO
 }
 
 function HeadquartersCustomers({ companies }: { companies: CompanyNode[] }) {
-  const [companyId, setCompanyId] = useState(companies[0]?.id ?? ""); const company = companies.find((item) => item.id === companyId);
-  const [departmentId, setDepartmentId] = useState(company?.departments[0]?.id ?? ""); const department = company?.departments.find((item) => item.id === departmentId);
-  const [groupId, setGroupId] = useState(department?.groups[0]?.id ?? "");
-  useEffect(() => { const next = companies.find((item) => item.id === companyId)?.departments[0]?.id ?? ""; setDepartmentId(next); setGroupId(""); }, [companies, companyId]);
-  useEffect(() => { setGroupId(companies.flatMap((item) => item.departments).find((item) => item.id === departmentId)?.groups[0]?.id ?? ""); }, [companies, departmentId]);
-  return <><section className={styles.filters}><label>公司<select value={companyId} onChange={(event) => setCompanyId(event.target.value)}>{companies.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>部门<select value={departmentId} onChange={(event) => setDepartmentId(event.target.value)}>{company?.departments.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>小组<select value={groupId} onChange={(event) => setGroupId(event.target.value)}>{department?.groups.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><span className={styles.readonly}>只读查看</span></section>{groupId ? <DepartmentCustomerProgress groups={department?.groups.filter((group) => group.id === groupId).map(({ id, name }) => ({ id, name })) ?? []} /> : <section className={styles.empty}>请逐级选择公司、部门和小组</section>}</>;
+  const [companyChoice, setCompanyChoice] = useState(companies[0]?.id ?? "");
+  const company = companies.find((item) => item.id === companyChoice) ?? companies[0];
+  const [departmentChoice, setDepartmentChoice] = useState(company?.departments[0]?.id ?? "");
+  const department = company?.departments.find((item) => item.id === departmentChoice) ?? company?.departments[0];
+  const [groupChoice, setGroupChoice] = useState(department?.groups[0]?.id ?? "");
+  const group = department?.groups.find((item) => item.id === groupChoice) ?? department?.groups[0];
+
+  function chooseCompany(id: string) {
+    const nextDepartment = companies.find((item) => item.id === id)?.departments[0];
+    setCompanyChoice(id);
+    setDepartmentChoice(nextDepartment?.id ?? "");
+    setGroupChoice(nextDepartment?.groups[0]?.id ?? "");
+  }
+
+  function chooseDepartment(id: string) {
+    const nextDepartment = company?.departments.find((item) => item.id === id);
+    setDepartmentChoice(id);
+    setGroupChoice(nextDepartment?.groups[0]?.id ?? "");
+  }
+
+  return <>
+    <section className={styles.filters}>
+      <label>公司<select value={company?.id ?? ""} onChange={(event) => chooseCompany(event.target.value)}>{companies.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+      <label>部门<select value={department?.id ?? ""} onChange={(event) => chooseDepartment(event.target.value)}>{company?.departments.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+      <label>小组<select value={group?.id ?? ""} onChange={(event) => setGroupChoice(event.target.value)}>{department?.groups.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
+      <span className={styles.readonly}>只读查看</span>
+    </section>
+    {group ? <DepartmentCustomerProgress key={group.id} groups={[{ id: group.id, name: group.name }]} /> : <section className={styles.empty}>请逐级选择公司、部门和小组</section>}
+  </>;
 }
 
 function CompaniesDepartments({ companies, reload, notify }: { companies: CompanyNode[]; reload: () => Promise<void>; notify: (value: string) => void }) {

@@ -34,17 +34,29 @@ npm run db:seed
 
 本机如需清理模拟数据，必须明确确认后运行：`CONFIRM_LOCAL_SIMULATION_CLEAR=YES node scripts/clear-local-simulation-data.mjs`。这也只会操作 `prisma/dev.db`，不会连接线上数据库。
 
-## 3. 一条命令启动
+## 3. 启动当前界面
+
+当前系统在同一个仓库里有三个服务：根目录是后端，`apps/frontline` 是员工入口，`apps/admin` 是管理入口。这是按职责拆开的同一套系统，不是三套旧版界面。
+
+只想查看五组演示数据时，使用单独的 `prisma/local-demo.db`，不会覆盖上面的 `prisma/dev.db`：
 
 ```bash
-npm run dev
+export DATABASE_URL="file:$PWD/prisma/local-demo.db"
+npm run db:generate:sqlite
+npx prisma db push --schema prisma/schema.prisma --skip-generate
+npm run seed:local-demo
+npm run seed:local-five-groups
 ```
 
-浏览器打开 [http://localhost:3000](http://localhost:3000)。第一次启动前仍需先完成上面的安装和建库步骤。
+随后在三个终端分别运行（终端 1 保留上面的 `DATABASE_URL`，其他终端从同一项目目录启动）：
 
-停止服务：回到正在运行程序的终端，按 `Control + C`。
+```bash
+DATABASE_URL="file:$PWD/prisma/local-demo.db" APP_PUBLIC_ORIGIN=http://localhost:3000 npm run dev -- -p 3003
+npm run dev --prefix apps/frontline -- -p 3000
+npm run dev --prefix apps/admin -- -p 3002
+```
 
-重新启动：再次运行 `npm run dev`，然后刷新浏览器即可。数据库保存在 `prisma/dev.db`，正常停止和重启不会清空数据。
+打开 [员工入口](http://localhost:3000)；管理入口是 [http://localhost:3002](http://localhost:3002)。`npm run dev` 单独在根目录运行只会启动后端。三个服务停止后，演示数据仍保存在 `prisma/local-demo.db`。
 
 ## 4. 仅本机可用的初始账号
 

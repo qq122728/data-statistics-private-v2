@@ -50,7 +50,8 @@ describe("lead date ranges", () => {
     for (const label of ["今天", "昨天", "近7天", "本周", "本月", "上月", "自定义", "当前范围"]) {
       expect(source).toContain(label);
     }
-    expect(source).toContain('type="date"');
+    expect(source).toContain('MonthDaySelect label="开始日期"');
+    expect(source).toContain('MonthDaySelect label="结束日期"');
     expect(groupSource).not.toContain("待资源部核对");
     expect(groupSource).not.toContain("payload.review");
   });

@@ -1,0 +1,1 @@
+ALTER TABLE "DailyStatEntry" ADD COLUMN "sourceMode" TEXT NOT NULL DEFAULT 'MANUAL';

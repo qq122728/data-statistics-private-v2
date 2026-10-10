@@ -29,7 +29,7 @@ export async function GET(request: Request) {
   if (hasOversizedQueryValue(params)) return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
   const groupId = params.get("groupId") ?? "";
   if (!groupId) return NextResponse.json({ error: "请选择具体小组" }, { status: 400 });
-  const canReadOrganization = actor.active && (actor.role === "ADMIN" || actor.duty === "HQ_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "DEPARTMENT_MANAGER");
+  const canReadOrganization = actor.active && (actor.role === "ADMIN" || actor.role === "FINANCE" || actor.duty === "HQ_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "DEPARTMENT_MANAGER");
   if (!canReadOrganization) return authorizationDenied(actor, "该账号不能查看组织渠道数据");
 
   const group = await db.teamGroup.findFirst({
@@ -41,7 +41,7 @@ export async function GET(request: Request) {
   });
   if (!group) return NextResponse.json({ error: "小组不存在" }, { status: 404 });
   const selectedGroupType = group.groupType;
-  const inScope = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
+  const inScope = actor.role === "ADMIN" || actor.role === "FINANCE" || actor.duty === "HQ_MANAGER"
     || (actor.duty === "COMPANY_MANAGER" && Boolean(actor.companyId) && actor.companyId === group.department.companyId)
     || (actor.duty === "DEPARTMENT_MANAGER" && canManageDepartment(actor, group.departmentId));
   if (!inScope) return authorizationDenied(actor, "没有权限查看这个小组的渠道数据");
@@ -60,7 +60,7 @@ export async function GET(request: Request) {
       where: { groupId, businessDate: { gte: range.from, lte: range.to }, currentRevisionId: { not: null } },
       select: {
         groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
-        businessDate: true, position: true,
+        businessDate: true, position: true, sourceMode: true,
         owner: { select: { id: true, name: true } },
         sourceReception: { select: { id: true, name: true } },
         channel: { select: { id: true, name: true, normalizedName: true } },
@@ -119,6 +119,7 @@ export async function GET(request: Request) {
       businessDate: entry.businessDate,
       position: entry.position,
       groupType: selectedGroupType,
+      sourceMode: entry.sourceMode,
     }) : null;
     if (!value) return;
     row.totals.newFans += value.dispatchCount;

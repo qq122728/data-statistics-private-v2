@@ -67,10 +67,10 @@ function resolveRecipients(user: PermissionUser, input: NotificationInput, scope
   return { recipientIds, targetDepartmentId, targetGroupId, targetRole };
 }
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   try {
     const user = await requireUser();
-    const requestedOffset = request ? Number(new URL(request.url).searchParams.get("offset") ?? "0") : 0;
+    const requestedOffset = Number(new URL(request.url).searchParams.get("offset") ?? "0");
     const offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 ? Math.min(requestedOffset, 1000) : 0;
     const canSend = canSendNotifications(user) && canWriteNotifications(user);
     const [items, unread, sendScope] = await Promise.all([

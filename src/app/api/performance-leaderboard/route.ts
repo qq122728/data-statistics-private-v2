@@ -74,7 +74,7 @@ export async function GET(request: Request) {
       ...(channelIds ? { channelId: { in: channelIds } } : {}),
     },
     select: {
-      groupId: true, businessDate: true, position: true, identityKey: true, ownerId: true, sourceReceptionId: true,
+      groupId: true, businessDate: true, position: true, sourceMode: true, identityKey: true, ownerId: true, sourceReceptionId: true,
       owner: { select: { id: true, name: true, active: true } },
       sourceReception: { select: { id: true, name: true, active: true } },
       approvedRevision: true,
@@ -93,6 +93,7 @@ export async function GET(request: Request) {
       businessDate: entry.businessDate,
       position: entry.position,
       groupType: groupTypeById.get(entry.groupId) ?? "HACKER",
+      sourceMode: entry.sourceMode,
     });
     const depositCents = value.cryptoInitialDepositCents + value.bankInitialDepositCents + value.cryptoRechargeCents + value.bankRechargeCents;
     const groupSum = groupSums.get(entry.groupId) ?? fresh();

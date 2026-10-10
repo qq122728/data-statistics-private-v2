@@ -31,6 +31,7 @@ export function revisionForNumberTracking<T extends Record<string, unknown>>(
     businessDate: string;
     position: string;
     groupType: string;
+    sourceMode?: string;
     // 只有同一统计范围已经确实产生号码自动统计行时，才能隐藏旧的人工后段数据。
     // 否则会出现“旧数据还在，但汇总全是 0”的断层。
     hasTrackedReplacement?: boolean;
@@ -39,6 +40,7 @@ export function revisionForNumberTracking<T extends Record<string, unknown>>(
   if (
     scope.groupType !== "HACKER" ||
     scope.position !== "RECEPTION" ||
+    scope.sourceMode === "NUMBER" ||
     !usesCustomerNumberTracking(scope.businessDate) ||
     scope.hasTrackedReplacement === false
   ) {

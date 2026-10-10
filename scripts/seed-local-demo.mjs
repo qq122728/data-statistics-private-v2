@@ -4,9 +4,11 @@ import { resolve } from "node:path";
 
 // This script is deliberately local-only. It creates an isolated demo company
 // and never clears any existing company, account, or customer data.
-const databaseUrl = `file:${resolve(process.cwd(), "prisma/dev.db")}`;
-if (process.env.DATABASE_URL && !process.env.DATABASE_URL.startsWith("file:")) {
-  throw new Error("演示数据脚本只能连接本地 SQLite 数据库，已拒绝非本地数据库。");
+const allowedDatabaseUrls = ["prisma/dev.db", "prisma/local-demo.db"]
+  .map((path) => `file:${resolve(process.cwd(), path)}`);
+const databaseUrl = process.env.DATABASE_URL || allowedDatabaseUrls[0];
+if (!allowedDatabaseUrls.includes(databaseUrl)) {
+  throw new Error("演示数据脚本只能连接本项目的本地 SQLite 演示数据库。");
 }
 
 const db = new PrismaClient({ datasourceUrl: databaseUrl });
@@ -26,6 +28,7 @@ const DEMO = {
     departmentManager: "demo-department-manager",
     companyManager: "demo-company",
     hqManager: "demo-hq-manager",
+    finance: "demo-finance",
     lead: "demo-lead",
     reception: "demo-reception",
     operator: "demo-operator",
@@ -64,6 +67,7 @@ const accounts = [
   { key: "departmentManager", username: "demo_department", name: "演示部门管理员", password: "DepartmentDemo@56790", role: "COMPANY_MANAGER", duty: "DEPARTMENT_MANAGER", groupId: null, departmentId: DEMO.departmentId, companyId: null },
   { key: "companyManager", username: "demo_company", name: "演示公司管理员", password: "CompanyDemo@56790", role: "COMPANY_MANAGER", duty: "COMPANY_MANAGER", groupId: null, departmentId: null, companyId: DEMO.companyId },
   { key: "hqManager", username: "demo_hq", name: "演示总公司管理员", password: "HqDemo@56790", role: "COMPANY_MANAGER", duty: "HQ_MANAGER", groupId: null, departmentId: null, companyId: null },
+  { key: "finance", username: "demo_finance", name: "演示财务", password: "FinanceDemo@56790", role: "FINANCE", groupId: null, departmentId: null, companyId: null },
   { key: "lead", username: "demo_lead", name: "演示组长", password: "LeadDemo@56790", role: "LEAD", groupId: DEMO.groupId, departmentId: null },
   { key: "reception", username: "demo_reception", name: "演示接粉", password: "ReceptionDemo@56790", role: "RECEPTION", groupId: DEMO.groupId, departmentId: null },
   { key: "operator", username: "demo_operator", name: "演示炒群", password: "OperatorDemo@56790", role: "GROUP_OPERATOR", groupId: DEMO.groupId, departmentId: null },

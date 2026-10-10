@@ -14,6 +14,7 @@ prisma/dev.db
 prisma/dev.db-journal
 prisma/dev.db-wal
 prisma/dev.db-shm
+prisma/local-demo*.db*
 prisma/dev-backup-*.db
 prisma/dev-before-*.db
 /dev.db

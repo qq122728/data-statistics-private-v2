@@ -276,6 +276,8 @@ enum DailyStatStatus {
 }
 
 model User {
+  sheetRows CustomerSheetRow[] @relation("SheetOwner")
+  sheetEdits CustomerSheetRevision[] @relation("SheetEditor")
   id                          String                          @id
   employeeCode                String?                         @unique
   username                    String                          @unique @default("")
@@ -457,6 +459,8 @@ model FinanceGroupAccess {
 }
 
 model TeamGroup {
+  sheetRows CustomerSheetRow[]
+  sheetColumns CustomerSheetColumn[]
   id                          String                @id
   name                        String
   groupType                   GroupType             @default(HACKER)
@@ -838,6 +842,7 @@ model MetricEvent {
 // 独立的每日统计账。identityKey 把“人+岗位+日期+渠道+来源线”锁成唯一一行，
 // 不依赖客户号码或客户状态，报表只读取 approvedRevision。
 model DailyStatEntry {
+  sourceMode            String              @default("MANUAL")
   id                    String              @id @default(cuid())
   identityKey           String              @unique
   ownerId               String
@@ -1394,4 +1399,56 @@ model LegacyCustomerRow {
 
   @@index([groupId, updatedAt])
   @@index([groupId, phone])
+}
+
+
+model CustomerSheetRow {
+  id String @id @default(cuid())
+  groupId String
+  group TeamGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  phone String
+  ownerId String
+  owner User @relation("SheetOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  data String @default("{}")
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  revisions CustomerSheetRevision[]
+  @@unique([groupId, phone])
+  @@index([groupId, updatedAt])
+}
+
+model CustomerSheetColumn {
+  id String @id @default(cuid())
+  groupId String
+  group TeamGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  name String
+  kind String
+  options String @default("[]")
+  stage String @default("group")
+  sortOrder Int @default(0)
+  createdAt DateTime @default(now())
+  @@unique([groupId, name])
+}
+
+model CustomerSheetRevision {
+  id String @id @default(cuid())
+  rowId String
+  row CustomerSheetRow @relation(fields: [rowId], references: [id], onDelete: Restrict)
+  version Int
+  actorId String
+  actor User @relation("SheetEditor", fields: [actorId], references: [id], onDelete: Restrict)
+  before String
+  after String
+  createdAt DateTime @default(now())
+  @@unique([rowId, version])
+}
+
+// Monotonic sequence per group, action and full calendar date.
+model SheetActionSequence {
+  groupId String
+  action String
+  date String
+  value Int @default(0)
+  @@id([groupId, action, date])
 }

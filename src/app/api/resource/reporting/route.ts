@@ -91,6 +91,7 @@ export async function GET(request: Request) {
       sourceReception: { select: { id: true, name: true, role: true } },
       businessDate: true,
       position: true,
+      sourceMode: true,
       currentRevision: true,
       approvedRevision: true,
     },
@@ -122,6 +123,7 @@ export async function GET(request: Request) {
         businessDate: entry.businessDate,
         position: entry.position,
         groupType: groupTypeById.get(entry.groupId) ?? "HACKER",
+        sourceMode: entry.sourceMode,
       });
       sum.added += revision.dispatchCount;
       sum.collision += revision.duplicateCount;

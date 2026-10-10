@@ -56,7 +56,7 @@ export async function GET(request: Request) {
       where: { groupId: group.id, businessDate: { gte: range.from, lte: range.to }, currentRevisionId: { not: null } },
       select: {
         groupId: true, channelId: true, ownerId: true, sourceReceptionId: true,
-        businessDate: true, position: true,
+        businessDate: true, position: true, sourceMode: true,
         owner: { select: { id: true, name: true } },
         sourceReception: { select: { id: true, name: true } },
         channel: { select: { id: true, name: true, normalizedName: true } },
@@ -145,6 +145,7 @@ export async function GET(request: Request) {
       businessDate: entry.businessDate,
       position: entry.position,
       groupType,
+      sourceMode: entry.sourceMode,
       hasTrackedReplacement,
     }) : null;
     if (!value) return;

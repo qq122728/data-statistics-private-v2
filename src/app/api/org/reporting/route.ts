@@ -72,10 +72,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "查询条件过长" }, { status: 400 });
 
   const isLead = hasAssignedRole(actor, "LEAD");
-  const canRead = actor.role === "ADMIN" || isLead || actor.duty === "DEPARTMENT_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "HQ_MANAGER";
+  const canRead = actor.role === "ADMIN" || actor.role === "FINANCE" || isLead || actor.duty === "DEPARTMENT_MANAGER" || actor.duty === "COMPANY_MANAGER" || actor.duty === "HQ_MANAGER";
   if (!canRead) return authorizationDenied(actor, "该账号不能查看组织业绩");
 
-  const groupWhere = actor.role === "ADMIN" || actor.duty === "HQ_MANAGER"
+  const groupWhere = actor.role === "ADMIN" || actor.role === "FINANCE" || actor.duty === "HQ_MANAGER"
     ? { active: true }
     : actor.duty === "COMPANY_MANAGER"
       ? { active: true, department: { active: true, companyId: actor.companyId ?? "__missing_company__" } }
@@ -136,7 +136,7 @@ export async function GET(request: Request) {
     db.dailyStatEntry.findMany({
       where: { groupId: { in: groupIds }, currentRevisionId: { not: null }, businessDate: { gte: minimumFrom, lte: maximumTo } },
       select: {
-        id: true, groupId: true, channelId: true, sourceReceptionId: true,
+        id: true, groupId: true, channelId: true, sourceReceptionId: true, sourceMode: true,
         businessDate: true, position: true, ownerId: true,
         owner: { select: { id: true, name: true, active: true } },
         sourceReception: { select: { id: true, name: true, active: true } },
@@ -193,6 +193,7 @@ export async function GET(request: Request) {
       businessDate: entry.businessDate,
       position: entry.position,
       groupType: groupTypeById.get(entry.groupId) ?? "HACKER",
+      sourceMode: entry.sourceMode,
     });
     addBatchTotals(aggregate.totals, revisionTotals(revision));
     if (numberTrackedOperator) aggregate.totals.groupJoin += revision.operatorReceivedCount;

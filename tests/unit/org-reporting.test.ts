@@ -4,6 +4,7 @@ import * as auth from "../../src/lib/auth";
 import * as leadMembers from "../../src/lib/lead-members";
 import { db } from "../../src/lib/db";
 import { GET as getOrgReporting } from "../../src/app/api/org/reporting/route";
+import { GET as getOrderCohorts } from "../../src/app/api/org/order-cohorts/route";
 import { GET as getOrgChannelReporting } from "../../src/app/api/org/channel-reporting/route";
 import { GET as getLeadChannelReporting } from "../../src/app/api/lead/channel-reporting/route";
 import {
@@ -526,6 +527,31 @@ beforeAll(async () => {
       currentRevisionId: expertRevision.id,
       approvedRevisionId: expertRevision.id,
     },
+  });
+});
+
+describe.sequential("总公司开单来源权限与日期", () => {
+  it("仅总公司管理员可读，并且只返回汇总数字", async () => {
+    const phone = `9977${Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")}`;
+    const channel = await db.channel.findFirstOrThrow({ where: { groupId: ids.berlinGroup } });
+    const created = await db.customerSheetRow.create({ data: {
+      groupId: ids.berlinGroup, ownerId: ids.berlinReception, phone,
+      data: JSON.stringify({ phone, channelId: channel.id, intakeOn: "2026-09-01", firstDepositOn: "2026-10-05", firstDeposit: 50 }),
+    } });
+    try {
+      await signIn(ids.hqManager);
+      const response = await getOrderCohorts(request("range=custom&sourceDateFrom=2026-10-01&sourceDateTo=2026-10-10"));
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.rows).toContainEqual(expect.objectContaining({ groupId: ids.berlinGroup, channelName: channel.name, current: 0, previous: 1 }));
+      expect(JSON.stringify(body)).not.toContain(phone);
+      await signIn(ids.companyManager);
+      expect((await getOrderCohorts(request("range=month"))).status).toBe(403);
+      await signIn(ids.finance);
+      expect((await getOrderCohorts(request("range=month"))).status).toBe(403);
+    } finally {
+      await db.customerSheetRow.delete({ where: { id: created.id } });
+    }
   });
 });
 

@@ -35,6 +35,7 @@ type ReportMember = { id: string; name: string; groupId: string; groupName: stri
 type ReportChannel = { id: string; name: string; groupType: "HACKER" | "LAWYER"; groupCount: number; totals: Metrics };
 type ReportDay = { date: string; groups: Array<{ groupId: string; groupType: "HACKER" | "LAWYER"; totals: Metrics }> };
 type Report = { range: { preset: string; label: string }; groups: ReportGroup[]; groupChannels: ReportGroupChannel[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
+type OrderCohortReport = { range: { from: string; to: string; label: string }; rows: Array<{ groupId: string; channelId: string; channelName: string; current: number; previous: number }> };
 type GroupNode = { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; leadId: string | null; leadName: string | null };
 type DepartmentNode = { id: string; name: string; active: boolean; timezone: string; countryCode: string; companyId: string | null; groups: GroupNode[] };
 type CompanyNode = { id: string; name: string; active: boolean; departments: DepartmentNode[] };
@@ -76,6 +77,10 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
   const [companyId, setCompanyId] = useState(""); const [departmentId, setDepartmentId] = useState(""); const [groupId, setGroupId] = useState("");
   const [channelReport, setChannelReport] = useState<ReportChannel[] | null>(null);
   const [detailGroupId, setDetailGroupId] = useState("");
+  const [orderSourceOpen, setOrderSourceOpen] = useState(false);
+  const [orderCohorts, setOrderCohorts] = useState<OrderCohortReport | null>(null);
+  const [orderCohortError, setOrderCohortError] = useState("");
+  const [orderCohortLoading, setOrderCohortLoading] = useState(false);
 
   const reportUrl = useMemo(() => {
     const params = new URLSearchParams({ range });
@@ -91,6 +96,16 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
     finally { setLoading(false); }
   }, [reportUrl]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!orderSourceOpen || view !== "summary" || groupTypeFilter !== "HACKER" || !report) return;
+    let cancelled = false;
+    setOrderCohorts(null); setOrderCohortError(""); setOrderCohortLoading(true);
+    void requestJson<OrderCohortReport>(reportUrl.replace("/api/org/reporting", "/api/org/order-cohorts"))
+      .then((value) => { if (!cancelled) setOrderCohorts(value); })
+      .catch((caught) => { if (!cancelled) setOrderCohortError(caught instanceof Error ? caught.message : "开单来源读取失败"); })
+      .finally(() => { if (!cancelled) setOrderCohortLoading(false); });
+    return () => { cancelled = true; };
+  }, [groupTypeFilter, orderSourceOpen, report, reportUrl, view]);
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(""), 3500); return () => window.clearTimeout(timer); }, [notice]);
 
   const companies = structure.companies ?? [];
@@ -179,7 +194,7 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
         {(view === "summary") ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setGroupId(""); setDetailGroupId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setGroupId(""); setDetailGroupId(""); }}>律师组数据</button></div> : null}
         {loading && view !== "dashboard" ? <section className={styles.empty}>正在读取全部公司数据…</section> : null}
         {view === "dashboard" ? <RealHierarchyOverview level="company" title="公司汇总" /> : null}
-        {!loading && view === "summary" ? <><ScopeFilters groupType={groupTypeFilter} companies={companies} companyId={companyId} departmentId={departmentId} groupId={groupId} setCompanyId={(value) => { setCompanyId(value); setDetailGroupId(""); }} setDepartmentId={(value) => { setDepartmentId(value); setDetailGroupId(""); }} setGroupId={(value) => { setGroupId(value); setDetailGroupId(""); }} /><div className={styles.tabs}>{(["company", "department", "group", "member", "channel", "day"] as SummaryMode[]).map((value) => <button key={value} data-active={mode === value} onClick={() => { setMode(value); setDetailGroupId(""); }}>{{ company: "按公司", department: "按部门", group: "按小组", member: "按归属个人", channel: "按渠道", day: "按日期" }[value]}</button>)}</div><AdaptiveMetricTable groupType={groupTypeFilter} title={`${report?.range.label ?? "当前区间"} · ${titleForMode(mode)}`} rows={summaryRows} onRowClick={mode === "group" ? setDetailGroupId : undefined} />{mode === "group" && detailGroupId ? <OrgGroupMetricMatrix groupId={detailGroupId} groupName={visibleGroups.find((group) => group.id === detailGroupId)?.name ?? "小组"} groupType={visibleGroups.find((group) => group.id === detailGroupId)?.groupType ?? groupTypeFilter} range={range} from={from} to={to} onClose={() => setDetailGroupId("")} /> : null}</> : null}
+        {!loading && view === "summary" ? <><ScopeFilters groupType={groupTypeFilter} companies={companies} companyId={companyId} departmentId={departmentId} groupId={groupId} setCompanyId={(value) => { setCompanyId(value); setDetailGroupId(""); }} setDepartmentId={(value) => { setDepartmentId(value); setDetailGroupId(""); }} setGroupId={(value) => { setGroupId(value); setDetailGroupId(""); }} /><div className={styles.tabs}>{(["company", "department", "group", "member", "channel", "day"] as SummaryMode[]).map((value) => <button key={value} data-active={mode === value} onClick={() => { setMode(value); setDetailGroupId(""); }}>{{ company: "按公司", department: "按部门", group: "按小组", member: "按归属个人", channel: "按渠道", day: "按日期" }[value]}</button>)}</div><AdaptiveMetricTable groupType={groupTypeFilter} title={`${report?.range.label ?? "当前区间"} · ${titleForMode(mode)}`} rows={summaryRows} onRowClick={mode === "group" ? setDetailGroupId : undefined} onOrderSourceClick={groupTypeFilter === "HACKER" && user.duty === "HQ_MANAGER" ? () => setOrderSourceOpen((open) => !open) : undefined} orderSourceOpen={orderSourceOpen} />{groupTypeFilter === "HACKER" && user.duty === "HQ_MANAGER" && orderSourceOpen ? <OrderCohortPanel groups={visibleGroups} report={orderCohorts} loading={orderCohortLoading} error={orderCohortError} /> : null}{mode === "group" && detailGroupId ? <OrgGroupMetricMatrix groupId={detailGroupId} groupName={visibleGroups.find((group) => group.id === detailGroupId)?.name ?? "小组"} groupType={visibleGroups.find((group) => group.id === detailGroupId)?.groupType ?? groupTypeFilter} range={range} from={from} to={to} onClose={() => setDetailGroupId("")} /> : null}</> : null}
         {!loading && view === "customers" ? <HeadquartersCustomers companies={companies} /> : null}
         {!loading && view === "companies" ? <CompaniesDepartments companies={companies} reload={load} notify={setNotice} /> : null}
         {!loading && view === "groups" ? <GroupManagement companies={companies} reload={load} notify={setNotice} /> : null}
@@ -265,8 +280,35 @@ function ChannelSummaryCell({ groupType, totals, empty = false }: { groupType: "
   return <div className={styles.channelSummary}>{items.map(([label, value]) => <span key={label}><small>{label}</small><strong>{value}</strong></span>)}</div>;
 }
 
-function AdaptiveMetricTable({ groupType, title, rows, onRowClick }: { groupType: "HACKER" | "LAWYER"; title: string; rows: TableRow[]; onRowClick?: (id: string) => void }) {
-  return groupType === "LAWYER" ? <LawyerMetricTable title={title} rows={rows} onRowClick={onRowClick} /> : <MetricTable title={title} rows={rows} onRowClick={onRowClick} />;
+function AdaptiveMetricTable({ groupType, title, rows, onRowClick, onOrderSourceClick, orderSourceOpen }: { groupType: "HACKER" | "LAWYER"; title: string; rows: TableRow[]; onRowClick?: (id: string) => void; onOrderSourceClick?: () => void; orderSourceOpen?: boolean }) {
+  return groupType === "LAWYER" ? <LawyerMetricTable title={title} rows={rows} onRowClick={onRowClick} /> : <MetricTable title={title} rows={rows} onRowClick={onRowClick} onOrderSourceClick={onOrderSourceClick} orderSourceOpen={orderSourceOpen} />;
+}
+
+function OrderCohortPanel({ groups, report, loading, error }: { groups: ReportGroup[]; report: OrderCohortReport | null; loading: boolean; error: string }) {
+  const groupIds = new Set(groups.map((group) => group.id));
+  const rows = report?.rows.filter((row) => groupIds.has(row.groupId)) ?? [];
+  const total = groups.reduce((sum, group) => sum + group.totals.ordered, 0);
+  const current = rows.reduce((sum, row) => sum + row.current, 0);
+  const previous = rows.reduce((sum, row) => sum + row.previous, 0);
+  const unmatched = total - current - previous;
+  return <section className={styles.card} aria-label="开单来源">
+    <div className={styles.cardHead}><div><h2>开单来源 · {report?.range.label ?? "当前区间"}</h2><p>按开单日期计入当前范围，再用同一客户的接粉日期判断新粉或历史粉</p></div></div>
+    {loading ? <p className={styles.cohortMessage}>正在核对开单来源…</p> : error ? <p className={styles.cohortError}>{error}</p> : report ? <>
+      <div className={styles.cohortTotals}>
+        <div><span>当前范围总开单</span><strong>{total}</strong></div>
+        <div><span>本期新粉开单</span><strong>{current}</strong></div>
+        <div><span>历史粉本期开单</span><strong>{previous}</strong></div>
+        {unmatched > 0 ? <div><span>未归类（含历史手填）</span><strong>{unmatched}</strong></div> : null}
+      </div>
+      {unmatched < 0 ? <p className={styles.cohortError}>号码记录比正式开单汇总多 {-unmatched} 单，请核对统计口径。</p> : null}
+      <details className={styles.cohortDetails}><summary>按小组和来源渠道查看</summary>
+        <div className={styles.metricTable}><table><thead><tr><th>小组 / 渠道</th><th>本期新粉开单</th><th>历史粉本期开单</th><th>合计</th></tr></thead><tbody>
+          {groups.map((group) => { const groupRows = rows.filter((row) => row.groupId === group.id); const groupCurrent = groupRows.reduce((sum, row) => sum + row.current, 0); const groupPrevious = groupRows.reduce((sum, row) => sum + row.previous, 0); const groupUnmatched = group.totals.ordered - groupCurrent - groupPrevious; return <Fragment key={group.id}><tr className={styles.cohortGroup}><td><strong>{group.name}</strong></td><td>{groupCurrent}</td><td>{groupPrevious}</td><td>{group.totals.ordered}</td></tr>{groupRows.map((row) => <tr key={`${group.id}-${row.channelId}`}><td>　{row.channelName}</td><td>{row.current}</td><td>{row.previous}</td><td>{row.current + row.previous}</td></tr>)}{groupUnmatched > 0 ? <tr><td>　未归类（含历史手填）</td><td>—</td><td>—</td><td>{groupUnmatched}</td></tr> : null}</Fragment>; })}
+        </tbody></table></div>
+      </details>
+      <p className={styles.cohortNote}>总开单沿用正式报表；旧手填单若没有客户接粉日期，会单列为“未归类”。</p>
+    </> : null}
+  </section>;
 }
 
 function LawyerMetricTable({ title, rows, onRowClick }: { title: string; rows: TableRow[]; onRowClick?: (id: string) => void }) {
@@ -280,14 +322,14 @@ function LawyerMetricTable({ title, rows, onRowClick }: { title: string; rows: T
   return <section className={styles.card}><div className={styles.cardHead}><div><h2>{title}</h2><p>{onRowClick ? "点击小组名称查看合计、渠道和组员矩阵" : "律师组按接粉归属统计；未回复和三个比例由系统自动计算"}</p></div><strong>{rows.length} 行</strong></div><div className={styles.metricViews} role="group" aria-label="显示指标">{[["core","常用"],["counts","数量"],["rates","比率"],["funds","资金"],["all","全部"]].map(([id,label])=><button key={id} aria-pressed={metricView===id} onClick={()=>setMetricView(id)}>{label}</button>)}</div><div className={styles.metricTable} data-condensed={metricView!=="all"}><table><thead><tr>{labels.map((label,index)=>visible(index)?<th key={label}>{label}</th>:null)}</tr></thead><tbody>{rows.map((row) => <tr className={onRowClick ? "metric-clickable-row" : undefined} onClick={() => onRowClick?.(row.id)} key={row.id}><td><strong>{row.name}</strong>{onRowClick ? <button type="button" className="metric-row-drilldown">查看矩阵</button> : null}{row.sub ? <small>{row.sub}</small> : null}</td>{Children.toArray((cells(row.totals, row.people)).props.children).filter((_,index)=>visible(index+1))}</tr>)}<tr className={styles.total}><td><strong>合计</strong><small>当前显示 {rows.length} 行</small></td>{Children.toArray((cells(totals, people)).props.children).filter((_,index)=>visible(index+1))}</tr></tbody></table></div></section>;
 }
 
-function MetricTable({ title, rows, onRowClick }: { title: string; rows: TableRow[]; onRowClick?: (id: string) => void }) {
+function MetricTable({ title, rows, onRowClick, onOrderSourceClick, orderSourceOpen }: { title: string; rows: TableRow[]; onRowClick?: (id: string) => void; onOrderSourceClick?: () => void; orderSourceOpen?: boolean }) {
   const [metricView,setMetricView]=useState("core");
   const labels=["名称", "人数", "添加", "撞粉", "低金额", "无 WS", "人工无效", "有效", "回复", "回复率", "进群", "进群率", "正常退群", "异常退群", "异常退群率", "在群", "推专家", "注册", "注册率", "开单", "开单率", "首充", "续充", "出金", "净业绩"];
   const rateIndexes=[9, 11, 14, 18, 20]; const fundIndexes=[21, 22, 23, 24]; const coreIndexes=[0, 1, 2, 7, 8, 10, 15, 19, 24];
   const visible=(index:number)=>metricView==="all"||index<2||(metricView==="core"?coreIndexes.includes(index):metricView==="rates"?rateIndexes.includes(index):metricView==="funds"?fundIndexes.includes(index):!rateIndexes.includes(index)&&!fundIndexes.includes(index));
   const totals = sumMetrics(rows.map((row) => row.totals)); const people = rows.some((row) => row.people != null) ? rows.reduce((sum, row) => sum + (row.people ?? 0), 0) : null;
   const cells = (row: { totals: Metrics; people?: number }) => { const rates = metricRates(row.totals); return <><td>{row.people ?? "—"}</td><td>{row.totals.added}</td><td>{row.totals.collision}</td><td>{row.totals.lowAmount}</td><td>{row.totals.noWs}</td><td>{row.totals.manualInvalid ?? 0}</td><td><strong>{row.totals.effective}</strong></td><td>{row.totals.replied}</td><td>{rates.reply}</td><td>{row.totals.joined}</td><td>{rates.joined}</td><td>{row.totals.leftNormal}</td><td>{row.totals.leftAbnormal}</td><td>{rates.abnormalLeave}</td><td>{row.totals.inGroup}</td><td>{row.totals.pushed}</td><td>{row.totals.registered}</td><td>{rates.registered}</td><td>{row.totals.ordered}</td><td>{rates.ordered}</td><td>{money(row.totals.initialDepositCents)}</td><td>{money(row.totals.rechargeCents)}</td><td>{money(row.totals.withdrawalCents)}</td><td><strong>{money(row.totals.netCents)}</strong></td></>; };
-  return <section className={styles.card}><div className={styles.cardHead}><div><h2>{title}</h2><p>{onRowClick ? "点击小组名称查看指标纵向、渠道和组员横向的详细矩阵" : "底部合计只汇总当前公司、部门、小组筛选范围；转化率按统一业务口径重新计算"}</p></div><strong>{rows.length} 行</strong></div><div className={styles.metricViews} role="group" aria-label="显示指标">{[["core","常用"],["counts","数量"],["rates","比率"],["funds","资金"],["all","全部"]].map(([id,label])=><button key={id} aria-pressed={metricView===id} onClick={()=>setMetricView(id)}>{label}</button>)}</div><div className={styles.metricTable} data-condensed={metricView!=="all"}><table><thead><tr>{labels.map((label,index)=>visible(index)?<th key={label}>{label}</th>:null)}</tr></thead><tbody>{rows.map((row) => <tr className={onRowClick ? "metric-clickable-row" : undefined} onClick={() => onRowClick?.(row.id)} key={row.id}><td><strong>{row.name}</strong>{onRowClick ? <button type="button" className="metric-row-drilldown">查看矩阵</button> : null}{row.sub ? <small>{row.sub}</small> : null}</td>{Children.toArray((cells(row)).props.children).filter((_,index)=>visible(index+1))}</tr>)}<tr className={styles.total}><td><strong>合计</strong><small>当前显示 {rows.length} 行</small></td>{Children.toArray((cells({ totals, people: people ?? undefined })).props.children).filter((_,index)=>visible(index+1))}</tr></tbody></table></div></section>;
+  return <section className={styles.card}><div className={styles.cardHead}><div><h2>{title}</h2><p>{onRowClick ? "点击小组名称查看指标纵向、渠道和组员横向的详细矩阵" : "底部合计只汇总当前公司、部门、小组筛选范围；转化率按统一业务口径重新计算"}</p></div><div className={styles.cardHeadActions}>{onOrderSourceClick ? <button type="button" aria-expanded={orderSourceOpen} onClick={onOrderSourceClick}>{orderSourceOpen ? "收起开单来源" : "查看开单来源"}</button> : null}<strong>{rows.length} 行</strong></div></div><div className={styles.metricViews} role="group" aria-label="显示指标">{[["core","常用"],["counts","数量"],["rates","比率"],["funds","资金"],["all","全部"]].map(([id,label])=><button key={id} aria-pressed={metricView===id} onClick={()=>setMetricView(id)}>{label}</button>)}</div><div className={styles.metricTable} data-condensed={metricView!=="all"}><table><thead><tr>{labels.map((label,index)=>visible(index)?<th key={label}>{label}</th>:null)}</tr></thead><tbody>{rows.map((row) => <tr className={onRowClick ? "metric-clickable-row" : undefined} onClick={() => onRowClick?.(row.id)} key={row.id}><td><strong>{row.name}</strong>{onRowClick ? <button type="button" className="metric-row-drilldown">查看矩阵</button> : null}{row.sub ? <small>{row.sub}</small> : null}</td>{Children.toArray((cells(row)).props.children).filter((_,index)=>visible(index+1))}</tr>)}<tr className={styles.total}><td><strong>合计</strong><small>当前显示 {rows.length} 行</small></td>{Children.toArray((cells({ totals, people: people ?? undefined })).props.children).filter((_,index)=>visible(index+1))}</tr></tbody></table></div></section>;
 }
 
 function HeadquartersCustomers({ companies }: { companies: CompanyNode[] }) {

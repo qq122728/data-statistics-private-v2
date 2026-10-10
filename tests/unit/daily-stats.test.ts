@@ -5,6 +5,7 @@ import { GET, POST } from "../../src/app/api/daily-stats/route";
 import { GET as GET_RESOURCE_REVIEW, PATCH as RESOURCE_REVIEW } from "../../src/app/api/resource/daily-stats/route";
 import { GET as GET_RESOURCE_REPORTING } from "../../src/app/api/resource/reporting/route";
 import { GET as GET_PERSONAL_PERFORMANCE } from "../../src/app/api/personal-performance/route";
+import { GET as GET_PERFORMANCE_LEADERBOARD } from "../../src/app/api/performance-leaderboard/route";
 import { db } from "../../src/lib/db";
 import { incrementCustomerEventDailyStat } from "../../src/lib/daily-stats";
 
@@ -20,6 +21,7 @@ afterEach(async () => {
   });
   await db.dailyStatRevision.deleteMany({ where: { entry: { groupId: { startsWith: prefix } } } });
   await db.dailyStatEntry.deleteMany({ where: { groupId: { startsWith: prefix } } });
+  await db.customerSheetRow.deleteMany({ where: { groupId: { startsWith: prefix } } });
   await db.channel.deleteMany({ where: { groupId: { startsWith: prefix } } });
   await db.userPosition.deleteMany({ where: { userId: { startsWith: prefix } } });
   await db.user.deleteMany({ where: { id: { startsWith: prefix } } });
@@ -83,6 +85,132 @@ const emptyValues = {
 };
 
 describe.sequential("独立每日数据填写、修改与审核", () => {
+  it("uses number records for group totals and the assigned operator and expert for rankings", async () => {
+    const data = await fixture();
+    const date = "2026-10-10";
+    const entryId = `${prefix}rank-number-${randomUUID()}`;
+    const revisionId = `${entryId}-revision`;
+    await db.dailyStatEntry.create({ data: {
+      id: entryId,
+      identityKey: `unified-member-v1:${JSON.stringify([data.reception.id, data.groupId, date, "RECEPTION", data.channelId, data.reception.id, null])}`,
+      ownerId: data.reception.id,
+      groupId: data.groupId,
+      channelId: data.channelId,
+      sourceReceptionId: data.reception.id,
+      businessDate: date,
+      timezone: "Asia/Shanghai",
+      position: "RECEPTION",
+      sourceMode: "NUMBER",
+      status: "APPROVED",
+    } });
+    await db.dailyStatRevision.create({ data: {
+      id: revisionId,
+      entryId,
+      version: 1,
+      createdById: data.reception.id,
+      dispatchCount: 1,
+      effectiveCount: 1,
+      joinCount: 1,
+      expertIntroCount: 1,
+      registrationCount: 1,
+      orderCount: 1,
+      bankInitialDepositCents: 10_000,
+    } });
+    await db.dailyStatEntry.update({ where: { id: entryId }, data: { currentRevisionId: revisionId, approvedRevisionId: revisionId } });
+    await db.customerSheetRow.create({ data: {
+      groupId: data.groupId,
+      ownerId: data.reception.id,
+      phone: `${prefix}rank-phone-${randomUUID()}`,
+      data: JSON.stringify({
+        intakeOn: date,
+        channelId: data.channelId,
+        joinedOn: date,
+        operatorId: data.operator.id,
+        expertId: data.expert.id,
+        expertOn: date,
+        registeredOn: date,
+        firstDeposit: 100,
+        firstDepositOn: date,
+        firstDepositMethod: "银行卡",
+      }),
+    } });
+
+    signInAs(data.lead);
+    const response = await GET_PERFORMANCE_LEADERBOARD(new Request(`http://localhost/api/performance-leaderboard?scope=managed&range=custom&sourceDateFrom=${date}&sourceDateTo=${date}`));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.groups.find((row: { id: string }) => row.id === data.groupId)).toMatchObject({ joined: 1, orders: 1, netCents: 10_000 });
+    expect(body.receptions.find((row: { id: string }) => row.id === data.reception.id)).toMatchObject({ joined: 1, orders: 1 });
+    expect(body.operators.find((row: { id: string }) => row.id === data.operator.id)).toMatchObject({ joined: 1 });
+    expect(body.experts.find((row: { id: string }) => row.id === data.expert.id)).toMatchObject({ orders: 1 });
+  });
+
+  it.each(["reception", "operator", "expert"] as const)("%s can read the number-tracked customer stages without losing them to legacy filters", async (role) => {
+    const data = await fixture();
+    const actor = data[role];
+    const date = "2026-10-10";
+    const numberId = `${prefix}number-${randomUUID()}`;
+    const manualId = `${prefix}manual-${randomUUID()}`;
+    for (const [id, sourceMode, joinCount] of [
+      [numberId, "NUMBER", 3],
+      [manualId, "MANUAL", 99],
+    ] as const) {
+      const revisionId = `${id}-revision`;
+      await db.dailyStatEntry.create({ data: {
+        id,
+        identityKey: `unified-member-v1:${JSON.stringify([actor.id, data.groupId, date, "RECEPTION", data.channelId, sourceMode === "NUMBER" ? actor.id : null, null])}`,
+        ownerId: actor.id,
+        groupId: data.groupId,
+        channelId: data.channelId,
+        sourceReceptionId: sourceMode === "NUMBER" ? actor.id : null,
+        businessDate: date,
+        timezone: "Asia/Shanghai",
+        position: "RECEPTION",
+        sourceMode,
+        status: "APPROVED",
+      } });
+      await db.dailyStatRevision.create({ data: {
+        id: revisionId,
+        entryId: id,
+        version: 1,
+        createdById: actor.id,
+        dispatchCount: 10,
+        effectiveCount: 10,
+        replyCount: 7,
+        joinCount,
+        normalLeaveCount: 1,
+        abnormalLeaveCount: 1,
+        currentInGroupCount: 1,
+        expertIntroCount: 2,
+        registrationCount: 1,
+        orderCount: 1,
+      } });
+      await db.dailyStatEntry.update({ where: { id }, data: { currentRevisionId: revisionId, approvedRevisionId: revisionId } });
+    }
+
+    signInAs(actor);
+    const response = await GET(new Request(`http://localhost/api/daily-stats?from=${date}&to=${date}`));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      currentInGroupCount: 1,
+      unifiedEntries: [{
+        entryId: numberId,
+        sourceMode: "NUMBER",
+        values: {
+          dispatchCount: 10,
+          replyCount: 7,
+          joinCount: 3,
+          normalLeaveCount: 1,
+          abnormalLeaveCount: 1,
+          currentInGroupCount: 1,
+          expertIntroCount: 2,
+          registrationCount: 1,
+          orderCount: 1,
+        },
+      }],
+    });
+  });
+
   it("律师组不会套用黑客组的号码漏斗", async () => {
     const data = await fixture("LAWYER");
     await db.$transaction((tx) => incrementCustomerEventDailyStat(tx, {

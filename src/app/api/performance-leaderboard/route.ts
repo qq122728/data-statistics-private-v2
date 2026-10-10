@@ -11,6 +11,10 @@ import { authorizationDenied } from "../../../lib/security-events";
 import { managedDepartmentIds } from "../../../lib/managed-department-scope";
 import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
 import { isUnifiedDailyStatIdentity } from "../../../lib/daily-stats";
+import { NUMBER_REPORT_FROM } from "../../../lib/management-report-stock";
+import { numberEvents } from "../../../../packages/customer-sheet/number-statistics";
+import { sheetStatisticsGroup, sheetStatisticsGroupWhere } from "../../../../packages/customer-sheet/statistics-owner";
+import type { SheetData } from "../../../../packages/customer-sheet/schema";
 
 export async function GET(request: Request) {
   let actor;
@@ -74,7 +78,7 @@ export async function GET(request: Request) {
       ...(channelIds ? { channelId: { in: channelIds } } : {}),
     },
     select: {
-      groupId: true, businessDate: true, position: true, sourceMode: true, identityKey: true, ownerId: true, sourceReceptionId: true,
+      groupId: true, channelId: true, businessDate: true, position: true, sourceMode: true, identityKey: true, ownerId: true, sourceReceptionId: true,
       owner: { select: { id: true, name: true, active: true } },
       sourceReception: { select: { id: true, name: true, active: true } },
       approvedRevision: true,
@@ -86,7 +90,12 @@ export async function GET(request: Request) {
   const peopleByRole = new Map<string, { person: (typeof entries)[number]["owner"]; groupId: string; sum: Sum }>();
   const peopleByReception = new Map<string, { person: (typeof entries)[number]["owner"]; groupId: string; sum: Sum }>();
   const groupTypeById = new Map(groups.map((group) => [group.id, group.groupType]));
+  const numberScopes = new Set(entries.filter((entry) => entry.sourceMode === "NUMBER")
+    .map((entry) => JSON.stringify([entry.groupId, entry.channelId, entry.businessDate, entry.ownerId])));
   for (const entry of entries) {
+    const isNumberGroup = groupTypeById.get(entry.groupId) === "HACKER" && entry.businessDate >= NUMBER_REPORT_FROM;
+    if (isNumberGroup && entry.sourceMode !== "NUMBER" && entry.position === "RECEPTION"
+      && numberScopes.has(JSON.stringify([entry.groupId, entry.channelId, entry.businessDate, entry.ownerId]))) continue;
     const rawValue = entry.approvedRevision;
     if (!rawValue) continue;
     const value = revisionForNumberTracking(rawValue, {
@@ -101,7 +110,7 @@ export async function GET(request: Request) {
     if (entry.position === "GROUP_OPERATOR" && groupTypeById.get(entry.groupId) === "HACKER" && usesCustomerNumberTracking(entry.businessDate)) {
       groupSum.joined += value.operatorReceivedCount;
     }
-    if (entry.position === "EXPERT") groupSum.orders += value.orderCount;
+    if (entry.position === "EXPERT" || (isNumberGroup && entry.sourceMode === "NUMBER")) groupSum.orders += value.orderCount;
     // 新版公司认账财务保存在统一组员行；旧专家财务行继续兼容。
     // 客户进度中的跟踪金额不写 DailyStat，因此不会混入这里。
     if (isUnifiedDailyStatIdentity(entry.identityKey) || entry.position === "EXPERT") {
@@ -112,6 +121,7 @@ export async function GET(request: Request) {
     const key = `${entry.position}:${entry.groupId}:${entry.ownerId}`;
     const personRow = peopleByRole.get(key) ?? { person: entry.owner, groupId: entry.groupId, sum: fresh() };
     if (entry.position === "RECEPTION") personRow.sum.joined += value.joinCount;
+    if (isNumberGroup && entry.sourceMode === "NUMBER") personRow.sum.orders += value.orderCount;
     if (entry.position === "GROUP_OPERATOR") personRow.sum.joined += value.operatorReceivedCount;
     if (entry.position === "EXPERT") {
       personRow.sum.orders += value.orderCount;
@@ -126,6 +136,7 @@ export async function GET(request: Request) {
       const receptionKey = `${entry.groupId}:${reception.id}`;
       const receptionRow = peopleByReception.get(receptionKey) ?? { person: reception, groupId: entry.groupId, sum: fresh() };
       if (entry.position === "RECEPTION") receptionRow.sum.joined += value.joinCount;
+      if (isNumberGroup && entry.sourceMode === "NUMBER") receptionRow.sum.orders += value.orderCount;
       if (entry.position === "GROUP_OPERATOR" && groupTypeById.get(entry.groupId) === "HACKER" && usesCustomerNumberTracking(entry.businessDate)) {
         receptionRow.sum.joined += value.operatorReceivedCount;
       }
@@ -135,6 +146,47 @@ export async function GET(request: Request) {
         receptionRow.sum.withdrawalCents += value.withdrawalCents;
       }
       peopleByReception.set(receptionKey, receptionRow);
+    }
+  }
+
+  // 新版号码账按原接粉人归总账；炒群和专家岗位排名则按客户表上的实际负责人归属。
+  const numberGroupIds = groups.filter((group) => group.groupType === "HACKER").map((group) => group.id);
+  if (numberGroupIds.length && range.to >= NUMBER_REPORT_FROM) {
+    const sheetRows = await db.customerSheetRow.findMany({
+      where: { OR: numberGroupIds.map((groupId) => sheetStatisticsGroupWhere(groupId)) },
+      select: { groupId: true, ownerId: true, data: true },
+    });
+    const validGroups = new Set(numberGroupIds);
+    const roleCounts = new Map<string, { groupId: string; ownerId: string; position: "GROUP_OPERATOR" | "EXPERT"; joined: number; orders: number }>();
+    for (const row of sheetRows) {
+      const data = JSON.parse(row.data) as SheetData;
+      const groupId = sheetStatisticsGroup(row.groupId, data);
+      if (!validGroups.has(groupId) || (channelIds && !channelIds.includes(String(data.channelId ?? "")))) continue;
+      for (const event of numberEvents(data)) {
+        if (event.date < NUMBER_REPORT_FROM || event.date < range.from || event.date > range.to) continue;
+        const position = event.field === "joinCount" ? "GROUP_OPERATOR" : event.field === "orderCount" ? "EXPERT" : null;
+        if (!position) continue;
+        const ownerId = String(position === "GROUP_OPERATOR" ? data.operatorId || row.ownerId : data.expertId || "");
+        if (!ownerId) continue;
+        const key = `${position}:${groupId}:${ownerId}`;
+        const count = roleCounts.get(key) ?? { groupId, ownerId, position, joined: 0, orders: 0 };
+        if (position === "GROUP_OPERATOR") count.joined += event.value;
+        else count.orders += event.value;
+        roleCounts.set(key, count);
+      }
+    }
+    const people = await db.user.findMany({
+      where: { id: { in: [...new Set([...roleCounts.values()].map((row) => row.ownerId))] } },
+      select: { id: true, name: true, active: true },
+    });
+    const personById = new Map(people.map((person) => [person.id, person]));
+    for (const [key, count] of roleCounts) {
+      const person = personById.get(count.ownerId);
+      if (!person) continue;
+      const roleRow = peopleByRole.get(key) ?? { person, groupId: count.groupId, sum: fresh() };
+      roleRow.sum.joined += count.joined;
+      roleRow.sum.orders += count.orders;
+      peopleByRole.set(key, roleRow);
     }
   }
   const groupById = new Map(groups.map((group) => [group.id, group]));

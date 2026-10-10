@@ -155,7 +155,8 @@ export async function GET(request: Request) {
       const numberTracking = group.groupType === "HACKER" && usesCustomerNumberTracking(rows[0].businessDate);
       const isActiveEntry = (entry: (typeof rows)[number]) => entry.status !== "RETURNED"
         && Boolean(entry.currentRevision ?? entry.approvedRevision);
-      const primary = rows.find((entry) => entry.position === "RECEPTION" && isUnifiedDailyStatIdentity(entry.identityKey) && isActiveEntry(entry))
+      const primary = (numberTracking ? rows.find((entry) => entry.position === "RECEPTION" && entry.sourceMode === "NUMBER" && isActiveEntry(entry)) : null)
+        ?? rows.find((entry) => entry.position === "RECEPTION" && isUnifiedDailyStatIdentity(entry.identityKey) && isActiveEntry(entry))
         ?? rows.find((entry) => entry.position === "RECEPTION" && entry.ownerId === actor.id && isActiveEntry(entry))
         ?? null;
       const primaryRevision = primary?.currentRevision ?? primary?.approvedRevision ?? null;
@@ -200,7 +201,11 @@ export async function GET(request: Request) {
             ))
         : false;
       const values = emptyValues();
-      if (primary && isUnifiedDailyStatIdentity(primary.identityKey) && primaryRevision && primaryCoversCompanions) {
+      // 号码表已经把所有阶段写入同一条 NUMBER 接粉账。按原样读取这条账，
+      // 不再套用旧版“炒群/专家另记一行”的过滤，否则组员与专家页面会显示 0。
+      if (primary?.sourceMode === "NUMBER" && primaryRevision) {
+        for (const field of numberFields) values[field] = primaryRevision[field];
+      } else if (primary && isUnifiedDailyStatIdentity(primary.identityKey) && primaryRevision && primaryCoversCompanions) {
         for (const field of numberFields) values[field] = primaryRevision[field];
       } else {
         const activeReceptionRows = rows.filter((entry) => entry.position === "RECEPTION" && isActiveEntry(entry));
@@ -265,6 +270,8 @@ export async function GET(request: Request) {
       const first = rows[0];
       return {
         entryId: primary?.id ?? null,
+        sourceMode: primary?.sourceMode ?? "MANUAL",
+        revisionId: primaryRevision?.id ?? null,
         businessDate: first.businessDate,
         channel: first.channel,
         status: primary?.status ?? "LEGACY_MERGED",
@@ -272,6 +279,33 @@ export async function GET(request: Request) {
       };
     }).sort((left, right) => right.businessDate.localeCompare(left.businessDate) || left.channel.name.localeCompare(right.channel.name, "zh-CN"));
     const dateContext = statisticsDateContext();
+    // “当前在群”是截止日存量，不能把区间内每天的快照相加。
+    // 从本人各渠道最近的号码账取一次，且不受上方历史明细 200 行上限影响。
+    const stockEntries = group.groupType === "HACKER"
+      ? await db.dailyStatEntry.findMany({
+          where: {
+            ownerId: actor.id,
+            groupId,
+            sourceMode: "NUMBER",
+            position: "RECEPTION",
+            businessDate: { lte: to ?? dateContext.today },
+            approvedRevisionId: { not: null },
+          },
+          select: {
+            channelId: true,
+            businessDate: true,
+            approvedRevision: { select: { currentInGroupCount: true } },
+          },
+          orderBy: { businessDate: "desc" },
+        })
+      : [];
+    const latestStockByChannel = new Map<string, number>();
+    for (const entry of stockEntries) {
+      if (!latestStockByChannel.has(entry.channelId)) {
+        latestStockByChannel.set(entry.channelId, entry.approvedRevision?.currentInGroupCount ?? 0);
+      }
+    }
+    const currentInGroupCount = [...latestStockByChannel.values()].reduce((total, count) => total + count, 0);
     return NextResponse.json({
       actorId: actor.id,
       groupType: group.groupType,
@@ -293,6 +327,7 @@ export async function GET(request: Request) {
           : [],
       })),
       sourceReceptionPairings,
+      currentInGroupCount,
       entries: entries.map(publicDailyStat),
       // 新组员页面使用这个单行视图；entries 继续保留给旧页面和历史审计。
       unifiedEntries,

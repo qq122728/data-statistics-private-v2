@@ -7,7 +7,8 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 container_name="db01-postgres-${$}-${RANDOM}"
-expected_migrations="${EXPECTED_MIGRATION_COUNT:-41}"
+# The isolated test replays the repository's full formal migration set.
+expected_migrations="${EXPECTED_MIGRATION_COUNT:-$(find prisma/postgres/migrations -mindepth 2 -maxdepth 2 -name migration.sql -type f | wc -l | tr -d '[:space:]')}"
 
 cleanup() {
   docker rm --force "$container_name" >/dev/null 2>&1 || true

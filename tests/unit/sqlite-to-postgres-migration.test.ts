@@ -1,5 +1,5 @@
 import { execFile as execFileCallback, execFileSync } from "node:child_process";
-import { cp, mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -48,7 +48,10 @@ describe.runIf(postgresUrl)("SQLite to PostgreSQL current-release migration", ()
     fixtureDirectory = await mkdtemp(join(tmpdir(), "sqlite-postgres-copy-"));
     const fixtureDatabasePath = join(fixtureDirectory, "prisma", "dev.db");
     await mkdir(join(fixtureDirectory, "prisma"));
-    await cp(resolve(process.cwd(), "prisma/dev.db"), fixtureDatabasePath);
+    execFileSync(resolve(process.cwd(), "node_modules/.bin/prisma"), ["migrate", "deploy", "--schema", resolve(process.cwd(), "prisma/schema.prisma")], {
+      env: { ...process.env, DATABASE_URL: `file:${fixtureDatabasePath}` },
+      stdio: "ignore",
+    });
     await seedCurrentReleaseData(fixtureDatabasePath);
 
     await execFile(process.execPath, [resolve(process.cwd(), "scripts/migrate-sqlite-to-postgres.mjs")], {

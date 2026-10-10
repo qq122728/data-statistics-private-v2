@@ -40,7 +40,9 @@ run([
   "--from-url", databaseUrl,
   "--to-url", referenceDatabaseUrl,
 ]);
-run(["generate", "--schema", "prisma/schema.prisma"], "file:./dev.db");
 run(["generate", "--schema", "prisma/postgres/schema.prisma"]);
+// Vitest's global setup uses the default client against an isolated SQLite file.
+// The copy command uses the separately generated PostgreSQL migration client.
+run(["generate", "--schema", "prisma/schema.prisma"], "file:./dev.db");
 
 console.log("本地 PostgreSQL 搬运测试库已按正式 migrations 准备完成，schema drift 校验通过");

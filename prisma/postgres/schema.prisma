@@ -1452,3 +1452,22 @@ model SheetActionSequence {
   value Int @default(0)
   @@id([groupId, action, date])
 }
+
+// Existing production ledger table, retained in the authoritative schema.
+model FinanceReconciliation {
+  id String @id
+  financeUserId String
+  groupId String
+  groupType String
+  fromDate String
+  toDate String
+  status String @default("PENDING")
+  note String?
+  sourceVersion String
+  reviewedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([financeUserId, groupId, groupType, fromDate, toDate], map: "FinanceReconciliation_scope_key")
+  @@index([financeUserId, fromDate, toDate])
+  @@index([groupId, fromDate, toDate])
+}

@@ -30,6 +30,10 @@ function publicAppOrigin(request: NextRequest): string {
 }
 
 export function proxy(request: NextRequest) {
+  // This endpoint authenticates its own dedicated bot token, not a browser session.
+  if (request.nextUrl.pathname === "/api/integrations/boss-order-query") {
+    return NextResponse.next();
+  }
   if (request.cookies.has(SESSION_COOKIE)) {
     return NextResponse.next();
   }

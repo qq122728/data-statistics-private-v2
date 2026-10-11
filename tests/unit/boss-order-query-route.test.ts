@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   groups: vi.fn(), channels: vi.fn(), rows: vi.fn(), orders: vi.fn(),
@@ -11,6 +12,7 @@ vi.mock("../../src/lib/db", () => ({ db: {
 } }));
 
 import { POST } from "../../src/app/api/integrations/boss-order-query/route";
+import { proxy } from "../../src/proxy";
 
 const secret = "boss-query-test-token-must-be-long-enough";
 function request(token = secret, body: unknown = { view: "orders", group: "德国部", period: "month" }) {
@@ -34,6 +36,11 @@ describe("电报号码查询接口授权", () => {
     const response = await POST(request("wrong"));
     expect(response.status).toBe(401);
     expect(mocks.groups).not.toHaveBeenCalled();
+  });
+
+  it("机器人接口不需要网页登录，但其他业务接口仍要求登录", () => {
+    expect(proxy(new NextRequest("http://localhost/api/integrations/boss-order-query")).headers.get("x-middleware-next")).toBe("1");
+    expect(proxy(new NextRequest("http://localhost/api/org/reporting")).status).toBe(307);
   });
 
   it("只返回授权范围内的号码与真实日期", async () => {

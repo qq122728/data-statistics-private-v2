@@ -38,6 +38,13 @@ describe("电报开单号码只读查询", () => {
     expect(result.text).not.toContain("111678");
   });
 
+  it("默认的全部范围包含各正式小组，不误判为小组名", () => {
+    const result = query({ view: "orders", period: "month" });
+    expect(result.count).toBe(4);
+    expect(result.text).toContain("888999");
+    expect(result.text).not.toContain("777678");
+  });
+
   it("按 FB 渠道族细分到具体渠道、小组和接粉月份", () => {
     const result = query({ group: "德国", channel: "FB", period: "month", view: "channels" });
     expect(result.count).toBe(3);

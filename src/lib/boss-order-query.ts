@@ -48,8 +48,9 @@ export function bossOrderBounds(query: BossOrderQuery, today: string) {
 
 export function bossOrderGroups(groups: readonly BossGroup[], requested: string): BossGroup[] {
   const available = groups.filter((group) => group.active && group.groupType === "HACKER" && !group.name.includes("测试"));
-  const value = groupAlias(requested.trim());
-  if (["", "全部", "所有", "全部组", "全组"].includes(value)) return available;
+  const raw = requested.trim();
+  if (["", "全部", "所有", "全部组", "全组"].includes(raw)) return available;
+  const value = groupAlias(raw);
   const country = ({ 美国: "US", 德国: "DE", 新加坡: "SG" } as Record<string, string>)[value];
   const matched = available.filter((group) => country
     ? (group.countryCode ?? group.department.countryCode) === country

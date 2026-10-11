@@ -4,10 +4,10 @@ export type ProgressGroup = { id: string; name: string; departmentId: string; de
 export type ProgressRow = {
   id: string; phone: string; code: string; groupId: string; stage: CustomerStage; status: string;
   owner: string; operator: string; expert: string; originalOwner: string; originalGroup: string;
-  intakeOn: string; joinedOn: string; expertOn: string; updatedAt: string; days: number | null; channel: string;
+  intakeOn: string; joinedOn: string; expertOn: string; orderedOn: string; updatedAt: string; days: number | null; channel: string;
 };
 export type ProgressPayload = {
-  groups: ProgressGroup[]; members: { id: string; name: string }[]; today: string;
+  groups: ProgressGroup[]; channels: { id: string; name: string }[]; members: { id: string; name: string }[]; today: string;
   rows: ProgressRow[]; total: number; page: number; pages: number; pageSize: number;
   counts: Record<"all" | CustomerStage, number>;
 };

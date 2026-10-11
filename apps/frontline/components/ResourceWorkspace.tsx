@@ -15,10 +15,11 @@ import { WorkspaceNavButton, WorkspaceNavGroup, WorkspaceShell, type WorkspaceIc
 import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartDateRangeToolbar";
 import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 import { GroupDataDetail } from "../../../packages/reporting/GroupDataDetail";
+import { ResourceCustomerProgress } from "@/components/ResourceCustomerProgress";
 
 export type ResourceWorkspaceProps = { user: BackendUser; onLogout: () => void; audience?: "resource" | "finance" };
 
-type View = "dashboard" | "daily" | "summary" | "finance" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
+type View = "dashboard" | "daily" | "summary" | "finance" | "customers" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
 type SummaryMode = "channel" | "department" | "group" | "day";
 type Totals = ResourceTotals;
 type ReportRow = {
@@ -166,7 +167,7 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
     historyContext: JSON.stringify([historyRows.map(row => [row.period.from, row.period.to]), channelId, company, department, groupId, view === "daily" ? day : ""]),
     historicalValues: hasHistoricalResourceValues(historyTotals), previousMonth: isPreviousResourceMonth(historyRows.map(row => row.period)),
   });
-  const title = ({ dashboard: financeViewer ? "渠道数据看板" : labels.resourceDashboard, daily: labels.resourceDaily, summary: labels.resourceSummary, finance: labels.groupDataDetail, channels: labels.resourceChannels, usage: labels.resourceUsage, accounts: labels.resourceAccounts, comparison: labels.resourceComparison, anomalies: labels.resourceAnomalies, notifications: labels.notifications } satisfies Record<View, string>)[view];
+  const title = ({ dashboard: financeViewer ? "渠道数据看板" : labels.resourceDashboard, daily: labels.resourceDaily, summary: labels.resourceSummary, finance: labels.groupDataDetail, customers: "客户进度表", channels: labels.resourceChannels, usage: labels.resourceUsage, accounts: labels.resourceAccounts, comparison: labels.resourceComparison, anomalies: labels.resourceAnomalies, notifications: labels.notifications } satisfies Record<View, string>)[view];
   const showFilters = ["dashboard", "daily", "summary", "comparison", "anomalies", "usage"].includes(view);
   const resourceTypeLabel = channels.length && channels.every((channel) => channel.channelType === "ADS") ? "投流资源" : channels.length && channels.every((channel) => channel.channelType === "SMS") ? "短信资源" : channels.length ? "授权资源" : "未授权资源";
 
@@ -177,6 +178,7 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
       </WorkspaceNavGroup>
       <WorkspaceNavGroup label={NAV_GROUPS.data}>
         {financeViewer ? <NavButton active={view === "finance"} onClick={() => setView("finance")} icon="summary">{labels.groupDataDetail}</NavButton> : null}
+        {!financeViewer ? <NavButton active={view === "customers"} onClick={() => setView("customers")} icon="search">客户进度表</NavButton> : null}
         <NavButton active={view === "daily"} onClick={() => setView("daily")} icon="calendar">{labels.resourceDaily}</NavButton>
         <NavButton active={view === "summary"} onClick={() => setView("summary")} icon="sigma">{labels.resourceSummary}</NavButton>
         <NavButton active={view === "comparison"} onClick={() => setView("comparison")} icon="analysis">{labels.resourceComparison}</NavButton>
@@ -203,6 +205,7 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
         {!loading && view === "comparison" ? <><SmartAnalysis rows={visibleBaseRows} /><DataTable fields={fieldState.fields} groupType={groupTypeFilter} title="渠道表现对比" rows={groupByChannel(visibleBaseRows)} /></> : null}
         {!loading && view === "anomalies" ? <Anomalies rows={visibleBaseRows} /> : null}
         {!loading && view === "notifications" ? <UnifiedNotificationCenter onUnreadChange={setUnread} /> : null}
+        {!financeViewer && view === "customers" ? <ResourceCustomerProgress /> : null}
         {view === "finance" ? <GroupDataDetail permissionLabel="只读 · 财务授权小组范围" finance /> : null}
   </WorkspaceShell>;
 }

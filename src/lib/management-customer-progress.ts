@@ -2,6 +2,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { canReadReportGroup, findLivePermissionUser } from "./permissions";
 import { isSheetManager, publicPhone, SheetError, sheetColumns } from "./customer-sheet";
+import { canViewFullSheetPhone } from "./customer-sheet-phone-access";
 import { statisticsDate } from "./statistics-date";
 import { actionNumbers, fieldActionNumber } from "../../packages/customer-sheet/action-numbers";
 import { customerStage, inCustomerView } from "../../packages/customer-sheet/navigation";
@@ -15,7 +16,7 @@ import type { ProgressDetail, ProgressGroup, ProgressPayload, ProgressRow } from
 
 const date = z.string().refine(value => !value || /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value, "请选择有效日期");
 const querySchema = z.object({
-  companyId: z.string().default(""), departmentId: z.string().default(""), groupId: z.string().default(""),
+  companyId: z.string().default(""), departmentId: z.string().default(""), groupId: z.string().default(""), channelId: z.string().default(""),
   q: z.string().trim().max(100).default(""), stage: z.enum(["all", "pending", "group", "expert"]).default("all"),
   status: z.string().default(""), role: z.enum(["ownerId", "operatorId", "expertId"]).default("ownerId"), assignee: z.string().default(""),
   dateField: z.enum(["intakeOn", "joinedOn", "expertOn"]).default("intakeOn"),
@@ -29,9 +30,20 @@ export async function managementCustomerProgress(actorId: string, params: URLSea
   const query = querySchema.parse(Object.fromEntries(params));
   return db.$transaction(async tx => {
     const actor = await findLivePermissionUser(tx, actorId);
-    if (!actor || !isSheetManager(actor) || ["FINANCE", "RESOURCE_MANAGER"].includes(actor.role)) throw new SheetError("没有权限查看客户进度总表", 403);
+    const resourceViewer = actor?.role === "RESOURCE_MANAGER";
+    if (!actor || (!isSheetManager(actor) && !resourceViewer) || actor.role === "FINANCE") throw new SheetError("没有权限查看客户进度总表", 403);
+    // Resource accounts only see customers from their currently authorized, active channels.
+    // A group can contain other channels, so filtering groups alone is never sufficient.
+    const authorizedChannels = resourceViewer ? await tx.channel.findMany({
+      where: { id: { in: actor.resourceChannelAccess?.map(access => access.channelId) ?? [] }, active: true, group: { active: true } },
+      select: { id: true, name: true, groupId: true },
+    }) : [];
+    const allowedChannelIds = new Set(authorizedChannels.map(channel => channel.id));
+    const resourceGroupIds = new Set(authorizedChannels.map(channel => channel.groupId));
+    if (resourceViewer && query.channelId && !allowedChannelIds.has(query.channelId)) throw new SheetError("没有权限查看该渠道客户", 403);
+    if (resourceViewer && query.rowId) throw new SheetError("资源部只能查看只读客户进度表", 403);
     const available = (await tx.teamGroup.findMany({ where: { active: true }, include: { department: { include: { company: true } } }, orderBy: { name: "asc" } }))
-      .filter(group => canReadReportGroup(actor, group));
+      .filter(group => resourceViewer ? resourceGroupIds.has(group.id) : canReadReportGroup(actor, group));
     const groups: ProgressGroup[] = available.map(group => ({ id: group.id, name: group.name,
       departmentId: group.departmentId || "", departmentName: group.department?.name || "未归属部门",
       companyId: group.department?.companyId || "", companyName: group.department?.company?.name || "未归属公司" }));
@@ -41,7 +53,9 @@ export async function managementCustomerProgress(actorId: string, params: URLSea
     // Scope applies in the database, including direct detail requests with a guessed row ID.
     const stored = await tx.customerSheetRow.findMany({ where: { groupId: { in: scopedGroups.map(g => g.id) }, ...(query.rowId ? { id: query.rowId } : {}) },
       select: { id: true, phone: true, groupId: true, ownerId: true, data: true, updatedAt: true } });
-    const all = stored.map(row => ({ ...row, data: JSON.parse(row.data) as SheetData })).filter(row => !row.data.__deletedAt);
+    const all = stored.map(row => ({ ...row, data: JSON.parse(row.data) as SheetData }))
+      .filter(row => !row.data.__deletedAt && (!resourceViewer || allowedChannelIds.has(String(row.data.channelId ?? "")))
+        && (!query.channelId || row.data.channelId === query.channelId));
     const memberIds = [...new Set(all.flatMap(row => [row.ownerId, row.data.operatorId, row.data.expertId, sheetStatisticsOwner(row.ownerId, row.data)]).filter((id): id is string => typeof id === "string" && Boolean(id)))];
     const channelIds = [...new Set(all.map(row => row.data.channelId).filter((id): id is string => typeof id === "string" && Boolean(id)))];
     const [members, channels] = await Promise.all([
@@ -52,11 +66,11 @@ export async function managementCustomerProgress(actorId: string, params: URLSea
     const name = (id: unknown) => id ? names.get(String(id)) || "历史人员" : "未填写";
     const today = statisticsDate();
     const present = (row: typeof all[number]): ProgressRow => ({
-      id: row.id, phone: publicPhone(row.phone, actor.groupId === row.groupId), code: fieldActionNumber(row.data, "intakeOn") || "未生成编号",
+      id: row.id, phone: publicPhone(row.phone, resourceViewer || canViewFullSheetPhone(actor, row.groupId)), code: fieldActionNumber(row.data, "intakeOn") || "未生成编号",
       groupId: row.groupId, stage: customerStage(row.data), status: customerStage(row.data) === "expert" ? customerExpertStatus(row.data) : customerGroupStatus(row.data),
       owner: name(row.ownerId), operator: name(row.data.operatorId), expert: name(row.data.expertId), originalOwner: name(sheetStatisticsOwner(row.ownerId, row.data)),
       originalGroup: groups.find(g => g.id === sheetStatisticsGroup(row.groupId, row.data))?.name || "原归属小组",
-      intakeOn: String(row.data.intakeOn || ""), joinedOn: String(row.data.joinedOn || ""), expertOn: String(row.data.expertOn || ""),
+      intakeOn: String(row.data.intakeOn || ""), joinedOn: String(row.data.joinedOn || ""), expertOn: String(row.data.expertOn || ""), orderedOn: String(row.data.orderedOn || ""),
       updatedAt: row.updatedAt.toISOString(), days: groupDays(row.data, today), channel: row.data.channelId ? names.get(String(row.data.channelId)) || "历史渠道" : "未填写",
     });
     if (query.rowId) {
@@ -86,7 +100,7 @@ export async function managementCustomerProgress(actorId: string, params: URLSea
       if (!query.q) return true;
       // Preserve the existing rule: cross-group managers can search a tail/code, never full numbers.
       if (/^\d{4}$/.test(search)) return row.phone.endsWith(search);
-      if (/^\d{6,20}$/.test(search)) return actor.groupId === row.groupId && row.phone === search;
+      if (/^\d{6,20}$/.test(search)) return (resourceViewer || canViewFullSheetPhone(actor, row.groupId)) && row.phone === search;
       return actionNumbers(row.data).some(number => number.code.toUpperCase().includes(search))
         || [row.data.name, row.data.note, row.data.expertNote, row.data.customerProgress].some(value => String(value || "").toLowerCase().includes(query.q.toLowerCase()));
     });
@@ -97,6 +111,6 @@ export async function managementCustomerProgress(actorId: string, params: URLSea
     const dateStage = query.dateField === "intakeOn" ? "pending" : query.dateField === "expertOn" ? "expert" : "group";
     selected.sort((a, b) => compareDatedRows(a, b, dateStage));
     const pages = Math.max(1, Math.ceil(selected.length / query.pageSize)), page = Math.min(query.page, pages);
-    return { groups, members, today, rows: selected.slice((page - 1) * query.pageSize, page * query.pageSize).map(present), total: selected.length, page, pages, pageSize: query.pageSize, counts };
+    return { groups, channels: authorizedChannels.map(({ id, name }) => ({ id, name })), members, today, rows: selected.slice((page - 1) * query.pageSize, page * query.pageSize).map(present), total: selected.length, page, pages, pageSize: query.pageSize, counts };
   }, { timeout: 15000 });
 }

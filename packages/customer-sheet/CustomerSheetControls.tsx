@@ -102,7 +102,7 @@ export function CustomerDateToolbar(props: DateToolbarProps) {
   return <div className={styles.dateToolbar} aria-label="客户日期筛选">
     <strong>{props.label}</strong>
     {[["all", "全部"], ["today", "今天"], ["yesterday", "昨天"], ["custom", "自定义"]].map(([value, label]) => <button key={value} data-active={props.range === value} disabled={props.disabled} onClick={() => props.onRange(value, value === "today" ? props.today || "" : value === "yesterday" && props.today ? previousDate(props.today) : "")}>{label}</button>)}
-    {props.range === "custom" && <><MonthDaySelect label={`${props.label}开始`} value={props.from} onChange={props.onFrom} /><span>至</span><MonthDaySelect label={`${props.label}结束`} value={props.to} onChange={props.onTo} /></>}
+    {props.range === "custom" && <><label className={styles.dateFieldLabel}>开始日期<MonthDaySelect label={`${props.label}开始`} value={props.from} onChange={props.onFrom} /></label><span>至</span><label className={styles.dateFieldLabel}>结束日期<MonthDaySelect label={`${props.label}结束`} value={props.to} onChange={props.onTo} /></label><span className={styles.appliedDateRange}>当前筛选：{props.from || "未选开始"} 至 {props.to || "未选结束（包含之后日期）"}{props.from && props.to && props.from > props.to ? " · 结束日期不能早于开始日期" : ""}</span></>}
     <span className={styles.dateHint}>日期从新到旧 · 同日按编号排列{props.combined ? " · 表格可左右滚动" : ""}</span>
     <button onClick={props.onExpand}>展开本页</button><button onClick={props.onCollapse}>收起本页</button>
   </div>;

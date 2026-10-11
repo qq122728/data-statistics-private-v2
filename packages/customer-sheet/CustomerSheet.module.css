@@ -129,6 +129,7 @@
 
 .dateToolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid #bdcddd;background:#fff;font-size:12px;}
 .dateToolbar strong{margin-right:4px;color:#34455e;}
+.dateFieldLabel{display:flex;align-items:center;gap:6px;color:#526075;white-space:nowrap}.dateFieldLabel :global(input[type="date"]){min-width:140px}.appliedDateRange{color:#245c9a;font-weight:600;white-space:normal}.dateScopeNote{margin:0;padding:7px 12px;background:#f4f8ff;border-bottom:1px solid #cbdcf2;color:#425b7c;font-size:12px;line-height:1.5}
 .dateToolbar button{padding:5px 10px;min-height:28px;}
 .dateToolbar button[data-active="true"]{background:#e8f1ff;color:#1859ad;border-color:#9dbce8;}
 .dateHint{color:#66768d;margin-left:auto;}

@@ -35,7 +35,16 @@ type ReportMember = { id: string; name: string; groupId: string; groupName: stri
 type ReportChannel = { id: string; name: string; groupType: "HACKER" | "LAWYER"; groupCount: number; totals: Metrics };
 type ReportDay = { date: string; groups: Array<{ groupId: string; groupType: "HACKER" | "LAWYER"; totals: Metrics }> };
 type Report = { range: { preset: string; label: string }; groups: ReportGroup[]; groupChannels: ReportGroupChannel[]; members: ReportMember[]; channels: ReportChannel[]; days: ReportDay[] };
-type OrderCohortReport = { range: { from: string; to: string; label: string }; rows: Array<{ groupId: string; channelId: string; channelName: string; current: number; previous: number }> };
+type QualityCount = { eligible: number; ordered: number };
+type OrderCohortReport = {
+  range: { from: string; to: string; label: string };
+  rows: Array<{ groupId: string; channelId: string; channelName: string; current: number; previous: number }>;
+  details: Array<{ id: string; groupId: string; channelId: string; channelName: string; phone: string; intakeOn: string; orderOn: string; source: "current" | "previous" }>;
+  quality: {
+    asOf: string; previousFrom: string; previousTo: string;
+    rows: Array<{ groupId: string; sevenDay: { current: QualityCount; previous: QualityCount }; thirtyDay: { current: QualityCount; previous: QualityCount } }>;
+  };
+};
 type GroupNode = { id: string; name: string; groupType: "HACKER" | "LAWYER"; active: boolean; leadId: string | null; leadName: string | null };
 type DepartmentNode = { id: string; name: string; active: boolean; timezone: string; countryCode: string; companyId: string | null; groups: GroupNode[] };
 type CompanyNode = { id: string; name: string; active: boolean; departments: DepartmentNode[] };
@@ -77,7 +86,7 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
   const [companyId, setCompanyId] = useState(""); const [departmentId, setDepartmentId] = useState(""); const [groupId, setGroupId] = useState("");
   const [channelReport, setChannelReport] = useState<ReportChannel[] | null>(null);
   const [detailGroupId, setDetailGroupId] = useState("");
-  const [orderSourceOpen, setOrderSourceOpen] = useState(false);
+  const [orderSourceOpen, setOrderSourceOpen] = useState(true);
   const [orderCohorts, setOrderCohorts] = useState<OrderCohortReport | null>(null);
   const [orderCohortError, setOrderCohortError] = useState("");
   const [orderCohortLoading, setOrderCohortLoading] = useState(false);
@@ -195,7 +204,7 @@ export function HeadquartersWorkspace({ user, onLogout }: { user: BackendUser; o
         {(view === "summary") ? <div className={styles.tabs}><button data-active={groupTypeFilter === "HACKER"} onClick={() => { setGroupTypeFilter("HACKER"); setGroupId(""); setDetailGroupId(""); }}>黑客组数据</button><button data-active={groupTypeFilter === "LAWYER"} onClick={() => { setGroupTypeFilter("LAWYER"); setGroupId(""); setDetailGroupId(""); }}>律师组数据</button></div> : null}
         {loading && view !== "dashboard" ? <section className={styles.empty}>正在读取全部公司数据…</section> : null}
         {view === "dashboard" ? <RealHierarchyOverview level="company" title="公司汇总" /> : null}
-        {!loading && view === "summary" ? <><ScopeFilters groupType={groupTypeFilter} companies={companies} companyId={companyId} departmentId={departmentId} groupId={groupId} setCompanyId={(value) => { setCompanyId(value); setDetailGroupId(""); }} setDepartmentId={(value) => { setDepartmentId(value); setDetailGroupId(""); }} setGroupId={(value) => { setGroupId(value); setDetailGroupId(""); }} /><div className={styles.tabs}>{(["company", "department", "group", "member", "channel", "day"] as SummaryMode[]).map((value) => <button key={value} data-active={mode === value} onClick={() => { setMode(value); setDetailGroupId(""); }}>{{ company: "按公司", department: "按部门", group: "按小组", member: "按归属个人", channel: "按渠道", day: "按日期" }[value]}</button>)}</div><AdaptiveMetricTable groupType={groupTypeFilter} title={`${report?.range.label ?? "当前区间"} · ${titleForMode(mode)}`} rows={summaryRows} onRowClick={mode === "group" ? setDetailGroupId : undefined} onOrderSourceClick={groupTypeFilter === "HACKER" && canViewOrderCohorts ? () => setOrderSourceOpen((open) => !open) : undefined} orderSourceOpen={orderSourceOpen} />{groupTypeFilter === "HACKER" && canViewOrderCohorts && orderSourceOpen ? <OrderCohortPanel groups={visibleGroups} report={orderCohorts} loading={orderCohortLoading} error={orderCohortError} /> : null}{mode === "group" && detailGroupId ? <OrgGroupMetricMatrix groupId={detailGroupId} groupName={visibleGroups.find((group) => group.id === detailGroupId)?.name ?? "小组"} groupType={visibleGroups.find((group) => group.id === detailGroupId)?.groupType ?? groupTypeFilter} range={range} from={from} to={to} onClose={() => setDetailGroupId("")} /> : null}</> : null}
+        {!loading && view === "summary" ? <><ScopeFilters groupType={groupTypeFilter} companies={companies} companyId={companyId} departmentId={departmentId} groupId={groupId} setCompanyId={(value) => { setCompanyId(value); setDetailGroupId(""); }} setDepartmentId={(value) => { setDepartmentId(value); setDetailGroupId(""); }} setGroupId={(value) => { setGroupId(value); setDetailGroupId(""); }} /><div className={styles.tabs}>{(["company", "department", "group", "member", "channel", "day"] as SummaryMode[]).map((value) => <button key={value} data-active={mode === value} onClick={() => { setMode(value); setDetailGroupId(""); }}>{{ company: "按公司", department: "按部门", group: "按小组", member: "按归属个人", channel: "按渠道", day: "按日期" }[value]}</button>)}</div>{groupTypeFilter === "HACKER" && canViewOrderCohorts && orderSourceOpen ? <OrderCohortPanel groups={visibleGroups} report={orderCohorts} loading={orderCohortLoading} error={orderCohortError} /> : null}<AdaptiveMetricTable groupType={groupTypeFilter} title={`${report?.range.label ?? "当前区间"} · ${titleForMode(mode)}`} rows={summaryRows} onRowClick={mode === "group" ? setDetailGroupId : undefined} onOrderSourceClick={groupTypeFilter === "HACKER" && canViewOrderCohorts ? () => setOrderSourceOpen((open) => !open) : undefined} orderSourceOpen={orderSourceOpen} />{mode === "group" && detailGroupId ? <OrgGroupMetricMatrix groupId={detailGroupId} groupName={visibleGroups.find((group) => group.id === detailGroupId)?.name ?? "小组"} groupType={visibleGroups.find((group) => group.id === detailGroupId)?.groupType ?? groupTypeFilter} range={range} from={from} to={to} onClose={() => setDetailGroupId("")} /> : null}</> : null}
         {!loading && view === "customers" ? <HeadquartersCustomers companies={companies} /> : null}
         {!loading && view === "companies" ? <CompaniesDepartments companies={companies} reload={load} notify={setNotice} /> : null}
         {!loading && view === "groups" ? <GroupManagement companies={companies} reload={load} notify={setNotice} /> : null}
@@ -286,21 +295,37 @@ function AdaptiveMetricTable({ groupType, title, rows, onRowClick, onOrderSource
 }
 
 function OrderCohortPanel({ groups, report, loading, error }: { groups: ReportGroup[]; report: OrderCohortReport | null; loading: boolean; error: string }) {
+  const [detailKind, setDetailKind] = useState<"all" | "current" | "previous" | null>(null);
+  const [detailPage, setDetailPage] = useState(1);
   const groupIds = new Set(groups.map((group) => group.id));
   const rows = report?.rows.filter((row) => groupIds.has(row.groupId)) ?? [];
+  const details = (report?.details ?? []).filter((row) => groupIds.has(row.groupId) && (detailKind === "all" || row.source === detailKind));
+  const detailPageCount = Math.max(1, Math.ceil(details.length / 50));
+  const shownDetails = details.slice((Math.min(detailPage, detailPageCount) - 1) * 50, Math.min(detailPage, detailPageCount) * 50);
+  const qualityRows = report?.quality.rows.filter((row) => groupIds.has(row.groupId)) ?? [];
+  const qualityTotal = (key: "sevenDay" | "thirtyDay", period: "current" | "previous") => qualityRows.reduce((total, row) => ({
+    eligible: total.eligible + row[key][period].eligible,
+    ordered: total.ordered + row[key][period].ordered,
+  }), { eligible: 0, ordered: 0 });
   const total = groups.reduce((sum, group) => sum + group.totals.ordered, 0);
   const current = rows.reduce((sum, row) => sum + row.current, 0);
   const previous = rows.reduce((sum, row) => sum + row.previous, 0);
   const unmatched = total - current - previous;
+  const openDetails = (kind: "all" | "current" | "previous") => { setDetailKind(kind); setDetailPage(1); };
   return <section className={styles.card} aria-label="开单来源">
-    <div className={styles.cardHead}><div><h2>开单来源 · {report?.range.label ?? "当前区间"}</h2><p>按开单日期计入当前范围，再用同一客户的接粉日期判断新粉或历史粉</p></div></div>
+    <div className={styles.cardHead}><div><h2>本期开单 · {report?.range.label ?? "当前区间"}</h2><p>按首充／开单日期统计；新粉、历史粉按接粉日期区分。此处与“加专家日期”筛选无关。</p></div></div>
     {loading ? <p className={styles.cohortMessage}>正在核对开单来源…</p> : error ? <p className={styles.cohortError}>{error}</p> : report ? <>
       <div className={styles.cohortTotals}>
-        <div><span>当前范围总开单</span><strong>{total}</strong></div>
-        <div><span>本期新粉开单</span><strong>{current}</strong></div>
-        <div><span>历史粉本期开单</span><strong>{previous}</strong></div>
+        <button type="button" onClick={() => openDetails("all")} aria-pressed={detailKind === "all"}><span>本期开单 · 按开单日期</span><strong>{total}</strong></button>
+        <button type="button" onClick={() => openDetails("current")} aria-pressed={detailKind === "current"}><span>本期接粉本期开单</span><strong>{current}</strong></button>
+        <button type="button" onClick={() => openDetails("previous")} aria-pressed={detailKind === "previous"}><span>以前接粉本期开单</span><strong>{previous}</strong></button>
         {unmatched > 0 ? <div><span>未归类（含历史手填）</span><strong>{unmatched}</strong></div> : null}
       </div>
+      {detailKind ? <div className={styles.cohortDrilldown}>
+        <div className={styles.cohortDrilldownHead}><strong>{detailKind === "all" ? "本期开单" : detailKind === "current" ? "本期接粉本期开单" : "以前接粉本期开单"} · 客户明细</strong><button type="button" onClick={() => setDetailKind(null)}>收起明细</button></div>
+        <div className={styles.qualityTable}><table><thead><tr><th>小组</th><th>客户号码</th><th>来源渠道</th><th>接粉日期</th><th>开单日期</th></tr></thead><tbody>{shownDetails.map((detail) => <tr key={detail.id}><td>{groups.find((group) => group.id === detail.groupId)?.name ?? "原小组"}</td><td>{detail.phone}</td><td>{detail.channelName}</td><td>{detail.intakeOn}</td><td>{detail.orderOn}</td></tr>)}{details.length === 0 ? <tr><td colSpan={5}>这类开单暂无可对应的号码记录。</td></tr> : null}</tbody></table></div>
+        <div className={styles.cohortDrilldownHead}><span>号码明细 {details.length} 位{detailKind === "all" && unmatched > 0 ? `；另有 ${unmatched} 单是未归类的历史手填记录` : ""}</span><span>第 {Math.min(detailPage, detailPageCount)} / {detailPageCount} 页 <button type="button" disabled={detailPage <= 1} onClick={() => setDetailPage((page) => page - 1)}>上一页</button><button type="button" disabled={detailPage >= detailPageCount} onClick={() => setDetailPage((page) => page + 1)}>下一页</button></span></div>
+      </div> : null}
       {unmatched < 0 ? <p className={styles.cohortError}>号码记录比正式开单汇总多 {-unmatched} 单，请核对统计口径。</p> : null}
       <details className={styles.cohortDetails}><summary>按小组和来源渠道查看</summary>
         <div className={styles.metricTable}><table><thead><tr><th>小组 / 渠道</th><th>本期新粉开单</th><th>历史粉本期开单</th><th>合计</th></tr></thead><tbody>
@@ -308,6 +333,16 @@ function OrderCohortPanel({ groups, report, loading, error }: { groups: ReportGr
         </tbody></table></div>
       </details>
       <p className={styles.cohortNote}>总开单沿用正式报表；旧手填单若没有客户接粉日期，会单列为“未归类”。</p>
+      <div className={styles.qualityHead}><h3>接粉质量 · 按接粉日期分批</h3><p>只统计有效接粉。7天、30天开单率只用已满完整观察天数的客户；上期取同样长的前一段日期，并只比较对应的成熟日期。</p></div>
+      <div className={styles.qualityTable}><table><thead><tr><th>接粉批次</th><th>7天可比较</th><th>7天内开单</th><th>7天开单率</th><th>30天可比较</th><th>30天内开单</th><th>30天开单率</th></tr></thead><tbody>
+        {(["current", "previous"] as const).map((period) => {
+          const seven = qualityTotal("sevenDay", period);
+          const thirty = qualityTotal("thirtyDay", period);
+          const label = period === "current" ? `本期接粉 · ${report.range.from} 至 ${report.range.to}` : `上期接粉 · ${report.quality.previousFrom} 至 ${report.quality.previousTo}`;
+          return <tr key={period}><td>{label}</td><td>{seven.eligible}</td><td>{seven.eligible ? seven.ordered : "—"}</td><td>{rate(seven.ordered, seven.eligible)}</td><td>{thirty.eligible}</td><td>{thirty.eligible ? thirty.ordered : "—"}</td><td>{rate(thirty.ordered, thirty.eligible)}</td></tr>;
+        })}
+      </tbody></table></div>
+      <p className={styles.cohortNote}>“可比较”是已经接粉满7天或30天的人数；显示“—”表示暂无满足观察期的客户。统计截至 {report.quality.asOf}。</p>
     </> : null}
   </section>;
 }

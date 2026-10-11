@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orderCohorts } from "../../src/lib/order-cohorts";
+import { orderCohortDetails, orderCohorts } from "../../src/lib/order-cohorts";
 
 const row = (groupId: string, intakeOn: string, firstDepositOn: string, extra: Record<string, unknown> = {}) => ({
   groupId,
@@ -24,5 +24,13 @@ describe("开单接粉批次", () => {
       row("group-a", "2026-10-01", "2026-10-04", { firstDeposit: 0 }),
       row("group-a", "2026-10-01", "", { firstDeposit: 100 }),
     ], new Set(["group-a"]), "2026-10-01", "2026-10-10")).toEqual([]);
+  });
+
+  it("点击开单数时只返回脱敏号码和对应的接粉、开单日期", () => {
+    const details = orderCohortDetails([
+      { ...row("group-a", "2026-09-20", "2026-10-08"), id: "row-a", phone: "19912345678" },
+      { ...row("group-a", "2026-10-02", "2026-10-08", { __deletedAt: "2026-10-09" }), id: "row-b", phone: "19999990000" },
+    ], new Set(["group-a"]), "2026-10-01", "2026-10-10");
+    expect(details).toEqual([{ id: "row-a", groupId: "group-a", channelId: "channel-a", phone: "199****678", intakeOn: "2026-09-20", orderOn: "2026-10-08", source: "previous" }]);
   });
 });

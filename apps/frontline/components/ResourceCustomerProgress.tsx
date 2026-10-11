@@ -5,14 +5,15 @@ import type { ProgressPayload } from "../../../packages/customer-sheet/managemen
 import { requestJson } from "@/lib/backend";
 import styles from "./ResourceCustomerProgress.module.css";
 
-type Stage = "all" | "pending" | "group" | "expert";
+type Stage = "all" | "pending" | "group" | "expert" | "ordered";
 const stages: { value: Stage; label: string }[] = [
   { value: "all", label: "全部客户" },
   { value: "pending", label: "待进群" },
   { value: "group", label: "在群跟进" },
   { value: "expert", label: "专家跟进" },
+  { value: "ordered", label: "已开单客户" },
 ];
-const stageName: Record<Exclude<Stage, "all">, string> = { pending: "待进群", group: "在群跟进", expert: "专家跟进" };
+const stageName: Record<Exclude<Stage, "all" | "ordered">, string> = { pending: "待进群", group: "在群跟进", expert: "专家跟进" };
 
 export function ResourceCustomerProgress() {
   const [payload, setPayload] = useState<ProgressPayload | null>(null);
@@ -49,7 +50,7 @@ export function ResourceCustomerProgress() {
   }
 
   return <section className={styles.card}>
-    <div className={styles.heading}><div><h2>客户进度表</h2><p>仅显示当前账号已授权渠道的客户；号码只读，渠道授权变更后会立即生效。</p></div><button type="button" onClick={() => void load()} disabled={loading}>刷新</button></div>
+    <div className={styles.heading}><div><h2>客户进度表</h2><p>仅显示已授权渠道的客户；已开单按首充金额大于 0 统计，日期取实际首充／开单日期。号码只读。</p></div><button type="button" onClick={() => void load()} disabled={loading}>刷新</button></div>
     <form className={styles.filters} onSubmit={submitSearch}>
       <label>渠道<select value={channelId} onChange={event => { setChannelId(event.target.value); setPage(1); }}><option value="">全部授权渠道</option>{payload?.channels.map(channel => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label>
       <label>小组<select value={groupId} onChange={event => { setGroupId(event.target.value); setPage(1); }}><option value="">全部关联小组</option>{payload?.groups.map(group => <option key={group.id} value={group.id}>{group.companyName} / {group.departmentName} / {group.name}</option>)}</select></label>

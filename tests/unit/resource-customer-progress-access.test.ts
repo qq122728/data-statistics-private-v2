@@ -8,8 +8,8 @@ const fixture = vi.hoisted(() => {
   };
   const group = { id: "group-1", name: "1组", active: true, departmentId: "department-1", department: { name: "部门", companyId: "company-1", company: { name: "公司" } } };
   const rows = [
-    { id: "allowed-row", groupId: group.id, ownerId: "owner-1", phone: "1234567890", updatedAt: new Date("2026-10-10"), data: JSON.stringify({ channelId: "allowed-channel", intakeOn: "2026-10-01", orderedOn: "2026-10-09" }) },
-    { id: "other-channel-row", groupId: group.id, ownerId: "owner-1", phone: "9876543210", updatedAt: new Date("2026-10-10"), data: JSON.stringify({ channelId: "other-channel", intakeOn: "2026-10-01" }) },
+    { id: "allowed-row", groupId: group.id, ownerId: "owner-1", phone: "1234567890", updatedAt: new Date("2026-10-10"), data: JSON.stringify({ channelId: "allowed-channel", intakeOn: "2026-10-01", firstDeposit: 100, firstDepositOn: "2026-10-09", orderedOn: "2026-10-08" }) },
+    { id: "other-channel-row", groupId: group.id, ownerId: "owner-1", phone: "9876543210", updatedAt: new Date("2026-10-10"), data: JSON.stringify({ channelId: "other-channel", intakeOn: "2026-10-01", firstDeposit: 200, firstDepositOn: "2026-10-10" }) },
   ];
   const tx = {
     channel: { findMany: vi.fn(async () => [{ id: "allowed-channel", name: "FB-M", groupId: group.id }]) },
@@ -17,7 +17,7 @@ const fixture = vi.hoisted(() => {
     customerSheetRow: { findMany: vi.fn(async () => rows) },
     user: { findMany: vi.fn(async () => [{ id: "owner-1", name: "接粉人" }]) },
   };
-  return { actor, tx };
+  return { actor, rows, tx };
 });
 
 vi.mock("../../src/lib/db", () => ({ db: { $transaction: (callback: (tx: typeof fixture.tx) => Promise<unknown>) => callback(fixture.tx) } }));
@@ -41,7 +41,17 @@ describe("资源部客户进度和号码权限", () => {
       { phone: "1234567890", channel: "FB-M", orderedOn: "2026-10-09" },
     ]);
     expect(result.total).toBe(1);
+    expect(result.counts.ordered).toBe(1);
     expect(result.channels).toEqual([{ id: "allowed-channel", name: "FB-M" }]);
+  });
+
+  it("已开单筛选按真实首充判断并显示实际首充日期", async () => {
+    fixture.tx.customerSheetRow.findMany.mockResolvedValueOnce([...fixture.rows,
+      { id: "not-opened", groupId: "group-1", ownerId: "owner-1", phone: "1111111111", updatedAt: new Date("2026-10-10"), data: JSON.stringify({ channelId: "allowed-channel", intakeOn: "2026-10-02", firstDepositOn: "2026-10-10" }) },
+    ]);
+    const result = await managementCustomerProgress(fixture.actor.id, new URLSearchParams({ stage: "ordered" })) as ProgressPayload;
+    expect(result.counts.ordered).toBe(1);
+    expect(result.rows.map(row => ({ id: row.id, orderedOn: row.orderedOn }))).toEqual([{ id: "allowed-row", orderedOn: "2026-10-09" }]);
   });
 
   it("不能指定未授权渠道，也不能用行 ID 读取详情", async () => {

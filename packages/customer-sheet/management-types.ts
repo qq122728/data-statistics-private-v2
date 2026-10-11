@@ -9,7 +9,7 @@ export type ProgressRow = {
 export type ProgressPayload = {
   groups: ProgressGroup[]; channels: { id: string; name: string }[]; members: { id: string; name: string }[]; today: string;
   rows: ProgressRow[]; total: number; page: number; pages: number; pageSize: number;
-  counts: Record<"all" | CustomerStage, number>;
+  counts: Record<"all" | "ordered" | CustomerStage, number>;
 };
 export type ProgressDetail = {
   row: ProgressRow;

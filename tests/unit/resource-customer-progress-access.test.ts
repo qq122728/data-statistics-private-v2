@@ -8,7 +8,7 @@ const fixture = vi.hoisted(() => {
   };
   const group = { id: "group-1", name: "1组", active: true, departmentId: "department-1", department: { name: "部门", companyId: "company-1", company: { name: "公司" } } };
   const rows = [
-    { id: "allowed-row", groupId: group.id, ownerId: "owner-1", phone: "1234567890", updatedAt: new Date("2026-10-10"), data: JSON.stringify({ channelId: "allowed-channel", intakeOn: "2026-10-01", firstDeposit: 100, firstDepositOn: "2026-10-09", orderedOn: "2026-10-08" }) },
+    { id: "allowed-row", groupId: group.id, ownerId: "owner-1", phone: "1234567890", updatedAt: new Date("2026-10-10"), data: JSON.stringify({ channelId: "allowed-channel", intakeOn: "2026-10-01", firstDeposit: 100, firstDepositOn: "2026-10-09", orderedOn: "2026-10-08", __recharges: JSON.stringify([{ id: "recharge-1", kind: "recharge", amountCents: 2500, date: "2026-10-10", method: "bank" }, { id: "withdrawal-1", kind: "withdrawal", amountCents: 500, date: "2026-10-10", method: "bank" }]) }) },
     { id: "other-channel-row", groupId: group.id, ownerId: "owner-1", phone: "9876543210", updatedAt: new Date("2026-10-10"), data: JSON.stringify({ channelId: "other-channel", intakeOn: "2026-10-01", firstDeposit: 200, firstDepositOn: "2026-10-10" }) },
   ];
   const tx = {
@@ -37,8 +37,8 @@ describe("资源部客户进度和号码权限", () => {
 
   it("同一小组只返回已授权渠道客户的完整号码", async () => {
     const result = await managementCustomerProgress(fixture.actor.id, new URLSearchParams()) as ProgressPayload;
-    expect(result.rows.map(row => ({ phone: row.phone, channel: row.channel, orderedOn: row.orderedOn }))).toEqual([
-      { phone: "1234567890", channel: "FB-M", orderedOn: "2026-10-09" },
+    expect(result.rows.map(row => ({ phone: row.phone, channel: row.channel, orderedOn: row.orderedOn, firstDepositCents: row.firstDepositCents, rechargeCents: row.rechargeCents, withdrawalCents: row.withdrawalCents, netCents: row.netCents }))).toEqual([
+      { phone: "1234567890", channel: "FB-M", orderedOn: "2026-10-09", firstDepositCents: 10000, rechargeCents: 2500, withdrawalCents: 500, netCents: 12000 },
     ]);
     expect(result.total).toBe(1);
     expect(result.counts.ordered).toBe(1);

@@ -65,14 +65,19 @@ export async function managementCustomerProgress(actorId: string, params: URLSea
     const names = new Map([...members, ...channels].map(item => [item.id, item.name]));
     const name = (id: unknown) => id ? names.get(String(id)) || "历史人员" : "未填写";
     const today = statisticsDate();
-    const present = (row: typeof all[number]): ProgressRow => ({
-      id: row.id, phone: publicPhone(row.phone, resourceViewer || canViewFullSheetPhone(actor, row.groupId)), code: fieldActionNumber(row.data, "intakeOn") || "未生成编号",
-      groupId: row.groupId, stage: customerStage(row.data), status: customerStage(row.data) === "expert" ? customerExpertStatus(row.data) : customerGroupStatus(row.data),
-      owner: name(row.ownerId), operator: name(row.data.operatorId), expert: name(row.data.expertId), originalOwner: name(sheetStatisticsOwner(row.ownerId, row.data)),
-      originalGroup: groups.find(g => g.id === sheetStatisticsGroup(row.groupId, row.data))?.name || "原归属小组",
-      intakeOn: String(row.data.intakeOn || ""), joinedOn: String(row.data.joinedOn || ""), expertOn: String(row.data.expertOn || ""), orderedOn: String(row.data.firstDepositOn || row.data.orderedOn || ""),
-      updatedAt: row.updatedAt.toISOString(), days: groupDays(row.data, today), channel: row.data.channelId ? names.get(String(row.data.channelId)) || "历史渠道" : "未填写",
-    });
+    const present = (row: typeof all[number]): ProgressRow => {
+      const funds = investmentSummary(row.data);
+      return {
+        id: row.id, phone: publicPhone(row.phone, resourceViewer || canViewFullSheetPhone(actor, row.groupId)), code: fieldActionNumber(row.data, "intakeOn") || "未生成编号",
+        groupId: row.groupId, stage: customerStage(row.data), status: customerStage(row.data) === "expert" ? customerExpertStatus(row.data) : customerGroupStatus(row.data),
+        owner: name(row.ownerId), operator: name(row.data.operatorId), expert: name(row.data.expertId), originalOwner: name(sheetStatisticsOwner(row.ownerId, row.data)),
+        originalGroup: groups.find(g => g.id === sheetStatisticsGroup(row.groupId, row.data))?.name || "原归属小组",
+        intakeOn: String(row.data.intakeOn || ""), joinedOn: String(row.data.joinedOn || ""), expertOn: String(row.data.expertOn || ""), orderedOn: String(row.data.firstDepositOn || row.data.orderedOn || ""),
+        updatedAt: row.updatedAt.toISOString(), days: groupDays(row.data, today), channel: row.data.channelId ? names.get(String(row.data.channelId)) || "历史渠道" : "未填写",
+        firstDepositCents: funds.firstCents, rechargeCents: funds.rechargeCents, withdrawalCents: funds.withdrawalCents,
+        netCents: funds.firstCents + funds.rechargeCents - funds.withdrawalCents,
+      };
+    };
     if (query.rowId) {
       const row = all[0];
       if (!row) throw new SheetError("客户不存在、已删除或不在查看范围内", 404);

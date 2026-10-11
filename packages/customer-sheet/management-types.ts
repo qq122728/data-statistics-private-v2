@@ -5,6 +5,7 @@ export type ProgressRow = {
   id: string; phone: string; code: string; groupId: string; stage: CustomerStage; status: string;
   owner: string; operator: string; expert: string; originalOwner: string; originalGroup: string;
   intakeOn: string; joinedOn: string; expertOn: string; orderedOn: string; updatedAt: string; days: number | null; channel: string;
+  firstDepositCents: number; rechargeCents: number; withdrawalCents: number; netCents: number;
 };
 export type ProgressPayload = {
   groups: ProgressGroup[]; channels: { id: string; name: string }[]; members: { id: string; name: string }[]; today: string;

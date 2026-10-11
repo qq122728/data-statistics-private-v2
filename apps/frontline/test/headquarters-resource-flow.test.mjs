@@ -30,5 +30,6 @@ test("资源部报表包含小组组员筛选和只读客户进度，但没有�
   assert.doesNotMatch(source, /数据审核|待审核|\/api\/resource\/daily-stats/);
   assert.match(source, /ResourceCustomerProgress/);
   assert.match(customers, /\/api\/customer-sheet\/management/);
+  for (const text of ["首充金额", "续充金额", "出金金额", "净业绩"]) assert.match(customers, new RegExp(text));
   assert.doesNotMatch(customers, /method:\s*["'](?:POST|PATCH|DELETE)["']|新增进群客户|\/api\/lead\/customer-reporting/);
 });

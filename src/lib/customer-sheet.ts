@@ -18,6 +18,7 @@ import { investmentSummary } from "../../packages/customer-sheet/investment";
 import { expandMonthDay } from "../../packages/customer-sheet/month-day";
 import { db } from "./db";
 import { findLivePermissionUser, canReadReportGroup, type PermissionUser } from "./permissions";
+import { canViewFullSheetPhone } from "./customer-sheet-phone-access";
 import { hasAssignedRole, getAssignedRoles } from "./role-access";
 import { baseColumns, legacyColumns, customerGroupStatus, customerExpertStatus, customerExpertStage, isExpertCustomer, expertStages, type Column, type SheetData } from "../../packages/customer-sheet/schema";
 
@@ -60,13 +61,13 @@ export async function sheetAccess(tx: Tx, actorId: string, groupId: string) {
   const lead = !manager(actor) && hasAssignedRole(actor, "LEAD") && actor.groupId === groupId;
   const canCreate = !manager(actor) && frontline(actor) && actor.groupId === groupId;
   const canChooseHistoricalOwner = lead || canCreate && hasAssignedRole(actor, "EXPERT");
-  return { actor, group, lead, canCreate, canChooseHistoricalOwner, canViewGroupStatistics: lead || manager(actor), canViewFullPhone: actor.groupId === groupId };
+  return { actor, group, lead, canCreate, canChooseHistoricalOwner, canViewGroupStatistics: lead || manager(actor), canViewFullPhone: canViewFullSheetPhone(actor, groupId) };
 }
 export async function sheetColumns(tx: Tx, groupId: string): Promise<Column[]> {
   const rows = await tx.customerSheetColumn.findMany({ where: { groupId }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] });
   return [...baseColumns, ...legacyColumns, ...rows.map(c => ({ id: c.id, name: c.name, kind: c.kind, stage: c.stage, defaultHidden: true, options: JSON.parse(c.options) as string[] }))];
 }
-// Full numbers are for same-group accounts; organizational read access alone does not reveal them.
+// Full numbers are limited to same-group accounts and top-level administrators.
 export function publicPhone(phone:string,full:boolean){return full?phone:phone.length>8?`${phone.slice(0,3)}****${phone.slice(-3)}`:`${phone.slice(0,2)}****${phone.slice(-2)}`;}
 function publicSheetData(data:SheetData,full:boolean):SheetData{return {...data,...(data.phone?{phone:publicPhone(String(data.phone),full)}:{}),progress:groupDays(data,statisticsDate())};}
 export function assertExpertFields(actor:PermissionUser, values:SheetData, columns:Column[], expertId:unknown=values.expertId){

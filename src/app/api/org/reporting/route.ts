@@ -10,7 +10,6 @@ import { addBatchTotals, calculateAbnormalLeaveRate, calculateConversionRates, e
 import { hasAssignedRole } from "../../../../lib/role-access";
 import { hasOversizedQueryValue } from "../../../../lib/request-limits";
 import { authorizationDenied, authorizationErrorResponse } from "../../../../lib/security-events";
-import { getSystemSettings } from "../../../../lib/settings";
 import { managedDepartmentIds } from "../../../../lib/managed-department-scope";
 import { dailyStatAttributionOwner, dailyStatAttributionOwnerId } from "../../../../lib/daily-stat-attribution";
 import { revisionForNumberTracking, usesCustomerNumberTracking } from "../../../../lib/customer-number-tracking";
@@ -121,14 +120,15 @@ export async function GET(request: Request) {
     : accessibleGroups;
 
   const now = new Date();
-  const settings = await getSystemSettings();
   const fallbackToday = statisticsDate(now);
   const rawRange = params.get("range") ?? undefined;
   const range = resolveDateRangeWithDefault({
     range: rawRange && allowedRanges.has(rawRange) ? rawRange : undefined,
+    month: params.get("month") ?? undefined,
     sourceDateFrom: params.get("sourceDateFrom") ?? undefined,
     sourceDateTo: params.get("sourceDateTo") ?? undefined,
   }, fallbackToday, "month");
+  const includeDailyDetails = params.get("dailyDetails") === "1";
   const periods = buildGroupBusinessPeriods(selectedGroups, now, range);
 
   const groupIds = selectedGroups.map((group) => group.id);
@@ -184,6 +184,13 @@ export async function GET(request: Request) {
   const memberAggregates = new Map<string, Aggregate>();
   const dailyGroupAggregates = new Map<string, Aggregate>();
   const dailyMemberAggregates = new Map<string, Aggregate>();
+  const dailyDetailAggregates = new Map<string, {
+    date: string;
+    groupId: string;
+    member: { id: string; name: string };
+    channel: { id: string; name: string };
+    aggregate: Aggregate;
+  }>();
   const channelAggregates = new Map<string, { name: string; aggregate: Aggregate; groupIds: Set<string> }>();
   const groupChannelAggregates = new Map<string, { groupId: string; name: string; normalizedName: string; aggregate: Aggregate }>();
   const metadataByGroup = new Map(selectedGroups.map((group) => [group.id, group]));
@@ -223,13 +230,28 @@ export async function GET(request: Request) {
     const revision = (entry.currentRevision ?? entry.approvedRevision) as ApprovedDailyRevision;
     const groupAggregate = groupAggregates.get(entry.groupId) ?? freshAggregate();
     const attributionOwnerId = dailyStatAttributionOwnerId(entry);
+    const attributionOwner = dailyStatAttributionOwner(entry);
     const memberKey = `${entry.groupId}:${attributionOwnerId}`;
     const memberAggregate = memberAggregates.get(memberKey) ?? freshAggregate();
     const dailyGroupKey = `${entry.businessDate}:${entry.groupId}`;
     const dailyMemberKey = `${entry.businessDate}:${memberKey}`;
     const dailyGroupAggregate = dailyGroupAggregates.get(dailyGroupKey) ?? freshAggregate();
     const dailyMemberAggregate = dailyMemberAggregates.get(dailyMemberKey) ?? freshAggregate();
-    for (const aggregate of [groupAggregate, memberAggregate, dailyGroupAggregate, dailyMemberAggregate]) applyRevision(aggregate, entry, revision);
+    const aggregates = [groupAggregate, memberAggregate, dailyGroupAggregate, dailyMemberAggregate];
+    if (includeDailyDetails) {
+      const normalizedChannelName = entry.channel.normalizedName || entry.channel.name;
+      const detailKey = `${entry.businessDate}\0${entry.groupId}\0${attributionOwnerId}\0${normalizedChannelName}`;
+      const detailRow = dailyDetailAggregates.get(detailKey) ?? {
+        date: entry.businessDate,
+        groupId: entry.groupId,
+        member: { id: attributionOwner.id, name: attributionOwner.name },
+        channel: { id: entry.channel.id, name: entry.channel.name },
+        aggregate: freshAggregate(),
+      };
+      aggregates.push(detailRow.aggregate);
+      dailyDetailAggregates.set(detailKey, detailRow);
+    }
+    for (const aggregate of aggregates) applyRevision(aggregate, entry, revision);
     const normalizedChannelName = entry.channel.normalizedName || entry.channel.name;
     const channelGroupType = groupTypeById.get(entry.groupId) ?? "HACKER";
     const channelKey = `${channelGroupType}:${normalizedChannelName}`;
@@ -342,6 +364,17 @@ export async function GET(request: Request) {
     })),
   }));
 
+  const dailyDetails = [...dailyDetailAggregates.values()].map((row) => ({
+    date: row.date,
+    groupId: row.groupId,
+    groupName: metadataByGroup.get(row.groupId)?.name ?? "未知小组",
+    groupType: groupTypeById.get(row.groupId) ?? "HACKER",
+    member: row.member,
+    channel: row.channel,
+    ...serializeAggregate(row.aggregate),
+  })).sort((left, right) => right.date.localeCompare(left.date)
+    || `${left.groupName}-${left.member.name}-${left.channel.name}`.localeCompare(`${right.groupName}-${right.member.name}-${right.channel.name}`, "zh-CN"));
+
   const channels = [...channelAggregates.entries()].map(([typedKey, row]) => {
     const [groupType, ...nameParts] = typedKey.split(":");
     const normalizedName = nameParts.join(":");
@@ -384,7 +417,11 @@ export async function GET(request: Request) {
     };
   }).sort((left, right) => `${left.company?.name ?? ""}-${left.department.name}-${left.groupName}-${left.channel.name}`.localeCompare(`${right.company?.name ?? ""}-${right.department.name}-${right.groupName}-${right.channel.name}`, "zh-CN"));
 
-  return NextResponse.json({ range: { preset: range.preset, label: range.label }, groups, groupChannels, members, channels, days }, {
+  return NextResponse.json({
+    range: { preset: range.preset, label: range.label, from: range.from, to: range.to },
+    groups, groupChannels, members, channels, days,
+    ...(includeDailyDetails ? { dailyDetails } : {}),
+  }, {
     headers: { "Cache-Control": "private, no-store" },
   });
 }

@@ -1607,6 +1607,14 @@ describe.sequential("组织管理员小组渠道报表 API", () => {
       const body = await reporting.json();
       expect(body.groups.map((group: { id: string }) => group.id)).toEqual([ids.berlinGroup, ids.newYorkGroup]);
       expect(body.members.every((member: { groupId: string }) => member.groupId !== ids.otherGroup)).toBe(true);
+      const detailResponse = await getOrgReporting(request(`range=custom&sourceDateFrom=2026-09-01&sourceDateTo=2026-09-01&groupId=${ids.berlinGroup}&dailyDetails=1`));
+      expect(detailResponse.status).toBe(200);
+      const detailBody = await detailResponse.json();
+      expect(detailBody.range).toMatchObject({ from: "2026-09-01", to: "2026-09-01" });
+      expect(detailBody.dailyDetails.length).toBeGreaterThan(0);
+      expect(detailBody.dailyDetails.every((row: { groupId: string }) => row.groupId === ids.berlinGroup)).toBe(true);
+      expect(detailBody.dailyDetails.reduce((sum: number, row: { totals: { netCents: number } }) => sum + row.totals.netCents, 0))
+        .toBe(detailBody.groups[0].totals.netCents);
       expect((await getOrgReporting(request(`range=month&groupId=${ids.otherGroup}`))).status).toBe(403);
       expect((await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=month&groupId=${ids.berlinGroup}`))).status).toBe(200);
       expect((await getOrgChannelReporting(new Request(`http://localhost/api/org/channel-reporting?range=month&groupId=${ids.otherGroup}`))).status).toBe(403);

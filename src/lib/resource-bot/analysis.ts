@@ -101,16 +101,16 @@ export function analyzeResources(rows: AnalysisRow[], range: { from: string; to:
     }
     return { ...row, opened, intake, amounts, events, ambiguousOpening };
   });
-  const { performance, trends, warnings } = resourcePerformance(rows, range, completedThrough);
+  const { dailyPerformance, performance, trends, warnings } = resourcePerformance(rows, range, completedThrough);
   const top = [...rowDetails].sort((a, b) => b.netCents - a.netCents).slice(0, 3);
   return {
     range, completedThrough, comparisonRange: comparable ? { currentFrom: comparisonFrom, currentTo: comparisonTo, previousFrom, previousTo } : null,
     totals, daily, previous, comparison, buckets, types, attribution,
     cohorts: [...cohortMatrix.values()].filter(c => c.current.customers || c.previous.customers).sort((a, b) => a.month.localeCompare(b.month)),
     maturity: [...matured.values()].sort((a, b) => a.month.localeCompare(b.month) || a.windowDays - b.windowDays),
-    performance, trends, warnings, topCustomers: top, details: rowDetails.sort((a, b) => b.netCents - a.netCents),
+    dailyPerformance, performance, trends, warnings, topCustomers: top, details: rowDetails.sort((a, b) => b.netCents - a.netCents),
     coverage: { businessRecords: rows.length, ...extras, eventsAfterCutoffExcluded: futureEvents, missingFirstDateCents, undatedRechargeCents, legacyCents, inconsistentEvents, missingFirstAmount },
-    rules: { mode: "按需预览；未启用定时推送", minimumLeadSample: 30, minimumOpenedSample: 10, declineRelative: 0.1, sustainedDeclineVerified: false, budgetAutomation: false },
+    rules: { mode: "按需查询＋随各国小组收工日报自动推送", minimumLeadSample: 30, minimumOpenedSample: 10, declineRelative: 0.1, sustainedDeclineVerified: false, budgetAutomation: false },
   };
 }
 export type ResourceAnalysis = ReturnType<typeof analyzeResources>;
@@ -128,6 +128,6 @@ export function renderAnalysis(a: ResourceAnalysis, scope: string) {
   if (known.length) lines.push("", "本期续充来自哪批客户", ...known.map(([k, c]) => `${k}：续充 $${money(c.rechargeCents)}`));
   lines.push("", `严重预警 ${a.warnings.length} 项（相对下降达到10%）`, ...a.warnings.slice(0, 3).map((w, i) => `${i + 1}. ${w.title}\n依据：${w.evidence}\n建议：${w.action}`));
   if (!a.warnings.length) lines.push("本次可比数据未触发严重预警。");
-  lines.push("", `预警使用截至 ${a.completedThrough} 的完整统计日；月环比对上月同段，同比对去年同段；同龄批次分别满7/30天后比较。当前为按需分析，未启用自动推送或调整预算。`);
+  lines.push("", `预警使用截至 ${a.completedThrough} 的完整统计日；月环比对上月同段，同比对去年同段；同龄批次分别满7/30天后比较。每日随小组收工推送分析；本报告不自动调整预算。`);
   return lines.join("\n");
 }

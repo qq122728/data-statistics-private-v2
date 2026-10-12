@@ -34,3 +34,14 @@ Token 绑定 API 在 `/api/resource/bot-settings`，仅总公司管理员可调�
 ## Hermes 模式
 
 详见 `../resource-hermes/README.md`。由独立 Hermes 人格服务处理自然语言，现有机器人继续管理唯一群、限频和 Excel 发送。不要同时启动第二个 Telegram 轮询器。
+
+## 每日资源分析（服务器）
+
+- `resource-daily.timer` 安装为 `data-statistics-resource-daily.timer`，每5分钟检查一次。
+- 独立 oneshot 服务使用原资源机器人只读数据库；`resource-daily.env` 只提供既有时间源的查询令牌，不能加载业务网站的数据库环境。
+- 复用分析助手 `127.0.0.1:4179/daily-report-ready` 返回的到期小组和统计日，按当地收工后1小时发送；夏令时和网页排班随原时间源变化。
+- 同时段同一统计日的小组合并，发往资源机器人当前绑定的群。没有归属记录时静默跳过，不报告数据缺失。
+- 只读全渠道匹配确认号码唯一性后，再筛选本次小组。今日数量、本月数量、同龄转化、改善及严重预警分开。
+- `/opt/data-statistics-resource-bot/shared/daily/deliveries.json` 保存每个机器人/群/小组/统计日的发送状态。先同步落盘再发送；结果不明确标为uncertain，不盲目重发。检查日志和群内消息后由维护人员处理，不修改业务库。
+- `daily.cjs --dry-run` 只预览当前到期日报，不发消息、不改发送记录。正式服务由flock与systemd共同防止并发；勿绕开服务直接并发运行。
+- 不依赖本地电脑、Codex会话或AI对话持续打开。机器人交互工具仍只提供查询、范围发现和Excel导出，无法改定时配置。

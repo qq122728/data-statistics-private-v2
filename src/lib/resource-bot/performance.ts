@@ -122,5 +122,5 @@ export function resourcePerformance(input: AnalysisRow[], range: { from: string;
   const uniqueWarnings = warnings.filter(w => { const k = w.title.split("｜").slice(0, 3).join("｜") + w.title.slice(w.title.lastIndexOf(" ")) + w.evidence;
     if (seen.has(k)) return false; seen.add(k); return true; });
   uniqueWarnings.sort((a, b) => Number(b.evidence.match(/相对下降 ([\d.]+)/)?.[1] || 0) - Number(a.evidence.match(/相对下降 ([\d.]+)/)?.[1] || 0));
-  return { performance: { recordCount: rows.length, ...dated(rows, range.from, range.to) }, trends, warnings: uniqueWarnings };
+  return { dailyPerformance: dated(rows, range.to, range.to), performance: { recordCount: rows.length, ...dated(rows, range.from, range.to) }, trends, warnings: uniqueWarnings };
 }

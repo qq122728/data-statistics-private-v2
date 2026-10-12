@@ -1,0 +1,22 @@
+[Unit]
+Description=Resource adviser daily performance and alerts
+After=network-online.target data-statistics-text-query.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=data-statistics
+Group=data-statistics
+WorkingDirectory=/opt/data-statistics-resource-bot/current
+EnvironmentFile=/etc/data-statistics/resource-bot.env
+EnvironmentFile=/etc/data-statistics/resource-daily.env
+ExecStart=/usr/bin/flock -n /opt/data-statistics-resource-bot/shared/daily/delivery.lock /usr/local/bin/node /opt/data-statistics-resource-bot/current/daily.cjs
+TimeoutStartSec=240
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/data-statistics-resource-bot/shared/daily
+MemoryMax=512M
+TasksMax=64

@@ -3,7 +3,7 @@ import { parseSheetData } from "../resource-buyer-phones";
 import { analyzeResources, type AnalysisRow } from "./analysis";
 import { queryBounds, type ResourceQuery } from "./query";
 
-export async function loadResourceAnalysis(q: ResourceQuery, today: string) {
+export async function loadResourceAnalysis(q: ResourceQuery, today: string, internal: { groupIds?: string[]; completedThrough?: string } = {}) {
   const range = queryBounds(q, today);
   if (!range) throw Error("资源分析需要指定日期范围");
   if (q.phone) throw Error("资源分析不支持单号筛选，请用号码详情查询");
@@ -34,10 +34,12 @@ export async function loadResourceAnalysis(q: ResourceQuery, today: string) {
     const rows: AnalysisRow[] = live.flatMap(r => {
       const a = assignments.get(r.id);
       if (!a) return [];
+      // Resolve uniqueness across the full channel BEFORE narrowing scheduled group scope.
+      if (internal.groupIds && !internal.groupIds.includes(r.groupId)) return [];
       if (!filter(a?.buyer.name || "", a?.country || "", a?.material?.name || "")) return [];
       return [{ id: r.id, phone: r.phone, group: r.channel.group.name, channel: r.channel.name, channelId: r.channel.id, type: r.channel.channelType, buyer: a?.buyer.name || "", country: a?.country || "", material: a?.material?.name || "", attributed: !!a, data: r.data }];
     });
-    const completedThrough = range.to === today ? new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10) : range.to;
+    const completedThrough = internal.completedThrough || (range.to === today ? new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10) : range.to);
     const result = analyzeResources(rows, range, { pending, ambiguous, importCount, spendRecords: 0 }, completedThrough);
     return { ...result, scopeNote: "仅分析已按渠道和完整号码唯一匹配到投手或短信供应方的现有业务记录。" };
   }, { isolationLevel: "Serializable", timeout: 60000 });

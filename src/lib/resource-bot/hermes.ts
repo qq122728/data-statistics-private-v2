@@ -12,6 +12,7 @@ import {
 } from "./query";
 import { exportResourceReport, renderResourceReport } from "./render";
 import { COUNTRIES, isCountry } from "../../../packages/resource-buyer/options";
+import { RESOURCE_MENU_QUERIES } from "./commands";
 
 type Export = { bytes: Uint8Array; filename: string };
 type Run = {
@@ -52,6 +53,8 @@ export function enforceHermesScope(
   catalog: QueryCatalog,
   previous?: ResourceQuery,
 ) {
+  const menu = Object.values(RESOURCE_MENU_QUERIES).find((entry) => entry.text === text);
+  if (menu) return querySchema.parse({ view: menu.view, type: menu.type });
   const q = querySchema.parse(query);
   const upper = text.toUpperCase();
   for (const [field, values] of [
@@ -252,6 +255,6 @@ export async function resetHermesSession(session: string): Promise<void> {
     const result = await response.json();
     if (!response.ok || result?.reset !== true) throw Error("RESET_FAILED");
   } catch {
-    throw Error("新建对话未完成，旧查询条件尚未清空，请稍后重试 /new。");
+    throw Error("未能确认新建对话成功，请稍后重试 /new。");
   }
 }

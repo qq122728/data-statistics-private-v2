@@ -1,6 +1,12 @@
 import type { BotConfig } from "./config";
 import { telegram } from "./telegram";
 
+export const RESOURCE_MENU_QUERIES = {
+  effects: { text: "本月全部投流渠道的投手效果，不限定投手、国家和素材", view: "effects", type: "ADS" },
+  sms: { text: "本月全部短信渠道的供应方效果，不限定供应方、国家和素材", view: "effects", type: "SMS" },
+  orders: { text: "本月全部渠道的开单号码，不限定投手和国家", view: "orders", type: "ALL" },
+} as const;
+
 export const RESOURCE_BOT_COMMANDS = [
   { command: "new", description: "新建对话 · 清空当前查询条件" },
   { command: "help", description: "使用说明与查询示例" },
@@ -22,9 +28,9 @@ export function resourceCommand(text: string, username: string) {
   if (command === "new") return { kind: "reset" } as const;
   if (command === "help" || command === "start") return { kind: "help" } as const;
   const questions: Record<string, string> = {
-    effects: "本月全部投流渠道的投手效果，不限定投手、国家和素材",
-    sms: "本月全部短信渠道的供应方效果，不限定供应方、国家和素材",
-    orders: "本月全部渠道的开单号码，不限定投手和国家",
+    effects: RESOURCE_MENU_QUERIES.effects.text,
+    sms: RESOURCE_MENU_QUERIES.sms.text,
+    orders: RESOURCE_MENU_QUERIES.orders.text,
     next: "下一页",
     export: "导出 Excel",
   };

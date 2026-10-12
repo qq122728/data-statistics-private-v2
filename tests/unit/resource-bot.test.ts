@@ -27,7 +27,7 @@ import {
 } from "../../src/lib/resource-bot/render";
 import { createResourceBotHandler } from "../../src/lib/resource-bot/handler";
 import type { BotConfig } from "../../src/lib/resource-bot/config";
-import { resourceCommand } from "../../src/lib/resource-bot/commands";
+import { resourceCommand, RESOURCE_MENU_QUERIES } from "../../src/lib/resource-bot/commands";
 const today = "2026-10-12";
 const now = Date.parse("2026-10-12T01:00:00Z");
 const config: BotConfig = {
@@ -538,6 +538,12 @@ describe("Telegram isolation and reply lifecycle", () => {
 });
 
 describe("Hermes resource agent boundaries", () => {
+  it("pins menu report types and removes stale filters even if the model chooses another report", () => {
+    for (const menu of Object.values(RESOURCE_MENU_QUERIES)) {
+      expect(enforceHermesScope({ view: "orders", type: "ADS", country: "DE", channel: "FB-M", page: 3, excel: true }, menu.text,
+        { channels: [], buyers: [], materials: [], groups: [] })).toEqual(querySchema.parse({ view: menu.view, type: menu.type }));
+    }
+  });
   it("preserves explicit SMS/country/vendor scope and does not invent full phones or SMS creatives", () => {
     const catalog = {
       channels: ["短信A", "FB-M"],

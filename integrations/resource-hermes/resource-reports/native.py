@@ -99,7 +99,8 @@ def install(ctx):
         ctx.register_system_prompt_section('resource.rules.' + str(i // 3750), rules[i:i+3750], max_chars=4000)
     ctx.register_hook('pre_gateway_dispatch', inbound)
     ctx.register_hook('pre_tool_call', guard)
-    ctx.register_command('resource_help', lambda raw_args: HELP, description='资源参谋功能与只读范围')
+    # Hermes dispatch normalizes Telegram underscores to hyphens before lookup.
+    ctx.register_command('resource-help', lambda raw_args: HELP, description='资源参谋功能与只读范围')
     for name, text in QUICK_QUERIES.items():
         if name == 'export': continue  # Native CLI already reserves this alias.
-        ctx.register_command(name, lambda raw_args: HELP, description=text)
+        ctx.register_command(name.replace('_', '-'), lambda raw_args: HELP, description=text)

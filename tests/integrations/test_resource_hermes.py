@@ -23,7 +23,7 @@ class ResetTests(unittest.TestCase):
             Path(temp, 'INSTRUCTIONS.md').write_text('Test instructions')
             seen = []
             class Agent:
-                valid_tool_names = {'query_resource_report', 'describe_resource_scope'}
+                valid_tool_names = {'query_resource_report', 'describe_resource_scope', 'create_resource_workbook'}
                 def __init__(self, **kwargs): pass
                 def run_conversation(self, text, conversation_history=None):
                     seen.append(conversation_history)
@@ -46,5 +46,11 @@ class ResetTests(unittest.TestCase):
                 # Arbitrary input is hashed, never used as a filesystem path.
                 server.reset_session({'session': '../INSTRUCTIONS.md'})
                 self.assertTrue(Path(temp, 'INSTRUCTIONS.md').exists())
+                # Fail closed if an installation/config change adds a write-capable tool.
+                Agent.valid_tool_names = server.ALLOWED_TOOLS | {'terminal'}
+                count = len(seen)
+                with self.assertRaises(RuntimeError): server.converse(payload)
+                self.assertEqual(len(seen), count)
+
 
 if __name__ == '__main__': unittest.main()

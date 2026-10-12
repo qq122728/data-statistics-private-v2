@@ -11,6 +11,8 @@ def request(path, args):
     payload = {'runId': os.environ.get('RESOURCE_QUERY_RUN', '')}
     if path == '/query':
         payload['query'] = args
+    elif path == '/workbook':
+        payload['workbook'] = args
     raw = json.dumps(payload).encode()
     if len(raw) > 8192:
         return json.dumps({'error': '查询过长'})
@@ -27,7 +29,7 @@ def request(path, args):
         return json.dumps({'error': '数据查询暂时不可用'}, ensure_ascii=False)
 
 def register(ctx):
-    description = '查询真实投手、短信、渠道、国家、素材、成本、开单及完整号码。effects按导入日期累计转化；orders按开单日期；phone用完整号码和period=all；issues查缺失归属/消耗。Excel由外层直接发送到原群。所有数字必须实际查询，不能猜。'
+    description = '只读查询真实投手、短信、渠道、国家、素材、成本、开单及完整号码。effects按导入日期累计转化；orders按开单日期；phone用完整号码和period=all。单表导出用excel=true；多报表合成时excel=false，收集reportId再调用create_resource_workbook。金额单位为分，text中已换算；所有数字必须实际查询。'
     ctx.register_tool(name='query_resource_report', toolset='resource_reports', schema={
         'name': 'query_resource_report', 'description': description, 'parameters': PARAMETERS},
         handler=lambda args, **kwargs: request('/query', args), description=description, emoji='📊')
@@ -36,3 +38,9 @@ def register(ctx):
         'name': 'describe_resource_scope', 'description': description,
         'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
         handler=lambda args, **kwargs: request('/catalog', {}), description=description, emoji='🔎')
+    description = '把本次已查询的1至4份真实报表合成一份Excel，含对比汇总、查询口径及完整明细。只接受本次query_resource_report返回的reportId；不能传数字、公式、文件路径或编造行。用户明确要Excel时使用。文件由系统发送到原对话。'
+    ctx.register_tool(name='create_resource_workbook', toolset='resource_reports', schema={
+        'name': 'create_resource_workbook', 'description': description,
+        'parameters': {'type': 'object', 'properties': {'reportIds': {'type': 'array', 'minItems': 1, 'maxItems': 4,
+            'items': {'type': 'string', 'pattern': '^[a-f0-9]{24}$'}}}, 'required': ['reportIds'], 'additionalProperties': False}},
+        handler=lambda args, **kwargs: request('/workbook', args), description=description, emoji='📑')

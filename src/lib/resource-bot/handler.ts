@@ -4,6 +4,7 @@ import {
   parseResourceQuestion,
   RESOURCE_BOT_HELP,
   type ResourceQuery,
+  querySchema,
 } from "./query";
 import {
   loadResourceBotData,
@@ -12,8 +13,8 @@ import {
 } from "./data";
 import { exportResourceReport, renderResourceReport } from "./render";
 import { statisticsDate } from "../statistics-date";
-import { converseWithHermes, hermesEnabled, resetHermesSession } from "./hermes";
-import { resourceCommand } from "./commands";
+import { converseWithHermes, hermesEnabled, resetHermesSession, resourceHermesStatus } from "./hermes";
+import { resourceCommand, RESOURCE_MENU_QUERIES } from "./commands";
 
 type Dependencies = {
   readConfig: typeof readBotConfig;
@@ -29,6 +30,7 @@ type Dependencies = {
   useHermes: typeof hermesEnabled;
   converse: typeof converseWithHermes;
   reset: typeof resetHermesSession;
+  status: typeof resourceHermesStatus;
 };
 export function createResourceBotHandler(
   overrides: Partial<Dependencies> = {},
@@ -43,6 +45,7 @@ export function createResourceBotHandler(
     useHermes: hermesEnabled,
     converse: converseWithHermes,
     reset: resetHermesSession,
+    status: resourceHermesStatus,
     ...overrides,
   };
   const history = new Map<string, { at: number; query: ResourceQuery }>();
@@ -155,6 +158,10 @@ export function createResourceBotHandler(
         await reply(RESOURCE_BOT_HELP);
         return true;
       }
+      if (command?.kind === "status") {
+        await reply(deps.useHermes() ? await deps.status() : "Hermes 当前未启用，仅支持基础业务查询。");
+        return true;
+      }
       if (command?.kind === "invalid") {
         await reply("这个指令暂不支持。请点菜单选择，或发送 /help 查看说明；查询条件可直接用中文说。");
         return true;
@@ -213,14 +220,16 @@ export function createResourceBotHandler(
             text === "下一页" ? previous.query.page + 1 : previous.query.page,
           excel: text !== "下一页",
         };
-      } else
-        q = await deps.parse(
+      } else {
+        const menu = Object.values(RESOURCE_MENU_QUERIES).find(entry => entry.text === text);
+        q = menu ? querySchema.parse({ view: menu.view, type: menu.type }) : await deps.parse(
           text,
           statisticsDate(new Date(deps.now())),
           /^(帮助|菜单|\/start|\/help)$/.test(text)
             ? undefined
             : await deps.catalog(),
         );
+      }
       if (q.view === "help") {
         await stopProgress();
         await reply(RESOURCE_BOT_HELP);

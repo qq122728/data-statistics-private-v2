@@ -117,10 +117,10 @@ function style(sheet: ExcelJS.Worksheet) {
     c.width = 20;
   });
 }
-export async function exportResourceReport(
+function createResourceWorkbook(
   q: ResourceQuery,
   data: ResourceBotData,
-): Promise<Uint8Array> {
+): ExcelJS.Workbook {
   if (
     data.details.length > 5000 ||
     data.summary.length > 5000 ||
@@ -299,5 +299,56 @@ export async function exportResourceReport(
   d.getColumn(1).numFmt = "@";
   for (let i = 21; i <= 25; i++) d.getColumn(i).numFmt = "#,##0.00";
   style(d);
+  return book;
+}
+
+export async function exportResourceReport(q: ResourceQuery, data: ResourceBotData): Promise<Uint8Array> {
+  return new Uint8Array(await createResourceWorkbook(q, data).xlsx.writeBuffer());
+}
+
+export type ResourceReportSnapshot = { query: ResourceQuery; data: ResourceBotData };
+
+// Only validated database snapshots enter this workbook. The model supplies IDs, never cells,
+// formulas, file paths or arbitrary code. Overlapping reports are not added into a grand total.
+export async function exportResourceWorkbook(reports: ResourceReportSnapshot[]): Promise<Uint8Array> {
+  if (!reports.length || reports.length > 4) throw Error("一份综合表支持1至4份查询结果");
+  if (reports.reduce((n, r) => n + r.data.details.length + r.data.summary.length, 0) > 10000)
+    throw Error("综合表最多10000行，请缩小查询范围");
+  const book = new ExcelJS.Workbook();
+  book.creator = "资源参谋";
+  const index = book.addWorksheet("报表目录");
+  index.addRow(["报表", "范围与统计口径", "汇总项数", "号码记录数"]);
+  const comparison = book.addWorksheet("对比汇总");
+  comparison.addRow(["报表", "导入", "匹配记录", "有效", "回复", "进群", "推专家", "注册", "开单", "开单率", "首充 USD", "续充 USD", "出金 USD", "净业绩 USD"]);
+  for (const [i, { query, data }] of reports.entries()) {
+    const name = `报表${i + 1}`;
+    index.addRow([name, reportBasis(query, data), data.summary.length, data.details.length]);
+    const detailView = ["phone", "orders"].includes(query.view);
+    const fields = ["valid", "replied", "joined", "expert", "registered", "opened", "firstCents", "rechargeCents", "withdrawalCents", "netCents"] as const;
+    const values = fields.map(field => detailView
+      ? data.details.reduce((n, d) => n + Number(d.metrics?.[field] || 0), 0)
+      : data.summary.reduce((n, r) => n + r[field], 0));
+    const matched = detailView ? data.details.filter(d => d.metrics).length : data.summary.reduce((n, r) => n + r.matched, 0);
+    comparison.addRow([name, detailView ? null : data.summary.reduce((n, r) => n + r.imported, 0), matched,
+      ...values.slice(0, 6), matched ? values[5] / matched : null, ...values.slice(6).map(v => v / 100)]);
+    const source = createResourceWorkbook(query, data);
+    for (const sheet of source.worksheets) {
+      const target = book.addWorksheet(`${i + 1}-${sheet.name}`);
+      target.columns = sheet.columns.map(c => ({ width: c.width, style: c.style }));
+      sheet.eachRow((row, rowIndex) => row.eachCell({ includeEmpty: true }, (cell, col) => {
+        const dest = target.getCell(rowIndex, col);
+        dest.value = cell.value;
+        dest.style = cell.style;
+      }));
+      target.views = sheet.views;
+      target.autoFilter = sheet.autoFilter;
+    }
+  }
+  index.addRow(["说明", "各报表可能包含相同号码，不跨报表加总。未匹配记录的金额和指标见明细空值；对比汇总仅合计可确认记录。金额是所列号码累计，非当期流水。费用按各报表币种分别列示。"]);
+  style(index); style(comparison);
+  index.getColumn(2).width = 100;
+  index.getColumn(2).alignment = { wrapText: true };
+  comparison.getColumn(10).numFmt = "0.0%";
+  for (let col = 11; col <= 14; col++) comparison.getColumn(col).numFmt = "#,##0.00";
   return new Uint8Array(await book.xlsx.writeBuffer());
 }

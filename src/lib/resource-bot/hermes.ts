@@ -10,9 +10,10 @@ import {
   type QueryCatalog,
   type ResourceQuery,
 } from "./query";
-import { exportResourceReport, renderResourceReport } from "./render";
+import { exportResourceReport, exportResourceWorkbook, renderResourceReport, type ResourceReportSnapshot } from "./render";
 import { COUNTRIES, isCountry } from "../../../packages/resource-buyer/options";
 import { RESOURCE_MENU_QUERIES } from "./commands";
+import { db } from "../db";
 
 type Export = { bytes: Uint8Array; filename: string };
 type Run = {
@@ -24,16 +25,46 @@ type Run = {
   calls: number;
   lastQuery?: ResourceQuery;
   documents: Export[];
+  reports: Map<string, ResourceReportSnapshot>;
+  privateUserId?: string;
 };
 const runs = new Map<string, Run>();
 const envelope = z
   .object({
     runId: z.string().regex(/^[a-f0-9]{48}$/),
     query: z.unknown().optional(),
+    workbook: z.unknown().optional(),
   })
   .strict();
+export const workbookSchema = z.object({
+  reportIds: z.array(z.string().regex(/^[a-f0-9]{24}$/)).min(1).max(4),
+}).strict();
+export function resolveWorkbookReports(input: unknown, reports: Map<string, ResourceReportSnapshot>) {
+  const { reportIds } = workbookSchema.parse(input);
+  if (new Set(reportIds).size !== reportIds.length) throw Error("请不要重复加入同一份报表");
+  return reportIds.map(id => {
+    const report = reports.get(id);
+    if (!report) throw Error("报表已过期或不属于本次查询，请重新查询后制表");
+    return report;
+  });
+}
 export function hermesEnabled() {
   return process.env.RESOURCE_HERMES_ENABLED === "1";
+}
+export async function assertResourceReadOnlyDatabase(): Promise<void> {
+  // This service must never run with the website's write-capable database account.
+  if (!/^postgres(?:ql)?:/.test(process.env.DATABASE_URL || ""))
+    throw Error("资源机器人必须使用独立的只读业务数据库连接");
+  const [access] = await db.$queryRaw<Array<{ elevated: boolean; writes: number; schema_create: boolean; database_create: boolean }>>`
+    SELECT (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolbypassrls) AS elevated,
+      (SELECT COUNT(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+       WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
+       AND has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER')) AS writes,
+      has_schema_privilege(current_user,'public','CREATE') AS schema_create,
+      has_database_privilege(current_user,current_database(),'CREATE') AS database_create
+    FROM pg_roles r WHERE r.rolname=current_user`;
+  if (!access || access.elevated || access.writes || access.schema_create || access.database_create)
+    throw Error("资源机器人数据库权限不是只读，已拒绝启动查询服务");
 }
 export function authorizeHermesRequest(
   value: string | undefined,
@@ -106,6 +137,7 @@ export async function startHermesQueryServer(): Promise<Server | null> {
   if (!hermesEnabled()) return null;
   const secret = process.env.RESOURCE_HERMES_TOKEN || "";
   if (secret.length < 32) throw Error("Hermes connection is not configured");
+  await assertResourceReadOnlyDatabase();
   const server = createServer(async (req, res) => {
     const send = (status: number, body: unknown) => {
       res.writeHead(status, {
@@ -118,7 +150,7 @@ export async function startHermesQueryServer(): Promise<Server | null> {
       return send(403, { error: "查询连接未授权" });
     if (
       req.method !== "POST" ||
-      !["/query", "/catalog"].includes(req.url || "")
+      !["/query", "/catalog", "/workbook"].includes(req.url || "")
     )
       return send(404, { error: "接口不存在" });
     try {
@@ -137,11 +169,20 @@ export async function startHermesQueryServer(): Promise<Server | null> {
       if (
         !latest?.enabled ||
         latest.revision !== run.config.revision ||
-        latest.chatId !== run.config.chatId
+        latest.chatId !== run.config.chatId ||
+        (run.privateUserId && !latest.privateUserIds?.includes(run.privateUserId))
       )
         return send(403, { error: "机器人配置已变更" });
-      if (++run.calls > 8)
-        return send(429, { error: "单次问题最多查询8次，请缩小范围" });
+      if (++run.calls > 12)
+        return send(429, { error: "单次问题最多调用12次工具，请缩小范围" });
+      if (req.url === "/workbook") {
+        if (!wantsExcel(run.text)) return send(400, { error: "请先明确要求生成或导出 Excel" });
+        const reports = resolveWorkbookReports(body.workbook, run.reports);
+        const bytes = await exportResourceWorkbook(reports);
+        // A combined workbook replaces interim single-report exports in this request.
+        run.documents = [{ bytes, filename: `resource-comparison-${run.today}.xlsx` }];
+        return send(200, { excelPrepared: true, reportCount: reports.length, destination: "原对话", message: "综合 Excel 已生成，将由系统随回复发送" });
+      }
       const catalog = await loadResourceBotCatalog();
       if (req.url === "/catalog")
         return send(200, {
@@ -151,12 +192,20 @@ export async function startHermesQueryServer(): Promise<Server | null> {
             "仅投流与短信渠道；客户号码为业务记录，投手及素材归属需要资源部登记。",
         });
       const q = enforceHermesScope(body.query, run.text, catalog, run.previous);
+      // Explicit tool choice lets Hermes query several reports before building one workbook.
+      q.excel = wantsExcel(run.text) && (body.query as { excel?: unknown })?.excel === true;
       queryBounds(q, run.today);
       if (q.view === "help")
         return send(400, {
           error: "请使用范围查询了解可查渠道，或选择业务查询类型",
         });
       const data = await loadResourceBotData(q, run.today);
+      let reportId: string | undefined;
+      if (data.details.length <= 5000 && data.summary.length <= 5000 && data.spends.length <= 5000) {
+        reportId = randomBytes(12).toString("hex");
+        if (run.reports.size >= 4) run.reports.delete(run.reports.keys().next().value!);
+        run.reports.set(reportId, { query: q, data });
+      }
       if (q.excel) {
         if (run.documents.length >= 2)
           return send(400, { error: "一次最多导出两份，请收窄查询" });
@@ -172,6 +221,9 @@ export async function startHermesQueryServer(): Promise<Server | null> {
         excelPrepared: q.excel,
         recordCount: data.details.length,
         summaryCount: data.summary.length,
+        reportId,
+        structuredRows: (q.view === "phone" || q.view === "orders" ? data.details : data.summary).slice((q.page - 1) * 5, q.page * 5),
+        workbookHint: reportId ? "可将最近4份报表的 reportId 交给 create_resource_workbook 合成一份Excel；无需逐页导出" : "结果过大，请缩小范围后制表",
       });
     } catch (e) {
       return send(400, {
@@ -207,6 +259,8 @@ export async function converseWithHermes(
     expires: Date.now() + 150000,
     calls: 0,
     documents: [],
+    reports: new Map(),
+    privateUserId: chatType === "private" ? session.split(":").at(-1) : undefined,
   };
   runs.set(id, run);
   try {
@@ -216,7 +270,7 @@ export async function converseWithHermes(
         "content-type": "application/json",
         authorization: "Bearer " + process.env.RESOURCE_HERMES_TOKEN,
       },
-      body: JSON.stringify({ text, session, runId: id, today, chatType }),
+      body: JSON.stringify({ text, session, runId: id, today, chatType, previousQuery: previous ? JSON.stringify(previous) : "" }),
       signal: AbortSignal.timeout(140000),
     });
     const result = z
@@ -257,4 +311,18 @@ export async function resetHermesSession(session: string): Promise<void> {
   } catch {
     throw Error("未能确认新建对话成功，请稍后重试 /new。");
   }
+}
+
+export async function resourceHermesStatus(): Promise<string> {
+  const response = await fetch("http://127.0.0.1:4188/capabilities", {
+    method: "POST", headers: { "content-type": "application/json", authorization: "Bearer " + process.env.RESOURCE_HERMES_TOKEN },
+    body: "{}", signal: AbortSignal.timeout(10000),
+  });
+  const status = z.object({ engine: z.literal("Hermes AIAgent"), allowedTools: z.array(z.string()),
+    verifiedTools: z.array(z.string()), businessWrite: z.literal(false), arbitraryCode: z.literal(false) }).strict().parse(await response.json());
+  const expected = ["create_resource_workbook", "describe_resource_scope", "query_resource_report"].sort();
+  if (!response.ok || JSON.stringify([...status.allowedTools].sort()) !== JSON.stringify(expected) ||
+      (status.verifiedTools.length && JSON.stringify([...status.verifiedTools].sort()) !== JSON.stringify(expected)))
+    throw Error("机器人权限检查未通过，请联系管理员");
+  return `资源参谋｜Hermes 业务助手\n连接正常；${status.verifiedTools.length ? "运行时工具白名单已核对" : "等待首次业务查询核对运行工具"}。\n\n可以：自主分步查询、投流/短信对比、号码与金额查询、生成含多份报表的 Excel。\n权限：业务数据库只读；不提供改数据、改账号、执行代码或修改服务器的工具。\n\n群聊和私聊条件独立；/new 清空当前条件，/help 查看示例。`;
 }

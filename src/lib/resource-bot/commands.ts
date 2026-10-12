@@ -10,6 +10,7 @@ export const RESOURCE_MENU_QUERIES = {
 export const RESOURCE_BOT_COMMANDS = [
   { command: "new", description: "新建对话 · 清空当前查询条件" },
   { command: "help", description: "使用说明与查询示例" },
+  { command: "status", description: "查看 Hermes 连接与业务权限" },
   { command: "effects", description: "本月投手效果" },
   { command: "sms", description: "本月短信粉效果" },
   { command: "orders", description: "本月开单号码" },
@@ -26,6 +27,7 @@ export function resourceCommand(text: string, username: string) {
   const command = match[1].toLowerCase();
   if (match[3]?.trim()) return { kind: "invalid" } as const;
   if (command === "new") return { kind: "reset" } as const;
+  if (command === "status") return { kind: "status" } as const;
   if (command === "help" || command === "start") return { kind: "help" } as const;
   const questions: Record<string, string> = {
     effects: RESOURCE_MENU_QUERIES.effects.text,

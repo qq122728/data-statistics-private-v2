@@ -3,8 +3,11 @@ import ExcelJS from "exceljs";
 import {
   enforceHermesScope,
   authorizeHermesRequest,
+  resolveWorkbookReports,
+  assertResourceReadOnlyDatabase,
 } from "../../src/lib/resource-bot/hermes";
 const mock = vi.hoisted(() => ({
+  $queryRaw: vi.fn(),
   channel: { findMany: vi.fn() },
   resourceBuyerPhone: { findMany: vi.fn() },
   resourceBuyerSpend: { findMany: vi.fn() },
@@ -24,6 +27,7 @@ import { loadResourceBotData } from "../../src/lib/resource-bot/data";
 import {
   exportResourceReport,
   renderResourceReport,
+  exportResourceWorkbook,
 } from "../../src/lib/resource-bot/render";
 import { createResourceBotHandler } from "../../src/lib/resource-bot/handler";
 import type { BotConfig } from "../../src/lib/resource-bot/config";
@@ -538,6 +542,50 @@ describe("Telegram isolation and reply lifecycle", () => {
 });
 
 describe("Hermes resource agent boundaries", () => {
+  it("refuses a write-capable database account before starting the bridge", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://readonly-test-placeholder");
+    const safe = { elevated: false, writes: 0, schema_create: false, database_create: false };
+    mock.$queryRaw.mockResolvedValue([safe]);
+    await expect(assertResourceReadOnlyDatabase()).resolves.toBeUndefined();
+    for (const bad of [{ elevated: true }, { writes: 1 }, { schema_create: true }, { database_create: true }]) {
+      mock.$queryRaw.mockResolvedValue([{ ...safe, ...bad }]);
+      await expect(assertResourceReadOnlyDatabase()).rejects.toThrow("拒绝启动");
+    }
+    vi.stubEnv("DATABASE_URL", "file:dev.db");
+    await expect(assertResourceReadOnlyDatabase()).rejects.toThrow("独立的只读");
+  });
+  it("builds comparison workbooks only from queried snapshots, retaining text phones and numeric amounts", async () => {
+    const query = q();
+    const data = await loadResourceBotData(query, today);
+    const reports = new Map([["a".repeat(24), { query, data }], ["b".repeat(24), { query: { ...query, type: "SMS" as const }, data }]]);
+    const list = resolveWorkbookReports({ reportIds: [...reports.keys()] }, reports);
+    const book = new ExcelJS.Workbook();
+    await book.xlsx.load(Buffer.from(await exportResourceWorkbook(list)) as never);
+    expect(book.getWorksheet("对比汇总")!.getCell("K2").value).toBe(data.summary.reduce((n, r) => n + r.firstCents, 0) / 100);
+    const details = book.getWorksheet("1-号码明细")!;
+    expect(details.getCell("A2").value).toBe(data.details[0].phone);
+    expect(details.getCell("A2").type).toBe(ExcelJS.ValueType.String);
+    expect(book.getWorksheet("2-查询说明")!.getCell("B2").text).toContain("短信");
+    expect(() => resolveWorkbookReports({ reportIds: ["c".repeat(24)] }, reports)).toThrow("不属于本次");
+    expect(() => resolveWorkbookReports({ reportIds: ["a".repeat(24), "a".repeat(24)] }, reports)).toThrow("重复");
+    expect(() => resolveWorkbookReports({ reportIds: ["a".repeat(24)], sql: "DELETE FROM users" }, reports)).toThrow();
+    expect(() => resolveWorkbookReports({ reportIds: ["../../config"] }, reports)).toThrow();
+    await expect(exportResourceWorkbook(Array(5).fill(list[0]))).rejects.toThrow("1至4");
+    expect(() => querySchema.parse({ sql: "UPDATE customers SET amount=0" })).toThrow();
+  });
+  it("reports real connection status outside the model and keeps basic menu reports pinned", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const status = vi.fn().mockResolvedValue("Hermes 已连接，业务只读");
+    const converse = vi.fn();
+    const handle = createResourceBotHandler({ readConfig: async () => config, send, status, converse, now: () => now, useHermes: () => true });
+    await handle(msg("/status"), config);
+    expect(status).toHaveBeenCalledTimes(1);
+    expect(converse).not.toHaveBeenCalled();
+    const load = vi.fn().mockResolvedValue(await loadResourceBotData(q(), today));
+    const fallback = createResourceBotHandler({ readConfig: async () => config, send, load, now: () => now, useHermes: () => false });
+    await fallback(msg("/sms"), config);
+    expect(load.mock.calls[0][0]).toMatchObject({ type: "SMS", view: "effects", dimension: "buyer" });
+  });
   it("pins menu report types and removes stale filters even if the model chooses another report", () => {
     for (const menu of Object.values(RESOURCE_MENU_QUERIES)) {
       expect(enforceHermesScope({ view: "orders", type: "ADS", country: "DE", channel: "FB-M", page: 3, excel: true }, menu.text,

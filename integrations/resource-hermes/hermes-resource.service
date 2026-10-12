@@ -23,6 +23,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/hermes-resource
+ReadOnlyPaths=/var/lib/hermes-resource/.hermes/config.yaml /var/lib/hermes-resource/.hermes/SOUL.md /var/lib/hermes-resource/.hermes/INSTRUCTIONS.md /var/lib/hermes-resource/.hermes/plugins
 InaccessiblePaths=/etc/data-statistics /opt/data-statistics-v2 /opt/data-statistics-resource-bot /var/lib/hermes-boss
 MemoryMax=1G
 TimeoutStopSec=130

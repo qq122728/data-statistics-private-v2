@@ -3,8 +3,9 @@ import type { Prisma, PrismaClient, User } from "@prisma/client";
 import { recordAudit } from "./audit";
 import { normalizeChannelName } from "./channel-names";
 import { hasAssignedRole } from "./role-access";
+import { grantResourceChannelTypeScope } from "./resource-channel-type-scope";
 
-type ChannelClient = Prisma.TransactionClient | Pick<PrismaClient, "user" | "teamGroup" | "channel" | "auditLog">;
+type ChannelClient = Prisma.TransactionClient | Pick<PrismaClient, "user" | "teamGroup" | "channel" | "auditLog" | "resourceChannelAccess">;
 type ChannelActor = Pick<User, "id" | "role" | "active" | "groupId"> & { roleAssignments?: Array<{ role: User["role"] }> };
 export type ChannelType = "SMS" | "ADS" | "REBATE";
 
@@ -107,6 +108,7 @@ export async function resolveOrCreateChannel(client: ChannelClient, input: Chann
     }
     throw error;
   }
+  await grantResourceChannelTypeScope(client, channel.id, channel.channelType);
   await recordAudit(client, {
     actorId: actor.id,
     action: "CHANNEL_CREATED",

@@ -13,6 +13,7 @@ type ResourceManagerRequest = {
   name?: unknown;
   password?: unknown;
   resourceChannelIds?: unknown;
+  resourceChannelTypeScope?: unknown;
 };
 
 /**
@@ -32,28 +33,35 @@ export async function POST(request: Request) {
   const resourceChannelIds = Array.isArray(body.resourceChannelIds)
     ? [...new Set(body.resourceChannelIds.filter((value): value is string => typeof value === "string" && Boolean(value)))]
     : [];
+  const autoType = body.resourceChannelTypeScope;
 
   if (!username || !name || !password) return NextResponse.json({ error: "请完整填写账号、姓名和密码" }, { status: 400 });
   if (username.length > API_LIMITS.loginUsernameCharacters || name.length > API_LIMITS.accountDisplayNameCharacters || password.length > API_LIMITS.loginPasswordCharacters)
     return NextResponse.json({ error: "账号、姓名或密码长度超过限制" }, { status: 400 });
   if (password.length < PASSWORD_MIN_LENGTH) return NextResponse.json({ error: `密码至少需要 ${PASSWORD_MIN_LENGTH} 位` }, { status: 400 });
-  if (!resourceChannelIds.length) return NextResponse.json({ error: "请先创建渠道，再至少选择一个渠道" }, { status: 400 });
+  if (autoType !== undefined && autoType !== "ADS" && autoType !== "SMS")
+    return NextResponse.json({ error: "资源类型只能是投流或短信" }, { status: 400 });
+  if (autoType && resourceChannelIds.length)
+    return NextResponse.json({ error: "按类型自动授权时无需逐个选择渠道" }, { status: 400 });
+  if (!autoType && !resourceChannelIds.length)
+    return NextResponse.json({ error: "请选择投流或短信类型，或至少选择一个渠道" }, { status: 400 });
   if (resourceChannelIds.length > API_LIMITS.batchRows || resourceChannelIds.some((id) => id.length > API_LIMITS.identifierCharacters))
     return NextResponse.json({ error: "资源渠道参数不正确" }, { status: 400 });
 
   try {
     const result = await db.$transaction(async (client) => {
       const channels = await client.channel.findMany({
-        where: { id: { in: resourceChannelIds }, active: true },
+        where: { active: true, ...(autoType ? { channelType: autoType } : { id: { in: resourceChannelIds } }) },
         select: { id: true, name: true, channelType: true },
       });
       const catalog = [...new Map(channels.map((channel) => [channel.id, channel])).values()];
-      if (catalog.length !== resourceChannelIds.length)
+      if (!autoType && catalog.length !== resourceChannelIds.length)
         return { error: "选择的渠道不存在或已停用", status: 400 as const };
+      const grantedIds = autoType ? catalog.map((channel) => channel.id) : resourceChannelIds;
       const channelTypes = new Set(catalog.map((channel) => channel.channelType));
-      if (channelTypes.size !== 1)
+      if (!autoType && channelTypes.size !== 1)
         return { error: "一个资源部账号只能选择一种渠道类型（投流或短信）", status: 400 as const };
-      const channelType = catalog[0].channelType;
+      const channelType = autoType || catalog[0]?.channelType;
       if (channelType !== "ADS" && channelType !== "SMS")
         return { error: "资源部账号只能选择投流或短信渠道", status: 400 as const };
 
@@ -67,7 +75,8 @@ export async function POST(request: Request) {
           mustChangePassword: false,
           role: "RESOURCE_MANAGER",
           duty: "RESOURCE_MANAGER",
-          resourceChannelAccess: { create: resourceChannelIds.map((channelId) => ({ channelId })) },
+          resourceChannelTypeScope: autoType || null,
+          ...(grantedIds.length ? { resourceChannelAccess: { create: grantedIds.map((channelId) => ({ channelId })) } } : {}),
         },
         select: {
           id: true,
@@ -86,9 +95,9 @@ export async function POST(request: Request) {
         entityType: "User",
         entityId: created.id,
         summary: {
-          changedFields: ["username", "name", "role", "resourceChannelIds"],
+          changedFields: ["username", "name", "role", autoType ? "resourceChannelTypeScope" : "resourceChannelIds"],
           channelType,
-          resourceChannelIds,
+          resourceChannelIds: grantedIds,
         },
       });
       return { manager: created };

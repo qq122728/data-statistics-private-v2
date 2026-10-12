@@ -10,6 +10,7 @@ import { API_LIMITS } from "../../../../lib/request-limits";
 import { authorizationDenied } from "../../../../lib/security-events";
 import { collapseGlobalChannelCopies } from "../../../../lib/global-channels";
 import { hasAssignedRole } from "../../../../lib/role-access";
+import { grantResourceChannelTypeScope } from "../../../../lib/resource-channel-type-scope";
 
 type ChannelType = "SMS" | "ADS" | "REBATE";
 type ChannelRequest = {
@@ -177,6 +178,7 @@ export async function POST(request: Request) {
             channelType: channelType.value,
           })),
         });
+        await grantResourceChannelTypeScope(client, id, channelType.value);
         const created = await client.channel.findUniqueOrThrow({ where: { id_groupId: { id, groupId: groups[0].id } } });
         await recordAudit(client, {
           actorId: access.actor.id,
@@ -215,8 +217,9 @@ export async function POST(request: Request) {
             channelType: channelType.value,
           })),
         });
+        await grantResourceChannelTypeScope(client, id, channelType.value);
         if (access.actor.role === "RESOURCE_MANAGER") {
-          await client.resourceChannelAccess.create({ data: { userId: access.actor.id, channelId: id } });
+          await client.resourceChannelAccess.upsert({ where: { userId_channelId: { userId: access.actor.id, channelId: id } }, update: {}, create: { userId: access.actor.id, channelId: id } });
         }
         const created = await client.channel.findUniqueOrThrow({ where: { id_groupId: { id, groupId: groups[0].id } } });
         await recordAudit(client, {
@@ -262,8 +265,9 @@ export async function POST(request: Request) {
           channelType: channelType.value,
         },
       });
+      await grantResourceChannelTypeScope(client, created.id, channelType.value);
       if (access.actor.role === "RESOURCE_MANAGER") {
-        await client.resourceChannelAccess.create({ data: { userId: access.actor.id, channelId: created.id } });
+        await client.resourceChannelAccess.upsert({ where: { userId_channelId: { userId: access.actor.id, channelId: created.id } }, update: {}, create: { userId: access.actor.id, channelId: created.id } });
       }
       await recordAudit(client, {
         actorId: access.actor.id,

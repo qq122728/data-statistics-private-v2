@@ -21,6 +21,7 @@ type ScopedAccount = {
   department: { id: string; name: string; companyId: string | null } | null;
   companyId: string | null;
   resourceChannelAccess: Array<{ channelId: string }>;
+  resourceChannelTypeScope: "SMS" | "ADS" | "REBATE" | null;
   financeScopeConfigured: boolean;
   financeGroupAccess: Array<{ groupId: string; group: { name: string; active: boolean } }>;
   roleAssignments: Array<{ role: Role }>;
@@ -39,6 +40,7 @@ const accountSelect = {
   department: { select: { id: true, name: true, companyId: true } },
   companyId: true,
   resourceChannelAccess: { select: { channelId: true }, orderBy: { channelId: "asc" } },
+  resourceChannelTypeScope: true,
   financeScopeConfigured: true,
   financeGroupAccess: { select: { groupId: true, group: { select: { name: true, active: true } } }, orderBy: { groupId: "asc" } },
   roleAssignments: { select: { role: true }, orderBy: { createdAt: "asc" } },
@@ -80,6 +82,7 @@ export async function GET() {
     groupName: account.group?.name ?? null,
     departmentName: account.department?.name ?? null,
     resourceChannelIds: account.resourceChannelAccess.map((item) => item.channelId),
+    resourceChannelTypeScope: account.resourceChannelTypeScope,
     financeGroupIds: account.financeGroupAccess.map((item) => item.groupId),
     financeScopeConfigured: account.financeScopeConfigured,
     secondaryRoles: account.roleAssignments.map((item) => item.role).filter((role) => role !== account.role),

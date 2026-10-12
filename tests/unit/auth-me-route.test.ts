@@ -33,6 +33,7 @@ describe("auth me route", () => {
       updatedAt: new Date(),
       roleAssignments: [{ role: "LEAD" }],
       resourceChannelAccess: [],
+      resourceChannelTypeScope: null,
       financeScopeConfigured: false,
       financeGroupAccess: [],
     });

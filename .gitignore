@@ -33,3 +33,6 @@ artifacts/
 /*.png
 __pycache__/
 *.pyc
+
+# Private material uploads (persist and back up separately from source code).
+/storage/

@@ -12,12 +12,9 @@ export async function GET() {
       user.departmentId ? db.department.findUnique({ where: { id: user.departmentId }, select: { name: true } }) : null,
       user.companyId ? db.company.findUnique({ where: { id: user.companyId }, select: { name: true } }) : null,
     ]);
-    // 资源部账号按需求文档4.4拆成投流/短信两个独立账号，各绑一个渠道——v2 前端要靠
-    // 这个字段判断落在哪个身份（RESOURCE_TRAFFIC/RESOURCE_SMS），不能只看笼统的
-    // role === "RESOURCE_MANAGER"。resourceChannelAccess 始终是明确授权的渠道目录 ID，
-    // 不会按渠道类型扩展成其他渠道；这里只反查这些 ID 对应的类型用于显示账号身份。
+    // 新资源账号直接按投流/短信类型识别；旧账号仍根据逐渠道授权识别。
     const resourceChannelIds = user.resourceChannelAccess?.map((access) => access.channelId) ?? [];
-    const resourceChannelTypes = resourceChannelIds.length
+    const resourceChannelTypes = user.resourceChannelTypeScope ? [user.resourceChannelTypeScope] : resourceChannelIds.length
       ? getResourceChannelTypes(
           await db.channel.findMany({ where: { id: { in: resourceChannelIds } }, select: { id: true, channelType: true } }),
           resourceChannelIds,

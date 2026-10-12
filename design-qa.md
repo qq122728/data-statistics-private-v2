@@ -244,3 +244,48 @@ The combined image shows the source and implementation together. Both use the re
 - Frontline tests and production build passed.
 
 final result: passed
+
+# 2026-10-12 · 投手效果 / 用户选定方案 3
+
+## Visual truth and capture
+- Source: `/Users/aaaa/.codex/generated_images/01a120d2-fc2b-79b0-9ecb-aa57f127c611/exec-f2ed11ee-865f-419d-a8dc-5a40fe075da8.png` (1487 × 1058).
+- Implementation: `outputs/buyer-effects-master-detail.jpg` (1477 × 1204 full page); same-viewport capture `outputs/buyer-effects-viewport.jpg` (1477 × 1051).
+- CSS viewport: 1487 × 1058. Browser capture excludes scrollbar / includes a small capture-scale difference; comparison aligned to content regions, not outer edges. Full-page vertical growth is intentional: user requested the additional metric fields.
+- Responsive capture: `outputs/buyer-effects-mobile.jpg` (380 × 2255), CSS viewport 390 × 844; document width 380, no horizontal page overflow.
+- State: local demo ADS account, October 2026, all countries/channels, QQ / Germany / FB-M selected, buyer tab.
+- Source and both desktop captures were viewed together in one comparison call. The metrics and left selection region were inspected at readable size; separate crops were unnecessary because their text was legible in the full-resolution inputs.
+
+## Findings and fidelity surfaces
+- No remaining P0/P1/P2 findings.
+- Typography: preserved existing application font and shell typography; detail title 27px bold, section labels 16px bold, metric labels 13px, tabular numerals. Existing shell is smaller than the generated mock, intentionally retained for consistency with the live project.
+- Spacing: left 310px master list, right fluid detail, four main KPIs, distinct conversion and funds sections. Added full search input in place of a search-only icon for direct access. Additional data makes the content taller than the mock; all metrics remain readable without horizontal scrolling.
+- Colors: existing blue #2467dc, blue-gray text #22324b, white panels, pale blue selection/backgrounds, subtle borders. Matches the chosen blue-white direction.
+- Assets: no new raster assets required; retained existing project brand and navigation icons. No invented decorative artwork.
+- Copy: complete existing report metrics preserved (imports, matched, pending, ambiguous, valid, replied, joined, expert, registered, opened, valid/open rates, spend and unit costs, first/recharge/net funds); withdrawal and historical funds surfaced from the existing response. Explicit denominator, period and multi-currency notes prevent confusing cohort conversion with same-day events.
+
+## Comparison history
+- Initial pass: left list narrower than reference and section heading weight too light. Adjusted desktop list to 310px, right padding to 28px, explicit heading weights and 13px metric labels.
+- Final evidence: `buyer-effects-viewport.jpg` and `buyer-effects-master-detail.jpg`, after these fixes. All primary controls visible; extra rows are the requested functional expansion.
+
+## Interactions and verification
+- Buyer selection switches corresponding country/channel totals.
+- Singapore filter yields only the two Singapore rows; Yangzi values: spend USD80, opened1, first USD1000, recharge USD250, net USD1250.
+- Material tab shows only selected buyer/country/channel materials and material-attributed spending, not all buyer spending.
+- Material drilldown navigates to Number Library, with the one expected Germany / demo video A phone (9000000101).
+- Search with no results shows empty state and recovers after clearing.
+- Mobile layout stacks master and detail; controls and all metrics remain accessible.
+- Browser error logs: none on the tested page.
+- Frontend and root TypeScript checks passed; 10 relevant unit tests passed; local country/spend integration suite passed.
+- No production deployment; testing used local demo records.
+
+## Implementation checklist
+- [x] Selected third layout implemented.
+- [x] Full supported metric fields displayed.
+- [x] Navigation and import separation retained.
+- [x] Browser interaction checks and screenshots saved.
+- [x] Old unused wide-table renderer removed; shared type/format helpers retained.
+
+## Follow-up polish
+- P3: existing app header and sidebar remain more compact than the generated reference; intentional reuse of the project's design system.
+
+final result: passed

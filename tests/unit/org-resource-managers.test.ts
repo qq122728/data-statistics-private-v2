@@ -4,6 +4,8 @@ import * as auth from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { GET as getAccounts } from "../../src/app/api/org/accounts/route";
 import { POST as createResourceManager } from "../../src/app/api/org/resource-managers/route";
+import { POST as createChannel } from "../../src/app/api/admin/channels/route";
+import { GET as getBuyerPhones } from "../../src/app/api/resource/buyer-phones/route";
 
 const isolatedDatabase = vi.hoisted(() => ({ directory: "" }));
 
@@ -31,6 +33,7 @@ const ids = {
   hq: `resource-hq-${suffix}`,
   companyManager: `resource-company-manager-${suffix}`,
   ads: `resource-ads-${suffix}`,
+  adsSecond: `resource-ads-second-${suffix}`,
   sms: `resource-sms-${suffix}`,
 };
 
@@ -40,6 +43,7 @@ beforeAll(async () => {
   await db.teamGroup.create({ data: { id: ids.group, name: "资源测试小组", departmentId: ids.department } });
   await db.channel.createMany({ data: [
     { id: ids.ads, groupId: ids.group, name: "投流渠道", normalizedName: ids.ads, channelType: "ADS" },
+    { id: ids.adsSecond, groupId: ids.group, name: "第二投流渠道", normalizedName: ids.adsSecond, channelType: "ADS" },
     { id: ids.sms, groupId: ids.group, name: "短信渠道", normalizedName: ids.sms, channelType: "SMS" },
   ] });
   await db.user.createMany({ data: [
@@ -90,5 +94,44 @@ describe.sequential("总公司资源账号开设流程", () => {
 
     await signInAs(ids.companyManager);
     expect((await createResourceManager(request({ username: `forged-${suffix}`, name: "越权资源", password: "temporary-password-1", resourceChannelIds: [ids.ads] }))).status).toBe(403);
+  });
+
+  it("按资源类型自动授权现有及以后新增的同类渠道，短信仍不可见", async () => {
+    await signInAs(ids.hq);
+    const username = `all-ads-${suffix}`;
+    const response = await createResourceManager(request({ username, name: "投流负责人", password: "temporary-password-1", resourceChannelTypeScope: "ADS" }));
+    expect(response.status).toBe(201);
+    const created = await db.user.findUniqueOrThrow({ where: { username }, include: { resourceChannelAccess: true } });
+    expect(created.resourceChannelTypeScope).toBe("ADS");
+    expect(created.resourceChannelAccess.map(item => item.channelId).sort()).toEqual([ids.ads, ids.adsSecond].sort());
+    const smsUsername = `all-sms-${suffix}`;
+    expect((await createResourceManager(request({ username: smsUsername, name: "短信负责人", password: "temporary-password-2", resourceChannelTypeScope: "SMS" }))).status).toBe(201);
+    const smsAccount = await db.user.findUniqueOrThrow({ where: { username: smsUsername }, include: { resourceChannelAccess: true } });
+    expect(smsAccount.resourceChannelAccess.map(item => item.channelId)).toEqual([ids.sms]);
+
+    const hqPassword = "resource-scope-test-password";
+    await db.user.update({ where: { id: ids.hq }, data: { passwordHash: auth.hashPassword(hqPassword) } });
+    vi.restoreAllMocks();
+    vi.spyOn(auth, "requireRole").mockResolvedValue(await db.user.findUniqueOrThrow({ where: { id: ids.hq }, include: { resourceChannelAccess: true } }));
+    const channelResponse = await createChannel(new Request("http://localhost/api/admin/channels", { method: "POST", body: JSON.stringify({
+      global: true, name: `后加投流-${suffix}`, channelType: "ADS", highRiskReason: "验证自动覆盖新渠道", currentPassword: hqPassword,
+    }) }));
+    expect(channelResponse.status).toBe(201);
+    const future = await channelResponse.json() as { id: string };
+    expect(await db.resourceChannelAccess.findUnique({ where: { userId_channelId: { userId: created.id, channelId: future.id } } })).not.toBeNull();
+    const oldScoped = await db.user.findUniqueOrThrow({ where: { username: `ads-resource-${suffix}` }, include: { resourceChannelAccess: true } });
+    expect(oldScoped.resourceChannelTypeScope).toBeNull();
+    expect(oldScoped.resourceChannelAccess.some(item => item.channelId === future.id)).toBe(false);
+
+    await signInAs(created.id);
+    const buyerPhones = await getBuyerPhones(new Request("http://localhost/api/resource/buyer-phones?month=2026-10"));
+    expect(buyerPhones.status).toBe(200);
+    const payload = await buyerPhones.json() as { channels: Array<{ id: string; channelType: string }> };
+    expect(payload.channels.map(item => item.id).sort()).toEqual([ids.ads, ids.adsSecond, future.id].sort());
+    expect(payload.channels.every(item => item.channelType === "ADS")).toBe(true);
+    await signInAs(smsAccount.id);
+    const smsPhones = await getBuyerPhones(new Request("http://localhost/api/resource/buyer-phones?month=2026-10"));
+    const smsPayload = await smsPhones.json() as { channels: Array<{ id: string }> };
+    expect(smsPayload.channels.map(item => item.id)).toEqual([ids.sms]);
   });
 });

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  experimental: { proxyClientMaxBodySize: "52mb" },
   poweredByHeader: false,
   // Browser tests can run while a developer previews the app. Give their
   // temporary build output its own folder so two `next dev` processes never

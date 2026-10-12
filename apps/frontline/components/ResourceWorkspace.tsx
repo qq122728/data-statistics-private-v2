@@ -16,10 +16,13 @@ import { SmartDateRangeToolbar, type SmartDatePreset } from "@/components/SmartD
 import { AiSmartAssistant } from "@/components/AiSmartAssistant";
 import { GroupDataDetail } from "../../../packages/reporting/GroupDataDetail";
 import { ResourceCustomerProgress } from "@/components/ResourceCustomerProgress";
+import { ResourceMaterialLibrary } from "@/components/ResourceMaterialLibrary";
+import { ResourceSpendWorkspace } from "@/components/ResourceSpendWorkspace";
+import { ResourceBuyerAttribution } from "@/components/ResourceBuyerAttribution";
 
 export type ResourceWorkspaceProps = { user: BackendUser; onLogout: () => void; audience?: "resource" | "finance" };
 
-type View = "dashboard" | "daily" | "summary" | "finance" | "customers" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
+type View = "dashboard" | "daily" | "summary" | "finance" | "customers" | "buyers" | "channels" | "usage" | "accounts" | "comparison" | "anomalies" | "notifications";
 type SummaryMode = "channel" | "department" | "group" | "day";
 type Totals = ResourceTotals;
 type ReportRow = {
@@ -61,7 +64,44 @@ const localDate = () => {
 };
 const typeLabel = (type: Channel["channelType"]) => type === "SMS" ? "短信粉" : type === "ADS" ? "投流粉" : "底料返点";
 
-export default function ResourceWorkspace({ user, onLogout, audience = "resource" }: ResourceWorkspaceProps) {
+export default function ResourceWorkspace(props: ResourceWorkspaceProps) {
+  return props.audience === "finance"
+    ? <ReportingResourceWorkspace {...props} />
+    : <BuyerResourceWorkspace user={props.user} onLogout={props.onLogout} />;
+}
+
+function BuyerResourceWorkspace({ user, onLogout }: Pick<ResourceWorkspaceProps, "user" | "onLogout">) {
+  const [aiOpen, setAiOpen] = useState(false);
+  const [view, setView] = useState<"buyers" | "materials" | "spend" | "numbers">("buyers");
+  const [detailMaterial, setDetailMaterial] = useState("");
+  const [detailMonth, setDetailMonth] = useState("");
+  const hasAds = user.resourceChannelTypes?.includes("ADS") ?? false;
+  const smsOnly = !hasAds && (user.resourceChannelTypes?.includes("SMS") ?? false);
+  const effectTitle = smsOnly ? "短信粉效果" : "投手效果";
+  return <WorkspaceShell
+    mark="资"
+    workspaceLabel="资源部管理员"
+    title={view === "materials" ? "素材库" : view === "spend" ? "消耗登记" : view === "numbers" ? "号码库" : effectTitle}
+    subtitle="所有数据均来自已保存的真实业务记录"
+    userName={user.name}
+    userLabel={accountRoleLabel(user)}
+    accountScope="已授权渠道"
+    onLogout={onLogout}
+    assistant={<AiSmartAssistant open={aiOpen} onOpenChange={setAiOpen} contextLabel={`当前页面 · ${view === "spend" ? "消耗登记" : view === "materials" ? "素材库" : view === "numbers" ? "号码库" : effectTitle}`} user={user} />}
+    navigation={<WorkspaceNavGroup label={NAV_GROUPS.resources}>
+      <WorkspaceNavButton active={view === "buyers"} icon="analysis" onClick={() => { setDetailMaterial(""); setDetailMonth(""); setView("buyers"); }}>{effectTitle}</WorkspaceNavButton>
+      <WorkspaceNavButton active={view === "numbers"} icon="devices" onClick={() => { setDetailMaterial(""); setDetailMonth(""); setView("numbers"); }}>号码库</WorkspaceNavButton>
+      <WorkspaceNavButton active={view === "spend"} icon="calendar" onClick={() => setView("spend")}>消耗登记</WorkspaceNavButton>
+      {hasAds ? <WorkspaceNavButton active={view === "materials"} icon="channel" onClick={() => setView("materials")}>素材库</WorkspaceNavButton> : null}
+    </WorkspaceNavGroup>}
+  >
+    <div hidden={view !== "buyers" && view !== "numbers"}><ResourceBuyerAttribution smsOnly={smsOnly} mode={view === "numbers" ? "numbers" : "effects"} onOpenNumbers={() => setView("numbers")} active={view === "buyers" || view === "numbers"} initialMaterialId={detailMaterial} initialMonth={detailMonth} onOpenLibrary={hasAds ? () => setView("materials") : undefined} /></div>
+    <div hidden={view !== "spend"}><ResourceSpendWorkspace smsOnly={smsOnly} active={view === "spend"} /></div>
+    {view === "materials" && hasAds ? <ResourceMaterialLibrary onViewNumbers={(id, month) => { setDetailMaterial(id); setDetailMonth(month); setView("numbers"); }} /> : null}
+  </WorkspaceShell>;
+}
+
+function ReportingResourceWorkspace({ user, onLogout, audience = "resource" }: ResourceWorkspaceProps) {
   const financeViewer = audience === "finance";
   const [aiOpen, setAiOpen] = useState(false);
   const [view, setView] = useState<View>("dashboard");
@@ -167,7 +207,7 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
     historyContext: JSON.stringify([historyRows.map(row => [row.period.from, row.period.to]), channelId, company, department, groupId, view === "daily" ? day : ""]),
     historicalValues: hasHistoricalResourceValues(historyTotals), previousMonth: isPreviousResourceMonth(historyRows.map(row => row.period)),
   });
-  const title = ({ dashboard: financeViewer ? "渠道数据看板" : labels.resourceDashboard, daily: labels.resourceDaily, summary: labels.resourceSummary, finance: labels.groupDataDetail, customers: "客户进度表", channels: labels.resourceChannels, usage: labels.resourceUsage, accounts: labels.resourceAccounts, comparison: labels.resourceComparison, anomalies: labels.resourceAnomalies, notifications: labels.notifications } satisfies Record<View, string>)[view];
+  const title = ({ dashboard: financeViewer ? "渠道数据看板" : labels.resourceDashboard, daily: labels.resourceDaily, summary: labels.resourceSummary, finance: labels.groupDataDetail, customers: "客户进度表", buyers: "投手号码与效果", channels: labels.resourceChannels, usage: labels.resourceUsage, accounts: labels.resourceAccounts, comparison: labels.resourceComparison, anomalies: labels.resourceAnomalies, notifications: labels.notifications } satisfies Record<View, string>)[view];
   const showFilters = ["dashboard", "daily", "summary", "comparison", "anomalies", "usage"].includes(view);
   const resourceTypeLabel = channels.length && channels.every((channel) => channel.channelType === "ADS") ? "投流资源" : channels.length && channels.every((channel) => channel.channelType === "SMS") ? "短信资源" : channels.length ? "授权资源" : "未授权资源";
 
@@ -185,6 +225,7 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
         <NavButton active={view === "anomalies"} onClick={() => setView("anomalies")} icon="warning">{labels.resourceAnomalies}</NavButton>
       </WorkspaceNavGroup>
       {!financeViewer ? <WorkspaceNavGroup label={NAV_GROUPS.resources}>
+        <NavButton active={view === "buyers"} onClick={() => setView("buyers")} icon="analysis">投手号码与效果</NavButton>
         <NavButton active={view === "channels"} onClick={() => setView("channels")} icon="channel">{labels.resourceChannels}</NavButton>
         <NavButton active={view === "usage"} onClick={() => setView("usage")} icon="usage">{labels.resourceUsage}</NavButton>
         <NavButton active={view === "accounts"} onClick={() => setView("accounts")} icon="accounts">{labels.resourceAccounts}</NavButton>
@@ -206,6 +247,7 @@ export default function ResourceWorkspace({ user, onLogout, audience = "resource
         {!loading && view === "anomalies" ? <Anomalies rows={visibleBaseRows} /> : null}
         {!loading && view === "notifications" ? <UnifiedNotificationCenter onUnreadChange={setUnread} /> : null}
         {!financeViewer && view === "customers" ? <ResourceCustomerProgress /> : null}
+        {!financeViewer && view === "buyers" ? <ResourceBuyerAttribution /> : null}
         {view === "finance" ? <GroupDataDetail permissionLabel="只读 · 财务授权小组范围" finance /> : null}
   </WorkspaceShell>;
 }

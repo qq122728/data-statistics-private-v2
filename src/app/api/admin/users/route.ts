@@ -25,6 +25,7 @@ const safeUserSelect = {
   department: { select: { id: true, name: true, active: true } },
   roleAssignments: { select: { role: true }, orderBy: { role: "asc" } },
   resourceChannelAccess: { select: { channelId: true }, orderBy: { channelId: "asc" } },
+  resourceChannelTypeScope: true,
   financeScopeConfigured: true,
   financeGroupAccess: { select: { groupId: true, group: { select: { name: true, active: true } } }, orderBy: { groupId: "asc" } },
   membershipHistory: { select: { id: true, groupId: true, role: true, secondaryRoles: true, effectiveFrom: true, effectiveTo: true, reason: true, group: { select: { name: true } } }, orderBy: { effectiveFrom: "desc" } },
@@ -286,7 +287,7 @@ export async function PATCH(request: Request) {
 
   try {
     const result = await db.$transaction(async (client) => {
-      const existing = await client.user.findUnique({ where: { id: body.id as string }, select: { id: true, username: true, name: true, role: true, groupId: true, departmentId: true, managementScopeName: true, managementCountryCode: true, active: true, hireDate: true, recruitmentSource: true, referrerName: true, stageOverride: true, stageOverrideReason: true, financeScopeConfigured: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, financeGroupAccess: { select: { groupId: true } } } });
+      const existing = await client.user.findUnique({ where: { id: body.id as string }, select: { id: true, username: true, name: true, role: true, groupId: true, departmentId: true, managementScopeName: true, managementCountryCode: true, active: true, hireDate: true, recruitmentSource: true, referrerName: true, stageOverride: true, stageOverrideReason: true, financeScopeConfigured: true, resourceChannelTypeScope: true, roleAssignments: { select: { role: true } }, resourceChannelAccess: { select: { channelId: true } }, financeGroupAccess: { select: { groupId: true } } } });
       if (!existing) return { error: "成员不存在", status: 404 as const };
 
       const personnelRoles: UserRole[] = ["LEAD", "RECEPTION", "GROUP_OPERATOR", "EXPERT"];
@@ -331,6 +332,8 @@ export async function PATCH(request: Request) {
         data.stageOverrideAt = new Date();
       }
       const nextRole = data.role ?? existing.role;
+      if (existing.resourceChannelTypeScope && includesResourceChannels && nextRole === "RESOURCE_MANAGER")
+        return { error: "此资源账号按投流或短信类型自动管理渠道，无需逐个修改授权", status: 400 as const };
       if (nextRole !== "COMPANY_MANAGER" && (requested.managementScopeName || requested.managementCountryCode)) {
         return { error: "只有公司管理员角色可以设置部门管理范围", status: 400 as const };
       }
@@ -350,6 +353,7 @@ export async function PATCH(request: Request) {
         if (new Set(channels.map((channel) => channel.channelType)).size !== 1) return { error: "一个资源部账号只能选择一种渠道类型（投流或短信）", status: 400 as const };
         changedFields.push("resourceChannelIds");
       }
+      if (existing.resourceChannelTypeScope && nextRole !== "RESOURCE_MANAGER") changedFields.push("resourceChannelTypeScope");
       const currentFinanceGroupIds = existing.financeGroupAccess.map((access) => access.groupId).sort();
       // 老财务账号没有白名单时，普通资料编辑不能意外把它改成受限账号。
       const nextFinanceScopeConfigured = nextRole === "FINANCE"
@@ -420,6 +424,7 @@ export async function PATCH(request: Request) {
         ...(data.passwordHash ? { mustChangePassword: true } : {}),
         ...(roleAssignmentsChanged ? { roleAssignments: { deleteMany: {}, create: [nextRole, ...nextSecondaryRoles.value].map((assignedRole) => ({ role: assignedRole })) } } : {}),
         ...(resourceChannelsChanged ? { resourceChannelAccess: { deleteMany: {}, create: sortedNextResourceChannelIds.map((channelId) => ({ channelId })) } } : {}),
+        ...(nextRole !== "RESOURCE_MANAGER" && existing.resourceChannelTypeScope ? { resourceChannelTypeScope: null } : {}),
         ...(financeGroupsChanged ? { financeScopeConfigured: nextFinanceScopeConfigured, financeGroupAccess: { deleteMany: {}, create: sortedNextFinanceGroupIds.map((groupId) => ({ groupId })) } } : {}),
       }, select: safeUserSelect });
       let invalidatedSessions = 0;

@@ -42,7 +42,9 @@
     "seed:local-five-groups": "ALLOW_LOCAL_FIVE_GROUP_SEED=YES tsx scripts/seed-local-five-groups.ts",
     "build:customer-import-templates": "node --experimental-strip-types scripts/build-customer-import-templates.mjs",
     "test:customer-sheet": "vitest run tests/unit/customer-import-templates.test.ts tests/unit/customer-number-tracking-source.test.ts tests/unit/leaderboard-presentation.test.ts tests/unit/prisma-errors.test.ts tests/unit/sheet-active-assignee.test.ts tests/unit/sheet-import-first-row.test.ts tests/unit/sheet-statistics-permissions.test.ts tests/unit/auth.test.ts tests/unit/auth-me-route.test.ts tests/unit/login-throttle.test.ts tests/unit/statistics-date.test.ts tests/unit/org-permissions.test.ts",
-    "test:local": "npm run test:customer-sheet && npm test --prefix apps/frontline"
+    "test:local": "npm run test:customer-sheet && npm test --prefix apps/frontline",
+    "resource-bot:build": "node scripts/build-resource-bot.mjs",
+    "resource-bot:dev": "tsx scripts/resource-bot.ts"
   },
   "prisma": {
     "seed": "node --experimental-strip-types prisma/seed.ts"

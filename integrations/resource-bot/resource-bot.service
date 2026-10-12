@@ -1,0 +1,28 @@
+[Unit]
+Description=Resource adviser Telegram query bot
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=data-statistics
+Group=data-statistics
+WorkingDirectory=/opt/data-statistics-resource-bot/current
+EnvironmentFile=/etc/data-statistics/resource-bot.env
+ExecStart=/usr/local/bin/node /opt/data-statistics-resource-bot/current/worker.cjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/data-statistics-resource-bot/shared
+MemoryMax=512M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

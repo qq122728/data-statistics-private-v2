@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ExcelJS from "exceljs";
 import {
   enforceHermesScope,
+  authorizeNativeContext,
   authorizeHermesRequest,
   resolveWorkbookReports,
   assertResourceReadOnlyDatabase,
@@ -660,5 +661,20 @@ describe("Hermes resource agent boundaries", () => {
       config,
     );
     expect(converse).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe("native Hermes bridge identity", () => {
+  const ctx = { platform: "telegram", chatId: "42", userId: "42", chatType: "dm", sessionId: "new-native-session", messageId: "12", text: "本月短信效果" };
+  const cfg = { ...config, enabled: true, chatId: "-123", privateUserIds: ["42"] };
+  it("allows the bound private user and members of only the bound group", () => {
+    expect(authorizeNativeContext(ctx, cfg).userId).toBe("42");
+    expect(authorizeNativeContext({ ...ctx, userId: "99", chatId: "-123", chatType: "group" }, cfg).chatId).toBe("-123");
+    expect(() => authorizeNativeContext({ ...ctx, chatId: "99", userId: "99" }, cfg)).toThrow();
+    expect(() => authorizeNativeContext({ ...ctx, chatId: "-999", chatType: "group" }, cfg)).toThrow();
+    expect(() => authorizeNativeContext(ctx, { ...cfg, enabled: false })).toThrow();
+    expect(() => authorizeNativeContext({ ...ctx, targetChat: "-999" }, cfg)).toThrow();
+    expect(() => authorizeNativeContext({ ...ctx, sessionId: "" }, cfg)).toThrow();
   });
 });

@@ -1,0 +1,41 @@
+model:
+  provider: deepseek
+  default: deepseek-v4-flash
+  base_url: https://api.deepseek.com/v1
+agent:
+  max_turns: 16
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+onboarding:
+  profile_build: 'off'
+tools:
+  tool_search:
+    enabled: 'off'
+plugins:
+  enabled: [resource-reports]
+platform_toolsets:
+  telegram: [resource_reports]
+  cli: []
+gateway:
+  strict: true
+  media_delivery_allow_dirs: [/var/lib/resource-reports]
+  trust_recent_files: false
+telegram:
+  require_mention: true
+  allowed_chats: ['-5133647199', '8387614254']
+  group_allowed_chats: ['-5133647199']
+  allow_from: ['8387614254']
+  allow_admin_from: ['operator-console-only']
+  unauthorized_dm_behavior: ignore
+  gateway_restart_notification: false
+platforms:
+  telegram:
+    extra:
+      group_allow_admin_from: ['operator-console-only']
+      user_allowed_commands: [new, stop, status, whoami, resource_help, effects, sms, orders, next, resource_excel]
+      group_user_allowed_commands: [new, stop, status, whoami, resource_help, effects, sms, orders, next, resource_excel]
+      command_menu:
+        max_commands: 11
+        priority_mode: replace
+        priority: [new, help, status, stop, effects, sms, orders, next, resource_excel, whoami, resource_help]

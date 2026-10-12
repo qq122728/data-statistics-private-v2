@@ -1,3 +1,5 @@
+> 当前线上采用 Hermes 原生 Gateway，接法、权限、部署和回滚说明见 [native-gateway/README.md](native-gateway/README.md)。下文 HTTP wrapper 方案保留用于旧版本回滚。
+
 # 资源参谋 Hermes Agent
 
 真正使用已安装的 Hermes `run_agent.AIAgent`，独立用户、人格和会话。既有 Telegram worker 保留唯一群授权、限频、分页和 Excel 发送；不运行第二个 Telegram gateway。

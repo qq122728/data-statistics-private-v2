@@ -1,6 +1,9 @@
 import { createServer, type Server } from "node:http";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { chmod, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { statisticsDate } from "../statistics-date";
 import { readBotConfig, type BotConfig } from "./config";
 import { loadResourceBotCatalog, loadResourceBotData } from "./data";
 import {
@@ -27,8 +30,35 @@ type Run = {
   documents: Export[];
   reports: Map<string, ResourceReportSnapshot>;
   privateUserId?: string;
+  native?: boolean;
+  sessionKey?: string;
 };
 const runs = new Map<string, Run>();
+const nativeTurns = new Map<string, string>();
+const nativePrevious = new Map<string, { query: ResourceQuery; expires: number }>();
+export const nativeContextSchema = z.object({
+  platform: z.literal("telegram"), chatId: z.string().regex(/^-?\d{1,20}$/),
+  userId: z.string().regex(/^[1-9]\d{0,19}$/), chatType: z.enum(["dm", "private", "group", "supergroup", "forum"]),
+  sessionId: z.string().min(1).max(250), messageId: z.string().regex(/^\d{1,30}$/),
+  text: z.string().min(1).max(6000),
+}).strict();
+export function authorizeNativeContext(input: unknown, config: BotConfig) {
+  const c = nativeContextSchema.parse(input);
+  if (!config.enabled || ((c.chatType === "dm" || c.chatType === "private")
+    ? c.chatId !== c.userId || !config.privateUserIds?.includes(c.userId)
+    : c.chatId !== config.chatId)) throw Error("当前对话未授权资源查询");
+  return c;
+}
+async function publishNativeDocument(run: Run, bytes: Uint8Array) {
+  if (!run.native) return {};
+  const dir = process.env.RESOURCE_REPORT_DIR;
+  if (!dir || !dir.startsWith("/")) throw Error("报表输出目录未配置");
+  const path = resolve(dir, `resource-${randomBytes(24).toString("hex")}.xlsx`);
+  await writeFile(path, bytes, { mode: 0o640, flag: "wx" });
+  // The service umask is 0077; explicitly grant only the Hermes report-reader group.
+  await chmod(path, 0o640);
+  return { media: `MEDIA:${path}`, delivery: "将 media 原样放到最终回复中，由 Hermes 发至当前对话" };
+}
 const envelope = z
   .object({
     runId: z.string().regex(/^[a-f0-9]{48}$/),
@@ -155,7 +185,7 @@ export async function startHermesQueryServer(): Promise<Server | null> {
       return send(403, { error: "查询连接未授权" });
     if (
       req.method !== "POST" ||
-      !["/query", "/catalog", "/workbook"].includes(req.url || "")
+      !["/query", "/catalog", "/workbook", "/native/begin"].includes(req.url || "")
     )
       return send(404, { error: "接口不存在" });
     try {
@@ -166,7 +196,30 @@ export async function startHermesQueryServer(): Promise<Server | null> {
         if (size > 8192) return send(413, { error: "查询过长" });
         chunks.push(chunk);
       }
-      const body = envelope.parse(JSON.parse(Buffer.concat(chunks).toString()));
+      const input = JSON.parse(Buffer.concat(chunks).toString());
+      if (req.url === "/native/begin") {
+        if (process.env.RESOURCE_NATIVE_GATEWAY !== "1") return send(404, { error: "接口未启用" });
+        const config = await readBotConfig();
+        if (!config) return send(403, { error: "机器人未配置" });
+        const c = authorizeNativeContext(input, config);
+        const now = Date.now();
+        for (const [id, item] of runs) if (item.expires < now) runs.delete(id);
+        for (const [key, id] of nativeTurns) if (!runs.has(id)) nativeTurns.delete(key);
+        for (const [key, item] of nativePrevious) if (item.expires < now) nativePrevious.delete(key);
+        const sessionKey = createHash("sha256").update(JSON.stringify([c.chatId, c.userId, c.sessionId])).digest("hex");
+        const turnKey = sessionKey + ":" + c.messageId;
+        const existing = nativeTurns.get(turnKey);
+        if (existing && runs.has(existing)) return send(200, { runId: existing });
+        if (runs.size >= 100 || nativePrevious.size >= 1000) return send(429, { error: "查询繁忙，请稍后再试" });
+        const runId = randomBytes(24).toString("hex");
+        runs.set(runId, { text: c.text, config, today: statisticsDate(new Date()),
+          previous: nativePrevious.get(sessionKey)?.query, expires: now + 300000,
+          calls: 0, documents: [], reports: new Map(), native: true, sessionKey,
+          privateUserId: c.chatType === "dm" || c.chatType === "private" ? c.userId : undefined });
+        nativeTurns.set(turnKey, runId);
+        return send(200, { runId });
+      }
+      const body = envelope.parse(input);
       const run = runs.get(body.runId);
       if (!run || run.expires < Date.now())
         return send(403, { error: "本次查询已结束，请重新提问" });
@@ -186,7 +239,7 @@ export async function startHermesQueryServer(): Promise<Server | null> {
         const bytes = await exportResourceWorkbook(reports);
         // A combined workbook replaces interim single-report exports in this request.
         run.documents = [{ bytes, filename: `resource-comparison-${run.today}.xlsx` }];
-        return send(200, { excelPrepared: true, reportCount: reports.length, destination: "原对话", message: "综合 Excel 已生成，将由系统随回复发送" });
+        return send(200, { ...await publishNativeDocument(run, bytes), excelPrepared: true, reportCount: reports.length, destination: "原对话", message: "综合 Excel 已生成，将由系统随回复发送" });
       }
       const catalog = await loadResourceBotCatalog();
       if (req.url === "/catalog")
@@ -211,16 +264,21 @@ export async function startHermesQueryServer(): Promise<Server | null> {
         if (run.reports.size >= 4) run.reports.delete(run.reports.keys().next().value!);
         run.reports.set(reportId, { query: q, data });
       }
+      let nativeDocument = {};
       if (q.excel) {
         if (run.documents.length >= 2)
           return send(400, { error: "一次最多导出两份，请收窄查询" });
+        const bytes = await exportResourceReport(q, data);
+        nativeDocument = await publishNativeDocument(run, bytes);
         run.documents.push({
-          bytes: await exportResourceReport(q, data),
+          bytes,
           filename: `resource-${q.view}-${data.range?.from || "all"}.xlsx`,
         });
       }
       run.lastQuery = q;
+      if (run.sessionKey) nativePrevious.set(run.sessionKey, { query: q, expires: Date.now() + 3600000 });
       return send(200, {
+        ...nativeDocument,
         query: q,
         text: renderResourceReport(q, data),
         excelPrepared: q.excel,
@@ -243,7 +301,7 @@ export async function startHermesQueryServer(): Promise<Server | null> {
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(4187, "127.0.0.1", () => resolve());
+    server.listen(Number(process.env.RESOURCE_QUERY_PORT || 4187), "127.0.0.1", () => resolve());
   });
   return server;
 }

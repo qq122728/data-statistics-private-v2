@@ -61,19 +61,33 @@ def inbound(event, **kwargs):
                 if _turns[key][0] < now: del _turns[key]
             if len(_turns) >= 1000:
                 return {'action': 'skip', 'reason': 'Resource request capacity reached'}
-            _turns[(chat, user, message)] = (now + 600, rewritten[:6000])
+            _turns[(chat, user, message)] = (now + 600, rewritten[:6000], '')
     if rewritten != text: return {'action': 'rewrite', 'text': rewritten}
 
-def context():
+def context(*, runtime_session_id=None):
     get = lambda key: str(get_session_env('HERMES_SESSION_' + key) or '')
     chat, user, kind, message = get('CHAT_ID'), get('USER_ID'), get('CHAT_TYPE'), get('MESSAGE_ID')
     if get('PLATFORM') != 'telegram' or not _allowed(chat, user, kind):
         raise ValueError('当前对话未授权资源查询')
-    with _lock:
-        turn = _turns.get((chat, user, message))
     session = get('ID')
-    if not turn or turn[0] < time.monotonic() or not session:
-        raise ValueError('当前查询上下文已过期，请重新提问')
+    with _lock:
+        key = (chat, user, message)
+        turn = _turns.get(key)
+        if not turn or turn[0] < time.monotonic():
+            raise ValueError('当前查询上下文已过期，请重新提问')
+        # Hermes restores ContextVars between middleware and tool execution.
+        # Bind the trusted hook's agent ID to this exact authorized message,
+        # so both phases can resolve it without a process-wide session fallback.
+        if runtime_session_id:
+            if (session and session != runtime_session_id) or (turn[2] and turn[2] != runtime_session_id):
+                raise ValueError('查询会话编号不一致')
+            turn = (turn[0], turn[1], runtime_session_id)
+            _turns[key] = turn
+        if session and turn[2] and session != turn[2]:
+            raise ValueError('查询会话编号不一致')
+        session = session or turn[2]
+        if not session:
+            raise ValueError('当前查询上下文已过期，请重新提问')
     return dict(platform='telegram', chatId=chat, userId=user, chatType=kind,
         sessionId=session, messageId=message, text=turn[1])
 
@@ -84,10 +98,13 @@ def begin_run():
     with urllib.request.urlopen(req, timeout=15) as response:
         return json.loads(response.read(4096))['runId']
 
-def guard(tool_name, **kwargs):
+def guard(tool_name, session_id=None, **kwargs):
     if tool_name not in ALLOWED_TOOLS:
         return {'action': 'block', 'message': '资源参谋只允许业务查询和表格生成，禁止其他工具。'}
-    try: context()
+    try:
+        # Cached Hermes agents retain their session_id, but the gateway resets
+        # HERMES_SESSION_ID between turns. The hook carries the live agent ID.
+        context(runtime_session_id=session_id)
     except Exception:
         return {'action': 'block', 'message': '没有有效的资源查询会话，请在已授权对话重新提问。'}
 

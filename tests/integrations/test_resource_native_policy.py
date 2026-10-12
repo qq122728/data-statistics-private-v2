@@ -51,4 +51,26 @@ class NativePolicyTests(unittest.TestCase):
             self.assertEqual(self.native.guard(name)['action'], 'block')
         e.source.is_bot = True
         self.assertEqual(self.native.inbound(e)['action'], 'skip')
+    def test_cached_agent_session_is_bound_by_trusted_hook(self):
+        e = self.event(); self.native.inbound(e); self.bind(e, session='')
+        self.assertEqual(self.native.guard('query_resource_report')['action'], 'block')
+        self.assertIsNone(self.native.guard('query_resource_report', session_id='session-A'))
+        self.assertEqual(self.native.context()['sessionId'], 'session-A')
+        # The next message cannot inherit the previous tool's authorization.
+        e = self.event(mid='124'); self.native.inbound(e); self.bind(e, session='')
+        with self.assertRaises(ValueError): self.native.context()
+        self.assertIsNone(self.native.guard('query_resource_report', session_id='session-B'))
+        self.assertEqual(self.native.context()['sessionId'], 'session-B')
+        self.values['HERMES_SESSION_ID'] = 'different-session'
+        self.assertEqual(self.native.guard('query_resource_report', session_id='session-B')['action'], 'block')
+    def test_tool_identity_does_not_cross_users_messages_or_sessions(self):
+        e = self.event(); self.native.inbound(e); self.bind(e, session='')
+        self.assertIsNone(self.native.guard('query_resource_report', session_id='session-A'))
+        self.assertEqual(self.native.guard('query_resource_report', session_id='session-B')['action'], 'block')
+        self.assertEqual(self.native.context()['sessionId'], 'session-A')
+        self.values['HERMES_SESSION_USER_ID'] = '99'
+        with self.assertRaises(ValueError): self.native.context()
+        self.values['HERMES_SESSION_USER_ID'] = '42'
+        self.values['HERMES_SESSION_MESSAGE_ID'] = 'different-message'
+        with self.assertRaises(ValueError): self.native.context()
 if __name__ == '__main__': unittest.main()

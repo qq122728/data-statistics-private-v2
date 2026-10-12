@@ -29,6 +29,7 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
   const [detailCountry, setDetailCountry] = useState<string | null>(null);
   const [filterChannel, setFilterChannel] = useState("");
   const [payload, setPayload] = useState<BuyerPayload | null>(null);
+  const [loadedQuery, setLoadedQuery] = useState("");
   const [channelId, setChannelId] = useState("");
   const [groupId, setGroupId] = useState("");
   const [buyer, setBuyer] = useState("");
@@ -47,30 +48,35 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
   const detailRef = useRef<HTMLElement>(null);
   const scrolled = useRef(false);
   const loadSequence = useRef(0);
+  const query = new URLSearchParams({ month, detailPage: String(detailPage) });
+  if (filterCountry) query.set("country", filterCountry);
+  if (detailCountry !== null) query.set("detailCountry", detailCountry || "unknown");
+  if (filterChannel) query.set("channelId", filterChannel);
+  if (selectedBuyer) query.set("detailBuyerId", selectedBuyer);
+  if (selectedMaterial) query.set("detailMaterialId", selectedMaterial);
+  const queryString = query.toString();
+  const reportLoading = loading || (!error && loadedQuery !== queryString);
+  const reportPayload = !error && !reportLoading && loadedQuery === queryString ? payload : null;
   const load = useCallback(async () => {
     const sequence = ++loadSequence.current;
     setLoading(true);
     setError("");
     try {
-    const query = new URLSearchParams({ month });
-    if (filterCountry) query.set("country", filterCountry);
-    if (detailCountry !== null) query.set("detailCountry", detailCountry || "unknown");
-    if (filterChannel) query.set("channelId", filterChannel);
-    if (selectedBuyer) query.set("detailBuyerId", selectedBuyer);
-    if (selectedMaterial) query.set("detailMaterialId", selectedMaterial);
-    query.set("detailPage", String(detailPage));
-    const next = await requestJson<BuyerPayload>(`/api/resource/buyer-phones?${query}`);
+    const next = await requestJson<BuyerPayload>(`/api/resource/buyer-phones?${queryString}`);
     if (sequence !== loadSequence.current) return;
     setPayload(next);
+    setLoadedQuery(queryString);
     setChannelId(current => current && next.channels.some(item => item.id === current) ? current : next.channels[0]?.id ?? "");
     setMaterialId(current => current && next.materials.some(item => item.id === current && item.active) ? current : "");
     } catch (caught) {
       if (sequence !== loadSequence.current) return;
-      setPayload(null);
       throw caught;
     } finally { if (sequence === loadSequence.current) setLoading(false); }
-  }, [month, filterChannel, filterCountry, detailCountry, selectedBuyer, selectedMaterial, detailPage]);
-  useEffect(() => { if (active) void load().catch(caught => setError(caught instanceof Error ? caught.message : "无法读取投手数据")); }, [load, active]);
+  }, [queryString]);
+  useEffect(() => {
+    if (active) void load().catch(caught => setError(caught instanceof Error ? caught.message : "无法读取投手数据"));
+    return () => { loadSequence.current++; };
+  }, [load, active]);
   useEffect(() => {
     if (!active) return;
     setDetailCountry(null); setFilterCountry(""); setFilterChannel("");
@@ -93,13 +99,16 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
       else {
         const result = await requestJson<{ saved: number; skipped: number; resolved: number; pending: number }>("/api/resource/buyer-phones", { method: "POST", body: formData(action) });
         setNotice(`已保存 ${result.saved} 个号码，补全 ${result.resolved} 个号码的${smsOnly ? "国家或小组" : "国家、小组或素材"}信息；其中 ${result.pending} 个尚未进入客户进度表，之后会自动匹配。`);
-        setPreview(null); setNumbers(""); setFile(null); setMonth(sourceDate.slice(0, 7)); await load();
+        const importedMonth = sourceDate.slice(0, 7);
+        setPreview(null); setNumbers(""); setFile(null); setMonth(importedMonth); setDetailPage(1);
+        // Changed filters reload through the effect, using the new month and first page.
+        if (importedMonth === month && detailPage === 1) await load();
       }
     } catch (caught) { setError(caught instanceof Error ? caught.message : "操作未完成"); }
     finally { setBusy(false); }
   }
   const canCommit = Boolean(preview && !preview.invalidCount && !preview.counts.conflict && !preview.counts.ambiguous && ((preview.counts.matched ?? 0) + (preview.counts.pending ?? 0) + (preview.counts.resolve ?? 0) > 0));
-  const filteredDetails = payload?.details ?? [];
+  const filteredDetails = reportPayload?.details ?? [];
   const buyerMaterials = payload?.materials.filter(item => item.channelId === channelId && item.buyer.name === buyer.trim()) ?? [];
   return <div className={`${styles.stack} ${mode === "effects" ? styles.effectsStack : ""}`}>
     <section hidden={mode === "effects"} className={styles.intro}><div><h2>{mode === "numbers" ? "号码库" : smsOnly ? "短信粉效果" : "投手效果"}</h2><p>{readOnly ? "总公司可查看投流与短信两个渠道类型的号码和效果；各资源负责人在自己的账号中导入。" : smsOnly ? "选用系统现有短信渠道，登记一批号码的供粉方。客户进群、开单和金额从客户进度表自动读取。" : "选用系统现有渠道，登记一批号码的投手或供粉方。客户进群、开单和金额从客户进度表自动读取。"}</p></div><button type="button" onClick={() => void load().catch(caught => setError(String(caught)))}>刷新数据</button></section>
@@ -119,7 +128,7 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
       {notice ? <p role="status" className={styles.success}>{notice}</p> : null}
     </section> : null}
     {error ? <p role="alert" className={styles.error}>{error}</p> : null}
-    {mode !== "numbers" ? <ResourceBuyerEffects smsOnly={smsOnly} payload={payload} loading={loading} onRefresh={() => void load().catch(caught => setError(String(caught)))} filters={<>
+    {mode !== "numbers" ? <ResourceBuyerEffects smsOnly={smsOnly} payload={reportPayload} loading={reportLoading} onRefresh={() => void load().catch(caught => setError(String(caught)))} filters={<>
       <label>月份<ResourceMonthInput value={month} onChange={value => { setMonth(value); setDetailPage(1); }} /></label>
       <label>渠道<select value={filterChannel} onChange={event => { setFilterChannel(event.target.value); setSelectedBuyer(""); setSelectedMaterial(""); setDetailCountry(null); setDetailPage(1); }}><option value="">全部授权渠道</option>{payload?.channels.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>效果国家<select value={filterCountry} onChange={event => { setFilterCountry(event.target.value); setDetailCountry(null); setSelectedBuyer(""); setSelectedMaterial(""); setDetailPage(1); }}><option value="">全部国家</option><option value="unknown">未标注国家</option>{COUNTRIES.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
@@ -128,6 +137,6 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
       <label>渠道<select value={filterChannel} onChange={event => { setFilterChannel(event.target.value); setSelectedBuyer(""); setSelectedMaterial(""); setDetailCountry(null); setDetailPage(1); }}><option value="">全部授权渠道</option>{payload?.channels.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>效果国家<select value={filterCountry} onChange={event => { setFilterCountry(event.target.value); setDetailCountry(null); setSelectedBuyer(""); setSelectedMaterial(""); setDetailPage(1); }}><option value="">全部国家</option><option value="unknown">未标注国家</option>{COUNTRIES.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
     </div></header></section>}
-    <section hidden={mode === "effects"} ref={detailRef} className={styles.card}><header className={styles.reportHeader}><div><h3>号码明细{detailCountry !== null ? ` · ${countryName(detailCountry)}` : filterCountry ? ` · ${countryName(filterCountry === "unknown" ? "" : filterCountry)}` : ""}{selectedMaterial ? ` · ${payload?.materials.find(item => item.id === selectedMaterial)?.name ?? ""}` : selectedBuyer ? ` · ${payload?.buyers.find(item => item.id === selectedBuyer)?.name ?? ""}` : ""}</h3><p>共 {payload?.detailTotal ?? 0} 个号码，每页 50 条；仅有渠道权限的资源部和总公司管理员可查看。</p></div>{selectedBuyer || selectedMaterial ? <button type="button" onClick={() => { setSelectedBuyer(""); setSelectedMaterial(""); setDetailCountry(null); setDetailPage(1); }}>显示全部号码</button> : null}</header><div className={styles.tableWrap}><table><thead><tr><th>完整号码</th><th>国家</th><th>渠道</th><th>{smsOnly ? "供粉方" : "投手"}</th>{!smsOnly ? <th>素材</th> : null}<th>批次日期</th><th>小组</th><th>匹配情况</th><th>接粉日期</th><th>开单日期</th><th>首充</th><th>续充</th></tr></thead><tbody>{filteredDetails.map(row => <tr key={row.id}><td><strong>{row.phone}</strong></td><td>{countryName(row.country)}</td><td>{row.channel}</td><td>{row.buyer}</td>{!smsOnly ? <td>{row.material || "—"}</td> : null}<td>{row.sourceDate}</td><td>{row.groupName || "—"}</td><td>{statusLabels[row.status]}</td><td>{row.metrics?.intakeOn || "—"}</td><td>{row.metrics?.openedOn || "—"}</td><td>{dollars(row.metrics?.firstCents ?? 0)}</td><td>{dollars(row.metrics?.rechargeCents ?? 0)}</td></tr>)}{!filteredDetails.length ? <tr><td colSpan={smsOnly ? 11 : 12} className={styles.empty}>暂无号码明细</td></tr> : null}</tbody></table></div><div className={styles.pager}><span>第 {payload?.detailPage ?? 1} / {payload?.detailPages ?? 1} 页</span><button type="button" disabled={detailPage <= 1} onClick={() => setDetailPage(current => current - 1)}>上一页</button><button type="button" disabled={detailPage >= (payload?.detailPages ?? 1)} onClick={() => setDetailPage(current => current + 1)}>下一页</button></div></section>
+    <section hidden={mode === "effects"} ref={detailRef} className={styles.card}><header className={styles.reportHeader}><div><h3>号码明细{detailCountry !== null ? ` · ${countryName(detailCountry)}` : filterCountry ? ` · ${countryName(filterCountry === "unknown" ? "" : filterCountry)}` : ""}{selectedMaterial ? ` · ${payload?.materials.find(item => item.id === selectedMaterial)?.name ?? ""}` : selectedBuyer ? ` · ${payload?.buyers.find(item => item.id === selectedBuyer)?.name ?? ""}` : ""}</h3><p>共 {reportLoading ? "读取中…" : reportPayload?.detailTotal ?? 0} 个号码，每页 50 条；仅有渠道权限的资源部和总公司管理员可查看。</p></div>{selectedBuyer || selectedMaterial ? <button type="button" onClick={() => { setSelectedBuyer(""); setSelectedMaterial(""); setDetailCountry(null); setDetailPage(1); }}>显示全部号码</button> : null}</header><div className={styles.tableWrap}><table><thead><tr><th>完整号码</th><th>国家</th><th>渠道</th><th>{smsOnly ? "供粉方" : "投手"}</th>{!smsOnly ? <th>素材</th> : null}<th>批次日期</th><th>小组</th><th>匹配情况</th><th>接粉日期</th><th>开单日期</th><th>首充</th><th>续充</th></tr></thead><tbody>{filteredDetails.map(row => <tr key={row.id}><td><strong>{row.phone}</strong></td><td>{countryName(row.country)}</td><td>{row.channel}</td><td>{row.buyer}</td>{!smsOnly ? <td>{row.material || "—"}</td> : null}<td>{row.sourceDate}</td><td>{row.groupName || "—"}</td><td>{statusLabels[row.status]}</td><td>{row.metrics?.intakeOn || "—"}</td><td>{row.metrics?.openedOn || "—"}</td><td>{dollars(row.metrics?.firstCents ?? 0)}</td><td>{dollars(row.metrics?.rechargeCents ?? 0)}</td></tr>)}{!filteredDetails.length ? <tr><td colSpan={smsOnly ? 11 : 12} className={styles.empty}>{reportLoading ? "正在读取号码明细…" : "暂无号码明细"}</td></tr> : null}</tbody></table></div><div className={styles.pager}><span>第 {reportPayload?.detailPage ?? 1} / {reportPayload?.detailPages ?? 1} 页</span><button type="button" disabled={reportLoading || detailPage <= 1} onClick={() => setDetailPage(current => current - 1)}>上一页</button><button type="button" disabled={reportLoading || detailPage >= (reportPayload?.detailPages ?? 1)} onClick={() => setDetailPage(current => current + 1)}>下一页</button></div></section>
   </div>;
 }

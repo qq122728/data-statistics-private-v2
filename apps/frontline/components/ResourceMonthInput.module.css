@@ -1,0 +1,2 @@
+.picker { display: inline-flex; align-items: center; gap: 6px; }
+.picker.picker select { min-width: 0; width: auto; max-width: none; }

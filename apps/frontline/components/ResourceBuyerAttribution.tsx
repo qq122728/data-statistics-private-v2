@@ -5,6 +5,8 @@ import { requestJson } from "@/lib/backend";
 import { COUNTRIES, countryName } from "../../../packages/resource-buyer/options";
 import { type EffectRow } from "./resource-buyer-format";
 import { ResourceBuyerEffects } from "./ResourceBuyerEffects";
+import { ResourceMonthInput } from "./ResourceMonthInput";
+import { normalizeResourceMonth } from "./resource-buyer-groups";
 import type { SpendEntry } from "./ResourceBuyerSpend";
 import styles from "./ResourceBuyerAttribution.module.css";
 
@@ -21,7 +23,7 @@ const statuses: Record<string, string> = { matched: "已匹配客户", pending: 
 
 export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, onOpenLibrary, initialMaterialId = "", initialMonth = "", active = true, mode = "all", onOpenNumbers }: { smsOnly?: boolean; mode?: "all" | "effects" | "numbers"; onOpenNumbers?: () => void; readOnly?: boolean; onOpenLibrary?: () => void; initialMaterialId?: string; initialMonth?: string; active?: boolean }) {
   const statusLabels = smsOnly ? { ...statuses, already: "已导入同一供粉方", resolve: "补全国家或小组" } : statuses;
-  const [month, setMonth] = useState(() => initialMonth || today().slice(0, 7));
+  const [month, setMonth] = useState(() => normalizeResourceMonth(initialMonth) || today().slice(0, 7));
   const [country, setCountry] = useState("");
   const [filterCountry, setFilterCountry] = useState("");
   const [detailCountry, setDetailCountry] = useState<string | null>(null);
@@ -62,6 +64,10 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
     setPayload(next);
     setChannelId(current => current && next.channels.some(item => item.id === current) ? current : next.channels[0]?.id ?? "");
     setMaterialId(current => current && next.materials.some(item => item.id === current && item.active) ? current : "");
+    } catch (caught) {
+      if (sequence !== loadSequence.current) return;
+      setPayload(null);
+      throw caught;
     } finally { if (sequence === loadSequence.current) setLoading(false); }
   }, [month, filterChannel, filterCountry, detailCountry, selectedBuyer, selectedMaterial, detailPage]);
   useEffect(() => { if (active) void load().catch(caught => setError(caught instanceof Error ? caught.message : "无法读取投手数据")); }, [load, active]);
@@ -69,7 +75,7 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
     if (!active) return;
     setDetailCountry(null); setFilterCountry(""); setFilterChannel("");
     setSelectedMaterial(initialMaterialId); setSelectedBuyer(""); setDetailPage(1);
-    if (initialMonth) setMonth(initialMonth);
+    if (normalizeResourceMonth(initialMonth)) setMonth(normalizeResourceMonth(initialMonth)!);
     scrolled.current = false;
   }, [active, initialMaterialId, initialMonth]);
   useEffect(() => {
@@ -114,11 +120,11 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
     </section> : null}
     {error ? <p role="alert" className={styles.error}>{error}</p> : null}
     {mode !== "numbers" ? <ResourceBuyerEffects smsOnly={smsOnly} payload={payload} loading={loading} onRefresh={() => void load().catch(caught => setError(String(caught)))} filters={<>
-      <label>月份<input type="month" value={month} onChange={event => { setMonth(event.target.value); setDetailPage(1); }} /></label>
+      <label>月份<ResourceMonthInput value={month} onChange={value => { setMonth(value); setDetailPage(1); }} /></label>
       <label>渠道<select value={filterChannel} onChange={event => { setFilterChannel(event.target.value); setSelectedBuyer(""); setSelectedMaterial(""); setDetailCountry(null); setDetailPage(1); }}><option value="">全部授权渠道</option>{payload?.channels.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>效果国家<select value={filterCountry} onChange={event => { setFilterCountry(event.target.value); setDetailCountry(null); setSelectedBuyer(""); setSelectedMaterial(""); setDetailPage(1); }}><option value="">全部国家</option><option value="unknown">未标注国家</option>{COUNTRIES.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
-    </>} onNumbers={(row, material) => { setSelectedBuyer(row.buyerId); setSelectedMaterial(material ? row.materialId || "" : ""); setDetailCountry(row.country); setFilterChannel(row.channelId); setDetailPage(1); onOpenNumbers?.(); detailRef.current?.scrollIntoView({ behavior: "smooth" }); }} /> : <section className={styles.card}><header className={styles.reportHeader}><h3>号码筛选</h3><div className={styles.filters}>
-      <label>月份<input type="month" value={month} onChange={event => { setMonth(event.target.value); setDetailPage(1); }} /></label>
+    </>} onNumbers={(row, material, country) => { setSelectedBuyer(row.buyerId); setSelectedMaterial(material ? row.materialId || "" : ""); setDetailCountry(country); setFilterChannel(row.channelId); setDetailPage(1); onOpenNumbers?.(); detailRef.current?.scrollIntoView({ behavior: "smooth" }); }} /> : <section className={styles.card}><header className={styles.reportHeader}><h3>号码筛选</h3><div className={styles.filters}>
+      <label>月份<ResourceMonthInput value={month} onChange={value => { setMonth(value); setDetailPage(1); }} /></label>
       <label>渠道<select value={filterChannel} onChange={event => { setFilterChannel(event.target.value); setSelectedBuyer(""); setSelectedMaterial(""); setDetailCountry(null); setDetailPage(1); }}><option value="">全部授权渠道</option>{payload?.channels.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <label>效果国家<select value={filterCountry} onChange={event => { setFilterCountry(event.target.value); setDetailCountry(null); setSelectedBuyer(""); setSelectedMaterial(""); setDetailPage(1); }}><option value="">全部国家</option><option value="unknown">未标注国家</option>{COUNTRIES.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select></label>
     </div></header></section>}

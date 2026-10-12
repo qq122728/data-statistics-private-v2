@@ -1,291 +1,64 @@
-# Design QA（历史验收记录）
-
-> 本文记录特定版本的界面验收，不是当前业务需求。当前规则请看 [`docs/business/current-business-rules.md`](docs/business/current-business-rules.md)。
-
-## Comparison target
-
-- Source visual truth (pre-fix total-company narrow state): `/Users/aaaa/Desktop/数据统计/artifacts/ui-readonly-audit/05-headquarters.png`
-- Rendered implementation (post-fix total-company narrow state): `/Users/aaaa/Desktop/数据统计/artifacts/ui-fix-qa/fixed-headquarters.png`
-- Combined comparison input, source on the left and implementation on the right: `/Users/aaaa/Desktop/数据统计/artifacts/ui-fix-qa/headquarters-before-after.jpg`
-- Additional source visual truth (pre-fix resource narrow state): `/Users/aaaa/Desktop/数据统计/artifacts/ui-readonly-audit/06-resource-ads.png`
-- Additional implementation evidence: `/Users/aaaa/Desktop/数据统计/artifacts/ui-fix-qa/fixed-resource-ads.png`
-- Additional combined comparison: `/Users/aaaa/Desktop/数据统计/artifacts/ui-fix-qa/resource-before-after.jpg`
-- Browser CSS viewport: 478 × 625, device density 1.
-- Source pixels: 478 × 625. Browser screenshot output: 468 × 612. Combined comparisons normalize both halves to 478 × 625 solely to align the same viewport/state.
-- State: authenticated total-company manager and ADS resource manager on their default workbench views.
-
-## Full-view comparison evidence
-
-Both before/after pairs were opened together as one comparison image. The corrected management shell preserves the existing white-and-blue visual language, card density, typography and control sizing. The total-company sidebar now exposes every navigation label and icon instead of leaving empty icon-only rows. The resource workspace keeps the same layout while replacing “净入金” with the product-wide “净业绩” wording.
-
-## Focused-region comparison evidence
-
-No extra crop was needed because the 478-pixel-wide comparison makes the complete persistent navigation, top header, first toolbar, KPI cards and resource terminology readable in one view. These were the exact regions affected by the repair.
-
-## Required fidelity surfaces
-
-- Fonts and typography: existing system Chinese sans-serif stack, weights and compact hierarchy are unchanged. Narrow navigation labels remain readable without clipping.
-- Spacing and layout rhythm: the narrow sidebar is widened only enough to hold icon-plus-text navigation; header title, avatar and “退出” remain on one row.
-- Colors and visual tokens: existing blue active state, white cards, cool-gray canvas and border tokens are preserved.
-- Image quality and assets: this data application has no raster content. Navigation uses the existing Phosphor icon set; no placeholder glyphs or handmade icons were introduced.
-- Copy and content: resource wording is consistently “净业绩”. The removed “待确认每日数据” and “待渠道对账” panels no longer imply an approval workflow that the product does not use.
-
-## Findings and comparison history
-
-- Earlier P1: total-company nested navigation was blank at narrow width because its labels were hidden and the nested buttons had no icons.
-  - Fix: added icons to all six nested total-company entries and retained compact navigation text at narrow breakpoints.
-  - Post-fix evidence: `headquarters-before-after.jpg` shows every entry visible and distinguishable.
-- Earlier P2: all management sidebars became icon-only at narrow width, unlike the member/lead shell.
-  - Fix: shared management navigation now stacks the existing icon above a short visible label at 900px and below.
-  - Post-fix evidence: total-company, department, company, ADS resource and SMS resource accounts were each logged in at the narrow viewport; persistent navigation and “退出” were visible.
-- Earlier P2: the resource workbench used both “净入金” and “净业绩” and exposed approval/reconciliation panels the user had removed from the workflow.
-  - Fix: standardized the resource UI on “净业绩” and removed the approval/reconciliation fetches, cards, tables and action handlers from the resource frontend.
-  - Post-fix evidence: `resource-before-after.jpg` shows the corrected KPI label. Browser text checks confirmed neither approval label remains on the workbench or daily-channel page.
-- No remaining actionable P0, P1 or P2 findings in the repaired states.
-
-## Interaction and runtime verification
-
-- Logged in and inspected: `demo_hq`, `demo_department`, `demo_company`, `demo_resource_ads`, and `demo_resource_sms`.
-- Tested total-company navigation visibility, top-bar logout visibility, resource workbench content, daily-channel navigation, and ADS/SMS channel isolation.
-- Fresh browser reload produced only React DevTools and HMR connection info; no new runtime error.
-- Frontline TypeScript, 28 frontend tests and the production build passed.
-- Root TypeScript and the complete root suite passed: 1,123 tests passed, 4 skipped.
-
-## Follow-up polish
-
-- P3: on extremely narrow browser panes, large report tables still require horizontal scrolling. This matches the spreadsheet-style product direction and does not block use.
-
-## Shared customer sheet restoration
-
-- Reference image: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-ee7f04b3-d763-421e-9cef-3d2d34bcc439.png`
-- Implementation screenshot: `/Users/aaaa/Desktop/数据统计/design-qa-shared-customer-sheet.png`
-- Viewport: 1920px desktop.
-- Visual hierarchy, sidebar, toolbar, sheet header, column density, borders, colors, and whitespace match the approved reference.
-- Search, progress filter, horizontal scrolling, pagination, and the add-customer modal render correctly.
-- The live table uses real group customer data and exposes editable group/expert progress cells with automatic-save wiring.
-- Device accounts load under the same shell, are scoped to the current member, and include NORMAL WS, BUSINESS WS, RCS, and SIG choices.
-- Browser console contains no warnings or errors.
+# 投手效果表格版验收
 
 final result: passed
 
-## Customer progress two-level stage navigation
+## 目标与证据
 
-- Source visual truth: `/Users/aaaa/.codex/generated_images/01a062c5-1756-7f32-9129-d2a266fd61eb/exec-de5049c6-3710-432d-bec4-d6209c4a72ce.png`
-- Browser-rendered implementation: `/Users/aaaa/Desktop/数据统计/outputs/smart-expert-test/16-progress-expert-final.png`
-- Focused implementation crop: `/Users/aaaa/Desktop/数据统计/outputs/smart-expert-test/15-progress-controls-final.png`
-- Combined comparison input: `/Users/aaaa/Desktop/数据统计/outputs/smart-expert-test/17-design-comparison-final.png`
-- Source pixels: 1919 × 820. Full implementation pixels: 1920 × 936. Focused implementation pixels: 1642 × 81. Browser CSS viewport: 1920 × 936 at density 1.
-- State: authenticated `demo_operator`, customer progress page, “专家进度”, all expert stages selected.
+- 用户选择：第 1 张效果图，投手汇总行展开国家明细。
+- 源图：`/Users/aaaa/.codex/generated_images/01a120d2-fc2b-79b0-9ecb-aa57f127c611/exec-7cc8a554-b7d3-428b-ba96-be04166f5fe5.png`（1487 × 1058）。
+- 实际页面：`http://127.0.0.1:3000/resource-admin`。
+- 最终截图：`.tmp/buyer-table-qa/desktop-final.jpg`（1710 × 990）。
+- 窄屏截图：`.tmp/buyer-table-qa/narrow.jpg`（750 × 977）。
+- 短信账号截图：`.tmp/buyer-table-qa/sms.jpg`。
+- 浏览器：Codex 内置浏览器。桌面对照请求 viewport 1710 × 1058，实际截图区域 1710 × 990；窄屏请求 760 × 1000，实际区域 750 × 977。使用 1 倍 CSS 像素，未进行图片缩放或修图。
+- 保留现有 220px 左侧导航，内容区域宽度约 1450px，与源图内容宽度约 1430px 接近。源图使用虚构数据；实际页面使用本地数据库演示数据：7 个号码、4 个渠道内投手/供粉方、3 个开单。没有复制源图数字。
+- 在同一工具输出中同时打开源图和最终截图比较整体构图、首个投手与国家行、表头及金额。两张原图文字均可读，不需额外裁剪才能判断表格细节。
 
-### Full-view and focused comparison evidence
+## 比较与修正记录
 
-The full browser capture confirms that the new controls remain within the existing compact customer-table header and do not displace the first data rows. The combined comparison places the approved mockup and the final focused browser crop in one image. Both preserve the two primary stages, blue active treatment, real count badges and one-row expert-stage filters. The implementation intentionally uses the product's denser sizing so the customer table retains vertical space.
+1. 初稿所有 24 列默认展开；核心成本列、号码操作离首屏过远，属于 P2。改为默认 18 列核心指标，提供“显示全部指标”，保留其余指标。固定投手、渠道和操作列；压缩核心表格横向内边距。早期证据为 `desktop-before.jpg`，最终证据为 `desktop-final.jpg`。
+2. 原先带大白色卡片内边距，表格位置过低。改为平铺结构、减少标题和工具栏间距。最终截图中表格与筛选区层级明确。
+3. 全页截图曾出现固定列重绘伪影；直接屏幕截图验证滚动时列正常，最终证据使用普通 viewport 截图。
+4. 源图将国家名也写在投手汇总标题里；实际按用户需求只显示投手及国家数量，国家放在展开行。
 
-### Required fidelity surfaces
+## 五项视觉核对
 
-- Fonts and typography: existing Chinese system font, weights and compact dashboard hierarchy are preserved; all labels stay horizontal and readable.
-- Spacing and layout rhythm: two centered primary tabs sit above one full-width filter row; all eight expert filters share the available width evenly.
-- Colors and visual tokens: existing blue active state, pale-blue selection, white surfaces and cool-gray borders match the approved direction.
-- Image quality and assets: this navigation contains no raster assets or icons, so no substitute or placeholder imagery was introduced.
-- Copy and content: primary labels are “炒群进度” and “专家进度”. Expert filters are 全部、待专家接待、跟进中、待注册、待开单、已开单、暂不首充、停止维护. Every displayed number comes from the customer-reporting API.
+- 字体：保留应用中文系统字体。标题 23px，核心表格 12px，完整表格 13px；数字右对齐、等宽数字属性，资金保留两位小数。没有换成源图中无法确认的字体。
+- 间距与结构：单个横向表格；蓝色父行、缩进国家行；双层分组表头；底部完整合计。窄屏控件换行，表格在自身容器内横向滚动，页面宽度未溢出。
+- 颜色：延续应用蓝色主色、浅蓝汇总行、白色国家行；开单蓝色强调，正净业绩绿色强调；未登记与无分母明确区分。
+- 图片与图标：源设计是数据 UI，没有需要生成的图片。使用既有应用标识和 Phosphor 搜索、展开/收起图标。
+- 文案：投流为“投手”，短信为“供粉方 / 短信粉效果”；短信无素材入口。明确成本、月份、比率和多币种口径。
 
-### Findings and comparison history
+## 功能验收
 
-- First comparison P2: the expert-stage buttons kept their intrinsic width and left a large unused blank region on the right.
-  - Fix: changed the stage buttons to distribute the available row width while retaining horizontal overflow behavior at narrow widths.
-  - Post-fix evidence: `17-design-comparison-final.png` shows the final filter row spanning the complete content width with balanced spacing.
-- No remaining actionable P0, P1 or P2 findings. The smaller control height compared with the concept image is an intentional fit with the existing dense spreadsheet interface.
+- 前端 TypeScript 检查通过：`npx tsc -p apps/frontline/tsconfig.json --noEmit --incremental false`。
+- 5 个独立单元测试通过：国家汇总全部指标、不修改输入、不同渠道/投手 ID 隔离、多币种/零分母、素材分组、月份规范化（月份测试为独立用例）。命令：`npx vitest run --config .tmp/buyer-groups-vitest.config.ts`。
+- 全部收起后仅投手父行；全部展开后国家行完整，合计保持一致。
+- 搜索 QQ 保留两个渠道的独立汇总及各自国家；没有重复加总。
+- 本地 QQ / FB-M 合计 3 个号码（德国 2、新加坡 1），消耗 USD 140，单粉成本 USD 46.67，开单率 33.3%。
+- 父行“查看号码”打开 3 条；德国行打开 2 条；素材行打开 1 条对应素材号码。
+- “显示全部指标”可见待匹配、跨组重号、有效率、有效客户成本、出金、历史资金。
+- 九月查询显示空状态；十月恢复 7 条导入。月份清空后失焦恢复最后有效月份；单月数字规范化由单测验证。
+- 对最新失败请求清空旧结果；过期请求不覆盖新结果（代码检查）。未人为中断本地 API 来模拟故障。
+- 短信演示账号只见短信渠道和供粉方表格，没有素材明细。
+- 浏览器 console error / warn 检查结果为空。
+- `git diff --check` 通过。
 
-### Interaction and runtime verification
+## 已接受差异与范围
 
-- Switched from 炒群进度 to 专家进度 in Google Chrome.
-- Selected “待开单 1”; the API-backed result total changed to one customer, then “全部 2” restored both customers.
-- Repeated tab and stage interactions completed without a visible error, alert or failed page state.
-- Customer-reporting and daily-stat tests: 46 passed. Frontline tests: 55 passed. Root and frontline TypeScript checks and production builds passed.
+- 保留真实应用导航、账号菜单、国家筛选和素材入口；源图只用于表格组织方式，不替换整个应用外壳。
+- 顶部用 4 项简短统计，底部合计行包含全部当前显示指标。
+- 不同渠道内同名投手分别汇总，与现有 buyerId/channelId 数据模型及号码跳转范围一致。
+- 窄屏通过横向滚动看成本资金，左右识别列固定；桌面对照宽度可直接看到完整核心表格。
+- 使用当前真实接口及本地演示数据库；未修改业务统计接口、权限、线上数据，也未部署或推送。
+- 未做大数据性能压力测试。既有接口最多返回规模由后端控制；本次只调整前端分组展示。
 
-final result: passed
+## 检查清单
 
-## Stage-aware customer progress selector
-
-- Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-db5f5eb2-9cfc-40ce-b63c-783a01ee06a4.png`
-- Browser-rendered implementation: `/tmp/customer-progress-expert-status-filter.png`
-- Focused combined comparison: `/tmp/customer-progress-stage-filter-comparison.png`
-- Source pixels: 444 × 63. Implementation pixels: 1270 × 714 from a 1280 × 720 CSS viewport at density 1. The implementation control region was cropped and proportionally normalized beside the source.
-- State: authenticated group member, customer progress page, “专家进度”, status “已注册”.
-
-### Comparison evidence and required fidelity surfaces
-
-- Layout and spacing: the original two-button segmented control remains centered; the new 35px status selector sits directly to its right without adding another row.
-- Typography and colors: existing compact Chinese system typography, blue active state, pale-blue inactive surface and gray border tokens are preserved.
-- Image quality and assets: no raster or decorative assets are involved in this control.
-- Copy and content: the selector is named “进度状态” and changes its options with the selected entry.
-- Interaction: “在群待推专家” exposes 全部进度、群内维护、已退群; “专家进度” exposes 全部进度、已推专家、已注册、已开单、已退群. Selecting 已注册 was verified in the browser.
-- Responsiveness: the combined controls wrap as one centered group under 900px instead of colliding with the title or live indicator.
-
-### Findings and comparison history
-
-- Earlier P2: status filtering existed in the upper toolbar, visually separated from the two workflow stages it controlled.
-  - Fix: moved the status selector beside the workflow tabs and retained member/channel filters in the upper toolbar.
-  - Post-fix evidence: the combined comparison shows the requested control placement and browser verification confirms stage-specific options.
-- No remaining actionable P0, P1 or P2 findings. Fresh-browser console check had no errors.
-
-final result: passed
-
-## Compact customer progress filters
-
-- Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-31df0dee-15df-4450-8de0-c59076a43ded.png`
-- Browser-rendered implementation: `/tmp/customer-progress-compact.png`
-- Combined comparison input: `/tmp/customer-progress-comparison.png`
-- Source pixels: 1694 × 343. Implementation screenshot: 1270 × 714 from a 1280 × 720 CSS viewport at density 1. The focused implementation content was cropped to the same top-of-page region and proportionally normalized to the source width for the combined comparison.
-- State: authenticated group member, customer progress page, “在群待推专家”, all filters reset.
-
-### Full-view and focused comparison evidence
-
-The combined image places the original expanded customer-import instructions above the implemented compact state. The implementation keeps the approved white-and-blue system but collapses the instructions from 124px to 36px, moves customer status into the toolbar, and adds member and channel selectors. The table header begins immediately below the single-row toolbar and sheet header, materially increasing the visible customer-table area. This top region is the full scope of the requested change, so a separate smaller crop was unnecessary.
-
-### Required fidelity surfaces
-
-- Fonts and typography: existing Chinese system font, title hierarchy and small spreadsheet labels are preserved; filter labels remain readable at the compact size.
-- Spacing and layout rhythm: instructions, toolbar and sheet header now use 36px, 44px and 52px visible heights respectively; controls align on one row at desktop width and wrap at narrow breakpoints.
-- Colors and visual tokens: existing white surfaces, cool-gray borders, blue active state and green live-status token are unchanged.
-- Image quality and assets: this screen contains no raster imagery; the existing Phosphor search and add icons remain intact.
-- Copy and content: customer filters are explicitly named “客户状态”, “归属组员” and “来源渠道”; the full three-step instructions remain available through “展开查看操作说明”.
-
-### Findings and comparison history
-
-- Earlier P1: the permanently expanded three-step guide and separate status-chip row consumed a large part of the usable table viewport.
-  - Fix: the guide now defaults to a one-line disclosure and the status filter moved into the compact toolbar.
-  - Post-fix evidence: the combined comparison shows the customer table header and first data row entering the initial viewport much earlier.
-- Earlier P2: users could not directly isolate customers by attribution member or source channel.
-  - Fix: added native member and channel dropdowns alongside the status selector, each resetting pagination and filtering the visible customer list.
-  - Post-fix evidence: browser checks returned the correct empty state for “演示专家”, 3 rows for “演示短信渠道”, and 2 rows for “已退群”.
-- No remaining actionable P0, P1 or P2 findings.
-
-### Interaction and runtime verification
-
-- Verified guide expand/collapse: 36px collapsed and 118.75px expanded.
-- Verified status, attribution member and source channel selectors, plus the empty-filter state.
-- Browser console contained no errors.
-- Frontline suite: 46 tests passed. Production build and TypeScript checks passed.
-
-final result: passed
-
-## Headquarters administrator group matrix
-
-- Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-51f1875c-b725-4baa-821c-db2b6427f8a2.png`
-- Browser-rendered implementation: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/总公司管理员-小组矩阵.png`
-- Combined comparison: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/总公司参考与实现并排对比.jpg`
-- Source pixels: 871 × 752; implementation pixels: 1270 × 1372; browser viewport: 1280 × 720 at density 1. Both images were proportionally fitted into 1000 × 900 boxes for comparison.
-- State: authenticated `demo_hq`, 数据汇总 → 按小组 → 系统演示组 → 查看矩阵.
-
-### Full-view and focused comparison evidence
-
-The side-by-side image confirms the headquarters view now has the requested spreadsheet orientation: metrics run vertically, while total and members run horizontally. The group-scoped API also inserts channel columns whenever the selected group has channel data. The entire matrix is readable in the full comparison, so no additional focused crop was required.
-
-### Required fidelity surfaces
-
-- Fonts and typography: matches the existing management workbench system font, compact table hierarchy, bold total column and two-line column headings.
-- Spacing and layout rhythm: preserves the headquarters filters and summary table, then expands the matrix directly below the selected group without disrupting navigation.
-- Colors and visual tokens: reuses the approved blue total column, green calculated rows, red exception rows and neutral grid borders.
-- Image quality and assets: the interface is data-only and introduces no raster assets or substitute icons.
-- Copy and content: the group row exposes a clear “查看矩阵” action; the expanded card explains “左侧是指标，横向同时对比合计、渠道和组员”.
-
-### Findings and comparison history
-
-- Earlier P1: the headquarters administrator could only see the old horizontal group summary and had no path into the group matrix.
-  - Fix: the 按小组 table now makes each group row actionable and expands the shared `OrgGroupMetricMatrix` below it.
-  - Post-fix evidence: `总公司管理员-小组矩阵.png` shows the explicit action, expanded matrix and working 收起明细 control.
-- No remaining actionable P0, P1 or P2 findings.
-
-### Interaction and runtime verification
-
-- Verified company/department/group filters, 按小组 tab, 查看矩阵, group-scoped API response, matrix headings and 收起明细.
-- The demo matrix rendered indicator, total and three member columns.
-- Frontline tests: 44 passed. Production build and TypeScript checks passed.
-
-final result: passed
-
-## Group / department / company data matrix
-
-- Source visual truth: `/var/folders/2k/gjysw4mn4tj5wrs0szcsvl040000gn/T/codex-clipboard-51f1875c-b725-4baa-821c-db2b6427f8a2.png`
-- Company implementation screenshot: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/公司管理员-小组矩阵.png`
-- Lead implementation screenshot: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/组长-数据矩阵.png`
-- Normalized side-by-side comparison: `/Users/aaaa/Desktop/数据统计/outputs/数据矩阵验证/参考与实现并排对比.jpg`
-- Source pixels: 871 × 752; implementation pixels: 1270 × 1349; browser CSS viewport: 1280 × 720 at density 1. The comparison scales each image into a 1000 × 900 maximum box without changing aspect ratio.
-- State: authenticated company administrator with the group view selected and the group matrix expanded; authenticated group lead on the group summary page.
-
-### Full-view and focused comparison evidence
-
-The combined image shows the source and implementation together. Both use the required spreadsheet orientation: indicators form the left vertical axis, while total and people form horizontal columns. The implementation additionally supports channel columns when the selected group has channel data and preserves the surrounding product navigation and smart date controls. The matrix itself is the focused region; an additional crop was unnecessary because all headings, tinted metric rows and values are readable in the normalized comparison.
-
-### Required fidelity surfaces
-
-- Fonts and typography: the implementation keeps the product's existing Chinese system font, compact table sizing, strong total column, and readable two-line column labels.
-- Spacing and layout rhythm: the matrix uses compact spreadsheet rows, a fixed indicator column, fixed total column, and horizontal overflow for larger channel/member sets.
-- Colors and visual tokens: the source's blue summary cells, green calculated/status rows, red exception rows, and pale grid borders are represented with the existing product tokens.
-- Image quality and assets: this is a data table and has no imagery or decorative bitmap assets to reproduce.
-- Copy and content: the implemented indicator list matches current product rules, including 人工无效、有效数据、回复率、进群率、异常退群率、注册率、开单率 and financial fields through 净业绩. Lawyer groups use their separate metric set.
-
-### Comparison history and findings
-
-- Earlier P1: company and department administrators could only see entities as rows and metrics as columns, so they could not inspect one group in the requested spreadsheet orientation.
-  - Fix: group rows now open a group-scoped matrix containing total, channels and members.
-  - Post-fix evidence: `公司管理员-小组矩阵.png` shows the expanded matrix under the group summary.
-- Earlier P1: the group lead page only offered separate member/channel/day reports and lacked the same shared visual summary.
-  - Fix: the group lead summary now includes the matrix before smart analysis, using the identical component and metric definitions.
-  - Post-fix evidence: `组长-数据矩阵.png` shows the lead matrix and the existing export/report controls on one page.
-- No remaining actionable P0, P1 or P2 visual findings. The demo September state has zero values, but the structural display and real API wiring are verified.
-
-### Interaction and runtime verification
-
-- Logged in as `demo_department`, `demo_company`, and `demo_lead`.
-- Verified group-row matrix expansion, close control, indicator rows, total/member headings, date-range changes, and the lead report export control.
-- Company matrix rendered five horizontal columns in the demo state (indicator, total, and three members).
-- Frontline tests and production build passed.
-
-final result: passed
-
-# 2026-10-12 · 投手效果 / 用户选定方案 3
-
-## Visual truth and capture
-- Source: `/Users/aaaa/.codex/generated_images/01a120d2-fc2b-79b0-9ecb-aa57f127c611/exec-f2ed11ee-865f-419d-a8dc-5a40fe075da8.png` (1487 × 1058).
-- Implementation: `outputs/buyer-effects-master-detail.jpg` (1477 × 1204 full page); same-viewport capture `outputs/buyer-effects-viewport.jpg` (1477 × 1051).
-- CSS viewport: 1487 × 1058. Browser capture excludes scrollbar / includes a small capture-scale difference; comparison aligned to content regions, not outer edges. Full-page vertical growth is intentional: user requested the additional metric fields.
-- Responsive capture: `outputs/buyer-effects-mobile.jpg` (380 × 2255), CSS viewport 390 × 844; document width 380, no horizontal page overflow.
-- State: local demo ADS account, October 2026, all countries/channels, QQ / Germany / FB-M selected, buyer tab.
-- Source and both desktop captures were viewed together in one comparison call. The metrics and left selection region were inspected at readable size; separate crops were unnecessary because their text was legible in the full-resolution inputs.
-
-## Findings and fidelity surfaces
-- No remaining P0/P1/P2 findings.
-- Typography: preserved existing application font and shell typography; detail title 27px bold, section labels 16px bold, metric labels 13px, tabular numerals. Existing shell is smaller than the generated mock, intentionally retained for consistency with the live project.
-- Spacing: left 310px master list, right fluid detail, four main KPIs, distinct conversion and funds sections. Added full search input in place of a search-only icon for direct access. Additional data makes the content taller than the mock; all metrics remain readable without horizontal scrolling.
-- Colors: existing blue #2467dc, blue-gray text #22324b, white panels, pale blue selection/backgrounds, subtle borders. Matches the chosen blue-white direction.
-- Assets: no new raster assets required; retained existing project brand and navigation icons. No invented decorative artwork.
-- Copy: complete existing report metrics preserved (imports, matched, pending, ambiguous, valid, replied, joined, expert, registered, opened, valid/open rates, spend and unit costs, first/recharge/net funds); withdrawal and historical funds surfaced from the existing response. Explicit denominator, period and multi-currency notes prevent confusing cohort conversion with same-day events.
-
-## Comparison history
-- Initial pass: left list narrower than reference and section heading weight too light. Adjusted desktop list to 310px, right padding to 28px, explicit heading weights and 13px metric labels.
-- Final evidence: `buyer-effects-viewport.jpg` and `buyer-effects-master-detail.jpg`, after these fixes. All primary controls visible; extra rows are the requested functional expansion.
-
-## Interactions and verification
-- Buyer selection switches corresponding country/channel totals.
-- Singapore filter yields only the two Singapore rows; Yangzi values: spend USD80, opened1, first USD1000, recharge USD250, net USD1250.
-- Material tab shows only selected buyer/country/channel materials and material-attributed spending, not all buyer spending.
-- Material drilldown navigates to Number Library, with the one expected Germany / demo video A phone (9000000101).
-- Search with no results shows empty state and recovers after clearing.
-- Mobile layout stacks master and detail; controls and all metrics remain accessible.
-- Browser error logs: none on the tested page.
-- Frontend and root TypeScript checks passed; 10 relevant unit tests passed; local country/spend integration suite passed.
-- No production deployment; testing used local demo records.
-
-## Implementation checklist
-- [x] Selected third layout implemented.
-- [x] Full supported metric fields displayed.
-- [x] Navigation and import separation retained.
-- [x] Browser interaction checks and screenshots saved.
-- [x] Old unused wide-table renderer removed; shared type/format helpers retained.
-
-## Follow-up polish
-- P3: existing app header and sidebar remain more compact than the generated reference; intentional reuse of the project's design system.
-
-final result: passed
+- [x] 表格父子结构与效果图方向一致
+- [x] 原有指标可查看
+- [x] 投手汇总和国家号码跳转
+- [x] 素材、短信兼容
+- [x] 日期输入和空状态
+- [x] 浏览器真实渲染及窄屏检查
+- [x] 本地可供用户预览

@@ -6,11 +6,10 @@ export function analysisWorkbook(a: ResourceAnalysis & { scopeNote?: string }, b
   if (a.details.length + a.trends.length + a.maturity.length > 10000) throw Error("分析明细超过10000行，请缩小范围后导出");
   const book = new ExcelJS.Workbook(); book.creator = "资源参谋";
   const summary = book.addWorksheet("日报与口径");
-  summary.addRows([["项目", "内容"], ["范围", basis], ["权限范围", a.scopeNote || ""], ["说明", "资金按实际日期；7/30/60日仅完整观察窗；同号跨组保留业务记录；缺失不视为0；非到账凭证核验；不自动调整预算。"],
+  summary.addRows([["项目", "内容"], ["范围", basis], ["权限范围", a.scopeNote || ""], ["说明", "资金按实际日期；7/30/60日仅完整观察窗；同号跨组保留业务记录；非到账凭证核验；不自动调整预算。"],
     ["所选期间首充 USD", a.totals.firstCents / 100], ["所选期间续充 USD", a.totals.rechargeCents / 100], ["所选期间出金 USD", a.totals.withdrawalCents / 100], ["所选期间净业绩 USD", a.totals.netCents / 100],
     ...Object.entries(a.buckets).map(([k, c]) => [k + "净业绩 USD", c.netCents / 100]),
-    ...Object.entries(a.attribution).map(([k, c]) => [k + "净业绩 USD", c.netCents / 100]),
-    ["阈值", "试运行：接粉样本两期各≥30、开单样本各≥10；下降≥30%且≥10个百分点才观察，不代表连续异常。消耗完整性未确认，不给预算调整结论。"]]);
+    ["阈值", "相对下降≥10%为严重预警。转化样本两期各≥30；续充同龄开单样本各≥10。数量基准期≥10次，续充金额基准期≥10位续充客户；同比对去年、月环比对上月；不代表连续异常。"]]);
   const warnings = book.addWorksheet("预警依据与建议");
   warnings.addRow(["级别", "事项", "依据", "建议"]); for (const w of a.warnings) warnings.addRow([w.level, w.title, w.evidence, w.action]);
   const cohorts = book.addWorksheet("开单月份贡献");
@@ -21,9 +20,9 @@ export function analysisWorkbook(a: ResourceAnalysis & { scopeNote?: string }, b
   for (const c of a.maturity) maturity.addRow([c.month, c.windowDays, c.eligible, c.immature, c.eligible ? c.renewed : null, c.eligible ? c.renewed / c.eligible : null, c.eligible ? c.firstCents / 100 : null, c.eligible ? c.rechargeCents / 100 : null, c.eligible ? c.withdrawalCents / 100 : null, c.eligible ? (c.firstCents + c.rechargeCents - c.withdrawalCents) / 100 : null]);
   maturity.getColumn(6).numFmt = "0.0%";
   const trends = book.addWorksheet("成熟批次对比");
-  trends.addRow(["固定范围", "指标", "观察天数", "最近批样本", "最近批达成人数", "前一批样本", "前一批达成人数", "最近批比例", "前一批比例", "是否满足比较条件", "最近批开始", "最近批结束", "前一批开始", "前一批结束"]);
-  for (const t of a.trends) trends.addRow([t.scope, t.metric, t.ageDays, t.currentN, t.currentHits, t.previousN, t.previousHits, t.currentN ? t.currentHits / t.currentN : null, t.previousN ? t.previousHits / t.previousN : null, t.comparable ? "是" : "否：样本/归属/国家/事件日期不足", t.currentFrom, t.currentTo, t.previousFrom, t.previousTo]);
-  trends.getColumn(8).numFmt = trends.getColumn(9).numFmt = "0.0%";
+  trends.addRow(["范围", "指标", "对比方式", "观察天数", "本期样本", "对照样本", "本期值", "对照值", "单位", "相对降幅", "本期开始", "本期结束", "对照开始", "对照结束"]);
+  for (const t of a.trends) trends.addRow([t.scope, t.metric, t.comparison, t.ageDays, t.currentN, t.previousN, t.currentValue, t.previousValue, t.unit === "rate" ? "比例（0至1）" : t.unit, t.declineRelative, t.currentFrom, t.currentTo, t.previousFrom, t.previousTo]);
+  trends.getColumn(10).numFmt = "0.0%";
   const detail = book.addWorksheet("本期资金号码");
   detail.addRow(["完整号码", "小组", "渠道", "投手/供应方", "国家", "接粉日期", "登记开单日期", "开单批次", "本期首充 USD", "本期续充 USD", "本期出金 USD", "本期净业绩 USD"]);
   for (const d of a.details) detail.addRow([d.phone, d.group, d.channel, d.buyer, d.country, d.intakeOn, d.openedOn, d.bucket, d.firstCents / 100, d.rechargeCents / 100, d.withdrawalCents / 100, d.netCents / 100]);

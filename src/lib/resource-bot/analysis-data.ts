@@ -16,8 +16,7 @@ export async function loadResourceAnalysis(q: ResourceQuery, today: string) {
     const ids = [...new Set(selected.map(c => c.id))], groups = [...new Set(selected.map(c => c.groupId))];
     const attrs = await tx.resourceBuyerPhone.findMany({ where: { channelId: { in: ids } }, include: { buyer: { select: { name: true } }, material: { select: { name: true } } }, take: 50001 });
     const raw = await tx.customerSheetRow.findMany({ where: { groupId: { in: groups } }, select: { id: true, phone: true, groupId: true, data: true }, take: 50001 });
-    const spends = await tx.resourceBuyerSpend.findMany({ where: { channelId: { in: ids }, spendDate: { gte: range.from, lte: range.to } }, include: { buyer: { select: { name: true } }, material: { select: { name: true } } }, take: 50001 });
-    if ([attrs, raw, spends].some(a => a.length > 50000)) throw Error("分析范围太大，请指定渠道后重试");
+    if ([attrs, raw].some(a => a.length > 50000)) throw Error("分析范围太大，请指定渠道后重试");
     const copies = new Map(selected.map(c => [c.id + "|" + c.groupId, c]));
     const live = raw.flatMap(r => { const data = parseSheetData(r.data); const channel = data && copies.get(data.channelId + "|" + r.groupId); return data && channel ? [{ ...r, data, channel }] : []; });
     const byPhone = new Map<string, typeof live>();
@@ -34,11 +33,12 @@ export async function loadResourceAnalysis(q: ResourceQuery, today: string) {
     }
     const rows: AnalysisRow[] = live.flatMap(r => {
       const a = assignments.get(r.id);
+      if (!a) return [];
       if (!filter(a?.buyer.name || "", a?.country || "", a?.material?.name || "")) return [];
       return [{ id: r.id, phone: r.phone, group: r.channel.group.name, channel: r.channel.name, channelId: r.channel.id, type: r.channel.channelType, buyer: a?.buyer.name || "", country: a?.country || "", material: a?.material?.name || "", attributed: !!a, data: r.data }];
     });
     const completedThrough = range.to === today ? new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10) : range.to;
-    const result = analyzeResources(rows, range, { pending, ambiguous, importCount, spendRecords: spends.filter(s => filter(s.buyer.name, s.country, s.material?.name || "")).length }, completedThrough);
-    return { ...result, scopeNote: q.buyer || q.country || q.material ? "已指定投手/国家/素材，只统计能确定该归属的记录；未归属记录无法确定是否属于此筛选，需取消这些筛选另查总体缺口。" : "包含当前启用的投流/短信渠道及启用小组；未归属客户保留在总额，其他类型渠道不在本工具范围。" };
+    const result = analyzeResources(rows, range, { pending, ambiguous, importCount, spendRecords: 0 }, completedThrough);
+    return { ...result, scopeNote: "仅分析已按渠道和完整号码唯一匹配到投手或短信供应方的现有业务记录。" };
   }, { isolationLevel: "Serializable", timeout: 60000 });
 }

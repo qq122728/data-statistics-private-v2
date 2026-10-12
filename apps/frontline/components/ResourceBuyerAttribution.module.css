@@ -9,3 +9,5 @@
 .intro[hidden],.card[hidden]{display:none}
 
 .costTable tbody th{background:#fff;color:#26364e}.costTable td{font-variant-numeric:tabular-nums}.costTable tbody tr:hover td,.costTable tbody tr:hover th{background:#f7faff}
+
+.effectsStack{padding-top:4px;gap:8px}

@@ -101,7 +101,7 @@ export function ResourceBuyerAttribution({ smsOnly = false, readOnly = false, on
   const canCommit = Boolean(preview && !preview.invalidCount && !preview.counts.conflict && !preview.counts.ambiguous && ((preview.counts.matched ?? 0) + (preview.counts.pending ?? 0) + (preview.counts.resolve ?? 0) > 0));
   const filteredDetails = payload?.details ?? [];
   const buyerMaterials = payload?.materials.filter(item => item.channelId === channelId && item.buyer.name === buyer.trim()) ?? [];
-  return <div className={styles.stack}>
+  return <div className={`${styles.stack} ${mode === "effects" ? styles.effectsStack : ""}`}>
     <section hidden={mode === "effects"} className={styles.intro}><div><h2>{mode === "numbers" ? "号码库" : smsOnly ? "短信粉效果" : "投手效果"}</h2><p>{readOnly ? "总公司可查看投流与短信两个渠道类型的号码和效果；各资源负责人在自己的账号中导入。" : smsOnly ? "选用系统现有短信渠道，登记一批号码的供粉方。客户进群、开单和金额从客户进度表自动读取。" : "选用系统现有渠道，登记一批号码的投手或供粉方。客户进群、开单和金额从客户进度表自动读取。"}</p></div><button type="button" onClick={() => void load().catch(caught => setError(String(caught)))}>刷新数据</button></section>
     {!readOnly ? <section hidden={mode === "effects"} className={styles.card}><header><div><h3>导入号码</h3><p>每批先预览，再确认保存。完整号码按“渠道＋号码”检查重复，不会覆盖已有归属人。</p></div></header>
       <div className={styles.formGrid}>

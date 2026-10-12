@@ -41,7 +41,7 @@ export default function ResourceAdminWorkspace({ user, onLogout }: { user: Backe
       </WorkspaceNavGroup>
     </>}
   >
-    <div style={{ marginBottom: 12 }}><a href="/" style={{ color: "#1d63ca", fontSize: 13 }}>返回总公司工作台</a></div>
+    <div style={{ marginBottom: view === "buyers" ? 4 : 12 }}><a href="/" style={{ color: "#1d63ca", fontSize: 13 }}>返回总公司工作台</a></div>
     {notice ? <p role="status" style={{ color: "#167149" }}>{notice}</p> : null}
     <div hidden={view !== "buyers" && view !== "numbers"}><ResourceBuyerAttribution readOnly active={view === "buyers" || view === "numbers"} mode={view === "numbers" ? "numbers" : "effects"} onOpenNumbers={() => setView("numbers")} initialMaterialId={detailMaterial} initialMonth={detailMonth} /></div>
     {view === "materials" ? <ResourceMaterialLibrary readOnly onViewNumbers={(id, month) => { setDetailMaterial(id); setDetailMonth(month); setView("numbers"); }} /> : view === "spend" ? <ResourceSpendWorkspace readOnly /> : view === "accounts" ? <ManagerAccounts companies={[]} resourceOnly notify={setNotice} onTransfer={() => window.location.assign("/")} /> : null}

@@ -69,6 +69,15 @@ def converse(payload):
     return {'text': text[:12000]}
 
 
+def reset_session(payload):
+    if (not isinstance(payload, dict) or set(payload) != {'session'}
+            or not isinstance(payload['session'], str) or not 0 < len(payload['session']) <= 300):
+        raise ValueError('Invalid session')
+    key = hashlib.sha256(payload['session'].encode()).hexdigest()
+    (SESSIONS / (key + '.json')).unlink(missing_ok=True)
+    return {'reset': True}
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -85,13 +94,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + SECRET):
             return self.reply(403, {'error': 'Not authorized'})
-        if self.path != '/converse':
+        if self.path not in ('/converse', '/reset'):
             return self.reply(404, {'error': 'Not found'})
         try:
             size = int(self.headers.get('Content-Length', '0'))
             if not 0 < size <= 8192:
                 return self.reply(413, {'error': 'Request too large'})
             p = json.loads(self.rfile.read(size))
+            if self.path == '/reset':
+                return self.reply(200, reset_session(p))
             if set(p) not in ({'text', 'session', 'runId', 'today'}, {'text', 'session', 'runId', 'today', 'chatType'}) or not all(isinstance(v, str) for v in p.values()):
                 raise ValueError()
             if p.get('chatType', 'group') not in ('group', 'private'):

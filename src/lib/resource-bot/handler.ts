@@ -12,7 +12,8 @@ import {
 } from "./data";
 import { exportResourceReport, renderResourceReport } from "./render";
 import { statisticsDate } from "../statistics-date";
-import { converseWithHermes, hermesEnabled } from "./hermes";
+import { converseWithHermes, hermesEnabled, resetHermesSession } from "./hermes";
+import { resourceCommand } from "./commands";
 
 type Dependencies = {
   readConfig: typeof readBotConfig;
@@ -27,6 +28,7 @@ type Dependencies = {
   now: () => number;
   useHermes: typeof hermesEnabled;
   converse: typeof converseWithHermes;
+  reset: typeof resetHermesSession;
 };
 export function createResourceBotHandler(
   overrides: Partial<Dependencies> = {},
@@ -40,6 +42,7 @@ export function createResourceBotHandler(
     now: Date.now,
     useHermes: hermesEnabled,
     converse: converseWithHermes,
+    reset: resetHermesSession,
     ...overrides,
   };
   const history = new Map<string, { at: number; query: ResourceQuery }>();
@@ -59,7 +62,7 @@ export function createResourceBotHandler(
     config: BotConfig,
   ): Promise<boolean> => {
     if (!config.enabled || !config.chatId) return false;
-    const text = addressedQuestion(
+    let text = addressedQuestion(
       message,
       config.username,
       config.chatId,
@@ -67,9 +70,11 @@ export function createResourceBotHandler(
       config.privateUserIds,
     );
     if (text === null) return false;
+    const command = resourceCommand(text, config.username);
+    if (command?.kind === "ignore") return false;
     const destination = String(message.chat.id);
     const key = `${config.revision}:${destination}:${message.from!.id}`;
-    if (!allow(key, 5) || !allow("chat:" + destination, 20)) return false;
+    const rateAllowed = allow(key, 5) && allow("chat:" + destination, 20);
     const guard = async () => {
       const latest = await deps.readConfig();
       if (
@@ -133,10 +138,42 @@ export function createResourceBotHandler(
       await guard();
       await deps.send(config.token, "sendDocument", form);
     };
+    let progressTimer: ReturnType<typeof setTimeout> | undefined;
+    let progress: Promise<void> | undefined;
+    const stopProgress = async () => {
+      clearTimeout(progressTimer);
+      await progress;
+    };
     try {
       await guard();
+      if (!rateAllowed) {
+        if (allow("notice:" + destination, 1))
+          await reply("查询比较频繁，请等一分钟再试。上一条查询条件仍然保留。");
+        return false;
+      }
+      if (command?.kind === "help" || /^(帮助|菜单)$/.test(text)) {
+        await reply(RESOURCE_BOT_HELP);
+        return true;
+      }
+      if (command?.kind === "invalid") {
+        await reply("这个指令暂不支持。请点菜单选择，或发送 /help 查看说明；查询条件可直接用中文说。");
+        return true;
+      }
+      if (command?.kind === "reset" || (command?.kind === "query" && command.fresh)) {
+        // Only acknowledge a reset after the persistent Hermes history is gone.
+        if (deps.useHermes()) await deps.reset(key);
+        history.delete(key);
+        if (command.kind === "reset") {
+          await reply("已新建对话，当前对话的记忆、筛选条件和翻页记录已清空。可以重新提问了。聊天记录和业务数据不会删除。");
+          return true;
+        }
+      }
+      if (command?.kind === "query") text = command.text;
+      progressTimer = setTimeout(() => {
+        progress = reply("正在核对业务数据，请稍等，结果会回复在这里。").catch(() => {});
+      }, 12000);
       for (const [k, v] of history)
-        if (v.at < deps.now() - 600000) history.delete(k);
+        if (v.at < deps.now() - 3600000) history.delete(k);
       const previous = history.get(key);
       if (
         deps.useHermes() &&
@@ -150,6 +187,7 @@ export function createResourceBotHandler(
           previous?.query,
           message.chat.type === "private" ? "private" : "group",
         );
+        await stopProgress();
         await reply(result.text);
         for (const document of result.documents)
           await sendFile(document.bytes, document.filename);
@@ -163,6 +201,7 @@ export function createResourceBotHandler(
       let q: ResourceQuery;
       if (/^(下一页|导出\s*(?:Excel|表格)?|Excel)$/i.test(text)) {
         if (!previous) {
+          await stopProgress();
           await reply(
             "请先问一条查询，例如“本月投手效果”，再说下一页或导出 Excel。",
           );
@@ -183,11 +222,13 @@ export function createResourceBotHandler(
             : await deps.catalog(),
         );
       if (q.view === "help") {
+        await stopProgress();
         await reply(RESOURCE_BOT_HELP);
         return true;
       }
       const data = await deps.load(q, statisticsDate(new Date(deps.now())));
       const document = q.excel ? await exportResourceReport(q, data) : null;
+      await stopProgress();
       await reply(renderResourceReport(q, data));
       if (document)
         await sendFile(
@@ -197,6 +238,7 @@ export function createResourceBotHandler(
       history.set(key, { at: deps.now(), query: { ...q, excel: false } });
       return true;
     } catch (e) {
+      await stopProgress();
       if (e instanceof Error && e.message === "CONFIG_CHANGED") return false;
       const reason =
         e instanceof Error &&
@@ -210,6 +252,8 @@ export function createResourceBotHandler(
         /* A send failure is not retried automatically, to avoid duplicate files/messages. */
       }
       return false;
+    } finally {
+      await stopProgress();
     }
   };
 }

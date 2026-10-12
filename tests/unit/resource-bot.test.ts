@@ -27,6 +27,7 @@ import {
 } from "../../src/lib/resource-bot/render";
 import { createResourceBotHandler } from "../../src/lib/resource-bot/handler";
 import type { BotConfig } from "../../src/lib/resource-bot/config";
+import { resourceCommand } from "../../src/lib/resource-bot/commands";
 const today = "2026-10-12";
 const now = Date.parse("2026-10-12T01:00:00Z");
 const config: BotConfig = {
@@ -326,6 +327,75 @@ describe("Telegram isolation and reply lifecycle", () => {
     message_id: 10, date: now / 1000, chat: { id, type: "private" },
     from: { id }, text,
   });
+  it("handles help and real reset before the model, clearing only the caller's conversation", async () => {
+    let clock = now;
+    const live = { ...config, privateUserIds: ["4"] };
+    const send = vi.fn().mockResolvedValue({});
+    const reset = vi.fn().mockResolvedValue(undefined);
+    const converse = vi.fn().mockResolvedValue({ text: "已查询", lastQuery: q(), documents: [] });
+    const load = vi.fn().mockResolvedValue(await loadResourceBotData(q(), today));
+    const handle = createResourceBotHandler({ readConfig: async () => live, send, reset, converse, load, useHermes: () => true, now: () => clock });
+    await handle(privateMessage(), live);
+    await handle(msg(), live);
+    await handle(privateMessage("/help"), live);
+    expect(converse).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls.at(-1)![2].text).toContain("/new");
+    await handle(privateMessage("/new@test_bot"), live);
+    expect(reset).toHaveBeenCalledExactlyOnceWith("one:4:4");
+    expect(send.mock.calls.at(-1)![2].text).toContain("已新建对话");
+    clock += 61000;
+    await handle(privateMessage("/export"), live);
+    expect(send.mock.calls.at(-1)![2].text).toContain("请先问");
+    await handle(msg("/next"), live);
+    expect(load.mock.calls.at(-1)![0].page).toBe(2);
+    await handle(privateMessage("本月短信效果"), live);
+    expect(converse.mock.calls.at(-1)![4]).toBeUndefined();
+  });
+  it("does not claim reset success or forget the last query when Hermes reset fails", async () => {
+    const live = { ...config, privateUserIds: ["4"] };
+    const send = vi.fn().mockResolvedValue({});
+    const load = vi.fn().mockResolvedValue(await loadResourceBotData(q(), today));
+    const handle = createResourceBotHandler({ readConfig: async () => live, send, load, now: () => now, useHermes: () => true,
+      converse: async () => ({ text: "已查询", lastQuery: q(), documents: [] }),
+      reset: async () => { throw Error("新建对话未完成，请稍后重试"); },
+    });
+    await handle(privateMessage(), live);
+    expect(await handle(privateMessage("/new"), live)).toBe(false);
+    expect(send.mock.calls.at(-1)![2].text).toContain("未完成");
+    await handle(privateMessage("/next"), live);
+    expect(load.mock.calls[0][0].page).toBe(2);
+  });
+  it("starts menu queries with fresh scope and rejects unknown commands without AI", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const converse = vi.fn().mockResolvedValue({ text: "短信结果", lastQuery: q(), documents: [] });
+    const reset = vi.fn().mockResolvedValue(undefined);
+    const handle = createResourceBotHandler({ readConfig: async () => config, send, converse, reset, now: () => now, useHermes: () => true });
+    await handle(msg("/sms"), config);
+    expect(reset).toHaveBeenCalledExactlyOnceWith("one:-100:4");
+    expect(converse.mock.calls[0][0]).toContain("全部短信渠道");
+    await handle(msg("/unknown"), config);
+    expect(converse).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls.at(-1)![2].text).toContain("暂不支持");
+    expect(resourceCommand("/new@other_bot", "test_bot")?.kind).toBe("ignore");
+    expect(resourceCommand("/new extra", "test_bot")?.kind).toBe("invalid");
+  });
+  it("reports slow queries before results and does not leave a late progress message", async () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn().mockResolvedValue({});
+      const handle = createResourceBotHandler({ readConfig: async () => config, send, now: () => now, useHermes: () => true,
+        converse: async () => { await new Promise(r => setTimeout(r, 16000)); return { text: "完成", lastQuery: undefined, documents: [] }; },
+      });
+      const result = handle(msg(), config);
+      await vi.advanceTimersByTimeAsync(12001);
+      expect(send.mock.calls.at(-1)![2].text).toContain("正在核对");
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(await result).toBe(true);
+      expect(send.mock.calls.at(-1)![2].text).toBe("完成");
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(send).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
   it("allows unmentioned questions only from the explicitly authorized private account", () => {
     const privateIds = ["4"];
     expect(addressedQuestion(privateMessage(), "test_bot", "-100", config.activatedAt, privateIds)).toBe("本月投手效果");
@@ -462,7 +532,8 @@ describe("Telegram isolation and reply lifecycle", () => {
     await handle({ ...msg(), chat: { id: -200, type: "group" } }, config);
     expect(parse).not.toHaveBeenCalled();
     for (let i = 0; i < 7; i++) await handle(msg("帮助", i), config);
-    expect(send).toHaveBeenCalledTimes(5);
+    expect(send).toHaveBeenCalledTimes(6);
+    expect(send.mock.calls.at(-1)![2].text).toContain("请等一分钟");
   });
 });
 

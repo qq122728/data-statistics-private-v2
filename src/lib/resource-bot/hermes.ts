@@ -237,3 +237,21 @@ export async function converseWithHermes(
     runs.delete(id);
   }
 }
+
+export async function resetHermesSession(session: string): Promise<void> {
+  try {
+    const response = await fetch("http://127.0.0.1:4188/reset", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer " + process.env.RESOURCE_HERMES_TOKEN,
+      },
+      body: JSON.stringify({ session }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const result = await response.json();
+    if (!response.ok || result?.reset !== true) throw Error("RESET_FAILED");
+  } catch {
+    throw Error("新建对话未完成，旧查询条件尚未清空，请稍后重试 /new。");
+  }
+}

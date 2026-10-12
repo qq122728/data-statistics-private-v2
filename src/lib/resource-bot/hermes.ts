@@ -193,6 +193,7 @@ export async function converseWithHermes(
   config: BotConfig,
   today: string,
   previous?: ResourceQuery,
+  chatType: "group" | "private" = "group",
 ) {
   const id = randomBytes(24).toString("hex");
   const run: Run = {
@@ -212,7 +213,7 @@ export async function converseWithHermes(
         "content-type": "application/json",
         authorization: "Bearer " + process.env.RESOURCE_HERMES_TOKEN,
       },
-      body: JSON.stringify({ text, session, runId: id, today }),
+      body: JSON.stringify({ text, session, runId: id, today, chatType }),
       signal: AbortSignal.timeout(140000),
     });
     const result = z

@@ -1,5 +1,5 @@
 import { readBotConfig, type BotConfig } from "./config";
-import { addressedQuestion, telegram, type TelegramMessage } from "./telegram";
+import { addressedQuestion, authorizedConversation, telegram, type TelegramMessage } from "./telegram";
 import {
   parseResourceQuestion,
   RESOURCE_BOT_HELP,
@@ -64,16 +64,18 @@ export function createResourceBotHandler(
       config.username,
       config.chatId,
       config.activatedAt,
+      config.privateUserIds,
     );
     if (text === null) return false;
-    const key = `${config.revision}:${config.chatId}:${message.from!.id}`;
-    if (!allow(key, 5) || !allow("group:" + config.chatId, 20)) return false;
+    const destination = String(message.chat.id);
+    const key = `${config.revision}:${destination}:${message.from!.id}`;
+    if (!allow(key, 5) || !allow("chat:" + destination, 20)) return false;
     const guard = async () => {
       const latest = await deps.readConfig();
       if (
         !latest?.enabled ||
         latest.revision !== config.revision ||
-        latest.chatId !== String(message.chat.id)
+        !authorizedConversation(message, latest.chatId, latest.privateUserIds)
       )
         throw Error("CONFIG_CHANGED");
     };
@@ -89,7 +91,7 @@ export function createResourceBotHandler(
         }
         await guard();
         await deps.send(config.token, "sendMessage", {
-          chat_id: config.chatId,
+          chat_id: destination,
           text,
           ...(message.message_thread_id
             ? { message_thread_id: message.message_thread_id }
@@ -104,7 +106,7 @@ export function createResourceBotHandler(
     };
     const sendFile = async (document: Uint8Array, filename: string) => {
       const form = new FormData();
-      form.set("chat_id", config.chatId!);
+      form.set("chat_id", destination);
       form.set(
         "document",
         new Blob([document as BlobPart], {
@@ -146,6 +148,7 @@ export function createResourceBotHandler(
           config,
           statisticsDate(new Date(deps.now())),
           previous?.query,
+          message.chat.type === "private" ? "private" : "group",
         );
         await reply(result.text);
         for (const document of result.documents)

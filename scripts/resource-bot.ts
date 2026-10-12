@@ -7,6 +7,7 @@ import {
 } from "../src/lib/resource-bot/config";
 import {
   telegram,
+  addressedQuestion,
   type TelegramUpdate,
 } from "../src/lib/resource-bot/telegram";
 import { createResourceBotHandler } from "../src/lib/resource-bot/handler";
@@ -52,6 +53,9 @@ async function main() {
   let offset = 0,
     botId = 0,
     lastReplyAt: number | undefined;
+  let lastUpdateAt: number | undefined;
+  let lastMessage: { chatType: string; addressed: boolean } | undefined;
+  let lastError: string | undefined;
   try {
     const s = JSON.parse(
       await readFile(resolve(botDirectory(), "offset.json"), "utf8"),
@@ -62,7 +66,7 @@ async function main() {
     /* First start. */
   }
   const status = (state: string) =>
-    privateJson("status.json", { heartbeat: Date.now(), state, lastReplyAt });
+    privateJson("status.json", { heartbeat: Date.now(), state, lastReplyAt, lastUpdateAt, lastMessage, lastError });
   try {
     while (running) {
       try {
@@ -92,13 +96,21 @@ async function main() {
           if (u.update_id < offset) continue;
           // Acknowledge before responding: restart cannot resend an export. Failed queries can be requested again.
           offset = u.update_id + 1;
+          lastUpdateAt = Date.now();
           await privateJson("offset.json", { botId, offset });
           if (u.message) {
+            lastMessage = {
+              chatType: u.message.chat.type,
+              addressed: addressedQuestion(u.message, config.username, config.chatId, config.activatedAt, config.privateUserIds) !== null,
+            };
             await status("processing");
             if (await handle(u.message, config)) lastReplyAt = Date.now();
           }
         }
-      } catch {
+        lastError = undefined;
+      } catch (error) {
+        lastError = error instanceof Error && /^电报(连接|请求)失败/.test(error.message)
+          ? error.message : "机器人接收循环暂时失败";
         await status("connection_error");
         await new Promise((r) => setTimeout(r, 5000));
       }

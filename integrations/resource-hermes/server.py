@@ -29,6 +29,7 @@ def converse(payload):
         history = json.loads(path.read_text()).get('messages', [])
     os.environ['RESOURCE_QUERY_RUN'] = payload['runId']
     rules = (HOME / 'INSTRUCTIONS.md').read_text() + '\n当前业务统计日：' + payload['today']
+    rules += '\n当前会话：' + ('已授权本人的私聊，回复与文件只回到这个私聊。' if payload.get('chatType') == 'private' else '已绑定的资源分析群，回复与文件只回到本群。')
     with open(os.devnull, 'w') as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
         agent = AIAgent(
             provider='deepseek', model=os.environ.get('DEEPSEEK_MODEL', 'deepseek-v4-flash'),
@@ -38,7 +39,7 @@ def converse(payload):
             ephemeral_system_prompt=rules, skip_context_files=True, load_soul_identity=True,
             skip_memory=True, skip_background_review=True,
             session_id=str(uuid.uuid5(uuid.NAMESPACE_URL, 'resource:' + key)),
-            platform='telegram', user_id=key, chat_type='group', run_budget_seconds=110,
+            platform='telegram', user_id=key, chat_type=payload.get('chatType', 'group'), run_budget_seconds=110,
         )
         if agent.valid_tool_names != {'query_resource_report', 'describe_resource_scope'}:
             (HOME / 'tool_scope.json').write_text(json.dumps(sorted(agent.valid_tool_names)))
@@ -91,7 +92,9 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < size <= 8192:
                 return self.reply(413, {'error': 'Request too large'})
             p = json.loads(self.rfile.read(size))
-            if set(p) != {'text', 'session', 'runId', 'today'} or not all(isinstance(v, str) for v in p.values()):
+            if set(p) not in ({'text', 'session', 'runId', 'today'}, {'text', 'session', 'runId', 'today', 'chatType'}) or not all(isinstance(v, str) for v in p.values()):
+                raise ValueError()
+            if p.get('chatType', 'group') not in ('group', 'private'):
                 raise ValueError()
             if len(p['text']) > 1500 or len(p['session']) > 300 or len(p['runId']) != 48:
                 raise ValueError()

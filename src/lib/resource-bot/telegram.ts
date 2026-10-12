@@ -51,10 +51,10 @@ export function addressedQuestion(
   username: string,
   chatId: string,
   activatedAt: number,
+  privateUserIds: readonly string[] = [],
 ): string | null {
   if (
-    String(message.chat.id) !== chatId ||
-    !["group", "supergroup"].includes(message.chat.type) ||
+    !authorizedConversation(message, chatId, privateUserIds) ||
     !message.from ||
     message.from.is_bot ||
     message.sender_chat ||
@@ -64,6 +64,7 @@ export function addressedQuestion(
     return null;
   const text = message.text || "";
   if (text.length > 1500) return null;
+  if (message.chat.type === "private") return text.trim() || null;
   const spans = (message.entities || []).filter((e) => {
     const value = text.slice(e.offset, e.offset + e.length).toLowerCase();
     return (
@@ -83,4 +84,18 @@ export function addressedQuestion(
       question.slice(e.offset + e.length);
   }
   return question.trim() || "帮助";
+}
+
+export function authorizedConversation(
+  message: TelegramMessage,
+  groupId: string | null,
+  privateUserIds: readonly string[] = [],
+): boolean {
+  if (message.chat.type === "private") {
+    return Boolean(message.from && !message.from.is_bot &&
+      message.chat.id === message.from.id &&
+      privateUserIds.includes(String(message.from.id)));
+  }
+  return ["group", "supergroup"].includes(message.chat.type) &&
+    String(message.chat.id) === groupId;
 }

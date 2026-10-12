@@ -322,6 +322,47 @@ describe("business matching and report", () => {
   });
 });
 describe("Telegram isolation and reply lifecycle", () => {
+  const privateMessage = (text = "本月投手效果", id = 4): TelegramMessage => ({
+    message_id: 10, date: now / 1000, chat: { id, type: "private" },
+    from: { id }, text,
+  });
+  it("allows unmentioned questions only from the explicitly authorized private account", () => {
+    const privateIds = ["4"];
+    expect(addressedQuestion(privateMessage(), "test_bot", "-100", config.activatedAt, privateIds)).toBe("本月投手效果");
+    for (const message of [privateMessage("你好", 5),
+      { ...privateMessage(), from: { id: 5 } },
+      { ...privateMessage(), from: { id: 4, is_bot: true } },
+      { ...privateMessage(), forward_origin: {} },
+      { ...privateMessage(), date: 1 },
+      { ...privateMessage(), text: "" },
+    ]) expect(addressedQuestion(message, "test_bot", "-100", config.activatedAt, privateIds)).toBeNull();
+    expect(addressedQuestion(privateMessage(), "test_bot", "-100", config.activatedAt)).toBeNull();
+  });
+  it("sends private Hermes replies and Excel only to the originating authorized account", async () => {
+    const live = { ...config, privateUserIds: ["4"] };
+    const send = vi.fn().mockResolvedValue({});
+    const converse = vi.fn().mockResolvedValue({ text: "已生成", lastQuery: q(), documents: [{ bytes: new Uint8Array([1, 2]), filename: "private.xlsx" }] });
+    const handle = createResourceBotHandler({ readConfig: async () => live, send, useHermes: () => true, converse, now: () => now });
+    expect(await handle(privateMessage(), live)).toBe(true);
+    expect(converse.mock.calls[0][5]).toBe("private");
+    expect(send.mock.calls[0][2].chat_id).toBe("4");
+    expect((send.mock.calls[1][2] as FormData).get("chat_id")).toBe("4");
+    expect(await handle(privateMessage("你好", 5), live)).toBe(false);
+    expect(converse).toHaveBeenCalledTimes(1);
+    // A group continuation must never reuse a private query by the same member.
+    await handle(msg("导出 Excel"), live);
+    expect(send.mock.calls.at(-1)![2]).toMatchObject({ chat_id: "-100", text: expect.stringContaining("请先问") });
+  });
+  it("blocks private data delivery if authorization is revoked during the query", async () => {
+    let live = { ...config, privateUserIds: ["4"] };
+    const send = vi.fn();
+    const handle = createResourceBotHandler({
+      readConfig: async () => live, send, useHermes: () => true, now: () => now,
+      converse: async () => { live = { ...live, privateUserIds: [] }; return { text: "私密结果", lastQuery: q(), documents: [] }; },
+    });
+    expect(await handle(privateMessage(), live)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
   it("only responds to exact mentions by humans in the bound group after activation", () => {
     expect(
       addressedQuestion(msg(), "test_bot", "-100", config.activatedAt),

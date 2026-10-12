@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ExcelJS from "exceljs";
+import {
+  enforceHermesScope,
+  authorizeHermesRequest,
+} from "../../src/lib/resource-bot/hermes";
 const mock = vi.hoisted(() => ({
   channel: { findMany: vi.fn() },
   resourceBuyerPhone: { findMany: vi.fn() },
@@ -118,13 +122,11 @@ describe("query parsing", () => {
     vi.stubEnv("DEEPSEEK_API_KEY", "test-key");
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          Response.json({
-            choices: [{ message: { content: '{"view":"issues"}' } }],
-          }),
-        ),
+      vi.fn().mockResolvedValue(
+        Response.json({
+          choices: [{ message: { content: '{"view":"issues"}' } }],
+        }),
+      ),
     );
     expect(
       await parseResourceQuestion("本月有哪些未登记消耗", today),
@@ -420,5 +422,75 @@ describe("Telegram isolation and reply lifecycle", () => {
     expect(parse).not.toHaveBeenCalled();
     for (let i = 0; i < 7; i++) await handle(msg("帮助", i), config);
     expect(send).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("Hermes resource agent boundaries", () => {
+  it("preserves explicit SMS/country/vendor scope and does not invent full phones or SMS creatives", () => {
+    const catalog = {
+      channels: ["短信A", "FB-M"],
+      buyers: ["供应方甲"],
+      materials: [],
+      groups: [],
+    };
+    expect(
+      enforceHermesScope({}, "本月德国短信供应方甲效果", catalog),
+    ).toMatchObject({ type: "SMS", country: "DE", buyer: "供应方甲" });
+    expect(enforceHermesScope({}, "FB-M 本月开单号码", catalog)).toMatchObject({
+      channel: "FB-M",
+    });
+    expect(() =>
+      enforceHermesScope(
+        { view: "phone", phone: "12345678", period: "all" },
+        "查尾号5678",
+        catalog,
+      ),
+    ).toThrow("不能猜测");
+    expect(() =>
+      enforceHermesScope({ dimension: "material" }, "短信素材效果", catalog),
+    ).toThrow("不使用素材");
+    expect(enforceHermesScope({ excel: true }, "本月效果", catalog).excel).toBe(
+      false,
+    );
+    expect(
+      enforceHermesScope({ excel: true }, "短信开单，不需要导出", catalog)
+        .excel,
+    ).toBe(false);
+    expect(enforceHermesScope({}, "FB-M 开单，导出 Excel", catalog).excel).toBe(
+      true,
+    );
+  });
+  it("requires a strong connection credential, not an empty bearer token", () => {
+    expect(authorizeHermesRequest("Bearer ", "")).toBe(false);
+    expect(authorizeHermesRequest("Bearer wrong", "a".repeat(64))).toBe(false);
+    expect(
+      authorizeHermesRequest("Bearer " + "a".repeat(64), "a".repeat(64)),
+    ).toBe(true);
+  });
+  it("routes conversation to actual agent while keeping files and destination under the existing guard", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    const converse = vi.fn().mockResolvedValue({
+      text: "我是资源参谋，投流和短信都能分析。",
+      lastQuery: q(),
+      documents: [
+        { bytes: new Uint8Array([1, 2, 3]), filename: "report.xlsx" },
+      ],
+    });
+    const handler = createResourceBotHandler({
+      useHermes: () => true,
+      converse,
+      readConfig: async () => config,
+      send,
+      now: () => now,
+    });
+    expect(await handler(msg("你好"), config)).toBe(true);
+    expect(converse).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][2].text).toContain("投流和短信");
+    expect((send.mock.calls[1][2] as FormData).get("chat_id")).toBe("-100");
+    await handler(
+      { ...msg("你好"), chat: { id: -999, type: "group" } },
+      config,
+    );
+    expect(converse).toHaveBeenCalledTimes(1);
   });
 });

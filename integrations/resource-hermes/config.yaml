@@ -1,0 +1,17 @@
+model:
+  provider: deepseek
+  default: deepseek-v4-flash
+  base_url: https://api.deepseek.com/v1
+tools:
+  tool_search:
+    enabled: 'off'
+plugins:
+  enabled:
+    - resource-reports
+platform_toolsets:
+  telegram:
+    - resource_reports
+  cli:
+    - resource_reports
+onboarding:
+  profile_build: 'off'

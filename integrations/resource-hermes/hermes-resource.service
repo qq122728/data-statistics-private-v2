@@ -1,0 +1,33 @@
+[Unit]
+Description=Hermes Agent for Resource Adviser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hermes-resource
+Group=hermes-resource
+WorkingDirectory=/var/lib/hermes-resource
+Environment=HERMES_HOME=/var/lib/hermes-resource/.hermes
+Environment=HOME=/var/lib/hermes-resource
+Environment=PYTHONPATH=/opt/hermes-boss-agent
+Environment=HERMES_SUPERVISED_CHILD=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+EnvironmentFile=/etc/data-statistics/hermes-resource.env
+ExecStart=/opt/hermes-boss-agent/.venv/bin/python /opt/data-statistics-resource-hermes/server.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/hermes-resource
+InaccessiblePaths=/etc/data-statistics /opt/data-statistics-v2 /opt/data-statistics-resource-bot /var/lib/hermes-boss
+MemoryMax=1G
+TimeoutStopSec=130
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

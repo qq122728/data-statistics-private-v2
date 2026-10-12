@@ -1,0 +1,7 @@
+name: resource-reports
+version: 1.0.0
+description: Validated read-only resource reports for the resource adviser.
+author: Data Statistics
+provides_tools:
+  - query_resource_report
+  - describe_resource_scope

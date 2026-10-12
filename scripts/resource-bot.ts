@@ -11,6 +11,7 @@ import {
 } from "../src/lib/resource-bot/telegram";
 import { createResourceBotHandler } from "../src/lib/resource-bot/handler";
 import { db } from "../src/lib/db";
+import { startHermesQueryServer } from "../src/lib/resource-bot/hermes";
 
 async function main() {
   await mkdir(botDirectory(), { recursive: true, mode: 0o700 });
@@ -47,6 +48,7 @@ async function main() {
       running = false;
     });
   const handle = createResourceBotHandler();
+  const hermesQueryServer = await startHermesQueryServer();
   let offset = 0,
     botId = 0,
     lastReplyAt: number | undefined;
@@ -102,6 +104,7 @@ async function main() {
       }
     }
   } finally {
+    hermesQueryServer?.close();
     await status("stopped");
     await db.$disconnect();
     await unlink(lockPath);

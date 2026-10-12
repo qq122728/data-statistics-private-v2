@@ -12,6 +12,7 @@ import {
 } from "./data";
 import { exportResourceReport, renderResourceReport } from "./render";
 import { statisticsDate } from "../statistics-date";
+import { converseWithHermes, hermesEnabled } from "./hermes";
 
 type Dependencies = {
   readConfig: typeof readBotConfig;
@@ -24,6 +25,8 @@ type Dependencies = {
     body: Record<string, unknown> | FormData,
   ) => Promise<unknown>;
   now: () => number;
+  useHermes: typeof hermesEnabled;
+  converse: typeof converseWithHermes;
 };
 export function createResourceBotHandler(
   overrides: Partial<Dependencies> = {},
@@ -35,6 +38,8 @@ export function createResourceBotHandler(
     catalog: loadResourceBotCatalog,
     send: telegram,
     now: Date.now,
+    useHermes: hermesEnabled,
+    converse: converseWithHermes,
     ...overrides,
   };
   const history = new Map<string, { at: number; query: ResourceQuery }>();
@@ -97,11 +102,61 @@ export function createResourceBotHandler(
         });
       }
     };
+    const sendFile = async (document: Uint8Array, filename: string) => {
+      const form = new FormData();
+      form.set("chat_id", config.chatId!);
+      form.set(
+        "document",
+        new Blob([document as BlobPart], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+        filename,
+      );
+      form.set("caption", "资源查询结果｜完整号码与金额口径见查询说明");
+      form.set(
+        "reply_parameters",
+        JSON.stringify({
+          message_id: message.message_id,
+          allow_sending_without_reply: false,
+        }),
+      );
+      if (message.message_thread_id)
+        form.set("message_thread_id", String(message.message_thread_id));
+      if (!overrides.send) {
+        await new Promise((r) =>
+          setTimeout(r, Math.max(0, 3100 - (Date.now() - lastSendAt))),
+        );
+        lastSendAt = Date.now();
+      }
+      await guard();
+      await deps.send(config.token, "sendDocument", form);
+    };
     try {
       await guard();
       for (const [k, v] of history)
         if (v.at < deps.now() - 600000) history.delete(k);
       const previous = history.get(key);
+      if (
+        deps.useHermes() &&
+        !/^(下一页|导出\s*(?:Excel|表格)?|Excel)$/i.test(text)
+      ) {
+        const result = await deps.converse(
+          text,
+          key,
+          config,
+          statisticsDate(new Date(deps.now())),
+          previous?.query,
+        );
+        await reply(result.text);
+        for (const document of result.documents)
+          await sendFile(document.bytes, document.filename);
+        if (result.lastQuery)
+          history.set(key, {
+            at: deps.now(),
+            query: { ...result.lastQuery, excel: false },
+          });
+        return true;
+      }
       let q: ResourceQuery;
       if (/^(下一页|导出\s*(?:Excel|表格)?|Excel)$/i.test(text)) {
         if (!previous) {
@@ -131,38 +186,11 @@ export function createResourceBotHandler(
       const data = await deps.load(q, statisticsDate(new Date(deps.now())));
       const document = q.excel ? await exportResourceReport(q, data) : null;
       await reply(renderResourceReport(q, data));
-      if (document) {
-        const form = new FormData();
-        form.set("chat_id", config.chatId);
-        form.set(
-          "document",
-          new Blob([document as BlobPart], {
-            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          }),
+      if (document)
+        await sendFile(
+          document,
           `resource-${q.view}-${data.range?.from || "all"}.xlsx`,
         );
-        form.set(
-          "caption",
-          "资源查询结果｜包含完整号码，金额及日期口径见“查询说明”",
-        );
-        form.set(
-          "reply_parameters",
-          JSON.stringify({
-            message_id: message.message_id,
-            allow_sending_without_reply: false,
-          }),
-        );
-        if (message.message_thread_id)
-          form.set("message_thread_id", String(message.message_thread_id));
-        if (!overrides.send) {
-          await new Promise((r) =>
-            setTimeout(r, Math.max(0, 3100 - (Date.now() - lastSendAt))),
-          );
-          lastSendAt = Date.now();
-        }
-        await guard();
-        await deps.send(config.token, "sendDocument", form);
-      }
       history.set(key, { at: deps.now(), query: { ...q, excel: false } });
       return true;
     } catch (e) {

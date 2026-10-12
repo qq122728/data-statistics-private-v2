@@ -32,6 +32,9 @@ export const querySchema = z
   })
   .strict();
 export type ResourceQuery = z.infer<typeof querySchema>;
+export const wantsExcel = (text: string) =>
+  /excel|表格文件|导出/i.test(text) &&
+  !/(?:不需要|不要|不用|无需|暂不|别).{0,4}(?:导出|excel|表格)/i.test(text);
 const validDate = (s: string) =>
   /^\d{4}-\d{2}-\d{2}$/.test(s) &&
   !Number.isNaN(Date.parse(s)) &&
@@ -236,7 +239,7 @@ export async function parseResourceQuestion(
       throw Error(
         "无法确认问题里的渠道、投手或素材名称，请使用网页显示的名称重试",
       );
-  q.excel = /excel|表格文件|导出/i.test(text);
+  q.excel = wantsExcel(text);
   if (phone) {
     q.phone = phone;
     q.view = "phone";

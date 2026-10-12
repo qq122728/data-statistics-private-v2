@@ -40,7 +40,7 @@ def register(ctx):
     if os.environ.get('RESOURCE_NATIVE_GATEWAY') == '1':
         from .native import install
         install(ctx)
-    description = '只读查询真实投手、短信、渠道、国家、素材、成本、开单及完整号码。effects按导入日期累计转化；orders按开单日期；phone用完整号码和period=all。单表导出用excel=true；多报表合成时excel=false，收集reportId再调用create_resource_workbook。金额单位为分，text中已换算；所有数字必须实际查询。'
+    description = '只读查询真实投手、短信、渠道、国家、素材、成本、开单及完整号码。analysis用于日报、预警、实际收款、开单批次后续贡献及7/30/60日同龄表现（一次一个自然月内日期），优先读取analysis结构化结果和数据缺口；effects按导入日期累计转化；orders按开单日期；phone用完整号码和period=all。单表导出用excel=true；多报表合成时excel=false，收集reportId再调用create_resource_workbook。金额单位为分，text中已换算；所有数字必须实际查询。'
     ctx.register_tool(name='query_resource_report', toolset='resource_reports', schema={
         'name': 'query_resource_report', 'description': description, 'parameters': PARAMETERS},
         handler=lambda args, **kwargs: request('/query', args), description=description, emoji='📊')

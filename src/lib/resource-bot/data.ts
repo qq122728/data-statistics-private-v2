@@ -1,3 +1,5 @@
+import { loadResourceAnalysis } from "./analysis-data";
+import type { ResourceAnalysis } from "./analysis";
 import { db } from "../db";
 import { buyerPhoneMetrics, parseSheetData } from "../resource-buyer-phones";
 import { buyerReport, type BuyerReportRow } from "../resource-buyer-report";
@@ -22,6 +24,10 @@ export type BotDetail = {
   metrics: ReturnType<typeof buyerPhoneMetrics> | null;
 };
 export async function loadResourceBotData(q: ResourceQuery, today: string) {
+  if (q.view === "analysis") {
+    const analysis = await loadResourceAnalysis(q, today);
+    return { range: analysis.range, details: [] as BotDetail[], summary: [] as BuyerReportRow[], spends: [], unattributed: analysis.attribution["未归属或归属冲突"].customers, analysis: analysis as ResourceAnalysis & { scopeNote: string } };
+  }
   const range = queryBounds(q, today);
   const inRange = (s: string) => !range || (s >= range.from && s <= range.to);
   const channels = await db.channel.findMany({
@@ -281,6 +287,7 @@ export async function loadResourceBotData(q: ResourceQuery, today: string) {
       b.sourceDate.localeCompare(a.sourceDate),
   );
   return {
+    analysis: undefined as (ResourceAnalysis & { scopeNote: string }) | undefined,
     range,
     details,
     summary: aggregate,

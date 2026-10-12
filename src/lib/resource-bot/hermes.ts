@@ -17,6 +17,7 @@ import { exportResourceReport, exportResourceWorkbook, renderResourceReport, typ
 import { COUNTRIES, isCountry } from "../../../packages/resource-buyer/options";
 import { RESOURCE_MENU_QUERIES } from "./commands";
 import { db } from "../db";
+import { mentionsQueryName } from "./query-names";
 
 type Export = { bytes: Uint8Array; filename: string };
 type Run = {
@@ -117,12 +118,12 @@ export function enforceHermesScope(
   const menu = Object.values(RESOURCE_MENU_QUERIES).find((entry) => entry.text === text);
   if (menu) return querySchema.parse({ view: menu.view, type: menu.type });
   const q = querySchema.parse(query);
+  if (/日报|预警|业绩分析/.test(text) && !/单个号码|开单号码|号码详情/.test(text)) q.view = "analysis";
   // Missing attribution must not make the agent silently replace an effects report
   // with orders. Mixed requests can still explicitly ask for both report types.
-  if (/效果/.test(text) &&
+  if (/效果/.test(text) && !/日报|预警|分析|成熟|续充周期|收款/.test(text) &&
       !/开单(?:号码|明细|客户)|号码(?:明细|详情)|待核对|异常|\d{6,20}/.test(text))
     q.view = "effects";
-  const upper = text.toUpperCase();
   for (const [field, values] of [
     [
       "channel",
@@ -135,7 +136,7 @@ export function enforceHermesScope(
     ["material", catalog.materials],
   ] as const) {
     let matches = [...new Set(values)].filter(
-      (v) => v && upper.includes(v.toUpperCase()),
+      (v) => mentionsQueryName(text, v),
     );
     matches = matches.filter(
       (v) => !matches.some((other) => other !== v && other.includes(v)),
@@ -143,14 +144,21 @@ export function enforceHermesScope(
     if (matches.length === 1) q[field] = matches[0];
     else if (matches.length > 1 && !matches.includes(q[field]))
       throw Error("请一次指定一个对比对象查询，不能忽略已指定的范围");
+    if (q[field] && !mentionsQueryName(text, q[field]) && previous?.[field] !== q[field])
+      throw Error("不能确认指定的渠道、投手或素材名称，请使用实际名称重新查询");
   }
   const country = COUNTRIES.filter((c) => text.includes(c.name));
   if (country.length === 1) q.country = country[0].code;
   if (country.length > 1 && !country.some((c) => c.code === q.country))
     throw Error("请按已指定国家分别查询");
   if (q.country && !isCountry(q.country)) throw Error("国家名称未识别");
-  if (/短信/.test(text) && !/投流|FB/i.test(text)) q.type = "SMS";
-  if (/投流/.test(text) && !/短信/.test(text)) q.type = "ADS";
+  const positiveText = text.replace(/(?:不看|不查|不要|不包含|排除)\s*(?:投流|短信)/g, "");
+  if (/短信/.test(positiveText) && !/投流|FB/i.test(positiveText)) q.type = "SMS";
+  if (/投流/.test(positiveText) && !/短信/.test(positiveText)) q.type = "ADS";
+  if (previous && previous.type !== q.type) {
+    for (const field of ["channel", "buyer", "material"] as const)
+      if (q[field] && !mentionsQueryName(text, q[field])) q[field] = "";
+  }
   if (q.type === "SMS" && q.dimension === "material")
     throw Error("短信按渠道、供应方和国家分析，不使用素材统计");
   if (catalog.groups.some((g) => g && text.includes(g) && g !== q.buyer))
@@ -259,7 +267,7 @@ export async function startHermesQueryServer(): Promise<Server | null> {
         });
       const data = await loadResourceBotData(q, run.today);
       let reportId: string | undefined;
-      if (data.details.length <= 5000 && data.summary.length <= 5000 && data.spends.length <= 5000) {
+      if (data.details.length <= 5000 && data.summary.length <= 5000 && data.spends.length <= 5000 && (!data.analysis || data.analysis.details.length + data.analysis.trends.length + data.analysis.maturity.length <= 10000)) {
         reportId = randomBytes(12).toString("hex");
         if (run.reports.size >= 4) run.reports.delete(run.reports.keys().next().value!);
         run.reports.set(reportId, { query: q, data });
@@ -282,10 +290,18 @@ export async function startHermesQueryServer(): Promise<Server | null> {
         query: q,
         text: renderResourceReport(q, data),
         excelPrepared: q.excel,
-        recordCount: data.details.length,
-        summaryCount: data.summary.length,
+        analysis: data.analysis ? { ...data.analysis,
+          details: data.analysis.details.slice((q.page - 1) * 5, q.page * 5),
+          detailTotal: data.analysis.details.length,
+          trends: data.analysis.trends.filter(t => t.comparable).slice(0, 10),
+          trendTotal: data.analysis.trends.length,
+          comparableTrendTotal: data.analysis.trends.filter(t => t.comparable).length,
+          warnings: data.analysis.warnings.slice(0, 12), warningTotal: data.analysis.warnings.length,
+        } : undefined,
+        recordCount: data.analysis?.details.length ?? data.details.length,
+        summaryCount: data.analysis?.cohorts.length ?? data.summary.length,
         reportId,
-        structuredRows: (q.view === "phone" || q.view === "orders" ? data.details : data.summary).slice((q.page - 1) * 5, q.page * 5),
+        structuredRows: (data.analysis ? data.analysis.details : q.view === "phone" || q.view === "orders" ? data.details : data.summary).slice((q.page - 1) * 5, q.page * 5),
         workbookHint: reportId ? "可将最近4份报表的 reportId 交给 create_resource_workbook 合成一份Excel；无需逐页导出" : "结果过大，请缩小范围后制表",
       });
     } catch (e) {

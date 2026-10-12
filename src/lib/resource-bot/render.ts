@@ -1,4 +1,6 @@
 import ExcelJS from "exceljs";
+import { renderAnalysis } from "./analysis";
+import { analysisWorkbook } from "./analysis-workbook";
 import type { ResourceQuery } from "./query";
 import { countryName } from "./query";
 import type { BotDetail, ResourceBotData } from "./data";
@@ -36,7 +38,7 @@ export function reportBasis(q: ResourceQuery, data: ResourceBotData) {
     .filter(Boolean)
     .map(clean)
     .join(" / ");
-  return `${dates}｜${filter}\n${q.view === "orders" ? "按实际开单日期筛选；金额为所列号码累计。" : q.view === "phone" ? "号码累计详情；不同小组或渠道的同号分行展示。" : "按号码导入日期筛选；转化和金额为这批号码累计。消耗按同期间登记日期。"}\n业务金额单位 USD；消耗按登记币种分开。`;
+  return `${dates}｜${filter}\n${q.view === "analysis" ? "按实际资金日期；客户按首次开单月份分组，成熟批次只比相同观察天数。" : q.view === "orders" ? "按实际开单日期筛选；金额为所列号码累计。" : q.view === "phone" ? "号码累计详情；不同小组或渠道的同号分行展示。" : "按号码导入日期筛选；转化和金额为这批号码累计。消耗按同期间登记日期。"}\n业务金额单位 USD；消耗按登记币种分开。`;
 }
 function label(r: BuyerReportRow, q: ResourceQuery) {
   return [
@@ -67,6 +69,7 @@ export function renderResourceReport(
   q: ResourceQuery,
   data: ResourceBotData,
 ): string {
+  if (data.analysis) return renderAnalysis(data.analysis, [q.type === "ALL" ? "投流＋短信" : q.type === "ADS" ? "投流" : "短信", q.channel, q.buyer, q.country, q.material].filter(Boolean).join(" / ")) + "\n" + data.analysis.scopeNote;
   const head = `资源参谋｜${q.view === "orders" ? "开单号码" : q.view === "phone" ? "号码详情" : q.view === "issues" ? "待核对事项" : "效果统计"}\n${reportBasis(q, data)}`;
   if (q.view === "issues") {
     const pending = data.details.filter((d) => d.status === "pending").length;
@@ -121,6 +124,7 @@ function createResourceWorkbook(
   q: ResourceQuery,
   data: ResourceBotData,
 ): ExcelJS.Workbook {
+  if (data.analysis) return analysisWorkbook(data.analysis, reportBasis(q, data));
   if (
     data.details.length > 5000 ||
     data.summary.length > 5000 ||
@@ -312,7 +316,7 @@ export type ResourceReportSnapshot = { query: ResourceQuery; data: ResourceBotDa
 // formulas, file paths or arbitrary code. Overlapping reports are not added into a grand total.
 export async function exportResourceWorkbook(reports: ResourceReportSnapshot[]): Promise<Uint8Array> {
   if (!reports.length || reports.length > 4) throw Error("一份综合表支持1至4份查询结果");
-  if (reports.reduce((n, r) => n + r.data.details.length + r.data.summary.length, 0) > 10000)
+  if (reports.reduce((n, r) => n + r.data.details.length + r.data.summary.length + (r.data.analysis ? r.data.analysis.details.length + r.data.analysis.trends.length + r.data.analysis.maturity.length : 0), 0) > 10000)
     throw Error("综合表最多10000行，请缩小查询范围");
   const book = new ExcelJS.Workbook();
   book.creator = "资源参谋";
@@ -322,14 +326,15 @@ export async function exportResourceWorkbook(reports: ResourceReportSnapshot[]):
   comparison.addRow(["报表", "导入", "匹配记录", "有效", "回复", "进群", "推专家", "注册", "开单", "开单率", "首充 USD", "续充 USD", "出金 USD", "净业绩 USD"]);
   for (const [i, { query, data }] of reports.entries()) {
     const name = `报表${i + 1}`;
-    index.addRow([name, reportBasis(query, data), data.summary.length, data.details.length]);
+    index.addRow([name, reportBasis(query, data), data.analysis?.cohorts.length ?? data.summary.length, data.analysis?.details.length ?? data.details.length]);
     const detailView = ["phone", "orders"].includes(query.view);
     const fields = ["valid", "replied", "joined", "expert", "registered", "opened", "firstCents", "rechargeCents", "withdrawalCents", "netCents"] as const;
     const values = fields.map(field => detailView
       ? data.details.reduce((n, d) => n + Number(d.metrics?.[field] || 0), 0)
       : data.summary.reduce((n, r) => n + r[field], 0));
     const matched = detailView ? data.details.filter(d => d.metrics).length : data.summary.reduce((n, r) => n + r.matched, 0);
-    comparison.addRow([name, detailView ? null : data.summary.reduce((n, r) => n + r.imported, 0), matched,
+    if (data.analysis) comparison.addRow([name + "（当期流水）", null, null, null, null, null, null, null, data.analysis.totals.newOrders, null, data.analysis.totals.firstCents / 100, data.analysis.totals.rechargeCents / 100, data.analysis.totals.withdrawalCents / 100, data.analysis.totals.netCents / 100]);
+    else comparison.addRow([name, detailView ? null : data.summary.reduce((n, r) => n + r.imported, 0), matched,
       ...values.slice(0, 6), matched ? values[5] / matched : null, ...values.slice(6).map(v => v / 100)]);
     const source = createResourceWorkbook(query, data);
     for (const sheet of source.worksheets) {
@@ -344,7 +349,7 @@ export async function exportResourceWorkbook(reports: ResourceReportSnapshot[]):
       target.autoFilter = sheet.autoFilter;
     }
   }
-  index.addRow(["说明", "各报表可能包含相同号码，不跨报表加总。未匹配记录的金额和指标见明细空值；对比汇总仅合计可确认记录。金额是所列号码累计，非当期流水。费用按各报表币种分别列示。"]);
+  index.addRow(["说明", "各报表可能包含相同号码，不跨报表加总。未匹配记录的金额和指标见明细空值；对比汇总仅合计可确认记录。分析日报为当期流水，其余报表金额为所列号码累计；不同口径不加总。费用按各报表币种分别列示。"]);
   style(index); style(comparison);
   index.getColumn(2).width = 100;
   index.getColumn(2).alignment = { wrapText: true };

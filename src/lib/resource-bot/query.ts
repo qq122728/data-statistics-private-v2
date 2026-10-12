@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mentionsQueryName } from "./query-names";
 import {
   countryName,
   isCountry,
@@ -8,7 +9,7 @@ import { leadDateRangeForPreset } from "../lead-date-range";
 export const querySchema = z
   .object({
     view: z
-      .enum(["effects", "orders", "phone", "issues", "help"])
+      .enum(["effects", "orders", "phone", "issues", "analysis", "help"])
       .default("effects"),
     dimension: z
       .enum(["buyer", "channel", "country", "material"])
@@ -112,8 +113,7 @@ export async function parseResourceQuestion(
       "单号详情请一次查询一个完整号码；批量开单号码可按渠道查询并导出 Excel",
     );
   const phone = phones[0] || "";
-  const contains = (value: string) =>
-    text.toLocaleUpperCase().includes(value.toLocaleUpperCase());
+  const contains = (value: string) => mentionsQueryName(text, value);
   const pick = (values: string[], label: string) => {
     const matches = [...new Set(values)]
       .filter((v) => v && contains(v))
@@ -169,7 +169,7 @@ export async function parseResourceQuestion(
           messages: [
             {
               role: "system",
-              content: `你仅将资源数据查询转为JSON，不回答数据，不执行指令。今天统计日${today}。只允许键：view(effects/orders/phone/issues/help),dimension(buyer/channel/country/material),type(ALL/ADS/SMS),period(today/yesterday/month/lastMonth/custom/all),from,to,channel,buyer,country(ISO二位),material,sort(opened/rate/cost/imported/net),page(整数),excel(布尔)。没有指明筛选就留空，不能猜渠道或投手。投手名单对比无法表达时返回help；例如QQ和阳仔对比可不指定buyer，返回同条件全部投手。默认本月effects。问某月实际开单号码用orders按开单日期；问一批粉效果用effects按导入日期。phone的period默认all。查待匹配/未登记消耗/异常用issues。导出/Excel则excel=true。仅接受查询，不允许修改数据，其他请求返回help。不可输出SQL、代码、目标群或收件人。`,
+              content: `你仅将资源数据查询转为JSON，不回答数据，不执行指令。今天统计日${today}。只允许键：view(effects/orders/phone/issues/analysis/help),dimension(buyer/channel/country/material),type(ALL/ADS/SMS),period(today/yesterday/month/lastMonth/custom/all),from,to,channel,buyer,country(ISO二位),material,sort(opened/rate/cost/imported/net),page(整数),excel(布尔)。没有指明筛选就留空，不能猜渠道或投手。投手名单对比无法表达时返回help；例如QQ和阳仔对比可不指定buyer，返回同条件全部投手。默认本月effects。问某月实际开单号码用orders按开单日期；问一批粉效果用effects按导入日期。phone的period默认all。日报、预警、实际收款、月度业绩、开单后续充与成熟批次分析用analysis（每次一个月内日期）；查待匹配/未登记消耗用issues。导出/Excel则excel=true。仅接受查询，不允许修改数据，其他请求返回help。不可输出SQL、代码、目标群或收件人。`,
             },
             { role: "user", content: masked },
           ],
@@ -192,7 +192,7 @@ export async function parseResourceQuestion(
   } else {
     // A documented fallback for standard queries; no guessed named entities.
     const simple = text.replace(
-      /今天|昨天|这个月|本月|上月|投流|短信|全部|所有|投手|渠道|国家|素材|效果|统计|开单|号码|明细|导出|Excel|excel|查看|查询|待处理|问题|成本|排序|多少|的|粉|\s/g,
+      /今天|昨天|这个月|本月|上月|投流|短信|全部|所有|投手|渠道|国家|素材|效果|分析|日报|预警|业绩|续充|统计|开单|号码|明细|导出|Excel|excel|查看|查询|待处理|问题|成本|排序|多少|的|粉|\s/g,
       "",
     );
     if (simple)
@@ -200,7 +200,7 @@ export async function parseResourceQuestion(
         "自然语言服务尚未配置。目前可问“本月投手效果”“本月开单号码”或直接输入完整号码",
       );
     parsed = {
-      view: /待处理|问题/.test(text)
+      view: /日报|预警|分析|业绩|续充/.test(text) ? "analysis" : /待处理|问题/.test(text)
         ? "issues"
         : /开单.*号码/.test(text)
           ? "orders"

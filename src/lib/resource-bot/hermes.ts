@@ -87,6 +87,11 @@ export function enforceHermesScope(
   const menu = Object.values(RESOURCE_MENU_QUERIES).find((entry) => entry.text === text);
   if (menu) return querySchema.parse({ view: menu.view, type: menu.type });
   const q = querySchema.parse(query);
+  // Missing attribution must not make the agent silently replace an effects report
+  // with orders. Mixed requests can still explicitly ask for both report types.
+  if (/效果/.test(text) &&
+      !/开单(?:号码|明细|客户)|号码(?:明细|详情)|待核对|异常|\d{6,20}/.test(text))
+    q.view = "effects";
   const upper = text.toUpperCase();
   for (const [field, values] of [
     [
@@ -285,6 +290,8 @@ export async function converseWithHermes(
       !/能做|能查|能分析|会分析|功能|帮助|怎么用|是什么意思|怎么算/.test(text)
     )
       throw Error("本次没有取得实际查询结果，请明确渠道或日期再问一次");
+    if (run.lastQuery && wantsExcel(text) && !run.documents.length)
+      throw Error("本次查询已取得数据，但 Excel 尚未生成。请重试导出，或缩小查询范围。");
     return {
       text: result.data.text,
       lastQuery: run.lastQuery,

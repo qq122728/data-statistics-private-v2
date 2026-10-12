@@ -591,6 +591,8 @@ describe("Hermes resource agent boundaries", () => {
       expect(enforceHermesScope({ view: "orders", type: "ADS", country: "DE", channel: "FB-M", page: 3, excel: true }, menu.text,
         { channels: [], buyers: [], materials: [], groups: [] })).toEqual(querySchema.parse({ view: menu.view, type: menu.type }));
     }
+    expect(enforceHermesScope({ view: "orders", type: "SMS" }, "分别查本月投流效果和短信供应方效果，合成Excel", { channels: [], buyers: [], materials: [], groups: [] }).view).toBe("effects");
+    expect(enforceHermesScope({ view: "orders", type: "SMS" }, "本月短信效果和开单号码分别导出Excel", { channels: [], buyers: [], materials: [], groups: [] }).view).toBe("orders");
   });
   it("preserves explicit SMS/country/vendor scope and does not invent full phones or SMS creatives", () => {
     const catalog = {

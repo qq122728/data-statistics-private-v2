@@ -16,8 +16,27 @@ export function dailyReportText(a: ResourceAnalysis, names: string[]) {
   for (const w of warnings) if (!buyers.has(buyerKey(w))) { buyers.add(buyerKey(w)); selected.push(w); if (selected.length === 3) break; }
   const improvements = a.trends.filter(t => t.comparison === "批次环比" && t.scope.endsWith("全部国家") && t.unit === "rate" && t.declineRelative !== null && t.declineRelative <= -0.1).slice(0, 2);
   const lines = ["📊 资源参谋｜收工资源分析", `${a.range.to}｜${compact(names.join("、"), 100)}`, "范围：本时段收工小组中，已匹配投手/供应方的号码。", "", "今日发生", line({ ...daily, recordCount: month.recordCount }), "本月累计（截至本次收工）", line(month), ""];
+  const f=a.financial;
+  lines.push(`首充 ${money(f.firstCents)}｜平均首充 ${f.averageFirst===null?'—':money(f.averageFirst)}`,
+    `开单来源：本月粉 ${f.intake.current.orders}人｜以前粉 ${f.intake.old.orders}人${f.intake.other.orders?`｜其他 ${f.intake.other.orders}人`:''}`,
+    `续充 ${f.renewed}人｜续充人均 ${f.averageRecharge===null?'—':money(f.averageRecharge)}`,
+    `续充来源：本月开单 ${money(f.opening.current)}｜上月开单 ${money(f.opening.previous)}｜更早开单 ${money(f.opening.earlier)}${f.opening.other?`｜其他 ${money(f.opening.other)}`:''}`, '');
+  const sources=a.sources.filter(s=>s.financial.orders||s.financial.renewed||s.quality.some(q=>q.value!==null));
+  if(sources.length){
+    lines.push(`投手 / 短信供应方概览（${sources.length}项，展示前${Math.min(6,sources.length)}项）`);
+    for(const s of sources.slice(0,6)){
+      const f=s.financial;
+      const country=({DE:'德国',SG:'新加坡',GB:'英国',IT:'意大利',AT:'奥地利'} as Record<string,string>)[s.country]||s.country;
+      lines.push(`${s.type==='SMS'?'短信供应方':'投手'} ${s.buyer}｜${s.channel}｜${country}`,
+        `开单${f.orders}（本月粉${f.intake.current.orders}/以前粉${f.intake.old.orders}${f.intake.other.orders?`/其他${f.intake.other.orders}`:''}）｜平均首充${f.averageFirst===null?'—':money(f.averageFirst)}`,
+        `续充${f.renewed}人 / ${money(f.rechargeCents)}｜续充人均${f.averageRecharge===null?'—':money(f.averageRecharge)}`);
+      const q=s.quality.filter(q=>q.value!==null);
+      if(q.length)lines.push(q.map(q=>`${q.label} ${q.key==='renewAmount'?money(q.value!):rate(q.value!)}（${q.n}人）`).join('；'));
+    }
+    lines.push('');
+  }
   const rates = a.trends.filter(t => t.comparison === "批次环比" && t.scope.endsWith("全部国家") && t.unit === "rate");
-  if (rates.length) {
+  if (rates.length && !sources.length) {
     lines.push("同龄转化概览（各批均观察7天，开单率观察30天）");
     const scopes = [...new Set(rates.map(t => t.scope))].slice(0, 4);
     for (const scope of scopes) {
@@ -33,7 +52,8 @@ export function dailyReportText(a: ResourceAnalysis, names: string[]) {
   }
   lines.push(selected.length ? `🔴 严重预警（共${a.warnings.length}个比较信号，优先列${selected.length}个来源）` : "本次可比数据未触发严重预警。");
   for (const [i, w] of selected.entries()) lines.push(`${i + 1}. ${compact(w.title, 110)}\n${w.evidence}\n建议：${w.action}`);
-  lines.push("", "调整原则：数量下降先对照接粉量；转化下滑再检查来源与业务承接；续充看同龄老客户，不把新粉尚未成熟判成差粉。", "相对下降≥10%触发严重预警；无可比数据的项目跳过。月环比对上月同段，同比对去年同期。可在群里 @我 继续查具体投手、国家或导出表格。");
+  if(f.rechargeCents>0)lines.push('',`简析：上月开单客户贡献本期续充的${rate(f.opening.previous/f.rechargeCents)}。新开单客户继续观察，不用当前金额直接判定粉质量。`);
+  lines.push("", "调整原则：数量下降先对照接粉量；转化下滑再检查来源与业务承接；续充看同龄老客户，不把新粉尚未成熟判成差粉。", "口径：新老粉按接粉月份；续充来源按首次开单月份。续充人均只算续充者；开单30天人均续充包含未续充者。各转化指标使用最近已成熟批次，观察窗口不同，不串成同一漏斗。", "相对下降≥10%触发严重预警；无可比数据的项目跳过。月环比对上月同段，同比对去年同期。可在群里 @我 继续查具体投手、国家或导出表格。");
   const text = lines.join("\n");
   if (text.length > 4000) throw Error("资源日报过长，需调整摘要长度");
   return text;

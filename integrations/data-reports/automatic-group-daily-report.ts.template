@@ -1,0 +1,182 @@
+import {compactGroupText,countryAnalysisText,reportHtml} from './compact-bot-report';
+import { db } from "./db";
+import { buildBossReport, type BossReport, type ReportTotals, type StaffRow } from "./boss-report";
+import { businessTimezoneOption, localClockMinutes, resolveGroupBusinessTime } from "./business-time-config";
+import { GROUP_DAILY_DELAY_MINUTES, GROUP_DAILY_DUE_WINDOW_MINUTES, groupDailyReportDate, type GroupDailySchedule } from "./group-daily-schedule";
+import { inspectGroupDailyReadiness, inspectManualGroupDailyReadiness, type GroupDailyReadiness } from "./group-daily-readiness";
+import { formatDailyAlerts, inspectGroupDailyAlerts, type DailyAlert } from "./group-daily-alerts";
+import { formatAutomaticGroupDailyRichReport } from "./automatic-group-daily-rich-report";
+import { sheetStatisticsGroupWhere } from "../../packages/customer-sheet/statistics-owner";
+
+export function isGroupDailyCheckDue(group: GroupDailySchedule, now = new Date()) {
+  const local = localClockMinutes(now, group.timezone);
+  const sinceEnd = (local - group.workEndMinutes + 1440) % 1440;
+  return sinceEnd >= GROUP_DAILY_DELAY_MINUTES
+    && sinceEnd < GROUP_DAILY_DELAY_MINUTES + GROUP_DAILY_DUE_WINDOW_MINUTES;
+}
+
+const percent = (numerator: number, denominator: number) => denominator > 0 ? numerator / denominator * 100 : null;
+const pct = (value: number | null) => value === null ? "—" : `${value.toFixed(1)}%`;
+const cash = (value = 0) => `$${(value / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+const nonzero = (row: StaffRow) => Object.values(row.values).some((value) => value !== 0);
+const value = (row: StaffRow | undefined, key: string) => row?.values[key] ?? 0;
+
+function receptionRates(t: ReportTotals) {
+  return { reply: percent(t.replied, t.effective), join: percent(t.joined, t.effective) };
+}
+
+function peopleById(...lists: Array<StaffRow[] | undefined>) {
+  const result = new Map<string, StaffRow>();
+  for (const list of lists) for (const row of list ?? []) if (nonzero(row)) result.set(row.id, row);
+  return result;
+}
+
+function receptionLines(title: string, dailyRows: StaffRow[] | undefined, monthlyRows: StaffRow[] | undefined) {
+  const daily = peopleById(dailyRows);
+  const monthly = peopleById(monthlyRows);
+  const ids = new Set([...daily.keys(), ...monthly.keys()]);
+  if (!ids.size) return [title, "— 今日和本月暂无发生量", ""];
+  return [title, ...[...ids].map((id) => {
+    const day = daily.get(id), month = monthly.get(id);
+    const name = day?.name ?? month?.name ?? "历史负责人";
+    return `${name}｜今日：有效 ${value(day, "effective")}｜回复 ${value(day, "replied")}｜进群 ${value(day, "joined")}｜开单 ${value(day, "ordered")}｜首充 ${cash(value(day, "initialDepositCents"))}｜续充 ${cash(value(day, "rechargeCents"))}｜净 ${cash(value(day, "netCents"))}\n本月：有效 ${value(month, "effective")}｜回复 ${value(month, "replied")}｜进群 ${value(month, "joined")}｜开单 ${value(month, "ordered")}｜首充 ${cash(value(month, "initialDepositCents"))}｜续充 ${cash(value(month, "rechargeCents"))}｜净 ${cash(value(month, "netCents"))}`;
+  }), ""];
+}
+
+function operatorLines(title: string, dailyRows: StaffRow[] | undefined, monthlyRows: StaffRow[] | undefined) {
+  const daily = peopleById(dailyRows);
+  const monthly = peopleById(monthlyRows);
+  const ids = new Set([...daily.keys(), ...monthly.keys()]);
+  if (!ids.size) return [title, "— 今日和本月暂无发生量", ""];
+  return [title, ...[...ids].map((id) => {
+    const day = daily.get(id), month = monthly.get(id);
+    const name = day?.name ?? month?.name ?? "历史负责人";
+    return `${name}｜今日：承接进群 ${value(day, "joined")}｜正常退群 ${value(day, "leftNormal")}｜异常退群 ${value(day, "leftAbnormal")}｜推专家 ${value(day, "pushed")}\n本月：承接进群 ${value(month, "joined")}｜当前在群 ${value(month, "inGroup")}｜正常退群 ${value(month, "leftNormal")}｜异常退群 ${value(month, "leftAbnormal")}｜推专家 ${value(month, "pushed")}`;
+  }), ""];
+}
+
+function expertLines(title: string, dailyRows: StaffRow[] | undefined, monthlyRows: StaffRow[] | undefined) {
+  const daily = peopleById(dailyRows);
+  const monthly = peopleById(monthlyRows);
+  const ids = new Set([...daily.keys(), ...monthly.keys()]);
+  if (!ids.size) return [title, "— 今日和本月暂无发生量", ""];
+  return [title, ...[...ids].map((id) => {
+    const day = daily.get(id), month = monthly.get(id);
+    const name = day?.name ?? month?.name ?? "历史负责人";
+    return `${name}｜今日：接手 ${value(day, "received")}｜注册 ${value(day, "registered")}｜开单 ${value(day, "ordered")}｜首充 ${cash(value(day, "initialDepositCents"))}｜续充 ${cash(value(day, "rechargeCents"))}｜净 ${cash(value(day, "netCents"))}\n本月：接手 ${value(month, "received")}｜注册 ${value(month, "registered")}｜开单 ${value(month, "ordered")}｜首充 ${cash(value(month, "initialDepositCents"))}｜续充 ${cash(value(month, "rechargeCents"))}｜净 ${cash(value(month, "netCents"))}`;
+  }), ""];
+}
+
+export function formatAutomaticGroupDailyReport(report: BossReport, readiness: GroupDailyReadiness, alerts: DailyAlert[] = []) {
+  if(report.groupType==='HACKER'&&report.insights)return compactGroupText(report);
+  const country = businessTimezoneOption(report.timezone ?? "Asia/Shanghai").countryLabel;
+  const dailyRates = receptionRates(report.daily);
+  const monthRates = receptionRates(report.monthly);
+  const third = readiness.thirdDay;
+  const d3Completed = third.earlyToday + third.onTimeToday;
+
+  if (report.groupType === "LAWYER") return [
+    `📊 ${country}｜${report.departmentName ?? "未分部门"}｜${report.groupName}`,
+    `${report.date} 收工日报`, "",
+    "【小组汇总】",
+    `今日：添加 ${report.daily.added}｜回复 ${report.daily.replied}｜真实案件 ${report.daily.lawyerRealCase}｜注册 ${report.daily.registered}｜开单 ${report.daily.ordered}`,
+    `今日业绩：首充 ${cash(report.daily.initialDepositCents)}｜续充 ${cash(report.daily.rechargeCents)}｜出金 ${cash(report.daily.withdrawalCents)}｜净业绩 ${cash(report.daily.netCents)}`,
+    `本月：添加 ${report.monthly.added}｜回复 ${report.monthly.replied}｜真实案件 ${report.monthly.lawyerRealCase}｜注册 ${report.monthly.registered}｜开单 ${report.monthly.ordered}`,
+    `本月业绩：首充 ${cash(report.monthly.initialDepositCents)}｜续充 ${cash(report.monthly.rechargeCents)}｜出金 ${cash(report.monthly.withdrawalCents)}｜净业绩 ${cash(report.monthly.netCents)}`,
+    "",
+    ...receptionLines("【个人汇总】", report.dailyReception, report.reception),
+    ...formatDailyAlerts(alerts),
+  ].join("\n");
+
+  return [
+    `📊 ${country}｜${report.departmentName ?? "未分部门"}｜${report.groupName}`,
+    `${report.date} 收工日报`, "",
+    "【小组汇总】",
+    "接粉",
+    `今日：添加 ${report.daily.added}｜有效 ${report.daily.effective}｜回复 ${report.daily.replied}（${pct(dailyRates.reply)}）｜进群 ${report.daily.joined}（${pct(dailyRates.join)}）｜推专家 ${report.daily.pushed}`,
+    `本月：添加 ${report.monthly.added}｜有效 ${report.monthly.effective}｜回复 ${report.monthly.replied}（${pct(monthRates.reply)}）｜进群 ${report.monthly.joined}（${pct(monthRates.join)}）｜推专家 ${report.monthly.pushed}`,
+    "",
+    "炒群",
+    `今日：承接进群 ${report.daily.joined}｜正常退群 ${report.daily.leftNormal}｜异常退群 ${report.daily.leftAbnormal}｜推专家 ${report.daily.pushed}`,
+    `本月：承接进群 ${report.monthly.joined}｜当前在群 ${report.monthly.inGroup}｜正常退群 ${report.monthly.leftNormal}｜异常退群 ${report.monthly.leftAbnormal}｜推专家 ${report.monthly.pushed}`,
+    "",
+    "专家",
+    `今日：接手 ${report.daily.pushed}｜注册 ${report.daily.registered}｜开单 ${report.daily.ordered}`,
+    `今日业绩：首充 ${cash(report.daily.initialDepositCents)}｜续充 ${cash(report.daily.rechargeCents)}｜出金 ${cash(report.daily.withdrawalCents)}｜净业绩 ${cash(report.daily.netCents)}`,
+    `本月：接手 ${report.monthly.pushed}｜注册 ${report.monthly.registered}｜开单 ${report.monthly.ordered}`,
+    `本月业绩：首充 ${cash(report.monthly.initialDepositCents)}｜续充 ${cash(report.monthly.rechargeCents)}｜出金 ${cash(report.monthly.withdrawalCents)}｜净业绩 ${cash(report.monthly.netCents)}`,
+    "",
+    "【第3天介绍专家】",
+    `今日应推 ${third.dueToday}｜按时完成 ${d3Completed}｜迟推 ${third.lateToday}｜未推 ${third.overdueToday}`,
+    third.overdueToday || third.overdueTotal ? "备注：第3天未推的客户允许继续跟进，已列入待跟进。" : "",
+    "",
+    ...receptionLines("【个人汇总｜接粉】", report.dailyReception, report.reception),
+    ...operatorLines("【个人汇总｜炒群】", report.dailyOperators, report.operators),
+    ...expertLines("【个人汇总｜专家】", report.dailyExperts, report.experts),
+    ...formatDailyAlerts(alerts),
+  ].filter(Boolean).join("\n");
+}
+
+export async function loadReadyAutomaticGroupReports(now = new Date()) {
+  // 日报随启用小组自动生效，不再靠环境变量维护一份容易漏掉的新组名单。
+  // 没有在职成员的小组无需发送；名称含“测试”的系统测试组不进入正式群推送。
+  const groups = await db.teamGroup.findMany({
+    where: {
+      active: true,
+      name: { not: { contains: "测试" } },
+      department: { active: true },
+      members: { some: { active: true } },
+    },
+    include: { department: true },
+    orderBy: [{ department: { name: "asc" } }, { name: "asc" }],
+  });
+  const results: Array<{ groupId: string; groupName: string; date: string; ready: boolean; missing: string[]; text?: string; richHtml?: string; dependencies?: string[] }> = [];
+  const countryReports = new Map<string, BossReport[]>();
+  for (const group of groups) {
+    const businessTime = resolveGroupBusinessTime(group);
+    const schedule = { id: group.id, name: group.name, ...businessTime };
+    if (!isGroupDailyCheckDue(schedule, now)) continue;
+    const date = groupDailyReportDate(schedule, now);
+    let readiness: GroupDailyReadiness;
+    let hackerRows: Array<{ groupId: string; data: string; updatedAt: Date }> = [];
+    if (group.groupType === "HACKER") {
+      hackerRows = await db.customerSheetRow.findMany({
+        where: sheetStatisticsGroupWhere(group.id),
+        select: { groupId: true, data: true, updatedAt: true },
+      });
+      readiness = inspectGroupDailyReadiness(hackerRows, group.id, date, now);
+    } else {
+      const [reporters, entries] = await Promise.all([
+        db.user.findMany({
+          where: {
+            groupId: group.id,
+            active: true,
+            OR: [
+              { role: { in: ["RECEPTION", "GROUP_OPERATOR", "EXPERT", "LEAD"] } },
+              { roleAssignments: { some: { role: { in: ["RECEPTION", "GROUP_OPERATOR", "EXPERT", "LEAD"] } } } },
+            ],
+          },
+          select: { id: true, name: true },
+        }),
+        db.dailyStatEntry.findMany({
+          where: { groupId: group.id, businessDate: date, approvedRevisionId: { not: null } },
+          select: { ownerId: true, updatedAt: true },
+        }),
+      ]);
+      readiness = inspectManualGroupDailyReadiness(reporters, entries, now);
+    }
+    const report = await buildBossReport(group.id, date, now);
+    const alerts = group.groupType === "HACKER" ? inspectGroupDailyAlerts({ report, rows: hackerRows }) : [];
+    results.push({
+      groupId: group.id, groupName: group.name, date, ready: true, missing: readiness.missing,
+      text: formatAutomaticGroupDailyReport(report, readiness, alerts),
+      richHtml: report.groupType==='HACKER'?reportHtml(compactGroupText(report)):formatAutomaticGroupDailyRichReport(report, readiness, alerts),
+    });
+    if(report.groupType==='HACKER') {const k=(report.countryCode||report.departmentName||'unknown')+':'+date;countryReports.set(k,[...(countryReports.get(k)||[]),report]);}
+  }
+  for(const [key,reports] of countryReports){
+    const text=countryAnalysisText(reports);
+    results.push({groupId:'country:'+key,groupName:'国家能力分析',date:reports[0].date,ready:true,missing:[],text,richHtml:reportHtml(text),dependencies:reports.map(r=>r.groupId+':'+r.date)});
+  }
+  return results;
+}

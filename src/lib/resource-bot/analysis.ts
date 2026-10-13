@@ -1,6 +1,7 @@
 import { resourcePerformance } from "./performance";
 import { investmentSummary } from "../../../packages/customer-sheet/investment";
 import type { SheetData } from "../../../packages/customer-sheet/schema";
+import { finance, abilities } from "../../../packages/customer-sheet/bot-insights";
 
 export type AnalysisRow = {
   id: string; phone: string; group: string; channel: string; channelId: string;
@@ -102,13 +103,29 @@ export function analyzeResources(rows: AnalysisRow[], range: { from: string; to:
     return { ...row, opened, intake, amounts, events, ambiguousOpening };
   });
   const { dailyPerformance, performance, trends, warnings } = resourcePerformance(rows, range, completedThrough);
+  const sourceKeys = [...new Set(rows.map(r => JSON.stringify([r.type,r.channelId,r.buyer,r.country])))];
+  // Match the existing resource trend's recorded-date semantics, including legacy orderedOn.
+  const insightValue=(r:AnalysisRow)=>({data:{...r.data,channelId:r.data.channelId||r.channelId,replied:!!analysisDay(r.data.repliedOn),addedExpert:!!analysisDay(r.data.expertOn),firstDepositOn:analysisDay(r.data.firstDepositOn||r.data.orderedOn)}});
+  const sources = sourceKeys.map(key => {
+    const sourceRows=rows.filter(r=>JSON.stringify([r.type,r.channelId,r.buyer,r.country])===key);
+    const first=sourceRows[0], values=sourceRows.map(insightValue);
+    const financial=finance(values,range.from,range.to);
+    const quality=abilities(values,completedThrough).filter(m=>['reply','join','register','leadOrder','renew','renewAmount'].includes(m.key)).map(m=>({key:m.key,label:m.label,n:m.current.n,hits:m.current.hits,value:m.current.n>=m.minimum?m.current.value:null,from:m.current.from,to:m.current.to}));
+    const currentFirst=comparable?finance(values,comparisonFrom,comparisonTo):null,previousFirst=comparable?finance(values,previousFrom,previousTo):null;
+    if(currentFirst&&previousFirst&&currentFirst.orders>=10&&previousFirst.orders>=10&&previousFirst.averageFirst!>0){
+      const decline=(previousFirst.averageFirst!-currentFirst.averageFirst!)/previousFirst.averageFirst!;
+      if(decline>=0.1-1e-10)warnings.push({key:'average-first:'+key,level:'严重预警',title:`${first.channel}｜${first.buyer}｜${first.country} 平均首充下降${(decline*100).toFixed(1)}%`,evidence:`${previousFrom}—${previousTo} $${money(previousFirst.averageFirst!)}（${previousFirst.orders}人）→ ${comparisonFrom}—${comparisonTo} $${money(currentFirst.averageFirst!)}（${currentFirst.orders}人）。`,action:'按承接小组和专家核对首充结构，来源结构变化不直接等同投手能力下降。'});
+    }
+    return {type:first.type,channel:first.channel,buyer:first.buyer,country:first.country,financial,quality};
+  }).sort((a,b)=>b.financial.orders-a.financial.orders||b.financial.rechargeCents-a.financial.rechargeCents);
+  const financial=finance(rows.map(insightValue),range.from,range.to);
   const top = [...rowDetails].sort((a, b) => b.netCents - a.netCents).slice(0, 3);
   return {
     range, completedThrough, comparisonRange: comparable ? { currentFrom: comparisonFrom, currentTo: comparisonTo, previousFrom, previousTo } : null,
     totals, daily, previous, comparison, buckets, types, attribution,
     cohorts: [...cohortMatrix.values()].filter(c => c.current.customers || c.previous.customers).sort((a, b) => a.month.localeCompare(b.month)),
     maturity: [...matured.values()].sort((a, b) => a.month.localeCompare(b.month) || a.windowDays - b.windowDays),
-    dailyPerformance, performance, trends, warnings, topCustomers: top, details: rowDetails.sort((a, b) => b.netCents - a.netCents),
+    dailyPerformance, performance, trends, warnings, financial, sources, topCustomers: top, details: rowDetails.sort((a, b) => b.netCents - a.netCents),
     coverage: { businessRecords: rows.length, ...extras, eventsAfterCutoffExcluded: futureEvents, missingFirstDateCents, undatedRechargeCents, legacyCents, inconsistentEvents, missingFirstAmount },
     rules: { mode: "按需查询＋随各国小组收工日报自动推送", minimumLeadSample: 30, minimumOpenedSample: 10, declineRelative: 0.1, sustainedDeclineVerified: false, budgetAutomation: false },
   };
@@ -122,6 +139,8 @@ export function renderAnalysis(a: ResourceAnalysis, scope: string) {
     "范围：已匹配到投手或短信供应方的号码。数量、金额按实际发生日期；转化率按同龄批次。", "",
     `回复 ${p.replies}｜进群 ${p.joins}｜引专家 ${p.introductions}｜注册 ${p.registrations}｜开单 ${p.orders}`,
     `续充 $${money(p.rechargeCents)}｜首充 $${money(a.totals.firstCents)}｜净业绩 $${money(a.totals.netCents)}`];
+  lines.push(`平均首充 ${a.financial.averageFirst===null?'—':'$'+money(a.financial.averageFirst)}｜本月粉开单 ${a.financial.intake.current.orders}｜以前粉开单 ${a.financial.intake.old.orders}`,
+    `续充 ${a.financial.renewed}人｜续充人均 ${a.financial.averageRecharge===null?'—':'$'+money(a.financial.averageRecharge)}`);
   const rates = a.trends.filter(t => t.comparison === "批次环比" && t.unit === "rate" && t.scope.endsWith("全部国家"));
   if (rates.length) lines.push("", "同龄转化（每项均标明观察窗口）", ...rates.slice(0, 6).map(t => `${t.scope} ${t.metric}：${pct(t.currentHits, t.currentN)}（${t.currentHits}/${t.currentN}）；前批 ${pct(t.previousHits, t.previousN)}`));
   const known = Object.entries(a.buckets).filter(([k, c]) => k !== "其他开单批次" && c.customers);

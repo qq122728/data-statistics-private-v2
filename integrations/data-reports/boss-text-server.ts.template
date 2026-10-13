@@ -1,0 +1,42 @@
+import {ZodError} from 'zod';
+import {createServer} from 'node:http';
+import {timingSafeEqual} from 'node:crypto';
+import {queryBossTextReport} from '../../src/lib/boss-text-report';
+import {loadReadyAutomaticGroupReports} from '../../src/lib/automatic-group-daily-report';
+import {sendTelegramRichMessage} from '../../src/lib/telegram-delivery';
+const token=process.env.BOSS_QUERY_TOKEN??'';
+if(token.length<32)throw new Error('BOSS_QUERY_TOKEN required');
+let active=0;
+let snapshot: {at:number; results:Awaited<ReturnType<typeof loadReadyAutomaticGroupReports>>}|undefined;
+async function readyReports(){
+ if(snapshot&&Date.now()-snapshot.at<60000)return snapshot.results;
+ const results=await loadReadyAutomaticGroupReports();snapshot={at:Date.now(),results};return results;
+}
+createServer(async(req,res)=>{
+ res.setHeader('Content-Type','application/json; charset=utf-8');res.setHeader('Cache-Control','no-store');
+ const reply=(code:number,value:unknown)=>{res.statusCode=code;res.end(JSON.stringify(value));};
+ const expected=Buffer.from('Bearer '+token),actual=Buffer.from(req.headers.authorization??'');
+ if(actual.length!==expected.length||!timingSafeEqual(actual,expected))return reply(401,{error:'未授权'});
+ if(req.method!=='POST'||!['/query','/daily-report-ready','/daily-report-deliver'].includes(req.url??''))return reply(404,{error:'不支持该操作'});
+ if(active>=3)return reply(429,{error:'正在查询，请稍后再试'});
+ active++;
+ try{
+  let raw='';for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>4096)return reply(413,{error:'查询内容过长'});}
+  const input=JSON.parse(raw||'{}');
+  if(req.url==='/daily-report-ready'){
+   if(Object.keys(input).length)throw new SyntaxError('daily report input must be empty');
+   const results=await readyReports();
+   reply(200,{results:results.filter(r=>!r.groupId.startsWith('country:')),analyses:results.filter(r=>r.groupId.startsWith('country:')),generatedAt:new Date().toISOString()});
+  }else if(req.url==='/daily-report-deliver'){
+   if(typeof input.groupId!=='string'||typeof input.date!=='string'||Object.keys(input).some((key)=>!['groupId','date'].includes(key)))throw new SyntaxError('invalid daily delivery input');
+   const results=await readyReports();
+   const report=results.find((row)=>row.groupId===input.groupId&&row.date===input.date&&row.ready&&row.text&&row.richHtml);
+   if(!report?.text||!report.richHtml)throw new Error('未找到当前可发送的小组日报');
+   const format=await sendTelegramRichMessage(report.richHtml,report.text);
+   reply(200,{delivered:true,format,groupId:report.groupId,date:report.date});
+  }else{
+   const result=await queryBossTextReport(input);reply(200,result);
+  }
+ }catch(e){if(e instanceof ZodError||e instanceof SyntaxError){reply(400,{error:'查询参数不正确，请说明小组、日期和报表类型'});return;}const message=e instanceof Error?e.message:'';const safe=/^(请|查询日期|未找到|小组名称|没有找到|未配置)/.test(message);reply(safe?400:500,{error:safe?message:'查询失败，请稍后再试'});console.error('boss-text-query-failed',safe?'input':'internal');}
+ finally{active--;}
+}).listen(Number(process.env.BOSS_QUERY_PORT??4179),'127.0.0.1',()=>console.log('Boss text report query ready'));

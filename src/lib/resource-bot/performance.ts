@@ -87,6 +87,7 @@ export function resourcePerformance(input: AnalysisRow[], range: { from: string;
       ["7日回复率", 7, "intake", "replied"], ["7日进群率", 7, "intake", "joined"],
       ["引专家后7日注册转化率", 7, "expert", "registered"], ["30日开单率", 30, "intake", "opened"],
       ["开单后30日人均续充金额", 30, "opened", "renewal"],
+      ["开单后30日续充率", 30, "opened", "renewalRate"],
     ] as const) {
       const ce = shift(end, -(ageDays - 1)), cf = shift(ce, -13);
       const windows = [
@@ -97,10 +98,10 @@ export function resourcePerformance(input: AnalysisRow[], range: { from: string;
         const valid = rs.filter(r => r[anchorKey] && (anchorKey !== "opened" || (r.amounts.firstCents > 0 && (!r.intake || r.opened >= r.intake))));
         const current = valid.filter(r => inside(r[anchorKey], p.currentFrom, p.currentTo));
         const previous = valid.filter(r => inside(r[anchorKey], p.previousFrom, p.previousTo));
-        const renewal = eventKey === "renewal";
+        const renewal = eventKey === "renewal" || eventKey === "renewalRate";
         const value = (r: typeof rows[number]) => {
           const start = r[anchorKey], finish = shift(start, ageDays - 1);
-          if (renewal) return r.amounts.entries.filter(e => e.kind !== "withdrawal" && inside(analysisDay(e.date), start, finish)).reduce((n, e) => n + e.amountCents, 0) / 100;
+          if (renewal) {const selected=r.amounts.entries.filter(e => e.kind !== "withdrawal" && inside(analysisDay(e.date), start, finish));return eventKey==='renewalRate'?Number(selected.some(e=>e.amountCents>0)):selected.reduce((n,e)=>n+e.amountCents,0)/100;}
           return Number((eventKey !== "opened" || r.amounts.firstCents > 0) && inside(r[eventKey], start, finish));
         };
         const ch = current.reduce((n, r) => n + value(r), 0), ph = previous.reduce((n, r) => n + value(r), 0);
@@ -110,7 +111,7 @@ export function resourcePerformance(input: AnalysisRow[], range: { from: string;
           : renewal ? r.amounts.entries.some(e => !analysisDay(e.date) || e.date < r.opened)
           : eventKey === "registered" ? r.data.registered === true && !r.registered : false);
         const min = renewal ? 10 : 30;
-        add({ scope, metric, ...p, unit: renewal ? "USD" : "rate", sampleBasis: renewal ? "观察满30天的首次开单客户数" : anchorKey === "expert" ? "观察满7天的引专家人数" : `观察满${ageDays}天的接粉人数`, ageDays, currentN: current.length, previousN: previous.length,
+        add({ scope, metric, ...p, unit: eventKey==='renewal' ? "USD" : "rate", sampleBasis: renewal ? "观察满30天的首次开单客户数" : anchorKey === "expert" ? "观察满7天的引专家人数" : `观察满${ageDays}天的接粉人数`, ageDays, currentN: current.length, previousN: previous.length,
           currentHits: ch, previousHits: ph, currentValue: current.length ? ch / current.length : 0, previousValue: previous.length ? ph / previous.length : 0,
           comparable: current.length >= min && previous.length >= min && !inconsistent, declineRelative: null });
       }

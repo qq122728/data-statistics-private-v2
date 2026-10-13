@@ -11,6 +11,10 @@ export function analysisWorkbook(a: ResourceAnalysis & { scopeNote?: string }, b
     ...Object.entries(a.buckets).map(([k, c]) => [k + "净业绩 USD", c.netCents / 100]),
     ["阈值", "相对下降≥10%为严重预警。转化样本两期各≥30；续充同龄开单样本各≥10。数量基准期≥10次，续充金额基准期≥10位续充客户；同比对去年、月环比对上月；不代表连续异常。"]]);
   const warnings = book.addWorksheet("预警依据与建议");
+  const sources=book.addWorksheet("投手首充续充");
+  sources.addRow(["类型","渠道","投手或供应方","国家","本期开单","本月粉开单","以前粉开单","首充USD","平均首充USD","续充人数","续充USD","续充人均USD","本月开单贡献续充USD","上月开单贡献续充USD","更早开单贡献续充USD","其他批次续充USD"]);
+  for(const s of a.sources){const f=s.financial;sources.addRow([s.type==='SMS'?'短信':'投流',s.channel,s.buyer,s.country,f.orders,f.intake.current.orders,f.intake.old.orders,f.firstCents/100,f.averageFirst===null?null:f.averageFirst/100,f.renewed,f.rechargeCents/100,f.averageRecharge===null?null:f.averageRecharge/100,f.opening.current/100,f.opening.previous/100,f.opening.earlier/100,f.opening.other/100]);}
+  for(const i of [8,9,11,12,13,14,15,16])sources.getColumn(i).numFmt='#,##0.00';
   warnings.addRow(["级别", "事项", "依据", "建议"]); for (const w of a.warnings) warnings.addRow([w.level, w.title, w.evidence, w.action]);
   const cohorts = book.addWorksheet("开单月份贡献");
   cohorts.addRow(["登记开单月份", "有首充金额记录数", "对照期首充 USD", "对照期续充 USD", "对照期净业绩 USD", "本期首充 USD", "本期续充 USD", "本期净业绩 USD"]);

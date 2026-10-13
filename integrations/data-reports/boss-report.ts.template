@@ -1,0 +1,139 @@
+import { botInsights, type BotInsights } from '../../packages/customer-sheet/bot-insights';
+import type { Prisma } from '@prisma/client';
+import { db } from './db';
+import { loadOrganizationReport, organizationReportGroupSelect } from './organization-report';
+import { numberEvents } from '../../packages/customer-sheet/number-statistics';
+import type { SheetData } from '../../packages/customer-sheet/schema';
+import { sheetStatisticsOwner, sheetStatisticsGroup, sheetStatisticsGroupWhere } from '../../packages/customer-sheet/statistics-owner';
+import { isSheetInGroupAt, NUMBER_REPORT_FROM } from './management-report-stock';
+import { getAssignedRoles } from './role-access';
+import { statisticsDate } from './statistics-date';
+
+export type ReportTotals = Awaited<ReturnType<typeof loadOrganizationReport>>['groups'][number]['totals'];
+export type StaffRow = { id: string; name: string; values: Record<string, number> };
+export type BossReport = {
+  groupId: string; groupName: string; groupType: string; departmentName?: string; countryCode?: string; timezone?: string;
+  insights?: BotInsights; insightNames?: Record<string,string>;
+  date: string; monthFrom: string; generatedAt: string;
+  daily: ReportTotals; monthly: ReportTotals; recentThreeDayAverage?: ReportTotals; yesterday?: ReportTotals; previousMonthSamePeriod?: ReportTotals;
+  reception: StaffRow[]; operators: StaffRow[]; experts: StaffRow[];
+  dailyReception?: StaffRow[]; dailyOperators?: StaffRow[]; dailyExperts?: StaffRow[];
+  recentThreeDayReception?: StaffRow[]; recentThreeDayOperators?: StaffRow[]; recentThreeDayExperts?: StaffRow[];
+  channels: Array<{ name: string; totals: ReportTotals }>;
+};
+export function validateReportDate(date: string, now = new Date()) {
+  const d = new Date(`${date}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(d.getTime()) || d.toISOString().slice(0,10) !== date || date > statisticsDate(now)) throw new Error('报表日期无效或晚于当前统计日');
+}
+
+/** Current-assignee view, matching the ranking rules; never add these rows to group totals. */
+export function aggregateAssigneeRows(rows: Array<{ groupId: string; data: string }>, groupId: string, from: string, to: string) {
+  const operators = new Map<string, Record<string,number>>(), experts = new Map<string, Record<string,number>>();
+  const add = (map: typeof operators, id: string, key: string, n: number) => {
+    const v = map.get(id) ?? {}; v[key] = (v[key] ?? 0) + n; map.set(id,v);
+  };
+  for (const row of rows) {
+    const d = JSON.parse(row.data) as SheetData;
+    if (sheetStatisticsGroup(row.groupId,d) !== groupId || d.__deletedAt || !d.intakeOn || !d.channelId) continue;
+    const op=String(d.operatorId || '__unassigned__'), ex=String(d.expertId || '__unassigned__');
+    for (const event of numberEvents(d)) {
+      if (event.date < from || event.date > to) continue;
+      const keys: Record<string,string> = { joinCount:'joined', normalLeaveCount:'leftNormal', abnormalLeaveCount:'leftAbnormal', expertIntroCount:'pushed' };
+      if (keys[event.field]) add(operators,op,keys[event.field],event.value);
+      if (event.field === 'expertIntroCount') add(experts,ex,'received',event.value);
+      if (event.field === 'registrationCount') add(experts,ex,'registered',event.value);
+      if (event.field === 'orderCount') add(experts,ex,'ordered',event.value);
+      if (['bankInitialDepositCents','cryptoInitialDepositCents'].includes(event.field)) add(experts,ex,'initialDepositCents',event.value);
+      if (['bankRechargeCents','cryptoRechargeCents'].includes(event.field)) add(experts,ex,'rechargeCents',event.value);
+      if (event.field === 'withdrawalCents') add(experts,ex,'withdrawalCents',event.value);
+    }
+    if(isSheetInGroupAt(d,to)) add(operators,op,'inGroup',1);
+  }
+  for (const v of experts.values()) v.netCents=(v.initialDepositCents??0)+(v.rechargeCents??0)-(v.withdrawalCents??0);
+  return { operators,experts };
+}
+
+function averageRecords(records: Array<Record<string, number>>) {
+  const result: Record<string, number> = {};
+  for (const record of records) for (const [key, value] of Object.entries(record)) result[key] = (result[key] ?? 0) + value / records.length;
+  return result;
+}
+
+function averageMaps(maps: Array<Map<string, Record<string, number>>>) {
+  const ids = new Set(maps.flatMap((map) => [...map.keys()]));
+  return new Map([...ids].map((id) => [id, averageRecords(maps.map((map) => map.get(id) ?? {}))]));
+}
+
+/** Server-only. The HTTP caller authenticates; scheduled caller restricts group IDs in config. */
+export async function buildBossReport(groupId: string, date: string, now = new Date()): Promise<BossReport> {
+  validateReportDate(date,now);
+  return db.$transaction(tx => buildInSnapshot(tx, groupId, date, now), { isolationLevel: "Serializable", timeout: 60000 });
+}
+async function buildInSnapshot(client: Prisma.TransactionClient, groupId: string, date: string, now: Date): Promise<BossReport> {
+  const group=await client.teamGroup.findFirstOrThrow({where:{id:groupId,active:true},select:organizationReportGroupSelect});
+  // Lawyer totals and personnel use the saved manual report attribution, never customer events.
+  if(date<NUMBER_REPORT_FROM) throw new Error('三图日报支持9月起的报表；更早历史请使用原报表');
+  const monthFrom=`${date.slice(0,7)}-01`;
+  const recentDates=[1,2,3].map(days=>new Date(Date.parse(`${date}T00:00:00Z`)-days*86400000).toISOString().slice(0,10));
+  const monthStart=new Date(`${monthFrom}T00:00:00Z`);
+  const previousMonthStart=new Date(Date.UTC(monthStart.getUTCFullYear(),monthStart.getUTCMonth()-1,1));
+  const previousMonthFrom=previousMonthStart.toISOString().slice(0,10);
+  const previousMonthLastDay=new Date(Date.UTC(monthStart.getUTCFullYear(),monthStart.getUTCMonth(),0)).getUTCDate();
+  const previousMonthTo=`${previousMonthFrom.slice(0,7)}-${String(Math.min(Number(date.slice(8,10)),previousMonthLastDay)).padStart(2,'0')}`;
+  const range=(from:string)=>({preset:'custom' as const,from,to:date,label:`${from}—${date}`});
+  const exactRange=(from:string,to:string)=>({preset:'custom' as const,from,to,label:from===to?from:`${from}—${to}`});
+  const [daily,month,recentDailyReports,previousMonthSamePeriod,people,channels,rows]=await Promise.all([
+    loadOrganizationReport([group],range(date),now,client),loadOrganizationReport([group],range(monthFrom),now,client),
+    Promise.all(recentDates.map(day=>loadOrganizationReport([group],exactRange(day,day),now,client))),
+    loadOrganizationReport([group],exactRange(previousMonthFrom,previousMonthTo),now,client),
+    client.user.findMany({where:{OR:[{groupId},{sheetRows:{some:sheetStatisticsGroupWhere(groupId)}}]},select:{id:true,name:true,active:true,groupId:true,role:true,username:true,roleAssignments:{select:{role:true}}},orderBy:{name:'asc'}}),
+    client.channel.findMany({where:{groupId,active:true},select:{name:true,normalizedName:true}}),
+    client.customerSheetRow.findMany({where:sheetStatisticsGroupWhere(groupId),select:{groupId:true,ownerId:true,data:true}}),
+  ]);
+  const {operators,experts}=group.groupType==='HACKER'?aggregateAssigneeRows(rows,groupId,monthFrom,date):{operators:new Map<string,Record<string,number>>(),experts:new Map<string,Record<string,number>>()};
+  const dailyAssignees=group.groupType==='HACKER'?aggregateAssigneeRows(rows,groupId,date,date):{operators:new Map<string,Record<string,number>>(),experts:new Map<string,Record<string,number>>()};
+  const recentAssignees=group.groupType==='HACKER'?recentDates.map(day=>aggregateAssigneeRows(rows,groupId,day,day)):[{operators:new Map<string,Record<string,number>>(),experts:new Map<string,Record<string,number>>()}];
+  const recentOperators=averageMaps(recentAssignees.map(value=>value.operators));
+  const recentExperts=averageMaps(recentAssignees.map(value=>value.experts));
+  const ids=[...operators.keys(),...experts.keys()].filter(id=>id!=='__unassigned__'&&!people.some(p=>p.id===id));
+  const extra=ids.length?await client.user.findMany({where:{id:{in:ids}},select:{id:true,name:true,active:true}}):[];
+  const allPeople=[...people,...extra];
+  const names=new Map(allPeople.map(p=>[p.id,p.name+(allPeople.filter(q=>q.name===p.name).length>1?`（${'username' in p?p.username:p.id.slice(-4)}）`:'')+(p.active?'':'（已离职）')]));
+  names.set('__unassigned__','未分配');
+  const staff=(role:'RECEPTION'|'GROUP_OPERATOR'|'EXPERT',data:Map<string,Record<string,number>>)=>{
+    const currentIds=new Set(people.filter(p=>p.active && p.groupId===groupId).map(p=>p.id));
+    for(const p of people) if(currentIds.has(p.id) && getAssignedRoles(p).includes(role) && !data.has(p.id))data.set(p.id,{});
+    // 群内日报只看当前在本组工作的人员；离职或已调走人员的历史数字仍在小组汇总里，
+    // 但不再作为“个人日报”推到群里。
+    return [...data].filter(([id])=>id==='__unassigned__'||!allPeople.some(p=>p.id===id)||currentIds.has(id)).map(([id,values])=>({id,name:names.get(id)??'历史负责人',values})).sort((a,b)=>a.name.localeCompare(b.name,'zh-CN'));
+  };
+  const reception=new Map<string,Record<string,number>>(month.members.filter(m=>Object.values(m.totals).some(v=>v!==0)).map(m=>[m.id,{...m.totals}]));
+  for(const m of month.members)if(!names.has(m.id))names.set(m.id,m.name);
+  if(group.groupType==='LAWYER')for(const p of people)if(p.active&&p.groupId===groupId&&!reception.has(p.id))reception.set(p.id,{});
+  // Include zero-activity channels; preserve inactive channels that still have actual figures.
+  const channelRows=new Map(month.channels.map(c=>[c.name,{name:c.name,totals:c.totals}]));
+  const zero=Object.fromEntries(Object.keys(month.groups[0].totals).map(k=>[k,0])) as ReportTotals;
+  for(const c of channels)if(!channelRows.has(c.name))channelRows.set(c.name,{name:c.name,totals:{...zero}});
+  const dailyReceptionMap=new Map<string,Record<string,number>>(daily.members.filter(m=>m.groupId===groupId).map(m=>[m.id,{...m.totals}]));
+  const recentReceptionMap=averageMaps(recentDailyReports.map(day=>new Map(day.members.filter(m=>m.groupId===groupId).map(m=>[m.id,{...m.totals}]))));
+  const insightRows=rows.flatMap(row=>{const data=JSON.parse(row.data) as SheetData;return sheetStatisticsGroup(row.groupId,data)===groupId?[{data,owner:sheetStatisticsOwner(row.ownerId,data),channel:String(data.channelId)}]:[];});
+  const insightIds=[...new Set(insightRows.flatMap(r=>[r.owner,String(r.data.operatorId||''),String(r.data.expertId||'')]).filter(Boolean))];
+  const insightPeople=insightIds.length?await client.user.findMany({where:{id:{in:insightIds}},select:{id:true,name:true}}):[];
+  const insightChannels=await client.channel.findMany({where:{groupId},select:{id:true,name:true}});
+  const channelNames=new Map(insightChannels.map(c=>[c.id,c.name]));
+  for(const row of insightRows)row.channel=channelNames.get(row.channel)||row.channel;
+  const insights=group.groupType==='HACKER'?botInsights(insightRows,date):undefined;
+  const insightNames=Object.fromEntries(insightPeople.map(p=>[p.id,p.name]));
+  return {
+    insights,insightNames,
+    groupId,groupName:group.name,groupType:group.groupType,departmentName:group.department.name,
+    countryCode:group.countryCode??group.department.countryCode,timezone:group.timezone??group.department.timezone,
+    date,monthFrom,generatedAt:now.toISOString(),daily:daily.groups[0].totals,monthly:month.groups[0].totals,
+    recentThreeDayAverage:averageRecords(recentDailyReports.map(day=>day.groups[0].totals)) as ReportTotals,
+    yesterday:recentDailyReports[0].groups[0].totals,previousMonthSamePeriod:previousMonthSamePeriod.groups[0].totals,
+    reception:staff('RECEPTION',reception),operators:staff('GROUP_OPERATOR',operators),experts:staff('EXPERT',experts),
+    dailyReception:staff('RECEPTION',dailyReceptionMap),dailyOperators:staff('GROUP_OPERATOR',dailyAssignees.operators),dailyExperts:staff('EXPERT',dailyAssignees.experts),
+    recentThreeDayReception:staff('RECEPTION',recentReceptionMap),recentThreeDayOperators:staff('GROUP_OPERATOR',recentOperators),recentThreeDayExperts:staff('EXPERT',recentExperts),
+    channels:[...channelRows.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN')),
+  };
+}

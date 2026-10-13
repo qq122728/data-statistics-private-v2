@@ -291,6 +291,7 @@ export async function startHermesQueryServer(): Promise<Server | null> {
         text: renderResourceReport(q, data),
         excelPrepared: q.excel,
         analysis: data.analysis ? { ...data.analysis, coverage: undefined, attribution: undefined,
+          sources: data.analysis.sources.slice((q.page-1)*8,q.page*8), sourceTotal:data.analysis.sources.length,
           details: data.analysis.details.slice((q.page - 1) * 5, q.page * 5),
           detailTotal: data.analysis.details.length,
           trends: data.analysis.trends.filter(t => t.comparable).slice(0, 30),

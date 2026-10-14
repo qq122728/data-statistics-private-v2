@@ -13,6 +13,7 @@ import { leadCurrentGroupId } from "../../../../../lib/customer-current-group";
 import { statisticsDate } from "../../../../../lib/statistics-date";
 import {
   moveCustomerExpertIntroductionDate,
+  recordedLeaveKind,
   syncCustomerExpertEvent,
   syncCustomerGroupEvent,
   syncCustomerRegistrationEvent,
@@ -151,7 +152,7 @@ export async function PATCH(
         where: { id: leadId },
         include: {
           batch: {
-            select: { groupId: true, channelId: true, sourceDate: true },
+            select: { groupId: true, channelId: true, sourceDate: true, group: { select: { groupType: true } } },
           },
           customerOrder: { select: { openedOn: true, voidedAt: true } },
         },
@@ -351,8 +352,6 @@ export async function PATCH(
           };
         if (lead.joinedOn && occurredOn < lead.joinedOn)
           return { status: 400 as const, error: "推专家日期不能早于进群日期" };
-        if (lead.leftOn && occurredOn > lead.leftOn)
-          return { status: 400 as const, error: "推专家日期不能晚于退群日期" };
         if (lead.registeredOn && occurredOn > lead.registeredOn)
           return { status: 400 as const, error: "推专家日期不能晚于注册日期" };
         if (
@@ -483,6 +482,8 @@ export async function PATCH(
       } else if (input.action === "setRegistration") {
         if (!lead.expertOwnerId)
           return { status: 400 as const, error: "请先选择专家负责人" };
+        if (lead.batch.group.groupType === "HACKER" && !lead.expertIntroducedOn)
+          return { status: 400 as const, error: "请先填写推专家日期，再登记注册" };
         const dateError = entryDateError(input.occurredOn, today, "注册日期");
         if (dateError) return { status: 400 as const, error: dateError };
         if (lead.joinedOn && input.occurredOn < lead.joinedOn)
@@ -635,7 +636,7 @@ export async function PATCH(
         if (lead.leftOn)
           await syncCustomerGroupEvent(transaction, trackedLead, {
             businessDate: lead.leftOn,
-            kind: lead.leftWithOrder ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE",
+            kind: recordedLeaveKind(lead),
             delta: -1,
           });
         if (input.leaveType !== "NONE" && input.occurredOn)

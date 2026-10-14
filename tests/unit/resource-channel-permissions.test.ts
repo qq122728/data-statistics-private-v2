@@ -210,6 +210,23 @@ describe.sequential("resource department channel permissions", () => {
     expect(updated.status).toBe(200);
     const copies = await db.channel.findMany({ where: { id: channel.id }, select: { name: true } });
     expect(new Set(copies.map((copy) => copy.name))).toEqual(new Set([renamed]));
+
+    const laterGroupId = `${prefix}global-later-${randomUUID()}`;
+    const conflictingName = `${prefix}global-conflict-${randomUUID()}`;
+    await db.teamGroup.create({ data: { id: laterGroupId, name: laterGroupId } });
+    await db.channel.create({ data: {
+      id: `${prefix}unrelated-${randomUUID()}`,
+      groupId: laterGroupId,
+      name: conflictingName,
+      normalizedName: conflictingName,
+    } });
+    const duplicateName = await PATCH(new Request("http://localhost/api/admin/channels", {
+      method: "PATCH",
+      body: JSON.stringify({ global: true, id: channel.id, name: conflictingName }),
+    }));
+    expect(duplicateName.status).toBe(409);
+    await expect(db.channel.findMany({ where: { id: channel.id }, select: { name: true } }))
+      .resolves.toEqual(expect.arrayContaining([{ name: renamed }]));
   });
 
   it("lets a company manager manage only its own company channel catalog", async () => {

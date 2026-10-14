@@ -13,7 +13,7 @@ import { resolveUserBusinessTimezone } from "../../../lib/business-time";
 import { entryDateError } from "../../../lib/entry-date-validation";
 import { API_LIMITS, RequestBodyTooLargeError, readLimitedJson, rowsLimitError, tooLargeResponse } from "../../../lib/request-limits";
 import { authorizationDenied } from "../../../lib/security-events";
-import { syncCustomerOrderEvent } from "../../../lib/customer-number-event-sync";
+import { syncCustomerOrderEvent, syncCustomerRegistrationEvent } from "../../../lib/customer-number-event-sync";
 import { allocateCustomerStageNumber } from "../../../lib/customer-stage-number";
 
 type FieldErrors = Record<string, string[]>;
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
       const leadIds = validRows.map(({ row }) => row.leadId);
       const leads = await transaction.leadCustomer.findMany({
         where: { id: { in: leadIds } },
-        select: { id: true, phone: true, batchId: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, invalid: true, groupStatus: true, registeredOn: true, isHistoricalRecord: true, trackingArchivedAt: true },
+        select: { id: true, phone: true, batchId: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true, currentGroupId: true, invalid: true, groupStatus: true, joinedOn: true, expertIntroducedOn: true, registeredOn: true, isHistoricalRecord: true, trackingArchivedAt: true },
       });
       const leadById = new Map(leads.map((lead) => [lead.id, lead]));
       for (const { row, index } of validRows) {
@@ -138,8 +138,12 @@ export async function POST(request: Request) {
         const lead = leadById.get(row.leadId);
         const canOpen = Boolean(lead && batch && canWriteCustomerRevenue(actor, { batch, lead }));
         if (!lead || lead.trackingArchivedAt || !canOpen) fields[`rows.${index}.leadId`] = ["只能为当前跟进中的客户开单"];
-        else if (lead.groupStatus === "NOT_JOINED" || !lead.registeredOn) fields[`rows.${index}.leadId`] = ["客户进过群并注册后才能开单"];
-        else if (row.openedOn < lead.registeredOn) fields[`rows.${index}.openedOn`] = ["开单日期不能早于注册日期"];
+        else if (lead.groupStatus === "NOT_JOINED") fields[`rows.${index}.leadId`] = ["客户进过群后才能开单"];
+        else if (batch?.group.groupType === "HACKER" && !lead.expertIntroducedOn) fields[`rows.${index}.leadId`] = ["请先填写推专家日期，再登记首充"];
+        else if (!lead.registeredOn && !lead.expertOwnerId) fields[`rows.${index}.leadId`] = ["请先选择专家负责人，首充时才能自动补记注册"];
+        else if (!lead.registeredOn && lead.joinedOn && row.openedOn < lead.joinedOn) fields[`rows.${index}.openedOn`] = ["开单日期不能早于进群日期"];
+        else if (!lead.registeredOn && lead.expertIntroducedOn && row.openedOn < lead.expertIntroducedOn) fields[`rows.${index}.openedOn`] = ["开单日期不能早于推专家日期"];
+        else if (lead.registeredOn && row.openedOn < lead.registeredOn) fields[`rows.${index}.openedOn`] = ["开单日期不能早于注册日期"];
         else if (lead.batchId !== row.batchId || lead.phone !== row.phone) fields[`rows.${index}.leadId`] = ["开单号码与客户档案不一致"];
       }
       const existing = await transaction.customerOrder.findMany({ where: { phone: { in: validRows.map(({ row }) => row.phone) } }, select: { id: true, phone: true, voidedAt: true } });
@@ -153,6 +157,29 @@ export async function POST(request: Request) {
       for (const { row } of validRows) {
         const previous = existingByPhone.get(row.phone);
         const batch = batchById.get(row.batchId)!;
+        const lead = leadById.get(row.leadId)!;
+        if (!lead.registeredOn) {
+          const registrationQueueGroupId = lead.currentGroupId ?? batch.groupId;
+          const registrationQueueNumber = await allocateCustomerStageNumber(transaction, registrationQueueGroupId, "REGISTRATION", row.openedOn);
+          await transaction.leadCustomer.update({
+            where: { id: lead.id },
+            data: {
+              registeredOn: row.openedOn,
+              registrationQueueNumber,
+              registrationQueueGroupId,
+              expertWorkflowStage: "PENDING_ORDER",
+              expertStageChangedAt: new Date(),
+              ...(lead.isHistoricalRecord ? { historicalRegistrationCounted: true } : {}),
+            },
+          });
+          await transaction.leadActivity.create({
+            data: { leadId: lead.id, actorId: actor.id, kind: "REGISTERED", occurredOn: row.openedOn, note: "登记首充时自动补记注册；注册日期暂按首充日期" },
+          });
+          await syncCustomerRegistrationEvent(transaction, {
+            ...lead,
+            batch: { groupId: batch.groupId, channelId: batch.channelId },
+          }, row.openedOn);
+        }
         const orderQueueNumber = await allocateCustomerStageNumber(transaction, batch.groupId, "ORDER", row.openedOn);
         const order = previous?.voidedAt
           ? await transaction.customerOrder.update({ where: { id: previous.id }, data: { ...row, enteredById: actor.id, orderQueueNumber, orderQueueGroupId: batch.groupId, voidedAt: null, voidReason: null, voidedById: null } })
@@ -173,7 +200,6 @@ export async function POST(request: Request) {
             depositMethod: row.initialDepositMethod,
           },
         });
-        const lead = leadById.get(row.leadId)!;
         await syncCustomerOrderEvent(transaction, {
           ...lead, phone: row.phone,
           batch: { groupId: batch.groupId, channelId: batch.channelId },

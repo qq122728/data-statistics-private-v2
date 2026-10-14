@@ -34,11 +34,11 @@ export type CustomerStageInput = {
 export function deriveCustomerFollowUpStage(input: CustomerStageInput): CustomerFollowUpStage {
   // 无效库中的客户不再参与任何待办或转化阶段。
   if (input.invalid) return "INVALID";
-  if (input.groupStatus === "LEFT") return "LEFT_GROUP";
   if (input.order && !input.order.voidedAt) return "ORDERED";
   if (input.registeredOn) return "REGISTERED";
   if (input.expertIntroducedOn && !input.expertOwnerId) return "WAITING_EXPERT_ASSIGNMENT";
   if (input.expertIntroducedOn) return "EXPERT_INTRODUCED";
+  if (input.groupStatus === "LEFT") return "LEFT_GROUP";
   if (input.groupStatus === "JOINED") return "IN_GROUP";
   if (input.replyStatus === "REPLIED") return "REPLIED";
   return "NEW";

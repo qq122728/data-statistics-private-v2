@@ -1,16 +1,19 @@
 import { Prisma } from "@prisma/client";
 import { db } from "./db";
+import { normalizeCustomerPhone } from "./entry-ledger";
 
 export type CurrentInGroupCustomer = {
   groupId: string;
   channel: { id: string; name: string; normalizedName: string };
   member: { id: string; name: string };
+  operatorId?: string | null;
 };
 
 type LegacySheetData = {
   intakeOn?: unknown;
   channelId?: unknown;
   joinedOn?: unknown;
+  operatorId?: unknown;
   normalLeft?: unknown;
   normalLeftOn?: unknown;
   abnormalLeft?: unknown;
@@ -34,15 +37,16 @@ function legacyRowIsInGroup(data: LegacySheetData, asOf: string) {
     && !(data.abnormalLeft === true && abnormalLeftOn && abnormalLeftOn <= asOf);
 }
 
-async function loadLegacySheetCurrentInGroup(groupIds: string[], asOf: string): Promise<CurrentInGroupCustomer[]> {
+async function loadLegacySheetCurrentInGroup(groupIds: string[], asOf: string): Promise<Array<CurrentInGroupCustomer & { phone: string }>> {
   if (!groupIds.length) return [];
   const where = Prisma.join(groupIds.map((groupId) => Prisma.sql`
     ("groupId" = ${groupId} OR "data" LIKE ${`%"__statisticsGroupId":"${groupId}"%`})
   `), " OR ");
-  let rows: Array<{ groupId: string; ownerId: string; data: string }>;
+  let rows: Array<{ groupId: string; ownerId: string; phone: string; data: string }>;
   try {
-    rows = await db.$queryRaw<Array<{ groupId: string; ownerId: string; data: string }>>(Prisma.sql`
-      SELECT "groupId", "ownerId", "data" FROM "CustomerSheetRow" WHERE ${where}
+    rows = await db.$queryRaw<Array<{ groupId: string; ownerId: string; phone: string; data: string }>>(Prisma.sql`
+      SELECT "groupId", "ownerId", "phone", "data" FROM "CustomerSheetRow"
+      WHERE (${where}) AND "data" LIKE ${'%"joinedOn"%'}
     `);
   } catch (error) {
     // 新安装的数据库只使用 LeadCustomer，不会创建已退役的旧客户明细表。
@@ -61,21 +65,28 @@ async function loadLegacySheetCurrentInGroup(groupIds: string[], asOf: string): 
       const channelId = typeof data.channelId === "string" ? data.channelId : "";
       const ownerId = typeof data.__statisticsOwnerId === "string" && data.__statisticsOwnerId
         ? data.__statisticsOwnerId : row.ownerId;
-      return [{ groupId, channelId, ownerId }];
+      return [{ groupId, channelGroupId: row.groupId, channelId, ownerId, phone: row.phone,
+        operatorId: typeof data.operatorId === "string" ? data.operatorId : null }];
     } catch {
       return [];
     }
   });
   const [channels, people] = await Promise.all([
-    db.channel.findMany({ where: { id: { in: [...new Set(parsed.map((row) => row.channelId))] } }, select: { id: true, name: true, normalizedName: true } }),
+    db.channel.findMany({
+      where: {
+        id: { in: [...new Set(parsed.map((row) => row.channelId))] },
+        groupId: { in: [...new Set(parsed.map((row) => row.channelGroupId))] },
+      },
+      select: { id: true, groupId: true, name: true, normalizedName: true },
+    }),
     db.user.findMany({ where: { id: { in: [...new Set(parsed.map((row) => row.ownerId))] } }, select: { id: true, name: true } }),
   ]);
-  const channelsById = new Map(channels.map((channel) => [channel.id, channel]));
+  const channelsById = new Map(channels.map((channel) => [JSON.stringify([channel.groupId, channel.id]), channel]));
   const peopleById = new Map(people.map((person) => [person.id, person]));
   return parsed.flatMap((row) => {
-    const channel = channelsById.get(row.channelId);
+    const channel = channelsById.get(JSON.stringify([row.channelGroupId, row.channelId]));
     if (!channel) return [];
-    return [{ groupId: row.groupId, channel, member: peopleById.get(row.ownerId) ?? { id: row.ownerId, name: "历史归属" } }];
+    return [{ groupId: row.groupId, phone: row.phone, channel, member: peopleById.get(row.ownerId) ?? { id: row.ownerId, name: "历史归属" }, operatorId: row.operatorId }];
   });
 }
 
@@ -87,8 +98,7 @@ async function loadLegacySheetCurrentInGroup(groupIds: string[], asOf: string): 
  * 截止日重建真实存量，同时保留以前月份继续使用已封账日报的能力。
  *
  * 有些已在用小组的号码仍保存在旧客户明细表，尚未迁入 LeadCustomer。
- * 这类小组不能因为新版表为空就被误报为“当前在群 0”；每个小组优先读
- * 新表，只要该组尚无任何新表客户便回退到旧明细表。两份来源绝不混加。
+ * 同一小组可以同时使用两张表，按号码后六位只排除已迁入新版的旧行。
  */
 export async function loadCurrentInGroupCustomers(
   groupIds: string[],
@@ -112,7 +122,9 @@ export async function loadCurrentInGroupCustomers(
       joinedOn: { not: null, lte: asOf },
     },
     select: {
+      phone: true,
       currentGroupId: true,
+      groupOperatorOwnerId: true,
       owner: { select: { id: true, name: true } },
       attributionOwner: { select: { id: true, name: true } },
       batch: {
@@ -122,20 +134,36 @@ export async function loadCurrentInGroupCustomers(
         },
       },
     },
-    });
-  // 迁移过程中有些小组只产生过少量新版测试记录，但当前在群客户仍全部
-  // 留在旧明细。只有新版表实际查到当前在群客户时，才把它作为该小组的来源。
-  // 否则继续使用旧明细，避免“小组有一条新版记录”就把旧存量错误清零。
-  const groupsWithCurrentTrackedCustomers = new Set(rows.map((row) => row.currentGroupId ?? row.batch.groupId));
-  const legacyRows = await loadLegacySheetCurrentInGroup(
-    groupIds.filter((groupId) => !groupsWithCurrentTrackedCustomers.has(groupId)),
-    asOf,
-  );
+  });
+  const legacyRows = await loadLegacySheetCurrentInGroup(groupIds, asOf);
+  const legacyPhones = new Set<string>();
+  for (const row of legacyRows) {
+    try {
+      legacyPhones.add(normalizeCustomerPhone(row.phone));
+    } catch {
+      // 旧表的异常号码无法用于跨表去重，仍保留这条客户记录。
+    }
+  }
+  // 新表已有同号码的客户即代表迁移完成；即使后来退群，也不能让旧表
+  // 未同步的“在群”状态重新出现。新表号码在数据库中全局唯一。
+  const migratedRows = legacyPhones.size ? await db.leadCustomer.findMany({
+    where: { phone: { in: [...legacyPhones] }, joinedOn: { not: null, lte: asOf } },
+    select: { phone: true },
+  }) : [];
+  const migratedPhones = new Set(migratedRows.map((row) => row.phone));
   return [...rows.map((row) => ({
     groupId: row.currentGroupId ?? row.batch.groupId,
     channel: row.batch.channel,
     member: row.attributionOwner ?? row.owner,
-  })), ...legacyRows];
+    operatorId: row.groupOperatorOwnerId,
+  })), ...legacyRows.filter((row) => {
+    try {
+      return !migratedPhones.has(normalizeCustomerPhone(row.phone));
+    } catch {
+      // 老表可能保留无法解析的历史号码；不要因单行脏数据隐藏其他客户。
+      return true;
+    }
+  }).map(({ phone: _phone, ...row }) => row)];
 }
 
 export function countCurrentInGroup(

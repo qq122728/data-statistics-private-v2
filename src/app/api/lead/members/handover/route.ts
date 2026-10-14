@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     const activeTracking = activeCustomerTrackingWhere();
     const receptionWhere = { AND: [currentGroup, activeTracking], ownerId: source.id, joinedOn: null, receptionArchivedAt: null };
     const operatorWhere = { AND: [currentGroup, activeTracking], groupOperatorOwnerId: source.id, expertIntroducedOn: null, leftOn: null };
-    const expertWhere: Prisma.LeadCustomerWhereInput = { AND: [currentGroup, activeTracking], expertOwnerId: source.id, expertIntroducedOn: { not: null }, leftOn: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: ["STALLED", "DECLINED_DEPOSIT"] } }] };
+    const expertWhere: Prisma.LeadCustomerWhereInput = { AND: [currentGroup, activeTracking], expertOwnerId: source.id, expertIntroducedOn: { not: null }, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: ["STALLED", "DECLINED_DEPOSIT"] } }] };
     const [reception, operator, expert, physicalDevices, deviceAccounts] = await Promise.all([
       tx.leadCustomer.count({ where: receptionWhere }),
       tx.leadCustomer.count({ where: operatorWhere }),

@@ -48,6 +48,7 @@ type Entry = {
 type Context = {
   actorId: string;
   numberStockBaseline?: Record<string,number> | null;
+  currentInGroupCount: number;
   groupType: "HACKER" | "LAWYER";
   today: string;
   timezone: string;
@@ -217,6 +218,7 @@ function display(value: number, kind: Metric["kind"]) {
 export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; memberName: string }) {
   const [context, setContext] = useState<Context | null>(null);
   const [date, setDate] = useState("");
+  const [stockAtDate, setStockAtDate] = useState<{ date: string; values: Record<string, number>; total: number } | null>(null);
   const [grid, setGrid] = useState<Record<string, ChannelState>>({});
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState<Set<string>>(new Set());
@@ -268,6 +270,22 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    if (!context || !date || context.groupType !== "HACKER" || date < "2026-09-01") {
+      setStockAtDate(null);
+      return;
+    }
+    if (date === context.today) {
+      setStockAtDate({ date, values: context.numberStockBaseline ?? {}, total: context.currentInGroupCount });
+      return;
+    }
+    let cancelled = false;
+    void requestJson<Context>(`/api/daily-stats?to=${encodeURIComponent(date)}`)
+      .then((result) => { if (!cancelled) setStockAtDate({ date, values: result.numberStockBaseline ?? {}, total: result.currentInGroupCount }); })
+      .catch(() => { if (!cancelled) setStockAtDate(null); });
+    return () => { cancelled = true; };
+  }, [context, date]);
+
+  useEffect(() => {
     const handleDataUpdated = () => { void refresh(); };
     const handleFocus = () => { void refresh(); };
     const handleVisibility = () => { if (document.visibilityState === "visible") void refresh(); };
@@ -295,7 +313,9 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
       const entry = dailyEntries().find((item) => item.businessDate === date && item.channel.id === channel.id) ?? null;
       next[channel.id] = {
         values: { ...(entry ? { ...EMPTY_VALUES, ...entry.values } : { ...EMPTY_VALUES }), currentInGroupCount:context.groupType==="HACKER"
-          ? (dailyEntries().filter(e=>e.channel.id===channel.id&&e.businessDate<=date&&(date<"2026-09-01"||e.businessDate>="2026-09-01")).sort((a,b)=>b.businessDate.localeCompare(a.businessDate))[0]?.values.currentInGroupCount ?? (date>="2026-09-01"?context.numberStockBaseline?.[channel.id]??0:0))
+          ? (date >= "2026-09-01" && stockAtDate?.date === date
+            ? stockAtDate.values[channel.id] ?? 0
+            : dailyEntries().filter(e=>e.channel.id===channel.id&&e.businessDate<=date&&(date<"2026-09-01"||e.businessDate>="2026-09-01")).sort((a,b)=>b.businessDate.localeCompare(a.businessDate))[0]?.values.currentInGroupCount ?? 0)
           : dailyEntries().filter(e=>e.channel.id===channel.id&&e.businessDate<date).reduce((n,e)=>n+inGroupDelta(e.values),0)+inGroupDelta(entry?.values??EMPTY_VALUES) },
         sourceMode:entry?.sourceMode,
         entryId: entry?.entryId ?? null,
@@ -308,7 +328,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     setSavedAt("");
     setError("");
     editVersionRef.current = {};
-  }, [context, date]);
+  }, [context, date, stockAtDate]);
 
   const lawyerGroup = context?.groupType === "LAWYER";
   const metrics = [...(lawyerGroup ? LAWYER_DAILY_METRICS.filter((m) => !["cryptoDeposits", "bankDeposits", "lawyerWithdrawal"].includes(m.key)) : DAILY_METRICS.filter((m) => m.key !== "netPerformance")), ...FINANCE_METRICS];
@@ -405,7 +425,7 @@ export function UnifiedMemberDataSheet({ mode, memberName }: { mode: Mode; membe
     <div className="card unified-sheet-toolbar">
       <div>
         <strong>{mode === "finance" ? "我的财务填写" : lawyerGroup ? "我的律师组渠道数据" : "我的渠道数据"}</strong>
-        <span>{memberName} · {context.channels.length} 个渠道</span>
+        <span>{memberName} · {context.channels.length} 个渠道{!lawyerGroup && stockAtDate?.date === date ? ` · 当前在群 ${stockAtDate.total} 人` : ""}</span>
       </div>
       <details className="unified-help"><summary>{lawyerGroup?"填写说明":"统计说明"}</summary><div>{lawyerGroup?"按日期和渠道填写数量、金额，修改后自动保存。比率与灰底格自动计算。":"黑客组所有渠道均按客户号码和资金流水统计，不能手填数量或金额。添加按接粉日期，后续动作按发生日期计入；待进群只是全部客户的一部分。"}当前在群＝截至所选日期累计进群－累计正常退群－累计异常退群。发现差异请核对对应日期的原始记录。</div></details>
       <label><span>统计日期（北京时间 14:00 换日）</span><MonthDaySelect label="统计日期" max={context.today} value={date} onChange={setDate} clearable={false} disabled={Boolean(dirty.size||saving.size)}/></label>

@@ -37,6 +37,8 @@ describe("lead overdue supervision", () => {
     expect(classifyLeadOverdue({ ...base, groupStatus: "JOINED", expertIntroducedOn: "2026-08-10" }, "2026-08-11")).toMatchObject({ stage: "已推专家待联系", responsibleRole: "炒群岗", href: "/group-customers", overdueDays: 1 });
     expect(classifyLeadOverdue({ ...base, expertContactedOn: "2026-08-10" }, "2026-08-12")).toMatchObject({ stage: "待注册", overdueDays: 2 });
     expect(classifyLeadOverdue({ ...base, registeredOn: "2026-08-10" }, "2026-08-12")).toMatchObject({ stage: "待开单", overdueDays: 2 });
+    expect(classifyLeadOverdue({ ...base, groupStatus: "LEFT", expertIntroducedOn: "2026-08-10", registeredOn: "2026-08-10" }, "2026-08-12")).toMatchObject({ stage: "待开单", overdueDays: 2 });
+    expect(classifyLeadOverdue({ ...base, groupStatus: "LEFT" }, "2026-08-12")).toBeNull();
   });
 
   it("prioritizes an overdue explicit plan and excludes completed orders", () => {

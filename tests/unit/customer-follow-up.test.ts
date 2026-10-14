@@ -29,7 +29,13 @@ describe("customer follow-up rules", () => {
 
   it("closes customers that are in the invalid library", () => {
     expect(deriveCustomerFollowUpStage({ ...base, invalid: true, order: { voidedAt: null } })).toBe("INVALID");
-    expect(deriveCustomerFollowUpStage({ ...base, groupStatus: "LEFT", order: { voidedAt: null } })).toBe("LEFT_GROUP");
+    expect(deriveCustomerFollowUpStage({ ...base, groupStatus: "LEFT" })).toBe("LEFT_GROUP");
+  });
+
+  it("keeps the expert funnel open after group leave", () => {
+    expect(deriveCustomerFollowUpStage({ ...base, groupStatus: "LEFT", expertIntroducedOn: "2026-08-10", expertOwnerId: "expert-1" })).toBe("EXPERT_INTRODUCED");
+    expect(deriveCustomerFollowUpStage({ ...base, groupStatus: "LEFT", registeredOn: "2026-08-11" })).toBe("REGISTERED");
+    expect(deriveCustomerFollowUpStage({ ...base, groupStatus: "LEFT", order: { voidedAt: null } })).toBe("ORDERED");
   });
 
   it("does not count a voided order as opened", () => {

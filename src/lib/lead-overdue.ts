@@ -40,7 +40,8 @@ function days(from: string | null, today: string) {
 }
 
 export function classifyLeadOverdue(input: LeadOverdueInput, today: string): LeadOverdueRow | null {
-  if (input.groupStatus === "LEFT") return null;
+  // 退群只结束在群阶段；已经推专家的客户仍需跟进注册与开单。
+  if (input.groupStatus === "LEFT" && !input.expertIntroducedOn) return null;
 
   const base = {
     id: input.id,

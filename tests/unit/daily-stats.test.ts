@@ -192,7 +192,8 @@ describe.sequential("独立每日数据填写、修改与审核", () => {
     const response = await GET(new Request(`http://localhost/api/daily-stats?from=${date}&to=${date}`));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      currentInGroupCount: 1,
+      // 本用例只造了日报，没有造客户；截止日在群存量以客户状态为准。
+      currentInGroupCount: 0,
       unifiedEntries: [{
         entryId: numberId,
         sourceMode: "NUMBER",

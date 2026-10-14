@@ -479,21 +479,42 @@ export function ManagerAccounts({ companies, notify, onTransfer, resourceOnly = 
 }
 
 function ChannelResources() {
-  const [channels, setChannels] = useState<ChannelCatalogItem[]>([]); const [name, setName] = useState(""); const [channelType, setChannelType] = useState<"ADS" | "SMS" | "REBATE">("ADS"); const [reason, setReason] = useState(""); const [currentPassword, setCurrentPassword] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
+  const [channels, setChannels] = useState<ChannelCatalogItem[]>([]); const [name, setName] = useState(""); const [channelType, setChannelType] = useState<"ADS" | "SMS" | "REBATE">("ADS"); const [reason, setReason] = useState(""); const [currentPassword, setCurrentPassword] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [success, setSuccess] = useState("");
+  const [editing, setEditing] = useState<ChannelCatalogItem | null>(null); const [editName, setEditName] = useState(""); const [editActive, setEditActive] = useState(true); const [editReason, setEditReason] = useState(""); const [editPassword, setEditPassword] = useState(""); const [editBusy, setEditBusy] = useState(false);
   const load = useCallback(() => requestJson<{ channels: ChannelCatalogItem[] }>("/api/admin/channels").then((value) => setChannels(value.channels)), []);
   useEffect(() => { void load().catch((caught) => setError(caught instanceof Error ? caught.message : "渠道读取失败")); }, [load]);
+  function closeEdit() { setEditing(null); setEditName(""); setEditReason(""); setEditPassword(""); }
+  function openEdit(channel: ChannelCatalogItem) { setError(""); setSuccess(""); setEditing(channel); setEditName(channel.name); setEditActive(channel.active); setEditReason(""); setEditPassword(""); }
   async function create(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError("");
+    event.preventDefault(); setBusy(true); setError(""); setSuccess("");
     try {
       await requestJson("/api/admin/channels", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ global: true, name, channelType, highRiskReason: reason, currentPassword }) });
-      setName(""); setReason(""); setCurrentPassword(""); await load();
+      setName(""); setReason(""); setCurrentPassword(""); setSuccess("渠道已创建");
+      await load().catch(() => setError("渠道已创建，但列表刷新失败，请刷新页面查看"));
     } catch (caught) { setError(caught instanceof Error ? caught.message : "渠道创建失败"); }
     finally { setBusy(false); }
   }
+  async function saveEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editing) return;
+    const changes = {
+      ...(editName.trim() !== editing.name ? { name: editName.trim() } : {}),
+      ...(editActive !== editing.active ? { active: editActive } : {}),
+    };
+    if (!Object.keys(changes).length) return;
+    setEditBusy(true); setError(""); setSuccess("");
+    try {
+      await requestJson("/api/admin/channels", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ global: true, id: editing.id, ...changes, highRiskReason: editReason, currentPassword: editPassword }) });
+      closeEdit(); setSuccess("渠道已更新");
+      await load().catch(() => setError("渠道已保存，但列表刷新失败，请刷新页面查看"));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "渠道修改失败"); }
+    finally { setEditBusy(false); }
+  }
   return <>
     <section className={styles.info}><strong>第 1 步先建立渠道，第 2 步再到“人员与岗位”开资源账号</strong><span>渠道分为投流、短信和底料；新版渠道不保存固定有效粉单价，金额以客户订单和资金明细为准。</span></section>
-    <form className={styles.inlineCreate} onSubmit={create}><label>渠道名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：律师底料" required /></label><label>渠道类型<select value={channelType} onChange={(event) => setChannelType(event.target.value as typeof channelType)}><option value="ADS">投流</option><option value="SMS">短信</option><option value="REBATE">底料</option></select></label><label>创建原因<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="至少 4 个字" minLength={4} required /></label><label>当前账号密码<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label><button disabled={busy}>{busy ? "创建中…" : "创建渠道"}</button></form>
+    <form className={styles.inlineCreate} onSubmit={create}><label>渠道名称<input value={name} onChange={(event) => setName(event.target.value)} placeholder="例如：律师底料" maxLength={100} required /></label><label>渠道类型<select value={channelType} onChange={(event) => setChannelType(event.target.value as typeof channelType)}><option value="ADS">投流</option><option value="SMS">短信</option><option value="REBATE">底料</option></select></label><label>创建原因<input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="至少 4 个字" minLength={4} maxLength={500} required /></label><label>当前账号密码<input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required /></label><button disabled={busy || editBusy}>{busy ? "创建中…" : "创建渠道"}</button></form>
     {error ? <div className={styles.error}>{error}</div> : null}
-    <section className={styles.card}><div className={styles.cardHead}><div><h2>渠道目录</h2><p>创建后覆盖所有启用小组，再按渠道给资源账号授权</p></div><strong>{channels.length} 个</strong></div><div className={styles.tableWrap}><table><thead><tr><th>渠道</th><th>类型</th><th>覆盖小组</th><th title="旧版来源批次数，不包含新版按号码导入的客户">旧版批次</th><th>状态</th></tr></thead><tbody>{channels.map((channel) => <tr key={channel.id}><td><strong>{channel.name}</strong></td><td>{{ SMS: "短信粉", ADS: "投流粉", REBATE: "底料返点" }[channel.channelType]}</td><td>{channel.groupCount}</td><td>{channel.batchCount}</td><td>{channel.active ? "启用" : "停用"}</td></tr>)}</tbody></table></div></section>
+    {success ? <div className={styles.success}>{success}</div> : null}
+    <section className={styles.card}><div className={styles.cardHead}><div><h2>渠道目录</h2><p>可修改名称和启停状态；改名会同步显示在历史报表，渠道类型需保持原样</p></div><strong>{channels.length} 个</strong></div><div className={styles.tableWrap}><table><thead><tr><th>渠道</th><th>类型</th><th>覆盖小组</th><th title="旧版来源批次数，不包含新版按号码导入的客户">旧版批次</th><th>状态</th><th>操作</th></tr></thead><tbody>{channels.map((channel) => <Fragment key={channel.id}><tr><td><strong>{channel.name}</strong></td><td>{{ SMS: "短信粉", ADS: "投流粉", REBATE: "底料返点" }[channel.channelType]}</td><td>{channel.groupCount}</td><td>{channel.batchCount}</td><td>{channel.active ? "启用" : "停用"}</td><td className={styles.channelRowActions}><button type="button" disabled={busy || editBusy} onClick={() => editing?.id === channel.id ? closeEdit() : openEdit(channel)}>{editing?.id === channel.id ? "收起" : "编辑"}</button></td></tr>{editing?.id === channel.id ? <tr><td colSpan={6} className={styles.channelEditPanel}><form className={styles.channelEditForm} onSubmit={saveEdit}><label>渠道名称<input value={editName} onChange={(event) => setEditName(event.target.value)} maxLength={100} required disabled={editBusy} /></label><label>状态<select value={editActive ? "active" : "inactive"} onChange={(event) => setEditActive(event.target.value === "active")} disabled={editBusy}><option value="active">启用</option><option value="inactive">停用</option></select></label><label>修改原因<input value={editReason} onChange={(event) => setEditReason(event.target.value)} minLength={4} maxLength={500} required disabled={editBusy} placeholder="至少 4 个字" /></label><label>当前账号密码<input type="password" autoComplete="current-password" value={editPassword} onChange={(event) => setEditPassword(event.target.value)} required disabled={editBusy} /></label><div className={styles.channelEditActions}><button type="submit" disabled={editBusy || (!editName.trim() || (editName.trim() === editing.name && editActive === editing.active))}>{editBusy ? "保存中…" : "保存修改"}</button><button type="button" onClick={closeEdit} disabled={editBusy}>取消</button></div><p>渠道类型固定为{{ SMS: "短信粉", ADS: "投流粉", REBATE: "底料返点" }[channel.channelType]}。如果类型录错，请新建正确类型的渠道，再停用旧渠道。</p></form></td></tr> : null}</Fragment>)}</tbody></table></div></section>
   </>;
 }

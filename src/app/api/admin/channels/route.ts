@@ -411,6 +411,21 @@ export async function PATCH(request: Request) {
         const { group: _group, ...unchanged } = existing;
         return { ...unchanged, ...(globalRequest ? { global: true, groupCount: copies.length } : companyRequest ? { company: true, groupCount: copies.length } : {}) };
       }
+      if (data.normalizedName && await client.channel.findFirst({
+        where: {
+          normalizedName: data.normalizedName,
+          id: { not: existing.id },
+          ...(companyRequest
+            ? { group: { department: { companyId: scopedCompanyId } } }
+            : globalRequest ? {} : { groupId: existing.groupId }),
+        },
+        select: { id: true },
+      })) {
+        return {
+          error: globalRequest ? "该全局渠道已经存在" : companyRequest ? "本公司已有同名渠道" : "该小组已有同名渠道",
+          status: 409 as const,
+        };
+      }
       if (
         !catalogRequest &&
         data.active === true &&

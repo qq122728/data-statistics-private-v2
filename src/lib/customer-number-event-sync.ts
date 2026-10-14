@@ -18,11 +18,16 @@ export type NumberTrackedCustomerProgress = NumberTrackedLead & {
   joinedOn: string | null;
   leftOn: string | null;
   leftWithOrder: boolean | null;
+  leftAutomatically?: boolean;
   expertIntroducedOn: string | null;
   expertContactedOn: string | null;
   registeredOn: string | null;
   customerOrder?: { openedOn: string; voidedAt: Date | null } | null;
 };
+
+export function recordedLeaveKind(lead: Pick<NumberTrackedCustomerProgress, "leftAutomatically" | "leftWithOrder">) {
+  return lead.leftAutomatically || lead.leftWithOrder ? "NORMAL_LEAVE" as const : "ABNORMAL_LEAVE" as const;
+}
 
 function receptionOwnerId(lead: NumberTrackedLead) {
   return lead.attributionOwnerId ?? lead.ownerId;
@@ -404,7 +409,7 @@ async function removeAllRecordedCustomerEvents(
   if (lead.leftOn) await removeRecordedEventFromBusinessAttribution(tx, lead, {
     businessDate: lead.leftOn,
     position: "GROUP_OPERATOR",
-    metric: lead.leftWithOrder ? "normalLeaveCount" : "abnormalLeaveCount",
+    metric: recordedLeaveKind(lead) === "NORMAL_LEAVE" ? "normalLeaveCount" : "abnormalLeaveCount",
   });
   if (lead.expertIntroducedOn) {
     await removeRecordedEventFromBusinessAttribution(tx, lead, {
@@ -431,7 +436,7 @@ async function addAllRecordedCustomerEvents(tx: Prisma.TransactionClient, lead: 
   if (lead.joinedOn) await syncCustomerGroupEvent(tx, lead, { businessDate: lead.joinedOn, kind: "JOIN" });
   if (lead.leftOn) await syncCustomerGroupEvent(tx, lead, {
     businessDate: lead.leftOn,
-    kind: lead.leftWithOrder ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE",
+    kind: recordedLeaveKind(lead),
   });
   if (lead.expertIntroducedOn) {
     await syncCustomerGroupEvent(tx, lead, { businessDate: lead.expertIntroducedOn, kind: "EXPERT_INTRO" });

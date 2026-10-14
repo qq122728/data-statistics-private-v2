@@ -15,6 +15,7 @@ import { statisticsDateContext } from "../../../lib/statistics-date";
 import { frontlineMemberRoles, isFrontlineGroupMember } from "../../../lib/role-access";
 import { authorizationDenied, type SecurityEventActor } from "../../../lib/security-events";
 import { CUSTOMER_NUMBER_TRACKING_FROM, NUMBER_TRACKED_DAILY_FIELDS, usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
+import { loadCurrentInGroupCustomers } from "../../../lib/current-in-group-customers";
 
 function errorResponse(error: unknown, actor?: SecurityEventActor) {
   if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });
@@ -279,33 +280,43 @@ export async function GET(request: Request) {
       };
     }).sort((left, right) => right.businessDate.localeCompare(left.businessDate) || left.channel.name.localeCompare(right.channel.name, "zh-CN"));
     const dateContext = statisticsDateContext();
-    // “当前在群”是截止日存量，不能把区间内每天的快照相加。
-    // 从本人各渠道最近的号码账取一次，且不受上方历史明细 200 行上限影响。
-    const stockEntries = group.groupType === "HACKER"
-      ? await db.dailyStatEntry.findMany({
-          where: {
-            ownerId: actor.id,
-            groupId,
-            sourceMode: "NUMBER",
-            position: "RECEPTION",
-            businessDate: { lte: to ?? dateContext.today },
-            approvedRevisionId: { not: null },
-          },
-          select: {
-            channelId: true,
-            businessDate: true,
-            approvedRevision: { select: { currentInGroupCount: true } },
-          },
-          orderBy: { businessDate: "desc" },
-        })
-      : [];
-    const latestStockByChannel = new Map<string, number>();
-    for (const entry of stockEntries) {
-      if (!latestStockByChannel.has(entry.channelId)) {
-        latestStockByChannel.set(entry.channelId, entry.approvedRevision?.currentInGroupCount ?? 0);
+    const asOf = to ?? dateContext.today;
+    let currentInGroupCount = 0;
+    const numberStockBaseline: Record<string, number> = {};
+    if (group.groupType === "HACKER" && usesCustomerNumberTracking(asOf)) {
+      // 新口径与组长、管理报表共用客户存量，避免日报快照漏掉旧表客户。
+      const customers = await loadCurrentInGroupCustomers([groupId], asOf);
+      for (const customer of customers) {
+        if (customer.member.id !== actor.id && customer.operatorId !== actor.id) continue;
+        currentInGroupCount += 1;
+        numberStockBaseline[customer.channel.id] = (numberStockBaseline[customer.channel.id] ?? 0) + 1;
       }
+    } else if (group.groupType === "HACKER") {
+      // 切换前的历史日期仍按当时已审核的日报口径查询。
+      const stockEntries = await db.dailyStatEntry.findMany({
+        where: {
+          ownerId: actor.id,
+          groupId,
+          sourceMode: "NUMBER",
+          position: "RECEPTION",
+          businessDate: { lte: asOf },
+          approvedRevisionId: { not: null },
+        },
+        select: {
+          channelId: true,
+          businessDate: true,
+          approvedRevision: { select: { currentInGroupCount: true } },
+        },
+        orderBy: { businessDate: "desc" },
+      });
+      const latestStockByChannel = new Map<string, number>();
+      for (const entry of stockEntries) {
+        if (!latestStockByChannel.has(entry.channelId)) {
+          latestStockByChannel.set(entry.channelId, entry.approvedRevision?.currentInGroupCount ?? 0);
+        }
+      }
+      currentInGroupCount = [...latestStockByChannel.values()].reduce((total, count) => total + count, 0);
     }
-    const currentInGroupCount = [...latestStockByChannel.values()].reduce((total, count) => total + count, 0);
     return NextResponse.json({
       actorId: actor.id,
       groupType: group.groupType,
@@ -328,6 +339,7 @@ export async function GET(request: Request) {
       })),
       sourceReceptionPairings,
       currentInGroupCount,
+      numberStockBaseline,
       entries: entries.map(publicDailyStat),
       // 新组员页面使用这个单行视图；entries 继续保留给旧页面和历史审计。
       unifiedEntries,

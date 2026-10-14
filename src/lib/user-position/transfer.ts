@@ -138,7 +138,6 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
     AND: [currentGroupWhere, activeTracking],
     expertOwnerId: member.id,
     expertIntroducedOn: { not: null },
-    leftOn: null,
     OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: [...abandonedExpertStages] } }],
   } satisfies Prisma.LeadCustomerWhereInput;
   // STALLED（停止维护）按需求文档8.2定义只能在已开单后发生（markExpertStalled
@@ -159,7 +158,7 @@ export async function transferUserPosition(params: TransferUserPositionParams): 
   const movingResponsibilityWhere: Prisma.LeadCustomerWhereInput[] = [];
   if (targetRoles.has("RECEPTION")) movingResponsibilityWhere.push({ ownerId: member.id, joinedOn: null, receptionArchivedAt: null });
   if (targetRoles.has("GROUP_OPERATOR")) movingResponsibilityWhere.push({ groupOperatorOwnerId: member.id, expertIntroducedOn: null, leftOn: null });
-  if (targetRoles.has("EXPERT")) movingResponsibilityWhere.push({ expertOwnerId: member.id, expertIntroducedOn: { not: null }, leftOn: null, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: [...abandonedExpertStages] } }] });
+  if (targetRoles.has("EXPERT")) movingResponsibilityWhere.push({ expertOwnerId: member.id, expertIntroducedOn: { not: null }, OR: [{ expertWorkflowStage: null }, { expertWorkflowStage: { notIn: [...abandonedExpertStages] } }] });
   const movingCustomerWhere = {
     AND: [
       currentGroupWhere,

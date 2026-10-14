@@ -66,7 +66,7 @@ export async function planSheetImport(actorId:string,raw:unknown,commit=false){
     if(Number(final.firstDeposit)>0&&!final.firstDepositOn)throw new SheetError("请补充首充 / 开单日期");
     if(Number(final.investmentTotal)>0&&Number(final.investmentTotal)!==Number(final.firstDeposit||0)&&!old)throw new SheetError("续充请通过资金流水登记金额、日期和方式，不能只导入投资总额");
     if(final.normalLeft===true&&final.abnormalLeft===true)throw new SheetError("正常退群和异常退群不能同时为是，请处理冲突");
-    const prepared={...final};prepareNumberData(prepared,previous);validateReplyBeforeJoin(prepared,previous);
+    const prepared={...final};prepareNumberData(prepared,previous,access.group.groupType==="HACKER");validateReplyBeforeJoin(prepared,previous);
     if(!old&&!access.lead){
      const assignedExpertCreatesOldCustomer=final.expertId===actorId&&hasAssignedRole(access.actor,"EXPERT")&&Boolean(final.expertOn);
      if(final.ownerId!==actorId&&!assignedExpertCreatesOldCustomer)throw new SheetError("只有组长或当前专家负责人可以选择其他接粉归属");

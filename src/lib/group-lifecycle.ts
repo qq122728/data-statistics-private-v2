@@ -29,39 +29,51 @@ export async function autoMarkExpiredGroupMemberships(input: {
       trackingArchivedAt: null,
       groupStatus: "JOINED",
       joinedOn: { lte: cutoff },
-      ...(input.groupIds?.length ? { batch: { groupId: { in: input.groupIds } } } : {}),
+      ...(input.groupIds?.length ? { OR: [
+        { currentGroupId: { in: input.groupIds } },
+        { currentGroupId: null, batch: { groupId: { in: input.groupIds } } },
+      ] } : {}),
     },
-    select: {
-      id: true, phone: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true,
-      currentGroupId: true, isHistoricalRecord: true,
-      batch: { select: { groupId: true, channelId: true } },
-      customerOrder: { select: { voidedAt: true } },
-    },
+    select: { id: true },
   });
   if (!due.length) return { checkedThrough: cutoff, updated: 0 };
-  const updated = await client.$transaction(async (tx) => {
-    let count = 0;
-    for (const lead of due) {
+  let updated = 0;
+  // 每位客户各自提交；大量历史客户补处理时不会撞上单个大事务的超时。
+  // 中途失败后重新运行，只会处理仍在群的客户。
+  for (const candidate of due) {
+    const changed = await client.$transaction(async (tx) => {
+      const lead = await tx.leadCustomer.findUnique({
+        where: { id: candidate.id },
+        select: {
+          id: true, phone: true, ownerId: true, attributionOwnerId: true, groupOperatorOwnerId: true, expertOwnerId: true,
+          currentGroupId: true, isHistoricalRecord: true, joinedOn: true, groupStatus: true, trackingArchivedAt: true,
+          batch: { select: { groupId: true, channelId: true } },
+          customerOrder: { select: { voidedAt: true } },
+        },
+      });
+      if (!lead || lead.trackingArchivedAt || lead.groupStatus !== "JOINED" || !lead.joinedOn || lead.joinedOn > cutoff) return false;
       const groupId = lead.currentGroupId ?? lead.batch.groupId;
-      const leaveQueueNumber = await allocateCustomerStageNumber(tx, groupId, "LEAVE", input.today);
+      if (input.groupIds?.length && !input.groupIds.includes(groupId)) return false;
       const result = await tx.leadCustomer.updateMany({
-        where: { id: lead.id, trackingArchivedAt: null, groupStatus: "JOINED" },
+        where: { id: lead.id, trackingArchivedAt: null, groupStatus: "JOINED", joinedOn: { lte: cutoff } },
         data: {
-          groupStatus: "LEFT", leftOn: input.today, leaveQueueNumber, leaveQueueGroupId: groupId,
+          groupStatus: "LEFT", leftOn: input.today,
           leftAutomatically: true,
           leftWithOrder: Boolean(lead.customerOrder && !lead.customerOrder.voidedAt),
-          leftNote: "系统：在群超过14天自动退群",
+          leftNote: "系统：满14天后自动退群（正常退群）",
           ...(lead.isHistoricalRecord ? { historicalLeaveCounted: true } : {}),
         },
       });
-      if (!result.count) continue;
-      count += result.count;
+      if (!result.count) return false;
+      const leaveQueueNumber = await allocateCustomerStageNumber(tx, groupId, "LEAVE", input.today);
+      await tx.leadCustomer.update({ where: { id: lead.id }, data: { leaveQueueNumber, leaveQueueGroupId: groupId } });
       await syncCustomerGroupEvent(tx, { ...lead, batch: { groupId, channelId: lead.batch.channelId } }, {
         businessDate: input.today,
-        kind: lead.customerOrder && !lead.customerOrder.voidedAt ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE",
+        kind: "NORMAL_LEAVE",
       });
-    }
-    return count;
-  });
+      return true;
+    }, { timeout: 15000 });
+    if (changed) updated += 1;
+  }
   return { checkedThrough: cutoff, updated };
 }

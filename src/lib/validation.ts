@@ -194,7 +194,7 @@ export const historyGroupUpdateSchema = z.object({
 
 const customerOrderInputSchema = z.object({
   batchId: z.string().min(1).max(API_LIMITS.identifierCharacters),
-  leadId: z.string().min(1, "请从已注册客户中选择开单号码").max(API_LIMITS.identifierCharacters),
+  leadId: z.string().min(1, "请选择客户号码；漏记注册会在首充时自动补记").max(API_LIMITS.identifierCharacters),
   openedOn: date,
   phone: z.string().trim().min(1, "请输入开单号码").max(80, "客户编号不能超过 80 个字符"),
   initialDepositCents: positiveInteger,

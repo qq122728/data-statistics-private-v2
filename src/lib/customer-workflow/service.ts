@@ -9,7 +9,7 @@ import type { CustomerWorkflowInput } from "./input";
 import { buildBasicCustomerMutation } from "./mutations";
 import { resolveExpertWorkflowStage } from "../expert-workflow-stage";
 import { leadCurrentGroupId } from "../customer-current-group";
-import { syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerOrderEvent, syncCustomerRegistrationEvent } from "../customer-number-event-sync";
+import { recordedLeaveKind, syncCustomerExpertEvent, syncCustomerGroupEvent, syncCustomerOrderEvent, syncCustomerRegistrationEvent } from "../customer-number-event-sync";
 import { allocateCustomerStageNumber } from "../customer-stage-number";
 
 type WorkflowActor = {
@@ -44,7 +44,7 @@ export async function executeCustomerWorkflow(
 
     const lead = await transaction.leadCustomer.findUnique({
       where: { id: leadId },
-      include: { batch: { select: { groupId: true, channelId: true } }, customerOrder: { select: { id: true, voidedAt: true, openedOn: true, initialDepositCents: true, initialDepositMethod: true } } },
+      include: { batch: { select: { groupId: true, channelId: true, group: { select: { groupType: true } } } }, customerOrder: { select: { id: true, voidedAt: true, openedOn: true, initialDepositCents: true, initialDepositMethod: true } } },
     });
     if (!lead) return { status: 404 as const, error: "客户不存在" };
     if (lead.trackingArchivedAt)
@@ -252,6 +252,8 @@ export async function executeCustomerWorkflow(
     }
 
     if (input.action === "register") {
+      if (lead.batch.group.groupType === "HACKER" && !lead.expertIntroducedOn)
+        return { status: 400 as const, error: "请先填写推专家日期，再登记注册" };
       if (currentExpertStage !== "PENDING_REGISTRATION")
         return { status: 400 as const, error: "客户需先转为待注册，才能确认注册" };
       const compatibleTrackingStartedAt = lead.expertTrackingStartedAt
@@ -445,7 +447,7 @@ export async function executeCustomerWorkflow(
     } else if (input.action === "undoJoinGroup" && lead.joinedOn) {
       await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: lead.joinedOn, kind: "JOIN", delta: -1 });
     } else if (input.action === "undoLeaveGroup" && lead.leftOn) {
-      await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: lead.leftOn, kind: lead.leftWithOrder ? "NORMAL_LEAVE" : "ABNORMAL_LEAVE", delta: -1 });
+      await syncCustomerGroupEvent(transaction, trackedLead, { businessDate: lead.leftOn, kind: recordedLeaveKind(lead), delta: -1 });
     } else if (input.action === "undoIntroduceExpert" && lead.expertIntroducedOn) {
       await syncCustomerGroupEvent(transaction, { ...trackedLead, groupOperatorOwnerId: lead.groupOperatorOwnerId }, { businessDate: lead.expertIntroducedOn, kind: "EXPERT_INTRO", delta: -1 });
       await syncCustomerExpertEvent(transaction, { ...trackedLead, groupOperatorOwnerId: lead.groupOperatorOwnerId, expertOwnerId: lead.expertOwnerId }, { businessDate: lead.expertIntroducedOn, kind: "RECEIVED", delta: -1 });

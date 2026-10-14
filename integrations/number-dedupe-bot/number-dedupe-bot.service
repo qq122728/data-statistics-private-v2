@@ -1,0 +1,27 @@
+[Unit]
+Description=Independent Telegram number deduplication bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=number-dedupe-bot
+Group=number-dedupe-bot
+WorkingDirectory=/opt/number-dedupe-bot/current
+EnvironmentFile=/etc/number-dedupe-bot.env
+ExecStart=/opt/number-dedupe-bot/current/.venv/bin/python bot.py
+StateDirectory=number-dedupe-bot
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+MemoryMax=2G
+TasksMax=64
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/number-dedupe-bot
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Mark expired data statistics group memberships as left
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=data-statistics
+Group=data-statistics
+WorkingDirectory=/opt/data-statistics-v2/current/backend
+EnvironmentFile=/etc/data-statistics/app.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/flock -n /opt/data-statistics-v2/shared/group-auto-leave.lock /opt/data-statistics-v2/current/backend/node_modules/.bin/tsx /opt/data-statistics-v2/current/backend/scripts/ops/auto-leave-groups.ts --execute
+TimeoutStartSec=30min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/data-statistics-v2/shared
+UMask=0077

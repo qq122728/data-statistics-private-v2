@@ -1,0 +1,11 @@
+[Unit]
+Description=Close expired group memberships at the Beijing statistics day rollover
+
+[Timer]
+OnCalendar=*-*-* 14:05:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=data-statistics-group-auto-leave.service
+
+[Install]
+WantedBy=timers.target

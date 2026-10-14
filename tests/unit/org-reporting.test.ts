@@ -1740,6 +1740,73 @@ describe.sequential("资源部真实报表快照", () => {
 });
 
 describe.sequential("新版客户进度 API", () => {
+  it("退群后仍可推专家和开单，首充自动补注册且退群记录保留", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-03T03:30:00Z"));
+    try {
+      await signIn(ids.berlinReception);
+      const created = await postLeadCustomerReporting(
+        new Request("http://localhost/api/lead/customer-reporting", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            phone: String(Math.floor(100000 + Math.random() * 899999)),
+            channelId: id("berlin-channel"),
+            sourceDate: "2026-09-01",
+            joinedOn: "2026-09-01",
+            groupOperatorOwnerId: ids.berlinOperatorA,
+            deviceCode: "退群后继续跟进设备",
+          }),
+        }),
+      );
+      expect(created.status).toBe(201);
+      const customer = (await created.json()) as { id: string; phone: string };
+      const patch = (body: Record<string, unknown>) => patchSharedCustomer(
+        new Request(`http://localhost/api/lead/customer-reporting/${customer.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+        { params: Promise.resolve({ leadId: customer.id }) },
+      );
+      await signIn(ids.berlinOperatorA);
+      expect((await patch({ action: "setLeave", leaveType: "NORMAL", occurredOn: "2026-09-02" })).status).toBe(200);
+      await db.leadCustomer.update({ where: { id: customer.id }, data: { expertOwnerId: ids.berlinExpert } });
+      await signIn(ids.berlinExpert);
+      const missingExpertDate = await patch({ action: "setRegistration", occurredOn: "2026-09-03" });
+      expect(missingExpertDate.status).toBe(400);
+      expect((await missingExpertDate.json()).error).toContain("请先填写推专家日期");
+      const beforeExpertDate = await db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id } });
+      const blockedOrder = await postCustomerOrder(new Request("http://localhost/api/customer-orders", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ batchId: beforeExpertDate.batchId, leadId: customer.id, phone: customer.phone, openedOn: "2026-09-03", initialDepositCents: 10_000, initialDepositMethod: "BANK" }),
+      }));
+      expect(blockedOrder.status).toBe(400);
+      expect((await blockedOrder.json()).fields["rows.0.leadId"][0]).toContain("请先填写推专家日期");
+      await db.leadCustomer.update({ where: { id: customer.id }, data: { expertOwnerId: null } });
+      await signIn(ids.berlinOperatorA);
+      expect((await patch({ action: "assignExpert", userId: ids.berlinExpert, expertDeviceAccountNumber: "EXPERT-AFTER-LEAVE", occurredOn: "2026-09-03" })).status).toBe(200);
+      await signIn(ids.berlinExpert);
+      const lead = await db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id } });
+      expect(lead.registeredOn).toBeNull();
+      expect((await postCustomerOrder(new Request("http://localhost/api/customer-orders", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ batchId: lead.batchId, leadId: customer.id, phone: customer.phone, openedOn: "2026-09-03", initialDepositCents: 10_000, initialDepositMethod: "BANK" }),
+      }))).status).toBe(201);
+      await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: customer.id } })).resolves.toMatchObject({
+        groupStatus: "LEFT", joinedOn: "2026-09-01", leftOn: "2026-09-02",
+        expertIntroducedOn: "2026-09-03", registeredOn: "2026-09-03",
+      });
+      await db.customerOrder.deleteMany({ where: { leadId: customer.id } });
+      await db.leadActivity.deleteMany({ where: { leadId: customer.id } });
+      await db.leadCustomer.delete({ where: { id: customer.id } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("历史接粉和历史进群可以恢复号码，但不会补写旧月份统计", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-02T03:30:00Z"));

@@ -346,16 +346,16 @@ export async function loadManagementOverview(
     count: 1,
   });
   const unassignedExperts = flowLeads
-    .filter((lead) => lead.groupStatus === "JOINED" && lead.expertIntroducedOn && !lead.expertOwnerId)
+    .filter((lead) => lead.expertIntroducedOn && !lead.expertOwnerId)
     .map((lead) => customerAlert(lead, "已推专家但尚未分配负责人"));
   const registrationOverdue = flowLeads
-    .filter((lead) => lead.groupStatus === "JOINED" && lead.expertOwnerId && lead.expertIntroducedOn && lead.expertIntroducedOn <= timeoutCutoff && !lead.registeredOn)
+    .filter((lead) => lead.expertOwnerId && lead.expertIntroducedOn && lead.expertIntroducedOn <= timeoutCutoff && !lead.registeredOn)
     .map((lead) => customerAlert(lead, "推专家满 3 天仍未注册"));
   const orderOverdue = flowLeads
-    .filter((lead) => lead.groupStatus === "JOINED" && lead.registeredOn && lead.registeredOn <= timeoutCutoff && (!lead.customerOrder || lead.customerOrder.voidedAt))
+    .filter((lead) => lead.registeredOn && lead.registeredOn <= timeoutCutoff && (!lead.customerOrder || lead.customerOrder.voidedAt))
     .map((lead) => customerAlert(lead, "注册满 3 天仍未开单"));
   const planOverdue = flowLeads
-    .filter((lead) => lead.groupStatus !== "LEFT" && lead.nextFollowUpOn && lead.nextFollowUpOn < today)
+    .filter((lead) => (lead.groupStatus !== "LEFT" || Boolean(lead.expertIntroducedOn)) && lead.nextFollowUpOn && lead.nextFollowUpOn < today)
     .map((lead) => customerAlert(lead, "下一步计划已逾期"));
 
   const groupComparison = groupMetadata.map((group) => {

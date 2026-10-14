@@ -7,6 +7,10 @@ import { POST as postEvents } from "../../src/app/api/events/route";
 import { GET as getCustomerOrders, POST as postCustomerOrders } from "../../src/app/api/customer-orders/route";
 import { POST as postCustomerFinance } from "../../src/app/api/customer-finance/route";
 import { autoMarkExpiredGroupMemberships, automaticLeaveCutoff } from "../../src/lib/group-lifecycle";
+import { autoMarkExpiredLegacyGroupMemberships, countExpiredLegacyGroupMemberships } from "../../src/lib/legacy-group-lifecycle";
+import { previewAutoLeaveClassificationRepair, repairAutoLeaveClassification } from "../../src/lib/repair-auto-leave-classification";
+import { syncCustomerGroupEvent } from "../../src/lib/customer-number-event-sync";
+import { syncNumberStatistics } from "../../src/lib/number-statistics";
 
 const isolatedDatabase = vi.hoisted(() => ({
   directory: "",
@@ -105,19 +109,82 @@ afterAll(async () => {
 describe.sequential("member entry write transactions", () => {
   it("keeps day 14 in group and automatically marks day 15 as a system leave", async () => {
     const fixture = await createFixture("LEAD");
-    const batch = await db.sourceBatch.create({ data: { groupId: fixture.groupId, channelId: fixture.channelId, sourceDate: "2026-08-01" } });
-    const [day15, day14, archived] = await Promise.all([
-      db.leadCustomer.create({ data: { phone: `auto-left-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-08-12", isHistoricalRecord: true } }),
-      db.leadCustomer.create({ data: { phone: `stay-group-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-08-13" } }),
-      db.leadCustomer.create({ data: { phone: `archived-stay-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-08-01", trackingArchivedAt: new Date("2026-09-01T00:00:00.000Z") } }),
+    const batch = await db.sourceBatch.create({ data: { groupId: fixture.groupId, channelId: fixture.channelId, sourceDate: "2026-09-01" } });
+    const [day15, anotherDay15, day14, archived] = await Promise.all([
+      db.leadCustomer.create({ data: { phone: `auto-left-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-09-12", isHistoricalRecord: true } }),
+      db.leadCustomer.create({ data: { phone: `auto-left-second-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-09-11" } }),
+      db.leadCustomer.create({ data: { phone: `stay-group-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-09-13" } }),
+      db.leadCustomer.create({ data: { phone: `archived-stay-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId, groupStatus: "JOINED", joinedOn: "2026-09-01", trackingArchivedAt: new Date("2026-09-20T00:00:00.000Z") } }),
     ]);
-    await db.customerOrder.create({ data: { phone: day15.phone, batchId: batch.id, enteredById: fixture.userId, leadId: day15.id, openedOn: "2026-08-20", initialDepositCents: 10_000, initialDepositMethod: "CRYPTO" } });
+    await db.customerOrder.create({ data: { phone: day15.phone, batchId: batch.id, enteredById: fixture.userId, leadId: day15.id, openedOn: "2026-09-20", initialDepositCents: 10_000, initialDepositMethod: "CRYPTO" } });
 
-    expect(automaticLeaveCutoff("2026-08-26")).toBe("2026-08-12");
-    await expect(autoMarkExpiredGroupMemberships({ today: "2026-08-26", groupIds: [fixture.groupId] })).resolves.toEqual({ checkedThrough: "2026-08-12", updated: 1 });
-    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: day15.id } })).resolves.toMatchObject({ groupStatus: "LEFT", leftOn: "2026-08-26", leftAutomatically: true, leftWithOrder: true, historicalLeaveCounted: true });
+    expect(automaticLeaveCutoff("2026-09-26")).toBe("2026-09-12");
+    await expect(autoMarkExpiredGroupMemberships({ today: "2026-09-26", groupIds: [fixture.groupId] })).resolves.toEqual({ checkedThrough: "2026-09-12", updated: 2 });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: day15.id } })).resolves.toMatchObject({ groupStatus: "LEFT", leftOn: "2026-09-26", leftAutomatically: true, leftWithOrder: true, historicalLeaveCounted: true });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: anotherDay15.id } })).resolves.toMatchObject({ groupStatus: "LEFT", leftOn: "2026-09-26", leftAutomatically: true, leftWithOrder: false });
+    const autoLeaveStats = await db.dailyStatEntry.findMany({ where: { groupId: fixture.groupId, businessDate: "2026-09-26", position: "GROUP_OPERATOR" }, include: { currentRevision: true } });
+    expect(autoLeaveStats.reduce((sum, entry) => sum + (entry.currentRevision?.normalLeaveCount ?? 0), 0)).toBe(2);
+    expect(autoLeaveStats.reduce((sum, entry) => sum + (entry.currentRevision?.abnormalLeaveCount ?? 0), 0)).toBe(0);
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: day14.id } })).resolves.toMatchObject({ groupStatus: "JOINED", leftOn: null, leftAutomatically: false });
     await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: archived.id } })).resolves.toMatchObject({ groupStatus: "JOINED", leftOn: null, leftAutomatically: false });
+    await expect(autoMarkExpiredGroupMemberships({ today: "2026-09-26", groupIds: [fixture.groupId] })).resolves.toEqual({ checkedThrough: "2026-09-12", updated: 0 });
+  });
+
+  it("ends legacy sheet memberships on day 15 with an auditable system edit", async () => {
+    const fixture = await createFixture("LEAD");
+    const makeData = (joinedOn: string, extra: Record<string, unknown> = {}) => JSON.stringify({
+      intakeOn: "2026-08-01", channelId: fixture.channelId, joinedOn, ...extra,
+    });
+    const [due, ordered, day14, alreadyLeft] = await Promise.all([
+      db.customerSheetRow.create({ data: { groupId: fixture.groupId, phone: `legacy-due-${fixture.userId}`, ownerId: fixture.userId, data: makeData("2026-08-12") } }),
+      db.customerSheetRow.create({ data: { groupId: fixture.groupId, phone: `legacy-order-${fixture.userId}`, ownerId: fixture.userId, data: makeData("2026-08-11", { firstDeposit: 100, firstDepositOn: "2026-08-15" }) } }),
+      db.customerSheetRow.create({ data: { groupId: fixture.groupId, phone: `legacy-day14-${fixture.userId}`, ownerId: fixture.userId, data: makeData("2026-08-13") } }),
+      db.customerSheetRow.create({ data: { groupId: fixture.groupId, phone: `legacy-left-${fixture.userId}`, ownerId: fixture.userId, data: makeData("2026-08-01", { normalLeft: true, normalLeftOn: "2026-08-20" }) } }),
+    ]);
+    await expect(countExpiredLegacyGroupMemberships({ today: "2026-08-26", groupIds: [fixture.groupId] })).resolves.toBe(2);
+    await expect(autoMarkExpiredLegacyGroupMemberships({ today: "2026-08-26", groupIds: [fixture.groupId] })).resolves.toEqual({ checkedThrough: "2026-08-12", updated: 2 });
+    const dueAfter = await db.customerSheetRow.findUniqueOrThrow({ where: { id: due.id } });
+    const orderedAfter = await db.customerSheetRow.findUniqueOrThrow({ where: { id: ordered.id } });
+    expect(JSON.parse(dueAfter.data)).toMatchObject({ normalLeft: true, normalLeftOn: "2026-08-26", abnormalLeft: false, __leftAutomatically: true });
+    expect(JSON.parse(orderedAfter.data)).toMatchObject({ normalLeft: true, normalLeftOn: "2026-08-26", __leftAutomatically: true });
+    expect(dueAfter.version).toBe(due.version + 1);
+    await expect(db.customerSheetRevision.findFirst({ where: { rowId: due.id }, include: { actor: true } })).resolves.toMatchObject({ actor: { name: "系统自动退群", active: false } });
+    await expect(db.customerSheetRow.findUniqueOrThrow({ where: { id: day14.id } })).resolves.toMatchObject({ version: day14.version });
+    await expect(db.customerSheetRow.findUniqueOrThrow({ where: { id: alreadyLeft.id } })).resolves.toMatchObject({ version: alreadyLeft.version });
+    await expect(autoMarkExpiredLegacyGroupMemberships({ today: "2026-08-26", groupIds: [fixture.groupId] })).resolves.toEqual({ checkedThrough: "2026-08-12", updated: 0 });
+  });
+
+  it("repairs only system-created abnormal exits and keeps the original leave date", async () => {
+    const fixture = await createFixture("LEAD");
+    const batch = await db.sourceBatch.create({ data: { groupId: fixture.groupId, channelId: fixture.channelId, sourceDate: "2026-08-01" } });
+    const legacy = await db.customerSheetRow.create({ data: {
+      groupId: fixture.groupId, phone: `legacy-repair-${fixture.userId}`, ownerId: fixture.userId,
+      data: JSON.stringify({ intakeOn: "2026-08-01", channelId: fixture.channelId, joinedOn: "2026-08-20", abnormalLeft: true, abnormalLeftOn: "2026-09-03", __leftAutomatically: true }),
+    } });
+    const manual = await db.customerSheetRow.create({ data: {
+      groupId: fixture.groupId, phone: `manual-left-${fixture.userId}`, ownerId: fixture.userId,
+      data: JSON.stringify({ intakeOn: "2026-08-01", channelId: fixture.channelId, joinedOn: "2026-08-20", abnormalLeft: true, abnormalLeftOn: "2026-09-03" }),
+    } });
+    const lead = await db.leadCustomer.create({ data: {
+      phone: `lead-repair-${fixture.userId}`, batchId: batch.id, ownerId: fixture.userId,
+      joinedOn: "2026-08-20", groupStatus: "LEFT", leftOn: "2026-09-03", leftAutomatically: true,
+      leftWithOrder: false, leftNote: "系统：在群超过14天自动退群",
+    } });
+    await db.$transaction(async (tx) => {
+      await syncNumberStatistics(tx, fixture.groupId, fixture.userId);
+      await syncCustomerGroupEvent(tx, { phone: lead.phone, ownerId: fixture.userId, attributionOwnerId: null, groupOperatorOwnerId: null, expertOwnerId: null, batch: { groupId: fixture.groupId, channelId: fixture.channelId } }, { businessDate: "2026-09-03", kind: "ABNORMAL_LEAVE" });
+    });
+
+    await expect(previewAutoLeaveClassificationRepair()).resolves.toEqual({ legacy: 1, leads: 1 });
+    await expect(repairAutoLeaveClassification()).resolves.toEqual({ legacyUpdated: 1, leadUpdated: 1 });
+    await expect(previewAutoLeaveClassificationRepair()).resolves.toEqual({ legacy: 0, leads: 0 });
+    expect(JSON.parse((await db.customerSheetRow.findUniqueOrThrow({ where: { id: legacy.id } })).data)).toMatchObject({ normalLeft: true, normalLeftOn: "2026-09-03", abnormalLeft: false, abnormalLeftOn: null });
+    expect(JSON.parse((await db.customerSheetRow.findUniqueOrThrow({ where: { id: manual.id } })).data)).toMatchObject({ abnormalLeft: true, abnormalLeftOn: "2026-09-03" });
+    await expect(db.leadCustomer.findUniqueOrThrow({ where: { id: lead.id } })).resolves.toMatchObject({ leftOn: "2026-09-03", leftWithOrder: false, leftNote: "系统：满14天后自动退群（正常退群）" });
+    const stats = await db.dailyStatEntry.findMany({ where: { groupId: fixture.groupId, businessDate: "2026-09-03" }, include: { currentRevision: true } });
+    expect(stats.reduce((sum, entry) => sum + (entry.currentRevision?.normalLeaveCount ?? 0), 0)).toBe(2);
+    expect(stats.reduce((sum, entry) => sum + (entry.currentRevision?.abnormalLeaveCount ?? 0), 0)).toBe(1);
+    await expect(repairAutoLeaveClassification()).resolves.toEqual({ legacyUpdated: 0, leadUpdated: 0 });
   });
 
   it("calculates effective fans from received minus invalid fans", async () => {

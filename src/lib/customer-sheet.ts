@@ -93,7 +93,7 @@ export function editableFields(actor: PermissionUser, row: Pick<CustomerSheetRow
     return c.stage === "base" ? basic : c.stage === "group" ? group : expert;
   }).map(c => c.id);
 }
-function validDate(value: string) { return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value; }
+function validDate(value: string) { return /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= "2000-01-01" && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value; }
 export function validateReplyBeforeJoin(next:SheetData,previous:SheetData={}){
  if(!next.joinedOn)return;
  // Preserve legacy dates on unrelated edits; every change to this timeline must be valid.
@@ -102,7 +102,7 @@ export function validateReplyBeforeJoin(next:SheetData,previous:SheetData={}){
  if(!next.repliedOn)throw new SheetError("请先填写实际回复日期，再填写进群日期");
  if(String(next.repliedOn).slice(0,10)>String(next.joinedOn).slice(0,10))throw new SheetError(`回复日期 ${String(next.repliedOn).slice(0,10)} 不能晚于进群日期 ${String(next.joinedOn).slice(0,10)}；允许同一天，请核对实际日期`);
 }
-export function prepareNumberData(d:SheetData,previous:SheetData={}){
+export function prepareNumberData(d:SheetData,previous:SheetData={},requireExpertDate=false){
  for(const [flag,date,label] of [["replied","repliedOn","回复"],["normalLeft","normalLeftOn","正常退群"],["abnormalLeft","abnormalLeftOn","异常退群"],["addedExpert","expertOn","加专家"]]){
   if(previous[date]&&!d[date]&&(d[flag]===true||flag==="addedExpert"&&d.addedExpert!==false&&d.expertId))throw new SheetError(`已记录${label}，不能只清空${label}日期；请填写实际日期，或核对后取消相应动作`);
  }
@@ -123,7 +123,15 @@ export function prepareNumberData(d:SheetData,previous:SheetData={}){
  if(d.abnormalLeft===true&&previous.abnormalLeft!==true)d.abnormalLeftOn ||= today;
  if(d.addedExpert===false)d.expertOn=null;
  else if(d.addedExpert===true&&previous.addedExpert!==true||d.expertId&&d.expertId!==previous.expertId)d.expertOn ||= today;
- if(Number(d.firstDeposit)>0){if(!Number(previous.firstDeposit))d.firstDepositOn ||= d.orderedOn||today;d.firstDepositMethod ||= "银行卡";}
+ if(Number(d.firstDeposit)>0){
+  if(!Number(previous.firstDeposit))d.firstDepositOn ||= d.orderedOn||today;
+  if(!d.firstDepositOn)throw new SheetError("有首充金额时必须填写首充日期，才能自动补记注册");
+  d.registeredOn ||= d.firstDepositOn;
+  d.firstDepositMethod ||= "银行卡";
+ }
+ if(requireExpertDate&&!d.expertOn&&(d.registeredOn||Number(d.firstDeposit)>0)
+  &&(d.registeredOn!==previous.registeredOn||Number(d.firstDeposit||0)!==Number(previous.firstDeposit||0)||d.firstDepositOn!==previous.firstDepositOn))
+  throw new SheetError("请先填写推专家日期，再登记注册或首充");
  const preparedError=progressDateError(d,previous,today);
  if(preparedError)throw new SheetError(preparedError);
 }
@@ -147,6 +155,9 @@ export async function normalize(tx: Tx, groupId: string, raw: SheetData, columns
     } else {
       let text = String(value).trim();
       if (c.kind === "date" || c.kind === "datetime") text = expandMonthDay(text, previous[key]).replace(/\//g,"-");
+      if ((c.kind === "date" || c.kind === "datetime") && /^\d{4}-/.test(text) && text.slice(0, 4) < "2000") {
+        throw new SheetError(`${c.name}的年份是 ${text.slice(0, 4)}，请改成实际年份后再保存`);
+      }
       if (c.kind === "datetime") {
         text = text.replace(/\//g,"-").replace(" ","T");
         if (!validDate(text) && !(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(text) && validDate(text.slice(0,10)) && Number(text.slice(11,13))<24 && Number(text.slice(14,16))<60 && (!text.slice(17)||Number(text.slice(17))<60))) throw new SheetError(`${c.name}请填写有效月日，例如09/11`);
@@ -228,7 +239,7 @@ export async function createSheetRowsInTransaction(tx:Tx,actorId:string,input:z.
       if (!values.phone) throw new SheetError(`第${i+1}行：客户号码必填`);
       values.quality ||= "有效";
       assertExpertFields(access.actor,values,columns);
-      prepareNumberData(values);
+      prepareNumberData(values,{},access.group.groupType==="HACKER");
       validateReplyBeforeJoin(values);
       values.status = customerGroupStatus(values);
       values.ownerId ||= actorId;
@@ -270,7 +281,7 @@ export async function patchSheetRowInTransaction(tx: Tx, actorId: string, rowId:
       merged.__investmentBaseCents="investmentTotal" in values?Math.max(0,Math.round(Number(values.investmentTotal||0)*100)-Math.round(Number(merged.firstDeposit||0)*100)):previous.baseCents;
       merged.investmentTotal=investmentSummary(merged).totalCents/100;
     }
-    prepareNumberData(merged,JSON.parse(row.data));
+    prepareNumberData(merged,JSON.parse(row.data),access.group.groupType==="HACKER");
     validateReplyBeforeJoin(merged,JSON.parse(row.data));
     merged.status = customerGroupStatus(merged);
     await assignActionNumbers(tx,sheetStatisticsGroup(row.groupId,merged),merged);
@@ -306,7 +317,7 @@ export async function addSheetRechargeInTransaction(tx:Tx,actorId:string,rowId:s
   const nextEntry={id:input.requestId,amountCents:Math.round(input.amount*100),date:input.date,method:input.method,kind:input.kind,actorId,createdAt:new Date().toISOString()};
   d.__recharges=JSON.stringify(existing?summary.entries.map(r=>r.id===input.requestId?nextEntry:r):[...summary.entries,nextEntry]);
   d.investmentTotal=investmentSummary(d).totalCents/100;
-  prepareNumberData(d,JSON.parse(row.data));
+  prepareNumberData(d,JSON.parse(row.data),access.group.groupType==="HACKER");
   await assignActionNumbers(tx,sheetStatisticsGroup(row.groupId,d),d);
   const updated=await tx.customerSheetRow.updateMany({where:{id:rowId,version:input.version},data:{data:JSON.stringify(d),version:{increment:1}}});
   if(!updated.count)throw new SheetError("客户已被修改，请关闭弹窗刷新后重试",409);
@@ -330,7 +341,7 @@ export async function deleteSheetRecharge(actorId:string,rowId:string,raw:unknow
   if(!summary.entries.some(r=>r.id===input.requestId))throw new SheetError("资金流水不存在，请刷新后重试",404);
   const d:SheetData={...previous,__investmentBaseCents:summary.baseCents,__recharges:JSON.stringify(summary.entries.filter(r=>r.id!==input.requestId))};
   d.investmentTotal=investmentSummary(d).totalCents/100;
-  prepareNumberData(d,previous);
+  prepareNumberData(d,previous,access.group.groupType==="HACKER");
   await assignActionNumbers(tx,sheetStatisticsGroup(row.groupId,d),d);
   const updated=await tx.customerSheetRow.updateMany({where:{id:rowId,version:input.version},data:{data:JSON.stringify(d),version:{increment:1}}});
   if(!updated.count)throw new SheetError("客户已被修改，请关闭弹窗刷新后重试",409);

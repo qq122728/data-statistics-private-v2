@@ -11,6 +11,7 @@ import { getAssignedRoles, hasAssignedRole } from "../../../lib/role-access";
 import { authorizationDenied } from "../../../lib/security-events";
 import { getSystemSettings } from "../../../lib/settings";
 import { usesCustomerNumberTracking } from "../../../lib/customer-number-tracking";
+import { countCurrentInGroup, loadCurrentInGroupCustomers } from "../../../lib/current-in-group-customers";
 
 type Role = "RECEPTION" | "GROUP_OPERATOR" | "EXPERT";
 const frontlineRoles = ["RECEPTION", "GROUP_OPERATOR", "EXPERT"] as const;
@@ -193,7 +194,14 @@ export async function GET(request: Request) {
   }
   totals.netCents = totals.initialDepositCents + totals.rechargeCents - totals.withdrawalCents;
   const funnel = buildFunnel(entries, role);
-  const currentInGroup = latestCurrentInGroup(snapshotEntries);
+  const group = await db.teamGroup.findUnique({ where: { id: actor.groupId }, select: { groupType: true } });
+  const currentCustomers = group?.groupType === "HACKER" && usesCustomerNumberTracking(range.to) && role !== "EXPERT"
+    ? await loadCurrentInGroupCustomers([actor.groupId], range.to)
+    : null;
+  const currentInGroup = currentCustomers
+    ? countCurrentInGroup(currentCustomers, (customer) => role === "RECEPTION"
+      ? customer.member.id === actor.id : customer.operatorId === actor.id)
+    : latestCurrentInGroup(snapshotEntries);
   return NextResponse.json({
     role, today, timezone, range, totals, currentInGroup,
     funnel: { ...funnel, currentInGroup },

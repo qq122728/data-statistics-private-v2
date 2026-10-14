@@ -28,7 +28,7 @@ async function api<T>(url:string, init?:RequestInit):Promise<T>{
 }
 const historicalOwnerAvailableOn=(owner:NonNullable<SheetPayload["historicalOwners"]>[number],date:unknown)=>!date||owner.periods.some(period=>period.from<=String(date).slice(0,10)&&(!period.to||period.to>=String(date).slice(0,10)));
 const json=(method:string,body:unknown):RequestInit=>({method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-export default function CustomerSheet({groups=[],initialGroupId,initialView="group",initialMine=false,preferenceKey}:{initialView?:string;initialMine?:boolean;preferenceKey?:string;groups?:{id:string;name:string}[];initialGroupId?:string}){
+export default function CustomerSheet({groups=[],initialGroupId,initialView="group",initialResponsibility="owner",initialMine=false,preferenceKey}:{initialView?:string;initialResponsibility?:"owner"|"operator"|"expert";initialMine?:boolean;preferenceKey?:string;groups?:{id:string;name:string}[];initialGroupId?:string}){
  const [dateRange,setDateRange]=useState("all");
  const [dateFrom,setDateFrom]=useState("");const [dateTo,setDateTo]=useState("");
  const [dateExpansion,setDateExpansion]=useState<Record<string,boolean>>({});
@@ -44,7 +44,7 @@ export default function CustomerSheet({groups=[],initialGroupId,initialView="gro
  const lastFocusedElement=useRef<HTMLTableRowElement|null>(null);
  const [deletionRow,setDeletionRow]=useState<SheetRow|null>(null);
  const [payload,setPayload]=useState<SheetPayload|null>(null);
- const [view,setView]=useState(initialView); const [expertStage,setExpertStage]=useState("全部"); const [mine,setMine]=useState(initialMine);const [responsibility,setResponsibility]=useState("owner");const [assignee,setAssignee]=useState("me");const [q,setQ]=useState("");const [status,setStatus]=useState(initialView==="group"?"正常在群":""); const [page,setPage]=useState(1);
+ const [view,setView]=useState(initialView); const [expertStage,setExpertStage]=useState("全部"); const [mine,setMine]=useState(initialMine);const [responsibility,setResponsibility]=useState<string>(initialResponsibility);const [assignee,setAssignee]=useState("me");const [q,setQ]=useState("");const [status,setStatus]=useState(initialView==="group"?"正常在群":""); const [page,setPage]=useState(1);
  const [error,setError]=useState(""); const [busy,setBusy]=useState(false); const [saved,setSaved]=useState("");
  const [editing,setEditing]=useState<{row:SheetRow;column:Column}|null>(null);
  const [modal,setModal]=useState<"import"|"columns"|"paste"|null>(null);
@@ -196,7 +196,7 @@ export default function CustomerSheet({groups=[],initialGroupId,initialView="gro
   return <tr className={styles.dateGroup}><td colSpan={span}><button aria-expanded={dateOpen(date)} onClick={()=>{setFocusId(null);setSelection(null);setEditing(null);setDateExpansion(v=>({...v,[date]:!dateOpen(date)}));}}>{dateOpen(date)?"▾":"▸"} {date?`${date.slice(0,4)}年${Number(date.slice(5,7))}月${Number(date.slice(8,10))}日`:trash?"未记录进群日期":"待补日期"} · {count}人{onPage<count?`（本页${onPage}人）`:""}</button></td></tr>;
  }
  function changeView(nextView:"pending"|"group"|"expert"){
-  setTrash(false);setShowStatistics(false);setView(nextView);setResponsibility("owner");setAssignee("me");setMine(initialMine);setStatus(nextView==="group"?"正常在群":"");scopeChange();
+  setTrash(false);setShowStatistics(false);setView(nextView);setResponsibility(nextView==="expert"?"expert":initialResponsibility==="operator"?"operator":"owner");setAssignee("me");setMine(initialMine);setStatus(nextView==="group"?"正常在群":"");scopeChange();
  }
  function draftCell(column:Column){
   if(["status","expertStatus"].includes(column.id))return <span className={styles.badge}>{column.id==="expertStatus"?customerExpertStatus(newRow):customerGroupStatus(newRow)}</span>;

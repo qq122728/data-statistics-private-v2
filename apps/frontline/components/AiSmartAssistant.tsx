@@ -1,6 +1,6 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
-import {compactChat,extractChatNumbers,localConversationDraft,isDirectDateReply,type ImportDraft} from "../../../packages/customer-sheet/chat-import";
+import {compactChat,extractChatNumbers,localConversationDraft,type ImportDraft} from "../../../packages/customer-sheet/chat-import";
 import type {SheetPayload,SheetData} from "../../../packages/customer-sheet/schema";
 import styles from "./AiSmartAssistant.module.css";
 import {requestJson,type BackendUser} from "@/lib/backend";
@@ -72,7 +72,6 @@ export function AiSmartAssistant({open,onOpenChange,user,contextLabel}:{open:boo
      const expected=!numbers&&!/不能早于|不能晚于|不能直接清空/.test(question)?question.includes("群内负责人")?"群内负责人":question.includes("接粉负责人")?"接粉负责人":question.includes("专家负责人")?"专家负责人":question.includes("缺少渠道")?"渠道":question.includes("回复日期")?"回复日期":question.includes("接粉日期")?"接粉日期":question.includes("进群日期")?"进群日期":question.includes("加专家日期")?"加专家日期":question.includes("追踪开始日期")?"追踪日期":question.includes("邀请注册日期")?"邀请注册日期":question.includes("开户日期")?"注册日期":question.includes("首充日期")?"首充日期":"":"";
      const answer=expected&&!content.includes(expected)&&!/[，,。；;\n]/.test(content)?`${expected}是${content.replace(/^是\s*/,"")}`:content;
      const local=expected==="群内负责人"&&/^(先不选|暂不选择?|不选|稍后再选|暂不分配|还没确定)[。！!]?$/u.test(content)?{defaults:{operatorId:null}}:localConversationDraft(numbers?numbers.instructions:answer,p.today,p.actorId,p.members,p.channels);next={...next,draft:mergeDraft(next.draft,local)};setBatch(next);
-     if(configured===true&&!(expected&&Object.keys(local.defaults||{}).length)&&!isDirectDateReply(content)){const response=await requestJson<{reply:string;draft?:ImportDraft}>("/api/ai/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:compactChat([...(numbers?[]:messages.filter(m=>!m.system).map(m=>({role:m.role,content:m.content}))),{role:"user",content}]),contextLabel,importContext:{mode:next.draft.mode,stage:next.draft.stage,defaults:next.draft.defaults,headers:next.headers,rowCount:next.rows.length}})});if(response.draft)next={...next,draft:mergeDraft(next.draft,{...response.draft,defaults:{...response.draft.defaults,...local.defaults}})};}
     }
     setBatch(next);await check(next);return;
    }

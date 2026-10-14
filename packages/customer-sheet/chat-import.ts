@@ -35,9 +35,10 @@ export function explicitChatDates(content:string,today:string):ImportDraft{
 
 /** Unambiguous ordinary replies also work without the external model. */
 export function localConversationDraft(content:string,today:string,actorId:string,members:{id:string;name:string;roles:string[]}[],channels:{id:string;name:string}[]):ImportDraft{
- const dated=content.replace(/已经开户|开户/g,'注册').replace(/追踪开始/g,'追踪').replace(/今天/g,`${Number(today.slice(5,7))}月${Number(today.slice(8,10))}号`);
+ const dated=content.replace(/已经开户|开户/g,'注册').replace(/追踪开始/g,'追踪').replace(/添加(?:有效粉|粉)/g,'接粉').replace(/今天/g,`${Number(today.slice(5,7))}月${Number(today.slice(8,10))}号`);
  const parsed=explicitChatDates(dated,today);
  const defaults={...parsed.defaults};
+ const stage=/待进群|接粉阶段/.test(content)?'pending':/专家跟进|专家阶段/.test(content)?'expert':/在群跟进|在群阶段/.test(content)?'group':undefined;
  const quality=content.match(/(?:号码情况|号码质量|状态|都是|这批是)(?:改为|是|为|[:：])?\s*(有效|撞粉|低金额|无\s*WS(?:\s*号码)?|人工无效)/i)?.[1];
  if(quality)defaults.quality=/^无/i.test(quality)?"无 WS 号码":quality;
  const dates=[['registeredOn','注册'],['traceStartedOn','追踪'],['invitedOn','邀请注册'],['firstDepositOn','首充'],['normalLeftOn','正常退群'],['abnormalLeftOn','异常退群']];
@@ -46,13 +47,14 @@ export function localConversationDraft(content:string,today:string,actorId:strin
   if(!source.includes(label))continue;
   const d=explicitChatDates(source.replaceAll('接粉','接收').replaceAll(label,'接粉'),today).defaults?.intakeOn;if(d)defaults[key]=d;
  }
+ const fieldEnd='(?=\\s+(?:渠道|接粉(?:负责人|人)|前台|群内负责人|群负责人|群操作员|炒群负责人|专家负责人|待进群|在群跟进|专家跟进)(?:\\s|[:：]|$)|[，,。；;\\n]|$)';
  for(const [key,label] of [['ownerId','(?:接粉(?:负责人|人)|前台)'],['operatorId','(?:群内负责人|群负责人|群操作员|炒群负责人)'],['expertId','专家负责人']]){
-  const m=content.match(new RegExp(label+'(?:是|为|[:：])?\\s*([^，,。；;\\n]+)'));if(!m)continue;
+  const m=content.match(new RegExp(label+'(?:是|为|[:：])?\\s*(.+?)'+fieldEnd));if(!m)continue;
   const name=m[1].trim();if(/^(我|本人|自己)$/.test(name)){defaults[key]=actorId;continue;}
   const candidates=members.filter(p=>p.name===name||p.name.replace(/[（(].*?[）)]/g,'')===name);
   if(candidates.length===1)defaults[key]=candidates[0].id;
  }
- const channel=content.match(/渠道(?:是|为|[:：])?\s*([^，,。；;\n]+)/)?.[1]?.trim();
+ const channel=content.match(new RegExp('渠道(?:是|为|[:：])?\\s*(.+?)'+fieldEnd))?.[1]?.trim();
  if(channel){const found=channels.filter(c=>c.name===channel);if(found.length===1)defaults.channelId=found[0].id;}
  if(/取消(?:已)?回复|未回复|没有回复/.test(content))defaults.replied=false;
  else if(/已回复|回复了/.test(content)||defaults.repliedOn)defaults.replied=true;
@@ -68,7 +70,7 @@ export function localConversationDraft(content:string,today:string,actorId:strin
  if(first&&/银行卡/.test(content))defaults.firstDepositMethod='银行卡';if(first&&/加密货币/.test(content))defaults.firstDepositMethod='加密货币';
  let fund:ImportDraft['fund'];const money=content.match(/(续充|出金)(?:金额)?(?:是|为|[:：])?\s*(\d+(?:\.\d{1,2})?)(?![\d./年月日号-])/);
  if(money){const date=explicitChatDates(dated.replaceAll('接粉','接收').replaceAll(money[1],'接粉'),today).defaults?.intakeOn;const method=/银行卡/.test(content)?'bank':/加密货币/.test(content)?'crypto':undefined;if(date&&method)fund={amount:Number(money[2]),date:String(date),method,kind:money[1]==='续充'?'recharge':'withdrawal'};}
- return {...parsed,fund,mode:/新增|导入/.test(content)?'import':/更新|修改|取消|清空/.test(content)?'update':undefined,defaults};
+ return {...parsed,stage:stage||parsed.stage,fund,mode:/新增|导入/.test(content)?'import':/更新|修改|取消|清空/.test(content)?'update':undefined,defaults};
 }
 
 /** Only complete, single date answers bypass AI; mixed instructions still use the model. */

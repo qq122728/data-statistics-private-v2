@@ -38,6 +38,16 @@ function roleGuide(actor: Awaited<ReturnType<typeof requireUser>>) {
   return `当前用户是一线组员，岗位权限为${labels.join("、") || "普通组员"}。接粉填写添加至回复；进群后按号码跟进；炒群维护在群阶段；专家维护注册、开单和资金阶段。`;
 }
 
+export async function GET() {
+  try {
+    await requireUser();
+  } catch (error) {
+    if (error instanceof AuthenticationError) return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    throw error;
+  }
+  return NextResponse.json({ configured: Boolean(process.env.DEEPSEEK_API_KEY) });
+}
+
 export async function POST(request: Request) {
   let actor;
   try {

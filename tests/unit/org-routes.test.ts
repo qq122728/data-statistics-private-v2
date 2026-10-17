@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as auth from "../../src/lib/auth";
-import { verifyPassword } from "../../src/lib/auth";
+import { hashPassword, verifyPassword } from "../../src/lib/auth";
 import { db } from "../../src/lib/db";
 import { POST as createCompany } from "../../src/app/api/org/companies/route";
 import { POST as createDepartment } from "../../src/app/api/org/departments/route";
@@ -264,6 +264,41 @@ describe.sequential("阶段5a组织架构路由：新建小组 (部门管理员�
 });
 
 describe.sequential("组织管理员范围内误开空账号删除", () => {
+  it("resets an in-scope password, expires existing sessions, and keeps the account active", async () => {
+    const id = `reset-account-${suffix}`;
+    const otherId = `reset-other-account-${suffix}`;
+    await db.user.createMany({ data: [
+      { id, username: id.toUpperCase(), name: "待重置账号", role: "RECEPTION", groupId: ids.groupA2, passwordHash: hashPassword("old-password") },
+      { id: otherId, username: id.toLowerCase(), name: "相似账号", role: "RECEPTION", groupId: ids.groupA2, passwordHash: hashPassword("other-password") },
+    ] });
+    await db.session.create({ data: { userId: id, expiresAt: new Date(Date.now() + 60_000) } });
+    await signInAs(ids.companyAManager);
+    const temporaryPassword = "new-temporary-password";
+    const response = await updateOrgAccount(jsonRequest("http://localhost/api/org/accounts", { id, password: temporaryPassword }, "PATCH"));
+    expect(response.status).toBe(200);
+    const updated = await db.user.findUniqueOrThrow({ where: { id } });
+    expect(verifyPassword(temporaryPassword, updated.passwordHash)).toBe(true);
+    expect(updated.mustChangePassword).toBe(true);
+    expect(updated.active).toBe(true);
+    expect(await db.session.count({ where: { userId: id } })).toBe(0);
+    const other = await db.user.findUniqueOrThrow({ where: { id: otherId } });
+    expect(verifyPassword("other-password", other.passwordHash)).toBe(true);
+    const audit = await db.auditLog.findFirstOrThrow({ where: { actorId: ids.companyAManager, entityId: id, action: "MEMBER_PASSWORD_RESET" } });
+    expect(audit.summary).not.toContain(temporaryPassword);
+    expect(audit.summary).not.toContain(updated.passwordHash);
+  });
+
+  it("rejects password resets outside the manager's scope and invalid requests", async () => {
+    await signInAs(ids.companyAManager);
+    const denied = await updateOrgAccount(jsonRequest("http://localhost/api/org/accounts", { id: ids.candidateB1, password: "new-password" }, "PATCH"));
+    expect(denied.status).toBe(403);
+    const short = await updateOrgAccount(jsonRequest("http://localhost/api/org/accounts", { id: ids.candidateA1, password: "12345" }, "PATCH"));
+    expect(short.status).toBe(400);
+    const mixed = await updateOrgAccount(jsonRequest("http://localhost/api/org/accounts", { id: ids.candidateA1, password: "new-password", active: false }, "PATCH"));
+    expect(mixed.status).toBe(400);
+    await expect(db.user.findUniqueOrThrow({ where: { id: ids.candidateA1 }, select: { active: true, mustChangePassword: true } })).resolves.toEqual({ active: true, mustChangePassword: false });
+  });
+
   it("lets the HQ manager disable an account, invalidates its sessions, and re-enable it", async () => {
     const id = `toggle-account-${suffix}`;
     await db.user.create({ data: { id, username: id, name: "启停测试账号", role: "RECEPTION", groupId: ids.groupA2 } });

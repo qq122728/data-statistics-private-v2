@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Duty, Role } from "@prisma/client";
-import type { SessionUser } from "../../../../lib/auth";
+import { hashPassword, PASSWORD_MIN_LENGTH, type SessionUser } from "../../../../lib/auth";
 import { deleteEmptyAccount } from "../../../../lib/account-deletion";
 import { recordAudit } from "../../../../lib/audit";
 import { db } from "../../../../lib/db";
@@ -93,11 +93,15 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const access = await requireOrgManagerRequest();
   if ("response" in access) return access.response;
-  const body = await request.json() as { id?: unknown; active?: unknown; financeGroupIds?: unknown };
+  const body = await request.json() as { id?: unknown; active?: unknown; financeGroupIds?: unknown; password?: unknown };
   const id = typeof body.id === "string" ? body.id : "";
   if (!id || id.length > API_LIMITS.identifierCharacters) return NextResponse.json({ error: "账号参数不正确" }, { status: 400 });
   const changesFinanceGroups = Object.prototype.hasOwnProperty.call(body, "financeGroupIds");
-  if (typeof body.active !== "boolean" && !changesFinanceGroups) return NextResponse.json({ error: "账号状态不正确" }, { status: 400 });
+  const changesPassword = Object.prototype.hasOwnProperty.call(body, "password");
+  if (changesPassword && (typeof body.active !== "undefined" || changesFinanceGroups)) return NextResponse.json({ error: "重置密码请单独操作" }, { status: 400 });
+  if (changesPassword && (typeof body.password !== "string" || body.password.length < PASSWORD_MIN_LENGTH || body.password.length > API_LIMITS.loginPasswordCharacters))
+    return NextResponse.json({ error: `密码长度必须在 ${PASSWORD_MIN_LENGTH} 到 ${API_LIMITS.loginPasswordCharacters} 位之间` }, { status: 400 });
+  if (typeof body.active !== "boolean" && !changesFinanceGroups && !changesPassword) return NextResponse.json({ error: "账号状态不正确" }, { status: 400 });
   if (typeof body.active !== "undefined" && typeof body.active !== "boolean") return NextResponse.json({ error: "账号状态不正确" }, { status: 400 });
   const active = body.active;
   const financeGroupIds = Array.isArray(body.financeGroupIds)
@@ -109,6 +113,12 @@ export async function PATCH(request: Request) {
   const result = await db.$transaction(async (client) => {
     const target = await client.user.findUnique({ where: { id }, select: accountSelect });
     if (!target || !canManageAccount(access.actor, target)) return { denied: true as const };
+    if (changesPassword) {
+      const account = await client.user.update({ where: { id }, data: { passwordHash: hashPassword(body.password as string), mustChangePassword: true }, select: accountSelect });
+      const invalidatedSessions = await client.session.deleteMany({ where: { userId: id } });
+      await recordAudit(client, { actorId: access.actor.id, action: "MEMBER_PASSWORD_RESET", entityType: "User", entityId: id, summary: { changedFields: ["password"], username: target.username, invalidatedSessions: invalidatedSessions.count } });
+      return { account };
+    }
     if (changesFinanceGroups) {
       if (access.actor.role !== "ADMIN" && access.actor.duty !== "HQ_MANAGER") return { denied: true as const };
       if (target.role !== "FINANCE") return { error: "只有财务账号可以设置可见小组", status: 400 as const };
@@ -131,7 +141,7 @@ export async function PATCH(request: Request) {
     });
     return { account };
   });
-  if ("denied" in result) return authorizationDenied(access.actor, "无权修改这个账号的状态或小组范围");
+  if ("denied" in result) return authorizationDenied(access.actor, "无权管理这个账号");
   if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.status });
   return NextResponse.json({ id: result.account.id, active: result.account.active });
 }
